@@ -6,6 +6,7 @@ export const navigationItems: NavigationItem[] = [
   { label: 'Projects', path: '/projects' },
   { label: 'BOQ', path: '/boq' },
   { label: 'Time Tracking', path: '/time-tracking' },
+  { label: 'สรุปงาน LINE', path: '/work-summary' },
   { label: 'Solar', path: '/solar' },
   { label: 'Settings', path: '/settings' },
 ]

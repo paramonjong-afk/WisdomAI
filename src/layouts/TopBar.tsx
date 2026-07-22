@@ -1,8 +1,29 @@
 import MenuIcon from '@mui/icons-material/Menu'
 import NotificationsNoneOutlinedIcon from '@mui/icons-material/NotificationsNoneOutlined'
+import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined'
 import { AppBar, Avatar, Badge, Box, IconButton, Toolbar, Tooltip, Typography } from '@mui/material'
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../hooks/useAuth'
 
 export function TopBar() {
+  const navigate = useNavigate()
+  const { profile, user, signOut } = useAuth()
+  const [signingOut, setSigningOut] = useState(false)
+  const displayName = profile?.full_name || user?.email || 'Wisdom user'
+  const role = profile?.role ?? 'employee'
+  const initials = displayName.slice(0, 2).toUpperCase()
+
+  const handleSignOut = async () => {
+    setSigningOut(true)
+    try {
+      await signOut()
+      navigate('/login', { replace: true })
+    } finally {
+      setSigningOut(false)
+    }
+  }
+
   return (
     <AppBar position="sticky" elevation={0} color="inherit" sx={{ borderBottom: 1, borderColor: 'divider' }}>
       <Toolbar>
@@ -18,11 +39,18 @@ export function TopBar() {
           </IconButton>
         </Tooltip>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-          <Avatar sx={{ width: 34, height: 34, bgcolor: 'primary.main', fontSize: 14 }}>WA</Avatar>
+          <Avatar sx={{ width: 34, height: 34, bgcolor: 'primary.main', fontSize: 14 }}>{initials}</Avatar>
           <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
-            <Typography variant="body2" sx={{ fontWeight: 700 }}>Wisdom Admin</Typography>
-            <Typography variant="caption" color="text.secondary">Administrator</Typography>
+            <Typography variant="body2" sx={{ fontWeight: 700 }}>{displayName}</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'capitalize' }}>{role}</Typography>
           </Box>
+          <Tooltip title="Sign out">
+            <span>
+              <IconButton aria-label="Sign out" disabled={signingOut} onClick={() => void handleSignOut()}>
+                <LogoutOutlinedIcon />
+              </IconButton>
+            </span>
+          </Tooltip>
         </Box>
       </Toolbar>
     </AppBar>
