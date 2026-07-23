@@ -14,7 +14,7 @@ import {
   createTheme,
 } from '@mui/material'
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
 
@@ -28,6 +28,7 @@ const theme = createTheme({
 
 export function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
@@ -51,7 +52,14 @@ export function LoginPage() {
     }
 
     setLoading(false)
-    navigate('/', { replace: true })
+    const requestedPath = (location.state as { from?: unknown } | null)?.from
+    const destination = typeof requestedPath === 'string'
+      && requestedPath.startsWith('/')
+      && !requestedPath.startsWith('//')
+      && requestedPath !== '/login'
+      ? requestedPath
+      : '/'
+    navigate(destination, { replace: true })
   }
 
   return (

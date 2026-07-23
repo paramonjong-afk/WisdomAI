@@ -1,13 +1,14 @@
 import { Alert, Box, Button, Stack } from '@mui/material'
-import { Navigate, Outlet } from 'react-router-dom'
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { AuthLoadingScreen } from '../components/AuthLoadingScreen'
 import { useAuth } from '../hooks/useAuth'
 
 export function ProtectedRoute() {
+  const location = useLocation()
   const { session, loading, error, refreshProfile } = useAuth()
 
   if (loading) return <AuthLoadingScreen />
-  if (!session) return <Navigate to="/login" replace />
+  if (!session) return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />
 
   if (error) {
     return (
