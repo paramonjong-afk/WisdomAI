@@ -6,10 +6,21 @@ import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
 
 type Site = { id:string; name:string; latitude:number; longitude:number; radius_meters:number; projects:{name:string}|null }
-type Attendance = { id:string; clock_in_at:string; clock_out_at:string|null; status:string; project_sites:{name:string}|null }
+type Attendance = { id:string; clock_in_at:string; clock_out_at:string|null; status:string; project_sites:Site|null }
 type Project = { id:string; name:string }
 type Employee = { id:string; full_name:string|null; email:string|null }
 type LineGroup = { line_group_id:string; display_name:string|null }
+type LocationCheck = { latitude:number; longitude:number; accuracy:number; distance:number; site:Site }
+
+const distanceMeters = (lat1:number, lon1:number, lat2:number, lon2:number) => {
+  const radius = 6_371_000
+  const radians = Math.PI / 180
+  const latitudeDelta = (lat2 - lat1) * radians
+  const longitudeDelta = (lon2 - lon1) * radians
+  const value = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(lat1 * radians) * Math.cos(lat2 * radians) * Math.sin(longitudeDelta / 2) ** 2
+  return 2 * radius * Math.asin(Math.sqrt(value))
+}
 
 export function TimeTrackingPage() {
   usePageTitle('ลงเวลาทำงาน')
@@ -25,6 +36,8 @@ export function TimeTrackingPage() {
   const [selfie, setSelfie] = useState<File | null>(null)
   const [cameraOpen, setCameraOpen] = useState(false)
   const [cameraReady, setCameraReady] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [locationCheck, setLocationCheck] = useState<LocationCheck | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const [message, setMessage] = useState('')
@@ -35,7 +48,7 @@ export function TimeTrackingPage() {
   const loadData = useCallback(async () => {
     if (!user) return
     const attendanceQuery = supabase.from('attendance_sessions')
-      .select('id,clock_in_at,clock_out_at,status,project_sites(name)')
+      .select('id,clock_in_at,clock_out_at,status,project_sites(id,name,latitude,longitude,radius_meters,projects(name))')
       .eq('profile_id', user.id).order('clock_in_at', { ascending:false }).limit(20)
     const projectsQuery = supabase.from('projects').select('id,name').eq('status', 'active').order('name')
 
@@ -143,6 +156,50 @@ export function TimeTrackingPage() {
     }
   }
 
+  const prepareAttendance = async () => {
+    setBusy(true)
+    setMessage('')
+    setSelfie(null)
+    setLocationCheck(null)
+    try {
+      const position = await getLocation()
+      const accuracy = position.coords.accuracy
+      if (accuracy > 1_000) {
+        throw new Error(`ตำแหน่งไม่แม่นยำ (คลาดเคลื่อนประมาณ ${Math.round(accuracy).toLocaleString('th-TH')} เมตร) กรุณาเปิด GPS แบบแม่นยำและลองใหม่`)
+      }
+
+      const targetSites = openSession?.project_sites ? [openSession.project_sites] : sites
+      if (targetSites.length === 0) throw new Error('ไม่พบไซต์ที่ได้รับมอบหมาย')
+
+      const nearest = targetSites
+        .map((site) => ({
+          site,
+          distance: distanceMeters(position.coords.latitude, position.coords.longitude, site.latitude, site.longitude),
+        }))
+        .sort((a, b) => a.distance - b.distance)[0]
+
+      if (nearest.distance > nearest.site.radius_meters) {
+        throw new Error(`อยู่นอกพื้นที่ไซต์ ${nearest.site.name} ประมาณ ${Math.round(nearest.distance).toLocaleString('th-TH')} เมตร (รัศมี ${nearest.site.radius_meters} เมตร)`)
+      }
+
+      setSiteId(nearest.site.id)
+      setLocationCheck({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy,
+        distance: nearest.distance,
+        site: nearest.site,
+      })
+      await startCamera()
+    } catch (error) {
+      setMessage(error instanceof GeolocationPositionError
+        ? `ไม่สามารถอ่าน GPS: ${error.message}`
+        : error instanceof Error ? error.message : 'ไม่สามารถตรวจสอบตำแหน่งได้')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const captureSelfie = async () => {
     const video = videoRef.current
     if (!video || !video.videoWidth || !video.videoHeight) return
@@ -156,7 +213,8 @@ export function TimeTrackingPage() {
     if (!blob) throw new Error('ไม่สามารถบันทึกภาพจากกล้องได้')
     setSelfie(new File([blob], `selfie-${Date.now()}.jpg`, { type:'image/jpeg' }))
     stopCamera()
-    setMessage('ถ่ายรูป Selfie สำเร็จ พร้อมลงเวลา')
+    setMessage('')
+    setConfirmOpen(true)
   }
 
   useEffect(() => () => streamRef.current?.getTracks().forEach((track) => track.stop()), [])
@@ -174,17 +232,17 @@ export function TimeTrackingPage() {
     setBusy(true); setMessage('')
     try {
       if (action === 'clock_in' && !siteId) throw new Error('กรุณาเลือกไซต์งาน')
-      const position = await getLocation()
+      if (!locationCheck) throw new Error('กรุณาตรวจสอบตำแหน่งและถ่ายรูปใหม่')
       const selfiePath = await uploadSelfie(action === 'clock_in' ? 'in' : 'out')
       const { data, error } = await supabase.functions.invoke('attendance-clock', { body:{
         action, siteId: action === 'clock_in' ? siteId : undefined,
-        latitude:position.coords.latitude, longitude:position.coords.longitude,
-        accuracy:position.coords.accuracy, selfiePath,
+        latitude:locationCheck.latitude, longitude:locationCheck.longitude,
+        accuracy:locationCheck.accuracy, selfiePath,
       } })
       if (error) throw error
       if (data?.error) throw new Error(data.error)
       setMessage(action === 'clock_in' ? 'ลงเวลาเข้าสำเร็จ และแจ้ง LINE แล้ว' : 'ลงเวลาออกสำเร็จ และแจ้ง LINE แล้ว')
-      setSelfie(null); await loadData()
+      setSelfie(null); setLocationCheck(null); setConfirmOpen(false); await loadData()
     } catch (error) {
       setMessage(error instanceof GeolocationPositionError ? `ไม่สามารถอ่าน GPS: ${error.message}` : error instanceof Error ? error.message : 'ลงเวลาไม่สำเร็จ')
     } finally { setBusy(false) }
@@ -246,14 +304,15 @@ export function TimeTrackingPage() {
     </Paper>}
     <Paper variant="outlined" sx={{p:3}}>
       <Typography variant="h6">{openSession ? `กำลังทำงาน: ${openSession.project_sites?.name ?? ''}` : 'ลงเวลาเข้างาน'}</Typography>
-      {!openSession && <TextField select fullWidth label="ไซต์ที่ได้รับมอบหมาย" value={siteId} onChange={(event) => setSiteId(event.target.value)} sx={{mt:2}}>
+      {!openSession && <TextField select fullWidth label="ไซต์ที่ได้รับมอบหมาย" value={siteId} onChange={(event) => setSiteId(event.target.value)} sx={{mt:2, display:{xs:'none', md:'block'}}}>
         {sites.map((site) => <MenuItem key={site.id} value={site.id}>{site.projects?.name} · {site.name}</MenuItem>)}
       </TextField>}
       {!openSession && sites.length === 0 && <Alert severity="info" sx={{mt:2}}>ยังไม่มีไซต์ที่ได้รับมอบหมาย กรุณาติดต่อผู้จัดการ</Alert>}
-      <Button variant="outlined" disabled={busy} sx={{mt:2}} onClick={() => void startCamera()}>เปิดกล้องถ่าย Selfie</Button>
-      {selfie && <Typography variant="body2" color="success.main" sx={{mt:1}}>✓ ถ่ายรูป Selfie แล้ว</Typography>}
-      <Button fullWidth size="large" variant="contained" color={openSession ? 'error' : 'primary'} disabled={busy || (!openSession && sites.length === 0)} sx={{mt:2}} onClick={() => void clock(openSession ? 'clock_out' : 'clock_in')}>
-        {busy ? <CircularProgress size={24} color="inherit" /> : openSession ? 'ลงเวลาออก' : 'ลงเวลาเข้า'}
+      <Typography color="text.secondary" sx={{mt:2}}>
+        ระบบจะตรวจ GPS เลือกไซต์ให้อัตโนมัติ แล้วเปิดกล้องเพื่อยืนยันตัวตน
+      </Typography>
+      <Button fullWidth size="large" variant="contained" color={openSession ? 'error' : 'primary'} disabled={busy || (!openSession && sites.length === 0)} sx={{mt:2}} onClick={() => void prepareAttendance()}>
+        {busy ? <CircularProgress size={24} color="inherit" /> : openSession ? 'ถ่ายรูปเพื่อลงเวลาออก' : 'ถ่ายรูปเพื่อลงเวลาเข้า'}
       </Button>
     </Paper>
     <Dialog open={cameraOpen} onClose={stopCamera} fullWidth maxWidth="sm">
@@ -265,6 +324,31 @@ export function TimeTrackingPage() {
       <DialogActions>
         <Button onClick={stopCamera}>ยกเลิก</Button>
         <Button variant="contained" disabled={!cameraReady} onClick={() => void captureSelfie()}>ถ่ายภาพนี้</Button>
+      </DialogActions>
+    </Dialog>
+    <Dialog open={confirmOpen} onClose={() => !busy && setConfirmOpen(false)} fullWidth maxWidth="xs">
+      <DialogTitle>ยืนยันข้อมูลลงเวลา</DialogTitle>
+      <DialogContent>
+        <Stack spacing={1.5} sx={{pt:1}}>
+          <Typography><strong>รายการ:</strong> {openSession ? 'ลงเวลาออก' : 'ลงเวลาเข้า'}</Typography>
+          <Typography><strong>โครงการ:</strong> {locationCheck?.site.projects?.name ?? '-'}</Typography>
+          <Typography><strong>ไซต์:</strong> {locationCheck?.site.name ?? '-'}</Typography>
+          <Typography><strong>เวลา:</strong> {new Date().toLocaleString('th-TH')}</Typography>
+          <Typography><strong>ห่างจากจุดไซต์:</strong> {locationCheck ? `${Math.round(locationCheck.distance).toLocaleString('th-TH')} เมตร` : '-'}</Typography>
+          <Typography><strong>ความแม่นยำ GPS:</strong> {locationCheck ? `±${Math.round(locationCheck.accuracy).toLocaleString('th-TH')} เมตร` : '-'}</Typography>
+          <Alert severity="success">ถ่ายรูป Selfie แล้ว กรุณาตรวจสอบข้อมูลก่อนยืนยัน</Alert>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button disabled={busy} onClick={() => { setConfirmOpen(false); void startCamera() }}>ถ่ายใหม่</Button>
+        <Button
+          variant="contained"
+          color={openSession ? 'error' : 'primary'}
+          disabled={busy}
+          onClick={() => void clock(openSession ? 'clock_out' : 'clock_in')}
+        >
+          {busy ? <CircularProgress size={22} color="inherit" /> : openSession ? 'ยืนยันลงเวลาออก' : 'ยืนยันลงเวลาเข้า'}
+        </Button>
       </DialogActions>
     </Dialog>
     <Paper variant="outlined" sx={{p:2}}>

@@ -1,0 +1,18 @@
+{
+  "name": "WisdomAI ลงเวลาทำงาน",
+  "short_name": "WisdomAI",
+  "description": "ระบบลงเวลาทำงานด้วย GPS และ Selfie",
+  "start_url": "/time-tracking",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f7fb",
+  "theme_color": "#162544",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

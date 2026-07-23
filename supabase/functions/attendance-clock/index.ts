@@ -71,6 +71,11 @@ Deno.serve(async (request) => {
     if (!Number.isFinite(body.latitude) || !Number.isFinite(body.longitude) || !body.selfiePath) {
       return Response.json({ error: 'ข้อมูลพิกัดหรือรูปถ่ายไม่ครบ' }, { status: 400, headers: cors })
     }
+    if (!Number.isFinite(body.accuracy) || Number(body.accuracy) > 1_000) {
+      return Response.json({
+        error: `ตำแหน่งไม่แม่นยำ (คลาดเคลื่อนประมาณ ${Math.round(Number(body.accuracy) || 0).toLocaleString('th-TH')} เมตร) กรุณาเปิด GPS แบบแม่นยำและลองใหม่`,
+      }, { status: 400, headers: cors })
+    }
 
     const userId = authData.user.id
     const { data: profile } = await admin.from('profiles').select('full_name,email,role').eq('id', userId).single()
