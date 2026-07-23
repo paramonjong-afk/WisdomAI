@@ -96,14 +96,27 @@ async function lineProfile(userId: string, groupId?: string) {
   return response.ok ? await response.json() : null
 }
 
+async function lineGroupSummary(groupId: string) {
+  const response = await fetch(`https://api.line.me/v2/bot/group/${groupId}/summary`, {
+    headers: { Authorization: `Bearer ${Deno.env.get('LINE_CHANNEL_ACCESS_TOKEN')!}` },
+  })
+  return response.ok ? await response.json() as { groupName?: string } : null
+}
+
 async function processMessage(event: LineEvent) {
   const message = event.message!
   const groupId = event.source.groupId ?? event.source.roomId ?? null
   const userId = event.source.userId ?? null
 
-  if (groupId) await supabase.from('line_groups').upsert({
-    line_group_id: groupId, last_event_at: new Date(event.timestamp).toISOString(), joined_at: new Date(event.timestamp).toISOString(),
-  }, { onConflict: 'line_group_id' })
+  if (groupId) {
+    const groupSummary = event.source.groupId ? await lineGroupSummary(event.source.groupId) : null
+    await supabase.from('line_groups').upsert({
+      line_group_id: groupId,
+      display_name: groupSummary?.groupName ?? null,
+      last_event_at: new Date(event.timestamp).toISOString(),
+      joined_at: new Date(event.timestamp).toISOString(),
+    }, { onConflict: 'line_group_id' })
+  }
 
   if (userId) {
     const profile = await lineProfile(userId, event.source.groupId)
