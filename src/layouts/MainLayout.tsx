@@ -2,6 +2,7 @@ import { CssBaseline, Box, Container, ThemeProvider, createTheme } from '@mui/ma
 import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
+import { AppTelemetry } from '../components/AppTelemetry'
 
 const theme = createTheme({
   palette: { primary: { main: '#2563eb' }, background: { default: '#f5f7fb' } },
@@ -13,6 +14,7 @@ export function MainLayout() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
+      <AppTelemetry />
       <Box sx={{ minHeight: '100vh', display: 'flex', bgcolor: 'background.default' }}>
         <Sidebar />
         <Box component="main" sx={{ flexGrow: 1, minWidth: 0 }}>

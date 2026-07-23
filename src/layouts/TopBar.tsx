@@ -5,6 +5,7 @@ import { AppBar, Avatar, Badge, Box, IconButton, Toolbar, Tooltip, Typography } 
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { logAppEvent, updateAppStatus } from '../lib/telemetry'
 
 export function TopBar() {
   const navigate = useNavigate()
@@ -17,6 +18,10 @@ export function TopBar() {
   const handleSignOut = async () => {
     setSigningOut(true)
     try {
+      if (user) {
+        await logAppEvent(user.id, { eventType: 'session_end' })
+        await updateAppStatus(user.id, 'offline')
+      }
       await signOut()
       navigate('/login', { replace: true })
     } finally {

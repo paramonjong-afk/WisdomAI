@@ -29,6 +29,27 @@ type AttendanceLog = {
   project_sites: { name: string; projects: { name: string } | null } | null
 }
 
+type ActivityLog = {
+  id: string
+  event_type: string
+  severity: 'info' | 'warning' | 'error'
+  page_path: string | null
+  message: string | null
+  device_label: string | null
+  created_at: string
+  profiles: { full_name: string | null; email: string | null } | null
+}
+
+type AppStatus = {
+  profile_id: string
+  device_id: string
+  status: 'online' | 'away' | 'offline'
+  current_path: string | null
+  device_label: string | null
+  last_seen_at: string
+  profiles: { full_name: string | null; email: string | null } | null
+}
+
 const monthValue = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
 
@@ -67,6 +88,11 @@ export function EmployeePage() {
   const [logStatus, setLogStatus] = useState('all')
   const [loadingLogs, setLoadingLogs] = useState(false)
   const [reviewingId, setReviewingId] = useState('')
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([])
+  const [appStatuses, setAppStatuses] = useState<AppStatus[]>([])
+  const [activitySeverity, setActivitySeverity] = useState('all')
+  const [loadingActivity, setLoadingActivity] = useState(false)
+  const [activityLoadedAt, setActivityLoadedAt] = useState(0)
 
   const loadEmployees = useCallback(async () => {
     if (!user) return
@@ -165,6 +191,49 @@ export function EmployeePage() {
     return () => window.clearTimeout(timer)
   }, [canManage, loadAttendanceLogs, tab])
 
+  const loadAppActivity = useCallback(async () => {
+    if (!canManage) return
+    setLoadingActivity(true)
+    setErrorMessage('')
+    let logsQuery = supabase
+      .from('app_activity_logs')
+      .select(`
+        id,event_type,severity,page_path,message,device_label,created_at,
+        profiles!app_activity_logs_profile_id_fkey(full_name,email)
+      `)
+      .order('created_at', { ascending: false })
+      .limit(100)
+    if (activitySeverity !== 'all') logsQuery = logsQuery.eq('severity', activitySeverity)
+    const [logsResult, statusResult] = await Promise.all([
+      logsQuery,
+      supabase
+        .from('user_app_status')
+        .select(`
+          profile_id,device_id,status,current_path,device_label,last_seen_at,
+          profiles!user_app_status_profile_id_fkey(full_name,email)
+        `)
+        .order('last_seen_at', { ascending: false }),
+    ])
+    const queryError = logsResult.error || statusResult.error
+    if (queryError) setErrorMessage(queryError.message)
+    else {
+      setActivityLogs((logsResult.data ?? []) as unknown as ActivityLog[])
+      setAppStatuses((statusResult.data ?? []) as unknown as AppStatus[])
+      setActivityLoadedAt(Date.now())
+    }
+    setLoadingActivity(false)
+  }, [activitySeverity, canManage])
+
+  useEffect(() => {
+    if (tab !== 2 || !canManage) return
+    const timer = window.setTimeout(() => void loadAppActivity(), 0)
+    const refreshTimer = window.setInterval(() => void loadAppActivity(), 60_000)
+    return () => {
+      window.clearTimeout(timer)
+      window.clearInterval(refreshTimer)
+    }
+  }, [canManage, loadAppActivity, tab])
+
   const reviewAttendance = async (attendanceId: string, status: 'approved' | 'rejected') => {
     if (!user) return
     setReviewingId(attendanceId)
@@ -198,6 +267,7 @@ export function EmployeePage() {
           <Tabs value={tab} onChange={(_event, nextTab: number) => setTab(nextTab)} variant="fullWidth">
             <Tab label="รายชื่อพนักงาน" />
             <Tab label="รายงานลงเวลา" />
+            <Tab label="การใช้งานระบบ" />
           </Tabs>
         </Paper>
       )}
@@ -316,6 +386,102 @@ export function EmployeePage() {
               </Paper>
             )
           })}
+        </Stack>
+      )}
+
+      {tab === 2 && canManage && (
+        <Stack spacing={2}>
+          <Paper variant="outlined" sx={{ p: 2 }}>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+              <TextField
+                select
+                fullWidth
+                label="ระดับเหตุการณ์"
+                value={activitySeverity}
+                onChange={(event) => setActivitySeverity(event.target.value)}
+              >
+                <MenuItem value="all">ทั้งหมด</MenuItem>
+                <MenuItem value="error">ข้อผิดพลาด</MenuItem>
+                <MenuItem value="warning">คำเตือน</MenuItem>
+                <MenuItem value="info">ข้อมูลทั่วไป</MenuItem>
+              </TextField>
+              <Button variant="outlined" onClick={() => void loadAppActivity()}>รีเฟรช</Button>
+            </Stack>
+          </Paper>
+
+          <Typography variant="h6">สถานะผู้ใช้งานล่าสุด</Typography>
+          {appStatuses.length === 0 ? (
+            <Alert severity="info">ยังไม่มีข้อมูลสถานะผู้ใช้งาน</Alert>
+          ) : (
+            <Stack spacing={1}>
+              {appStatuses.map((status) => {
+                const recent = activityLoadedAt - new Date(status.last_seen_at).getTime() < 120_000
+                const effectiveStatus = recent ? status.status : 'offline'
+                const name = status.profiles?.full_name || status.profiles?.email || 'ไม่ทราบชื่อ'
+                return (
+                  <Paper key={`${status.profile_id}-${status.device_id}`} variant="outlined" sx={{ p: 2 }}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ justifyContent: 'space-between' }}>
+                      <Stack>
+                        <Typography sx={{ fontWeight: 700 }}>{name}</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {status.device_label || 'ไม่ทราบอุปกรณ์'} · หน้า {status.current_path || '-'}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          ติดต่อระบบล่าสุด {new Date(status.last_seen_at).toLocaleString('th-TH')}
+                        </Typography>
+                      </Stack>
+                      <Chip
+                        label={effectiveStatus === 'online' ? 'ออนไลน์' : effectiveStatus === 'away' ? 'ไม่ได้ใช้งาน' : 'ออฟไลน์'}
+                        color={effectiveStatus === 'online' ? 'success' : effectiveStatus === 'away' ? 'warning' : 'default'}
+                      />
+                    </Stack>
+                  </Paper>
+                )
+              })}
+            </Stack>
+          )}
+
+          <Typography variant="h6" sx={{ pt: 1 }}>ประวัติการใช้งานและข้อผิดพลาด</Typography>
+          {loadingActivity ? (
+            <Stack sx={{ alignItems: 'center', py: 6 }}><CircularProgress /></Stack>
+          ) : activityLogs.length === 0 ? (
+            <Alert severity="info">ยังไม่มีประวัติการใช้งานตามตัวกรองนี้</Alert>
+          ) : (
+            <Stack spacing={1}>
+              {activityLogs.map((log) => {
+                const name = log.profiles?.full_name || log.profiles?.email || 'ไม่ทราบชื่อ'
+                const eventLabel: Record<string, string> = {
+                  session_start: 'เริ่มใช้งาน',
+                  session_end: 'ออกจากระบบ',
+                  page_view: 'เปิดหน้า',
+                  client_error: 'ข้อผิดพลาดหน้าเว็บ',
+                  request_error: 'การเชื่อมต่อล้มเหลว',
+                }
+                return (
+                  <Paper key={log.id} variant="outlined" sx={{ p: 2 }}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ justifyContent: 'space-between' }}>
+                      <Stack>
+                        <Typography sx={{ fontWeight: 700 }}>
+                          {name} · {eventLabel[log.event_type] || log.event_type}
+                        </Typography>
+                        <Typography variant="body2">
+                          {log.page_path || '-'}{log.message ? ` · ${log.message}` : ''}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {new Date(log.created_at).toLocaleString('th-TH')} · {log.device_label || 'ไม่ทราบอุปกรณ์'}
+                        </Typography>
+                      </Stack>
+                      <Chip
+                        size="small"
+                        label={log.severity === 'error' ? 'ผิดพลาด' : log.severity === 'warning' ? 'คำเตือน' : 'ข้อมูล'}
+                        color={log.severity === 'error' ? 'error' : log.severity === 'warning' ? 'warning' : 'default'}
+                      />
+                    </Stack>
+                  </Paper>
+                )
+              })}
+            </Stack>
+          )}
         </Stack>
       )}
 
