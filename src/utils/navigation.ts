@@ -9,6 +9,7 @@ export const navigationItems: NavigationItem[] = [
   { label: 'สรุปงาน LINE', path: '/work-summary' },
   { label: 'สรุปรายการเงิน', path: '/financial-summary' },
   { label: 'เอกสารบัญชี', path: '/accounting-documents' },
+  { label: 'ตรวจสอบ LINE', path: '/line-monitor' },
   { label: 'Solar', path: '/solar' },
   { label: 'ข้อมูลส่วนตัว', path: '/my-profile' },
   { label: 'Settings', path: '/settings' },

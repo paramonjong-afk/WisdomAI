@@ -12,6 +12,7 @@ import { SettingsPage } from '../pages/Settings'
 import { MyProfilePage } from '../pages/MyProfile'
 import { FinancialSummaryPage } from '../pages/FinancialSummary'
 import { AccountingDocumentsPage } from '../pages/AccountingDocuments'
+import { LineMonitorPage } from '../pages/LineMonitor'
 import { ProtectedRoute } from './ProtectedRoute'
 import { PublicOnlyRoute } from './PublicOnlyRoute'
 
@@ -37,6 +38,7 @@ export const router = createBrowserRouter([
           { path: 'work-summary', element: <WorkSummaryPage /> },
           { path: 'financial-summary', element: <FinancialSummaryPage /> },
           { path: 'accounting-documents', element: <AccountingDocumentsPage /> },
+          { path: 'line-monitor', element: <LineMonitorPage /> },
           { path: 'solar', element: <SolarPage /> },
           { path: 'settings', element: <SettingsPage /> },
           { path: 'my-profile', element: <MyProfilePage /> },

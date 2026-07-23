@@ -10,6 +10,18 @@ type LineEvent = {
   unsend?: { messageId: string }
 }
 
+type IngestionUpdate = {
+  source_message_id?: string | null
+  processing_status?: 'received' | 'processing' | 'processed' | 'failed' | 'skipped'
+  processing_stage?: string
+  attachment_status?: 'not_required' | 'pending' | 'saved' | 'failed'
+  analysis_status?: 'not_required' | 'pending' | 'completed' | 'fallback' | 'failed'
+  output_type?: string | null
+  output_id?: string | null
+  error_message?: string | null
+  processed_at?: string | null
+}
+
 type WorkAnalysis = {
   category: 'completed' | 'in_progress' | 'planned' | 'issue' | 'risk' | 'material' | 'safety' | 'general'
   summary_text: string
@@ -72,6 +84,39 @@ type ImageAnalysis = WorkAnalysis & {
 }
 
 const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+
+async function updateIngestion(webhookEventId: string, update: IngestionUpdate) {
+  const { error } = await supabase
+    .from('line_ingestion_events')
+    .update({ ...update, updated_at: new Date().toISOString() })
+    .eq('webhook_event_id', webhookEventId)
+  if (error) console.error('Unable to update LINE ingestion audit', error.message)
+}
+
+async function receiveIngestion(event: LineEvent) {
+  const message = event.message
+  const { error } = await supabase.from('line_ingestion_events').upsert({
+    webhook_event_id: event.webhookEventId,
+    line_message_id: message?.id ?? event.unsend?.messageId ?? null,
+    source_type: event.source.type,
+    line_group_id: event.source.groupId ?? event.source.roomId ?? null,
+    line_user_id: event.source.userId ?? null,
+    event_type: event.type,
+    message_type: message?.type ?? null,
+    processing_status: 'received',
+    processing_stage: 'webhook_received',
+    attachment_status: message && ['image', 'video', 'audio', 'file'].includes(message.type)
+      ? 'pending'
+      : 'not_required',
+    analysis_status: message && ['text', 'image'].includes(message.type)
+      ? 'pending'
+      : 'not_required',
+    is_redelivery: event.deliveryContext?.isRedelivery ?? false,
+    occurred_at: new Date(event.timestamp).toISOString(),
+    error_message: null,
+  }, { onConflict: 'webhook_event_id' })
+  if (error) console.error('Unable to create LINE ingestion audit', error.message)
+}
 const encoder = new TextEncoder()
 
 async function verifySignature(body: string, signature: string, secret: string) {
@@ -742,10 +787,16 @@ async function processMessage(event: LineEvent) {
     is_redelivery: event.deliveryContext?.isRedelivery ?? false, raw_event: event,
   }, { onConflict: 'webhook_event_id' }).select('id').single()
   if (error) throw error
+  await updateIngestion(event.webhookEventId, {
+    source_message_id: saved.id,
+    processing_status: 'processing',
+    processing_stage: 'message_saved',
+  })
 
   const assignedProjectIds = await assignProjects(saved.id, message, groupId)
 
   if (message.type === 'text' && message.text) {
+    await updateIngestion(event.webhookEventId, { processing_stage: 'text_analysis' })
     let result: Awaited<ReturnType<typeof analyzeWithGemini>>
     try {
       result = await analyzeWithGemini(message.text)
@@ -761,7 +812,7 @@ async function processMessage(event: LineEvent) {
 
     await applyDetectedProjects(saved.id, assignedProjectIds, result.analysis.project_codes)
 
-    await supabase.from('work_summary_items').upsert({
+    const { data: textSummary, error: textSummaryError } = await supabase.from('work_summary_items').upsert({
       source_message_id: saved.id,
       project_id: assignedProjectIds.length === 1 ? assignedProjectIds[0] : null,
       work_date: new Date(event.timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }),
@@ -775,10 +826,19 @@ async function processMessage(event: LineEvent) {
       analysis_status: result.provider === 'gemini' ? 'completed' : 'fallback',
       analysis_error: result.error,
       analyzed_at: new Date().toISOString(),
-    }, { onConflict: 'source_message_id' })
+    }, { onConflict: 'source_message_id' }).select('id').single()
+    if (textSummaryError) throw textSummaryError
+    await updateIngestion(event.webhookEventId, {
+      analysis_status: result.provider === 'gemini' ? 'completed' : 'fallback',
+      output_type: 'work_summary',
+      output_id: textSummary.id,
+      processing_stage: 'text_summary_saved',
+      error_message: result.error,
+    })
   }
 
   if (['image', 'video', 'audio', 'file'].includes(message.type)) {
+    await updateIngestion(event.webhookEventId, { processing_stage: 'attachment_download' })
     const response = await fetch(`https://api-data.line.me/v2/bot/message/${message.id}/content`, {
       headers: { Authorization: `Bearer ${Deno.env.get('LINE_CHANNEL_ACCESS_TOKEN')!}` },
     })
@@ -792,8 +852,13 @@ async function processMessage(event: LineEvent) {
     await supabase.from('line_attachments').upsert({
       message_id: saved.id, storage_path: path, content_type: contentType, size_bytes: bytes.byteLength,
     }, { onConflict: 'storage_path' })
+    await updateIngestion(event.webhookEventId, {
+      attachment_status: 'saved',
+      processing_stage: 'attachment_saved',
+    })
 
     if (message.type === 'image' && contentType.startsWith('image/')) {
+      await updateIngestion(event.webhookEventId, { processing_stage: 'image_analysis' })
       let result: Awaited<ReturnType<typeof analyzeImageWithGemini>>
       const contextStart = new Date(event.timestamp - 15 * 60 * 1000).toISOString()
       let nearbyText: string[] = []
@@ -846,6 +911,12 @@ async function processMessage(event: LineEvent) {
         analyzed_at: new Date().toISOString(),
       }, { onConflict: 'source_message_id' })
       if (summaryError) throw summaryError
+      await updateIngestion(event.webhookEventId, {
+        analysis_status: result.provider === 'gemini' ? 'completed' : 'fallback',
+        output_type: 'work_summary',
+        processing_stage: 'image_summary_saved',
+        error_message: result.error,
+      })
 
       const imageHash = await sha256Hex(bytes)
 
@@ -859,6 +930,10 @@ async function processMessage(event: LineEvent) {
           result.model,
           result.error,
         )
+        await updateIngestion(event.webhookEventId, {
+          output_type: 'financial_transaction',
+          processing_stage: 'financial_transaction_saved',
+        })
       }
 
       if (result.analysis.accounting_document?.is_accounting_document) {
@@ -871,6 +946,10 @@ async function processMessage(event: LineEvent) {
           result.model,
           result.error,
         )
+        await updateIngestion(event.webhookEventId, {
+          output_type: 'accounting_document',
+          processing_stage: 'accounting_document_saved',
+        })
       }
     }
   }
@@ -885,12 +964,50 @@ Deno.serve(async (request) => {
 
   try {
     const payload = JSON.parse(body) as { events?: LineEvent[] }
+    let hasFailure = false
     for (const event of payload.events ?? []) {
-      if (event.type === 'message' && event.message) await processMessage(event)
-      if (event.type === 'unsend' && event.unsend) {
-        await supabase.from('line_messages').update({ is_unsent: true, text_content: null }).eq('line_message_id', event.unsend.messageId)
+      await receiveIngestion(event)
+      try {
+        if (event.type === 'message' && event.message) {
+          await processMessage(event)
+          await updateIngestion(event.webhookEventId, {
+            processing_status: 'processed',
+            processing_stage: 'completed',
+            processed_at: new Date().toISOString(),
+          })
+        } else if (event.type === 'unsend' && event.unsend) {
+          await supabase.from('line_messages')
+            .update({ is_unsent: true, text_content: null })
+            .eq('line_message_id', event.unsend.messageId)
+          await updateIngestion(event.webhookEventId, {
+            processing_status: 'processed',
+            processing_stage: 'unsend_applied',
+            processed_at: new Date().toISOString(),
+          })
+        } else {
+          await updateIngestion(event.webhookEventId, {
+            processing_status: 'skipped',
+            processing_stage: 'event_not_used',
+            processed_at: new Date().toISOString(),
+          })
+        }
+      } catch (eventError) {
+        hasFailure = true
+        const errorMessage = eventError instanceof Error
+          ? eventError.message.slice(0, 1000)
+          : 'Unknown LINE event processing error'
+        console.error('LINE event processing failed', event.webhookEventId, eventError)
+        await updateIngestion(event.webhookEventId, {
+          processing_status: 'failed',
+          analysis_status: event.message && ['text', 'image'].includes(event.message.type)
+            ? 'failed'
+            : undefined,
+          error_message: errorMessage,
+          processed_at: new Date().toISOString(),
+        })
       }
     }
+    if (hasFailure) return Response.json({ ok: false }, { status: 500 })
     return Response.json({ ok: true })
   } catch (error) {
     console.error(error)
