@@ -145,7 +145,7 @@ export function EmployeePage() {
         clock_in_distance_meters,clock_out_distance_meters,
         clock_in_accuracy_meters,clock_out_accuracy_meters,
         clock_in_device_info,
-        profiles(full_name,email),
+        profiles!attendance_sessions_profile_id_fkey(full_name,email),
         project_sites(name,projects(name))
       `)
       .gte('clock_in_at', start.toISOString())
