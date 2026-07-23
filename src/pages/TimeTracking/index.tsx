@@ -275,7 +275,9 @@ export function TimeTrackingPage() {
   }
 
   return <Stack spacing={3}>
-    <PageHeader title="ลงเวลาทำงาน" description="บันทึกเวลาเซิร์ฟเวอร์ พิกัด GPS รูป Selfie และแจ้งกลุ่ม LINE" />
+    <Stack sx={{display:{xs:'none', md:'flex'}}}>
+      <PageHeader title="ลงเวลาทำงาน" description="บันทึกเวลาเซิร์ฟเวอร์ พิกัด GPS รูป Selfie และแจ้งกลุ่ม LINE" />
+    </Stack>
     {message && <Alert severity={message.includes('สำเร็จ') ? 'success' : 'warning'}>{message}</Alert>}
     {isManager && <Paper variant="outlined" sx={{p:2, display:{xs:'none', md:'block'}}}>
       <Typography variant="h6">เพิ่มไซต์งานจริง</Typography>
@@ -302,17 +304,51 @@ export function TimeTrackingPage() {
         <Button variant="contained" disabled={busy} onClick={() => void assignSite()}>มอบหมาย</Button>
       </Stack>
     </Paper>}
-    <Paper variant="outlined" sx={{p:3}}>
-      <Typography variant="h6">{openSession ? `กำลังทำงาน: ${openSession.project_sites?.name ?? ''}` : 'ลงเวลาเข้างาน'}</Typography>
+    <Paper
+      variant="outlined"
+      sx={{
+        p:{xs:0, md:3},
+        minHeight:{xs:'62vh', md:'auto'},
+        borderWidth:{xs:0, md:1},
+        bgcolor:{xs:'transparent', md:'background.paper'},
+        display:'flex',
+        flexDirection:'column',
+        justifyContent:{xs:'center', md:'flex-start'},
+      }}
+    >
+      <Typography variant="h6" sx={{display:{xs:'none', md:'block'}}}>{openSession ? `กำลังทำงาน: ${openSession.project_sites?.name ?? ''}` : 'ลงเวลาเข้างาน'}</Typography>
       {!openSession && <TextField select fullWidth label="ไซต์ที่ได้รับมอบหมาย" value={siteId} onChange={(event) => setSiteId(event.target.value)} sx={{mt:2, display:{xs:'none', md:'block'}}}>
         {sites.map((site) => <MenuItem key={site.id} value={site.id}>{site.projects?.name} · {site.name}</MenuItem>)}
       </TextField>}
       {!openSession && sites.length === 0 && <Alert severity="info" sx={{mt:2}}>ยังไม่มีไซต์ที่ได้รับมอบหมาย กรุณาติดต่อผู้จัดการ</Alert>}
-      <Typography color="text.secondary" sx={{mt:2}}>
+      <Typography color="text.secondary" sx={{mt:2, display:{xs:'none', md:'block'}}}>
         ระบบจะตรวจ GPS เลือกไซต์ให้อัตโนมัติ แล้วเปิดกล้องเพื่อยืนยันตัวตน
       </Typography>
-      <Button fullWidth size="large" variant="contained" color={openSession ? 'error' : 'primary'} disabled={busy || (!openSession && sites.length === 0)} sx={{mt:2}} onClick={() => void prepareAttendance()}>
-        {busy ? <CircularProgress size={24} color="inherit" /> : openSession ? 'ถ่ายรูปเพื่อลงเวลาออก' : 'ถ่ายรูปเพื่อลงเวลาเข้า'}
+      <Button
+        fullWidth
+        size="large"
+        variant="contained"
+        color={openSession ? 'error' : 'primary'}
+        disabled={busy || (!openSession && sites.length === 0)}
+        sx={{
+          mt:{xs:0, md:2},
+          minHeight:{xs:112, md:42},
+          borderRadius:{xs:4, md:1},
+          fontSize:{xs:'1.75rem', md:'0.9375rem'},
+          fontWeight:800,
+        }}
+        onClick={() => void prepareAttendance()}
+      >
+        {busy
+          ? <CircularProgress size={32} color="inherit" />
+          : <>
+              <Typography component="span" sx={{display:{xs:'inline', md:'none'}, fontSize:'inherit', fontWeight:'inherit'}}>
+                {openSession ? 'ลงเวลาออก' : 'ลงเวลาเข้า'}
+              </Typography>
+              <Typography component="span" sx={{display:{xs:'none', md:'inline'}}}>
+                {openSession ? 'ถ่ายรูปเพื่อลงเวลาออก' : 'ถ่ายรูปเพื่อลงเวลาเข้า'}
+              </Typography>
+            </>}
       </Button>
     </Paper>
     <Dialog open={cameraOpen} onClose={stopCamera} fullWidth maxWidth="sm">
@@ -351,7 +387,7 @@ export function TimeTrackingPage() {
         </Button>
       </DialogActions>
     </Dialog>
-    <Paper variant="outlined" sx={{p:2}}>
+    <Paper variant="outlined" sx={{p:2, display:{xs:'none', md:'block'}}}>
       <Stack direction={{xs:'column',sm:'row'}} spacing={1} sx={{alignItems:{sm:'center'}, justifyContent:'space-between'}}>
         <Stack>
           <Typography variant="h6">ประวัติล่าสุด</Typography>
