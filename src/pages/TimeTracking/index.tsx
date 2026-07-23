@@ -219,7 +219,7 @@ export function TimeTrackingPage() {
   return <Stack spacing={3}>
     <PageHeader title="ลงเวลาทำงาน" description="บันทึกเวลาเซิร์ฟเวอร์ พิกัด GPS รูป Selfie และแจ้งกลุ่ม LINE" />
     {message && <Alert severity={message.includes('สำเร็จ') ? 'success' : 'warning'}>{message}</Alert>}
-    {isManager && <Paper variant="outlined" sx={{p:2}}>
+    {isManager && <Paper variant="outlined" sx={{p:2, display:{xs:'none', md:'block'}}}>
       <Typography variant="h6">เพิ่มไซต์งานจริง</Typography>
       <Stack direction={{xs:'column',md:'row'}} spacing={1} sx={{mt:2}}>
         <TextField select label="โครงการ" value={form.projectId} onChange={(event) => setForm({...form, projectId:event.target.value})}>{projects.map((project) => <MenuItem key={project.id} value={project.id}>{project.name}</MenuItem>)}</TextField>
@@ -280,7 +280,11 @@ export function TimeTrackingPage() {
         </Button>
       </Stack>
       {sessions.length === 0 && <Typography color="text.secondary">ยังไม่มีประวัติลงเวลา</Typography>}
-      {sessions.map((session) => <Typography key={session.id} sx={{py:.5}}>{new Date(session.clock_in_at).toLocaleString('th-TH')} · {session.project_sites?.name ?? '-'} · {session.clock_out_at ? 'ออกแล้ว' : 'กำลังทำงาน'} {session.status === 'needs_review' ? '⚠️ รอตรวจสอบ' : ''}</Typography>)}
+      {sessions.map((session) => <Typography key={session.id} sx={{py:.5}}>
+        {session.project_sites?.name ?? '-'} · เข้า {new Date(session.clock_in_at).toLocaleString('th-TH')}
+        {session.clock_out_at ? ` · ออก ${new Date(session.clock_out_at).toLocaleString('th-TH')}` : ' · กำลังทำงาน'}
+        {session.status === 'needs_review' ? ' ⚠️ รอตรวจสอบ' : ''}
+      </Typography>)}
     </Paper>
   </Stack>
 }
