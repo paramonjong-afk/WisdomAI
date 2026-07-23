@@ -7,6 +7,7 @@ export const navigationItems: NavigationItem[] = [
   { label: 'BOQ', path: '/boq' },
   { label: 'Time Tracking', path: '/time-tracking' },
   { label: 'สรุปงาน LINE', path: '/work-summary' },
+  { label: 'สรุปรายการเงิน', path: '/financial-summary' },
   { label: 'Solar', path: '/solar' },
   { label: 'ข้อมูลส่วนตัว', path: '/my-profile' },
   { label: 'Settings', path: '/settings' },

@@ -10,6 +10,7 @@ import { WorkSummaryPage } from '../pages/WorkSummary'
 import { SolarPage } from '../pages/Solar'
 import { SettingsPage } from '../pages/Settings'
 import { MyProfilePage } from '../pages/MyProfile'
+import { FinancialSummaryPage } from '../pages/FinancialSummary'
 import { ProtectedRoute } from './ProtectedRoute'
 import { PublicOnlyRoute } from './PublicOnlyRoute'
 
@@ -33,6 +34,7 @@ export const router = createBrowserRouter([
           { path: 'boq', element: <BOQPage /> },
           { path: 'time-tracking', element: <TimeTrackingPage /> },
           { path: 'work-summary', element: <WorkSummaryPage /> },
+          { path: 'financial-summary', element: <FinancialSummaryPage /> },
           { path: 'solar', element: <SolarPage /> },
           { path: 'settings', element: <SettingsPage /> },
           { path: 'my-profile', element: <MyProfilePage /> },

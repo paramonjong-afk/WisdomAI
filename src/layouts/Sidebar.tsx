@@ -7,6 +7,7 @@ import SolarPowerOutlinedIcon from '@mui/icons-material/SolarPowerOutlined'
 import TimerOutlinedIcon from '@mui/icons-material/TimerOutlined'
 import SummarizeOutlinedIcon from '@mui/icons-material/SummarizeOutlined'
 import AccountCircleOutlinedIcon from '@mui/icons-material/AccountCircleOutlined'
+import PaidOutlinedIcon from '@mui/icons-material/PaidOutlined'
 import { Box, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography } from '@mui/material'
 import { NavLink } from 'react-router-dom'
 import { navigationItems } from '../utils/navigation'
@@ -15,7 +16,7 @@ export const sidebarWidth = 260
 
 const navigationIcons = [
   <DashboardOutlinedIcon />, <GroupOutlinedIcon />, <EngineeringOutlinedIcon />,
-  <FormatListBulletedOutlinedIcon />, <TimerOutlinedIcon />, <SummarizeOutlinedIcon />, <SolarPowerOutlinedIcon />,
+  <FormatListBulletedOutlinedIcon />, <TimerOutlinedIcon />, <SummarizeOutlinedIcon />, <PaidOutlinedIcon />, <SolarPowerOutlinedIcon />,
   <AccountCircleOutlinedIcon />, <SettingsOutlinedIcon />,
 ]
 
