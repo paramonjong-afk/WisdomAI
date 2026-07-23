@@ -1,6 +1,7 @@
 import {
   Alert, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
   Chip, MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography,
+  Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow,
 } from '@mui/material'
 import { useCallback, useEffect, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
@@ -93,6 +94,9 @@ export function EmployeePage() {
   const [activitySeverity, setActivitySeverity] = useState('all')
   const [loadingActivity, setLoadingActivity] = useState(false)
   const [activityLoadedAt, setActivityLoadedAt] = useState(0)
+  const [activitySearch, setActivitySearch] = useState('')
+  const [activityPage, setActivityPage] = useState(0)
+  const [activityRowsPerPage, setActivityRowsPerPage] = useState(10)
 
   const loadEmployees = useCallback(async () => {
     if (!user) return
@@ -251,6 +255,49 @@ export function EmployeePage() {
     setReviewingId('')
   }
 
+  const filteredActivityLogs = activityLogs.filter((log) => {
+    const search = activitySearch.trim().toLowerCase()
+    if (!search) return true
+    return [
+      log.profiles?.full_name,
+      log.profiles?.email,
+      log.event_type,
+      log.page_path,
+      log.device_label,
+      log.message,
+    ].some((value) => value?.toLowerCase().includes(search))
+  })
+
+  const onlineUsers = appStatuses.filter((status) =>
+    activityLoadedAt - new Date(status.last_seen_at).getTime() < 120_000
+    && status.status === 'online').length
+  const errorCount = activityLogs.filter((log) => log.severity === 'error').length
+  const activeUserCount = new Set(activityLogs.map((log) =>
+    log.profiles?.email || log.profiles?.full_name).filter(Boolean)).size
+
+  const exportActivityCsv = () => {
+    const headers = ['วันเวลา', 'พนักงาน', 'เหตุการณ์', 'ระดับ', 'หน้า', 'อุปกรณ์', 'รายละเอียด']
+    const rows = filteredActivityLogs.map((log) => [
+      new Date(log.created_at).toLocaleString('th-TH'),
+      log.profiles?.full_name || log.profiles?.email || 'ไม่ทราบชื่อ',
+      log.event_type,
+      log.severity,
+      log.page_path || '',
+      log.device_label || '',
+      log.message || '',
+    ])
+    const escapeCsv = (value: string) => `"${value.replaceAll('"', '""')}"`
+    const csv = '\uFEFF' + [headers, ...rows]
+      .map((row) => row.map((value) => escapeCsv(String(value))).join(','))
+      .join('\r\n')
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `wisdomai-usage-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <Stack spacing={3}>
       <PageHeader
@@ -391,8 +438,46 @@ export function EmployeePage() {
 
       {tab === 2 && canManage && (
         <Stack spacing={2}>
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            spacing={2}
+            sx={{ '& > *': { flex: 1 } }}
+          >
+            <Paper variant="outlined" sx={{ p: 2.25 }}>
+              <Typography variant="body2" color="text.secondary">ออนไลน์ขณะนี้</Typography>
+              <Typography variant="h4" sx={{ fontWeight: 800, color: 'success.main' }}>{onlineUsers}</Typography>
+              <Typography variant="caption" color="text.secondary">อัปเดตสถานะทุก 1 นาที</Typography>
+            </Paper>
+            <Paper variant="outlined" sx={{ p: 2.25 }}>
+              <Typography variant="body2" color="text.secondary">ผู้ใช้งานในรายการล่าสุด</Typography>
+              <Typography variant="h4" sx={{ fontWeight: 800 }}>{activeUserCount}</Typography>
+              <Typography variant="caption" color="text.secondary">จาก Log สูงสุด 100 รายการ</Typography>
+            </Paper>
+            <Paper variant="outlined" sx={{ p: 2.25 }}>
+              <Typography variant="body2" color="text.secondary">ข้อผิดพลาดล่าสุด</Typography>
+              <Typography variant="h4" sx={{ fontWeight: 800, color: errorCount > 0 ? 'error.main' : 'success.main' }}>
+                {errorCount}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">ใช้ติดตามปัญหาหน้าเว็บ</Typography>
+            </Paper>
+            <Paper variant="outlined" sx={{ p: 2.25 }}>
+              <Typography variant="body2" color="text.secondary">เหตุการณ์ที่บันทึก</Typography>
+              <Typography variant="h4" sx={{ fontWeight: 800 }}>{activityLogs.length}</Typography>
+              <Typography variant="caption" color="text.secondary">แสดงสูงสุด 100 รายการล่าสุด</Typography>
+            </Paper>
+          </Stack>
+
           <Paper variant="outlined" sx={{ p: 2 }}>
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+              <TextField
+                fullWidth
+                label="ค้นหาพนักงาน หน้า อุปกรณ์ หรือข้อความ"
+                value={activitySearch}
+                onChange={(event) => {
+                  setActivitySearch(event.target.value)
+                  setActivityPage(0)
+                }}
+              />
               <TextField
                 select
                 fullWidth
@@ -406,6 +491,13 @@ export function EmployeePage() {
                 <MenuItem value="info">ข้อมูลทั่วไป</MenuItem>
               </TextField>
               <Button variant="outlined" onClick={() => void loadAppActivity()}>รีเฟรช</Button>
+              <Button
+                variant="contained"
+                disabled={filteredActivityLogs.length === 0}
+                onClick={exportActivityCsv}
+              >
+                Export CSV
+              </Button>
             </Stack>
           </Paper>
 
@@ -413,32 +505,41 @@ export function EmployeePage() {
           {appStatuses.length === 0 ? (
             <Alert severity="info">ยังไม่มีข้อมูลสถานะผู้ใช้งาน</Alert>
           ) : (
-            <Stack spacing={1}>
-              {appStatuses.map((status) => {
-                const recent = activityLoadedAt - new Date(status.last_seen_at).getTime() < 120_000
-                const effectiveStatus = recent ? status.status : 'offline'
-                const name = status.profiles?.full_name || status.profiles?.email || 'ไม่ทราบชื่อ'
-                return (
-                  <Paper key={`${status.profile_id}-${status.device_id}`} variant="outlined" sx={{ p: 2 }}>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ justifyContent: 'space-between' }}>
-                      <Stack>
-                        <Typography sx={{ fontWeight: 700 }}>{name}</Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {status.device_label || 'ไม่ทราบอุปกรณ์'} · หน้า {status.current_path || '-'}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          ติดต่อระบบล่าสุด {new Date(status.last_seen_at).toLocaleString('th-TH')}
-                        </Typography>
-                      </Stack>
-                      <Chip
-                        label={effectiveStatus === 'online' ? 'ออนไลน์' : effectiveStatus === 'away' ? 'ไม่ได้ใช้งาน' : 'ออฟไลน์'}
-                        color={effectiveStatus === 'online' ? 'success' : effectiveStatus === 'away' ? 'warning' : 'default'}
-                      />
-                    </Stack>
-                  </Paper>
-                )
-              })}
-            </Stack>
+            <TableContainer component={Paper} variant="outlined">
+              <Table size="small" sx={{ minWidth: 760 }}>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700 }}>พนักงาน</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>สถานะ</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>หน้าปัจจุบัน</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>อุปกรณ์</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>ติดต่อระบบล่าสุด</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {appStatuses.map((status) => {
+                    const recent = activityLoadedAt - new Date(status.last_seen_at).getTime() < 120_000
+                    const effectiveStatus = recent ? status.status : 'offline'
+                    const name = status.profiles?.full_name || status.profiles?.email || 'ไม่ทราบชื่อ'
+                    return (
+                      <TableRow key={`${status.profile_id}-${status.device_id}`} hover>
+                        <TableCell sx={{ fontWeight: 700 }}>{name}</TableCell>
+                        <TableCell>
+                          <Chip
+                            size="small"
+                            label={effectiveStatus === 'online' ? 'ออนไลน์' : effectiveStatus === 'away' ? 'ไม่ได้ใช้งาน' : 'ออฟไลน์'}
+                            color={effectiveStatus === 'online' ? 'success' : effectiveStatus === 'away' ? 'warning' : 'default'}
+                          />
+                        </TableCell>
+                        <TableCell>{status.current_path || '-'}</TableCell>
+                        <TableCell>{status.device_label || 'ไม่ทราบอุปกรณ์'}</TableCell>
+                        <TableCell>{new Date(status.last_seen_at).toLocaleString('th-TH')}</TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
           )}
 
           <Typography variant="h6" sx={{ pt: 1 }}>ประวัติการใช้งานและข้อผิดพลาด</Typography>
@@ -447,40 +548,68 @@ export function EmployeePage() {
           ) : activityLogs.length === 0 ? (
             <Alert severity="info">ยังไม่มีประวัติการใช้งานตามตัวกรองนี้</Alert>
           ) : (
-            <Stack spacing={1}>
-              {activityLogs.map((log) => {
-                const name = log.profiles?.full_name || log.profiles?.email || 'ไม่ทราบชื่อ'
-                const eventLabel: Record<string, string> = {
-                  session_start: 'เริ่มใช้งาน',
-                  session_end: 'ออกจากระบบ',
-                  page_view: 'เปิดหน้า',
-                  client_error: 'ข้อผิดพลาดหน้าเว็บ',
-                  request_error: 'การเชื่อมต่อล้มเหลว',
-                }
-                return (
-                  <Paper key={log.id} variant="outlined" sx={{ p: 2 }}>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ justifyContent: 'space-between' }}>
-                      <Stack>
-                        <Typography sx={{ fontWeight: 700 }}>
-                          {name} · {eventLabel[log.event_type] || log.event_type}
-                        </Typography>
-                        <Typography variant="body2">
-                          {log.page_path || '-'}{log.message ? ` · ${log.message}` : ''}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {new Date(log.created_at).toLocaleString('th-TH')} · {log.device_label || 'ไม่ทราบอุปกรณ์'}
-                        </Typography>
-                      </Stack>
-                      <Chip
-                        size="small"
-                        label={log.severity === 'error' ? 'ผิดพลาด' : log.severity === 'warning' ? 'คำเตือน' : 'ข้อมูล'}
-                        color={log.severity === 'error' ? 'error' : log.severity === 'warning' ? 'warning' : 'default'}
-                      />
-                    </Stack>
-                  </Paper>
-                )
-              })}
-            </Stack>
+            <TableContainer component={Paper} variant="outlined">
+              <Table size="small" stickyHeader sx={{ minWidth: 1100 }}>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700 }}>วันเวลา</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>พนักงาน</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>เหตุการณ์</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>ระดับ</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>หน้า</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>อุปกรณ์</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>รายละเอียด</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {filteredActivityLogs
+                    .slice(activityPage * activityRowsPerPage, activityPage * activityRowsPerPage + activityRowsPerPage)
+                    .map((log) => {
+                    const name = log.profiles?.full_name || log.profiles?.email || 'ไม่ทราบชื่อ'
+                    const eventLabel: Record<string, string> = {
+                      session_start: 'เริ่มใช้งาน',
+                      session_end: 'ออกจากระบบ',
+                      page_view: 'เปิดหน้า',
+                      client_error: 'ข้อผิดพลาดหน้าเว็บ',
+                      request_error: 'การเชื่อมต่อล้มเหลว',
+                    }
+                    return (
+                      <TableRow key={log.id} hover>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{new Date(log.created_at).toLocaleString('th-TH')}</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>{name}</TableCell>
+                        <TableCell>{eventLabel[log.event_type] || log.event_type}</TableCell>
+                        <TableCell>
+                          <Chip
+                            size="small"
+                            label={log.severity === 'error' ? 'ผิดพลาด' : log.severity === 'warning' ? 'คำเตือน' : 'ข้อมูล'}
+                            color={log.severity === 'error' ? 'error' : log.severity === 'warning' ? 'warning' : 'default'}
+                          />
+                        </TableCell>
+                        <TableCell>{log.page_path || '-'}</TableCell>
+                        <TableCell>{log.device_label || 'ไม่ทราบอุปกรณ์'}</TableCell>
+                        <TableCell sx={{ maxWidth: 340, wordBreak: 'break-word' }}>{log.message || '-'}</TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+              <TablePagination
+                component="div"
+                count={filteredActivityLogs.length}
+                page={Math.min(activityPage, Math.max(0, Math.ceil(filteredActivityLogs.length / activityRowsPerPage) - 1))}
+                rowsPerPage={activityRowsPerPage}
+                rowsPerPageOptions={[10, 25, 50, 100]}
+                labelRowsPerPage="แถวต่อหน้า"
+                onPageChange={(_event, page) => setActivityPage(page)}
+                onRowsPerPageChange={(event) => {
+                  setActivityRowsPerPage(Number(event.target.value))
+                  setActivityPage(0)
+                }}
+              />
+            </TableContainer>
+          )}
+          {!loadingActivity && activityLogs.length > 0 && filteredActivityLogs.length === 0 && (
+            <Alert severity="info">ไม่พบข้อมูลที่ตรงกับคำค้นหา</Alert>
           )}
         </Stack>
       )}
