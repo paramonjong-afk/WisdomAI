@@ -44,6 +44,9 @@ export function MyProfilePage() {
   const [tab, setTab] = useState(0)
   const [selectedMonth, setSelectedMonth] = useState(currentMonth)
   const [fullName, setFullName] = useState(profile?.full_name ?? '')
+  const [deviceOwnerName, setDeviceOwnerName] = useState(
+    () => window.localStorage.getItem('wisdomai-device-owner') ?? profile?.full_name ?? '',
+  )
   const [attendance, setAttendance] = useState<Attendance[]>([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -91,8 +94,9 @@ export function MyProfilePage() {
     })
     if (error) setErrorMessage(error.message)
     else {
+      window.localStorage.setItem('wisdomai-device-owner', deviceOwnerName.trim())
       await refreshProfile()
-      setMessage('บันทึกชื่อเรียบร้อยแล้ว ข้อความ LINE ครั้งต่อไปจะแสดงชื่อนี้')
+      setMessage('บันทึกชื่อพนักงานและเจ้าของมือถือแล้ว ข้อความ LINE ครั้งต่อไปจะแสดงข้อมูลนี้')
     }
     setSaving(false)
   }
@@ -122,7 +126,19 @@ export function MyProfilePage() {
             />
             <TextField label="อีเมล" value={user?.email ?? ''} disabled />
             <TextField label="สิทธิ์ผู้ใช้งาน" value={profile?.role ?? 'employee'} disabled />
-            <Button variant="contained" size="large" disabled={saving || fullName.trim().length < 2} onClick={() => void saveProfile()}>
+            <TextField
+              label="ชื่อเจ้าของมือถือเครื่องนี้"
+              value={deviceOwnerName}
+              onChange={(event) => setDeviceOwnerName(event.target.value)}
+              slotProps={{ htmlInput: { maxLength: 120 } }}
+              helperText="ระบุว่าโทรศัพท์ที่ใช้ลงเวลาเป็นของใคร เช่น หัวหน้าช่างเอก หรือ มือถือประจำไซต์ A"
+            />
+            <Button
+              variant="contained"
+              size="large"
+              disabled={saving || fullName.trim().length < 2 || deviceOwnerName.trim().length < 2}
+              onClick={() => void saveProfile()}
+            >
               {saving ? <CircularProgress size={24} color="inherit" /> : 'บันทึกข้อมูล'}
             </Button>
           </Stack>

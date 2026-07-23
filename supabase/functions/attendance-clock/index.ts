@@ -10,6 +10,7 @@ type ClockBody = {
   device?: {
     id?: string
     label?: string
+    ownerName?: string
     platform?: string
     userAgent?: string
     screen?: string
@@ -38,6 +39,7 @@ const cleanText = (value: unknown, maxLength: number) =>
 
 const deviceInfo = (device: ClockBody['device']) => ({
   label: cleanText(device?.label, 120) || 'ไม่ทราบอุปกรณ์',
+  ownerName: cleanText(device?.ownerName, 120) || 'ยังไม่ระบุเจ้าของมือถือ',
   platform: cleanText(device?.platform, 80),
   userAgent: cleanText(device?.userAgent, 500),
   screen: cleanText(device?.screen, 40),
@@ -191,7 +193,7 @@ Deno.serve(async (request) => {
     const thaiTime = now.toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'medium', timeStyle: 'short' })
     const reviewText = status === 'needs_review' ? '\n⚠️ อยู่นอกรัศมีไซต์ กรุณาตรวจสอบ' : ''
     const lineNotification = await notifyLine(site?.line_group_id ?? null,
-      `✅ ${eventName}\nชื่อ: ${employeeName}\nโครงการ: ${site?.projects?.name ?? '-'}\nไซต์: ${site?.name ?? '-'}\nเวลา: ${thaiTime}\nอุปกรณ์: ${attendanceDeviceInfo.label}${reviewText}`)
+      `✅ ${eventName}\nชื่อ: ${employeeName}\nโครงการ: ${site?.projects?.name ?? '-'}\nไซต์: ${site?.name ?? '-'}\nเวลา: ${thaiTime}\nมือถือของ: ${attendanceDeviceInfo.ownerName}\nอุปกรณ์: ${attendanceDeviceInfo.label}${reviewText}`)
 
     return Response.json({ ok: true, attendanceId, status, serverTime: now.toISOString(), lineNotification }, { headers: cors })
   } catch (error) {

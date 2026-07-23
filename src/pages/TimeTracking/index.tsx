@@ -55,6 +55,7 @@ const getDeviceInfo = () => {
   return {
     id: getDeviceId(),
     label: `${operatingSystem} · ${browser}`,
+    ownerName: window.localStorage.getItem('wisdomai-device-owner')?.trim() || 'ยังไม่ระบุเจ้าของมือถือ',
     platform: navigator.platform,
     userAgent,
     screen: `${window.screen.width}x${window.screen.height}`,
