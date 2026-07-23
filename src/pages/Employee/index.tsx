@@ -1,6 +1,6 @@
 import {
   Alert, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
-  MenuItem, Paper, Stack, TextField, Typography,
+  Chip, MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography,
 } from '@mui/material'
 import { useCallback, useEffect, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
@@ -13,6 +13,29 @@ type Employee = {
   full_name: string | null
   email: string | null
   role: 'admin' | 'manager' | 'employee'
+}
+
+type AttendanceLog = {
+  id: string
+  clock_in_at: string
+  clock_out_at: string | null
+  clock_in_distance_meters: number | null
+  clock_out_distance_meters: number | null
+  clock_in_accuracy_meters: number | null
+  clock_out_accuracy_meters: number | null
+  clock_in_device_info: { label?: string; ownerName?: string } | null
+  status: string
+  profiles: { full_name: string | null; email: string | null } | null
+  project_sites: { name: string; projects: { name: string } | null } | null
+}
+
+const monthValue = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+
+const monthLabel = (value: string) => {
+  const [year, month] = value.split('-').map(Number)
+  return new Intl.DateTimeFormat('th-TH', { month: 'long', year: 'numeric' })
+    .format(new Date(year, month - 1, 1))
 }
 
 export function EmployeePage() {
@@ -34,6 +57,16 @@ export function EmployeePage() {
     password: '',
     role: 'employee' as 'employee' | 'manager',
   })
+  const currentMonth = monthValue(new Date())
+  const previousMonthDate = new Date()
+  previousMonthDate.setMonth(previousMonthDate.getMonth() - 1)
+  const previousMonth = monthValue(previousMonthDate)
+  const [tab, setTab] = useState(0)
+  const [attendanceLogs, setAttendanceLogs] = useState<AttendanceLog[]>([])
+  const [logMonth, setLogMonth] = useState(currentMonth)
+  const [logStatus, setLogStatus] = useState('all')
+  const [loadingLogs, setLoadingLogs] = useState(false)
+  const [reviewingId, setReviewingId] = useState('')
 
   const loadEmployees = useCallback(async () => {
     if (!user) return
@@ -98,18 +131,78 @@ export function EmployeePage() {
     setCreating(false)
   }
 
+  const loadAttendanceLogs = useCallback(async () => {
+    if (!canManage) return
+    setLoadingLogs(true)
+    setErrorMessage('')
+    const [year, month] = logMonth.split('-').map(Number)
+    const start = new Date(year, month - 1, 1)
+    const end = new Date(year, month, 1)
+    let query = supabase
+      .from('attendance_sessions')
+      .select(`
+        id,clock_in_at,clock_out_at,status,
+        clock_in_distance_meters,clock_out_distance_meters,
+        clock_in_accuracy_meters,clock_out_accuracy_meters,
+        clock_in_device_info,
+        profiles(full_name,email),
+        project_sites(name,projects(name))
+      `)
+      .gte('clock_in_at', start.toISOString())
+      .lt('clock_in_at', end.toISOString())
+      .order('clock_in_at', { ascending: false })
+      .limit(200)
+    if (logStatus !== 'all') query = query.eq('status', logStatus)
+    const { data, error } = await query
+    if (error) setErrorMessage(error.message)
+    else setAttendanceLogs((data ?? []) as unknown as AttendanceLog[])
+    setLoadingLogs(false)
+  }, [canManage, logMonth, logStatus])
+
+  useEffect(() => {
+    if (tab !== 1 || !canManage) return
+    const timer = window.setTimeout(() => void loadAttendanceLogs(), 0)
+    return () => window.clearTimeout(timer)
+  }, [canManage, loadAttendanceLogs, tab])
+
+  const reviewAttendance = async (attendanceId: string, status: 'approved' | 'rejected') => {
+    if (!user) return
+    setReviewingId(attendanceId)
+    setMessage('')
+    setErrorMessage('')
+    const { error } = await supabase
+      .from('attendance_sessions')
+      .update({ status, reviewed_by: user.id, reviewed_at: new Date().toISOString() })
+      .eq('id', attendanceId)
+    if (error) setErrorMessage(error.message)
+    else {
+      setMessage(status === 'approved' ? 'อนุมัติรายการลงเวลาแล้ว' : 'ปฏิเสธรายการลงเวลาแล้ว')
+      await loadAttendanceLogs()
+    }
+    setReviewingId('')
+  }
+
   return (
     <Stack spacing={3}>
       <PageHeader
         title="พนักงาน"
         description="กำหนดชื่อที่ใช้แสดงในระบบและข้อความแจ้งเตือน LINE"
-        action={canCreate ? <Button variant="contained" onClick={() => setCreateOpen(true)}>เพิ่มพนักงาน</Button> : undefined}
+        action={canCreate && tab === 0 ? <Button variant="contained" onClick={() => setCreateOpen(true)}>เพิ่มพนักงาน</Button> : undefined}
       />
 
       {message && <Alert severity="success">{message}</Alert>}
       {errorMessage && <Alert severity="error">{errorMessage}</Alert>}
 
-      {loading ? (
+      {canManage && (
+        <Paper variant="outlined">
+          <Tabs value={tab} onChange={(_event, nextTab: number) => setTab(nextTab)} variant="fullWidth">
+            <Tab label="รายชื่อพนักงาน" />
+            <Tab label="รายงานลงเวลา" />
+          </Tabs>
+        </Paper>
+      )}
+
+      {tab === 0 && (loading ? (
         <Stack sx={{ alignItems: 'center', py: 6 }}><CircularProgress /></Stack>
       ) : (
         <Stack spacing={2}>
@@ -142,6 +235,87 @@ export function EmployeePage() {
               </Stack>
             </Paper>
           ))}
+        </Stack>
+      ))}
+
+      {tab === 1 && canManage && (
+        <Stack spacing={2}>
+          <Paper variant="outlined" sx={{ p: 2 }}>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+              <TextField select fullWidth label="เดือน" value={logMonth} onChange={(event) => setLogMonth(event.target.value)}>
+                <MenuItem value={currentMonth}>{monthLabel(currentMonth)} (เดือนปัจจุบัน)</MenuItem>
+                <MenuItem value={previousMonth}>{monthLabel(previousMonth)} (เดือนก่อน)</MenuItem>
+              </TextField>
+              <TextField select fullWidth label="สถานะ" value={logStatus} onChange={(event) => setLogStatus(event.target.value)}>
+                <MenuItem value="all">ทุกรายการ</MenuItem>
+                <MenuItem value="needs_review">รอตรวจสอบ/อยู่นอกไซต์</MenuItem>
+                <MenuItem value="normal">ปกติ</MenuItem>
+                <MenuItem value="approved">อนุมัติแล้ว</MenuItem>
+                <MenuItem value="rejected">ไม่อนุมัติ</MenuItem>
+              </TextField>
+              <Button variant="outlined" onClick={() => void loadAttendanceLogs()}>รีเฟรช</Button>
+            </Stack>
+          </Paper>
+
+          {loadingLogs ? (
+            <Stack sx={{ alignItems: 'center', py: 6 }}><CircularProgress /></Stack>
+          ) : attendanceLogs.length === 0 ? (
+            <Alert severity="info">ไม่พบรายการลงเวลาตามตัวกรองที่เลือก</Alert>
+          ) : attendanceLogs.map((log) => {
+            const employeeName = log.profiles?.full_name || log.profiles?.email || 'ไม่ทราบชื่อ'
+            const isReview = log.status === 'needs_review' || log.status === 'pending'
+            return (
+              <Paper key={log.id} variant="outlined" sx={{ p: 2.5 }}>
+                <Stack spacing={1.25}>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ justifyContent: 'space-between' }}>
+                    <Stack>
+                      <Typography variant="h6">{employeeName}</Typography>
+                      <Typography color="text.secondary">
+                        {log.project_sites?.projects?.name ?? '-'} · {log.project_sites?.name ?? '-'}
+                      </Typography>
+                    </Stack>
+                    <Chip
+                      label={log.status === 'needs_review' ? 'รอตรวจสอบ/อยู่นอกไซต์' : log.status}
+                      color={isReview ? 'warning' : log.status === 'approved' || log.status === 'normal' ? 'success' : log.status === 'rejected' ? 'error' : 'default'}
+                    />
+                  </Stack>
+                  <Typography>เข้า: {new Date(log.clock_in_at).toLocaleString('th-TH')}</Typography>
+                  <Typography>ออก: {log.clock_out_at ? new Date(log.clock_out_at).toLocaleString('th-TH') : 'ยังไม่ได้ลงเวลาออก'}</Typography>
+                  <Typography>
+                    ระยะจากไซต์: เข้า {log.clock_in_distance_meters === null ? '-' : `${Math.round(log.clock_in_distance_meters)} เมตร`}
+                    {' · '}ออก {log.clock_out_distance_meters === null ? '-' : `${Math.round(log.clock_out_distance_meters)} เมตร`}
+                  </Typography>
+                  <Typography>
+                    ความแม่นยำ GPS: เข้า ±{log.clock_in_accuracy_meters === null ? '-' : `${Math.round(log.clock_in_accuracy_meters)} เมตร`}
+                    {' · '}ออก ±{log.clock_out_accuracy_meters === null ? '-' : `${Math.round(log.clock_out_accuracy_meters)} เมตร`}
+                  </Typography>
+                  <Typography color="text.secondary">
+                    มือถือของ: {log.clock_in_device_info?.ownerName || 'ยังไม่ระบุ'} · {log.clock_in_device_info?.label || 'ไม่ทราบอุปกรณ์'}
+                  </Typography>
+                  {isReview && (
+                    <Stack direction="row" spacing={1} sx={{ pt: 1 }}>
+                      <Button
+                        variant="contained"
+                        color="success"
+                        disabled={reviewingId === log.id}
+                        onClick={() => void reviewAttendance(log.id, 'approved')}
+                      >
+                        อนุมัติ
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        color="error"
+                        disabled={reviewingId === log.id}
+                        onClick={() => void reviewAttendance(log.id, 'rejected')}
+                      >
+                        ไม่อนุมัติ
+                      </Button>
+                    </Stack>
+                  )}
+                </Stack>
+              </Paper>
+            )
+          })}
         </Stack>
       )}
 
