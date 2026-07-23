@@ -50,6 +50,9 @@ export function MyProfilePage() {
   const [attendance, setAttendance] = useState<Attendance[]>([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [changingPassword, setChangingPassword] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [message, setMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
 
@@ -101,6 +104,28 @@ export function MyProfilePage() {
     setSaving(false)
   }
 
+  const changePassword = async () => {
+    setMessage('')
+    setErrorMessage('')
+    if (newPassword.length < 10) {
+      setErrorMessage('รหัสผ่านใหม่ต้องมีอย่างน้อย 10 ตัวอักษร')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setErrorMessage('รหัสผ่านใหม่ทั้งสองช่องไม่ตรงกัน')
+      return
+    }
+    setChangingPassword(true)
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    if (error) setErrorMessage(error.message)
+    else {
+      setNewPassword('')
+      setConfirmPassword('')
+      setMessage('เปลี่ยนรหัสผ่านเรียบร้อยแล้ว')
+    }
+    setChangingPassword(false)
+  }
+
   return (
     <Stack spacing={3}>
       <PageHeader title="ข้อมูลส่วนตัว" description="ข้อมูลพนักงานและประวัติการลงเวลาของคุณ" />
@@ -140,6 +165,38 @@ export function MyProfilePage() {
               onClick={() => void saveProfile()}
             >
               {saving ? <CircularProgress size={24} color="inherit" /> : 'บันทึกข้อมูล'}
+            </Button>
+          </Stack>
+        </Paper>
+      )}
+
+      {tab === 0 && (
+        <Paper variant="outlined" sx={{ p: { xs: 2, md: 3 } }}>
+          <Stack spacing={2}>
+            <Typography variant="h6">เปลี่ยนรหัสผ่าน</Typography>
+            <Alert severity="info">หากได้รับรหัสผ่านชั่วคราวจากผู้ดูแล กรุณาเปลี่ยนรหัสผ่านทันที</Alert>
+            <TextField
+              type="password"
+              label="รหัสผ่านใหม่"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+              helperText="อย่างน้อย 10 ตัวอักษร"
+            />
+            <TextField
+              type="password"
+              label="ยืนยันรหัสผ่านใหม่"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+            />
+            <Button
+              variant="outlined"
+              size="large"
+              disabled={changingPassword || newPassword.length < 10 || confirmPassword.length < 10}
+              onClick={() => void changePassword()}
+            >
+              {changingPassword ? <CircularProgress size={24} color="inherit" /> : 'เปลี่ยนรหัสผ่าน'}
             </Button>
           </Stack>
         </Paper>
