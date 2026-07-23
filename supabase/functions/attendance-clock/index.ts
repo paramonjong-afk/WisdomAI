@@ -12,6 +12,7 @@ type ClockBody = {
 const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
 const distanceMeters = (lat1: number, lon1: number, lat2: number, lon2: number) => {

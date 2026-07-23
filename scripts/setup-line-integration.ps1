@@ -24,7 +24,7 @@ try {
   npx.cmd supabase db push
   npx.cmd supabase secrets set --env-file $secretFile --project-ref $ProjectRef
   npx.cmd supabase functions deploy line-webhook --project-ref $ProjectRef --no-verify-jwt
-  npx.cmd supabase functions deploy attendance-clock --project-ref $ProjectRef
+  npx.cmd supabase functions deploy attendance-clock --project-ref $ProjectRef --no-verify-jwt
   Write-Host 'Setup complete.' -ForegroundColor Green
   Write-Host "Webhook URL: https://$ProjectRef.supabase.co/functions/v1/line-webhook"
   Write-Host 'The attendance-clock function is deployed with login-token verification.'
