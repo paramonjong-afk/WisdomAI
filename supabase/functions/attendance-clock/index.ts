@@ -65,10 +65,10 @@ Deno.serve(async (request) => {
 
     if (body.action === 'clock_in') {
       if (!body.siteId) throw new Error('กรุณาเลือกไซต์')
-      const { data, error } = await admin.from('project_sites')
+      const { data, error: siteError } = await admin.from('project_sites')
         .select('id,name,latitude,longitude,radius_meters,line_group_id,projects(name)')
         .eq('id', body.siteId).eq('active', true).single()
-      if (error || !data) throw new Error('ไม่พบไซต์ที่เลือก')
+      if (siteError || !data) throw new Error('ไม่พบไซต์ที่เลือก')
       site = data as unknown as typeof site
 
       if (!isManager) {
@@ -81,13 +81,13 @@ Deno.serve(async (request) => {
 
       const meters = distanceMeters(body.latitude, body.longitude, site.latitude, site.longitude)
       status = meters <= site.radius_meters ? 'normal' : 'needs_review'
-      const { data: created, error } = await admin.from('attendance_sessions').insert({
+      const { data: created, error: insertError } = await admin.from('attendance_sessions').insert({
         profile_id: userId, site_id: site.id, clock_in_at: now.toISOString(),
         clock_in_latitude: body.latitude, clock_in_longitude: body.longitude,
         clock_in_accuracy_meters: body.accuracy ?? null, clock_in_distance_meters: meters,
         clock_in_selfie_path: body.selfiePath, status,
       }).select('id').single()
-      if (error) throw error
+      if (insertError) throw insertError
       attendanceId = created.id
     } else {
       const { data: open, error: openError } = await admin.from('attendance_sessions')
@@ -98,13 +98,13 @@ Deno.serve(async (request) => {
       if (!site) throw new Error('ไม่พบข้อมูลไซต์')
       const meters = distanceMeters(body.latitude, body.longitude, site.latitude, site.longitude)
       status = meters <= site.radius_meters ? 'normal' : 'needs_review'
-      const { error } = await admin.from('attendance_sessions').update({
+      const { error: updateError } = await admin.from('attendance_sessions').update({
         clock_out_at: now.toISOString(), clock_out_latitude: body.latitude,
         clock_out_longitude: body.longitude, clock_out_accuracy_meters: body.accuracy ?? null,
         clock_out_distance_meters: meters, clock_out_selfie_path: body.selfiePath,
         status,
       }).eq('id', open.id).eq('profile_id', userId).is('clock_out_at', null)
-      if (error) throw error
+      if (updateError) throw updateError
       attendanceId = open.id
     }
 
