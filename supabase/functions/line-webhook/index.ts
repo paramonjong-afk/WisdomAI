@@ -32,8 +32,43 @@ type FinancialDocument = {
   confidence: number
 }
 
+type AccountingDocumentLine = {
+  description: string
+  product_code: string | null
+  quantity: number | null
+  unit: string | null
+  unit_price: number | null
+  line_amount: number | null
+  item_type: 'stock' | 'direct_project' | 'tool_asset' | 'expense' | 'service' | 'labor' | 'unknown'
+  notes: string | null
+}
+
+type AccountingDocumentExtraction = {
+  is_accounting_document: boolean
+  document_type:
+    | 'transfer_slip' | 'receipt' | 'tax_invoice_full' | 'tax_invoice_abbreviated'
+    | 'quotation' | 'purchase_order' | 'invoice' | 'billing_note' | 'delivery_note'
+    | 'goods_receipt' | 'withholding_tax_certificate' | 'payroll' | 'other' | 'unreadable'
+  document_number: string | null
+  document_date: string | null
+  due_date: string | null
+  vendor_name: string | null
+  vendor_tax_id: string | null
+  subtotal: number | null
+  discount_amount: number | null
+  vat_amount: number | null
+  withholding_tax_amount: number | null
+  total_amount: number | null
+  paid_amount: number | null
+  payment_method: string | null
+  notes: string | null
+  confidence: number
+  lines: AccountingDocumentLine[]
+}
+
 type ImageAnalysis = WorkAnalysis & {
   financial_document: FinancialDocument | null
+  accounting_document: AccountingDocumentExtraction | null
 }
 
 const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
@@ -186,6 +221,7 @@ async function analyzeImageWithGemini(
       analysis: {
         ...fallbackAnalysis('ได้รับรูปจาก LINE แต่ยังไม่ได้เปิดใช้งาน Gemini Vision'),
         financial_document: null,
+        accounting_document: null,
       } as ImageAnalysis,
       provider: 'rules',
       model: null,
@@ -233,6 +269,13 @@ async function analyzeImageWithGemini(
             'Use mixed only when separate labor and materials amounts are evidenced.',
             'Use advance when money is given for later work spending and the final purpose is not known.',
             'Use unknown when the slip has no reliable purpose. Do not guess split amounts.',
+            'Classify accounting documents and extract their header and line items into accounting_document.',
+            'Document line item_type must describe how the purchase should be handled:',
+            'stock for reusable inventory received into a warehouse; direct_project for material consumed directly at a project;',
+            'tool_asset for durable tools/equipment; expense for operating expense; service for services; labor for wages; unknown if uncertain.',
+            'Do not treat quotations or purchase orders as paid expenses.',
+            'Never invent tax IDs, invoice numbers, VAT, quantities, prices, or totals.',
+            'Use null for unreadable values and keep every uncertain line as item_type unknown.',
             'Use category general when the image lacks sufficient construction-work evidence.',
             'Use only project codes from the supplied list and return an empty list when uncertain.',
           ].join(' '),
@@ -261,12 +304,15 @@ async function analyzeImageWithGemini(
       }],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 700,
+        maxOutputTokens: 4096,
         responseMimeType: 'application/json',
         responseJsonSchema: {
           type: 'object',
           additionalProperties: false,
-          required: ['category', 'summary_text', 'assignee_text', 'urgency', 'confidence', 'project_codes', 'financial_document'],
+          required: [
+            'category', 'summary_text', 'assignee_text', 'urgency', 'confidence',
+            'project_codes', 'financial_document', 'accounting_document',
+          ],
           properties: {
             category: { type: 'string', enum: ['completed', 'in_progress', 'planned', 'issue', 'risk', 'material', 'safety', 'general'] },
             summary_text: { type: 'string' },
@@ -311,6 +357,73 @@ async function analyzeImageWithGemini(
                 },
               ],
             },
+            accounting_document: {
+              anyOf: [
+                { type: 'null' },
+                {
+                  type: 'object',
+                  additionalProperties: false,
+                  required: [
+                    'is_accounting_document', 'document_type', 'document_number',
+                    'document_date', 'due_date', 'vendor_name', 'vendor_tax_id',
+                    'subtotal', 'discount_amount', 'vat_amount', 'withholding_tax_amount',
+                    'total_amount', 'paid_amount', 'payment_method', 'notes',
+                    'confidence', 'lines',
+                  ],
+                  properties: {
+                    is_accounting_document: { type: 'boolean' },
+                    document_type: {
+                      type: 'string',
+                      enum: [
+                        'transfer_slip', 'receipt', 'tax_invoice_full',
+                        'tax_invoice_abbreviated', 'quotation', 'purchase_order',
+                        'invoice', 'billing_note', 'delivery_note', 'goods_receipt',
+                        'withholding_tax_certificate', 'payroll', 'other', 'unreadable',
+                      ],
+                    },
+                    document_number: { type: ['string', 'null'] },
+                    document_date: { type: ['string', 'null'], description: 'YYYY-MM-DD only' },
+                    due_date: { type: ['string', 'null'], description: 'YYYY-MM-DD only' },
+                    vendor_name: { type: ['string', 'null'] },
+                    vendor_tax_id: { type: ['string', 'null'] },
+                    subtotal: { type: ['number', 'null'], minimum: 0 },
+                    discount_amount: { type: ['number', 'null'], minimum: 0 },
+                    vat_amount: { type: ['number', 'null'], minimum: 0 },
+                    withholding_tax_amount: { type: ['number', 'null'], minimum: 0 },
+                    total_amount: { type: ['number', 'null'], minimum: 0 },
+                    paid_amount: { type: ['number', 'null'], minimum: 0 },
+                    payment_method: { type: ['string', 'null'] },
+                    notes: { type: ['string', 'null'] },
+                    confidence: { type: 'number', minimum: 0, maximum: 1 },
+                    lines: {
+                      type: 'array',
+                      maxItems: 100,
+                      items: {
+                        type: 'object',
+                        additionalProperties: false,
+                        required: [
+                          'description', 'product_code', 'quantity', 'unit',
+                          'unit_price', 'line_amount', 'item_type', 'notes',
+                        ],
+                        properties: {
+                          description: { type: 'string' },
+                          product_code: { type: ['string', 'null'] },
+                          quantity: { type: ['number', 'null'], minimum: 0 },
+                          unit: { type: ['string', 'null'] },
+                          unit_price: { type: ['number', 'null'], minimum: 0 },
+                          line_amount: { type: ['number', 'null'], minimum: 0 },
+                          item_type: {
+                            type: 'string',
+                            enum: ['stock', 'direct_project', 'tool_asset', 'expense', 'service', 'labor', 'unknown'],
+                          },
+                          notes: { type: ['string', 'null'] },
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
           },
         },
       },
@@ -334,6 +447,13 @@ async function analyzeImageWithGemini(
       0,
       Math.min(1, Number(parsed.financial_document.confidence) || 0),
     )
+  }
+  if (parsed.accounting_document) {
+    parsed.accounting_document.confidence = Math.max(
+      0,
+      Math.min(1, Number(parsed.accounting_document.confidence) || 0),
+    )
+    parsed.accounting_document.lines = (parsed.accounting_document.lines ?? []).slice(0, 100)
   }
   return { analysis: parsed, provider: 'gemini', model, error: null }
 }
@@ -401,6 +521,104 @@ async function saveFinancialTransaction(
     analysis_error: analysisError,
   }, { onConflict: 'source_message_id' })
   if (error) throw error
+}
+
+async function saveAccountingDocument(
+  sourceMessageId: string,
+  projectIds: string[],
+  document: AccountingDocumentExtraction,
+  imageHash: string,
+  provider: string,
+  model: string | null,
+  analysisError: string | null,
+) {
+  if (!document.is_accounting_document) return
+
+  const normalizedNumber = document.document_number
+    ? normalizeReference(document.document_number)
+    : ''
+  const normalizedVendor = document.vendor_tax_id
+    ? normalizeReference(document.vendor_tax_id)
+    : (document.vendor_name ?? '').toLowerCase().replace(/\s+/g, '')
+  const dedupeKey = normalizedNumber && normalizedVendor
+    ? `document:${document.document_type}:${normalizedVendor}:${normalizedNumber}:${document.total_amount ?? 'unknown'}`
+    : `image:${imageHash}`
+
+  const { data: duplicate, error: duplicateError } = await supabase
+    .from('accounting_documents')
+    .select('id')
+    .or(`dedupe_key.eq.${dedupeKey},image_sha256.eq.${imageHash}`)
+    .neq('status', 'dismissed')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+  if (duplicateError) throw duplicateError
+
+  const hasUnknownLines = document.lines.some((line) => line.item_type === 'unknown')
+  const calculatedTotal = document.subtotal == null
+    ? null
+    : document.subtotal - (document.discount_amount ?? 0)
+      + (document.vat_amount ?? 0) - (document.withholding_tax_amount ?? 0)
+  const totalsMismatch = calculatedTotal != null && document.total_amount != null
+    && Math.abs(calculatedTotal - document.total_amount) > 1
+  const notes = [
+    document.notes,
+    hasUnknownLines ? 'มีรายการที่ AI จำแนกไม่ได้ กรุณาตรวจสอบก่อนยืนยัน' : null,
+    totalsMismatch ? 'ยอดก่อนภาษี ภาษี และยอดสุทธิไม่สัมพันธ์กัน กรุณาตรวจสอบเอกสาร' : null,
+  ].filter(Boolean).join(' | ') || null
+
+  const { data: savedDocument, error } = await supabase.from('accounting_documents').upsert({
+    source_message_id: sourceMessageId,
+    project_id: projectIds.length === 1 ? projectIds[0] : null,
+    document_type: document.document_type,
+    document_number: document.document_number,
+    document_date: document.document_date,
+    due_date: document.due_date,
+    vendor_name: document.vendor_name,
+    vendor_tax_id: document.vendor_tax_id,
+    subtotal: document.subtotal,
+    discount_amount: document.discount_amount,
+    vat_amount: document.vat_amount,
+    withholding_tax_amount: document.withholding_tax_amount,
+    total_amount: document.total_amount,
+    paid_amount: document.paid_amount,
+    payment_method: document.payment_method,
+    image_sha256: imageHash,
+    dedupe_key: dedupeKey,
+    duplicate_of: duplicate?.id ?? null,
+    status: duplicate ? 'duplicate' : (hasUnknownLines || totalsMismatch ? 'needs_correction' : 'pending'),
+    notes,
+    analysis_provider: provider,
+    analysis_model: model,
+    analysis_confidence: document.confidence,
+    analysis_error: analysisError,
+  }, { onConflict: 'source_message_id' }).select('id').single()
+  if (error) throw error
+
+  const { error: deleteError } = await supabase
+    .from('accounting_document_lines')
+    .delete()
+    .eq('document_id', savedDocument.id)
+  if (deleteError) throw deleteError
+
+  if (document.lines.length > 0) {
+    const { error: lineError } = await supabase.from('accounting_document_lines').insert(
+      document.lines.map((line, index) => ({
+        document_id: savedDocument.id,
+        line_number: index + 1,
+        description: line.description,
+        product_code: line.product_code,
+        quantity: line.quantity,
+        unit: line.unit,
+        unit_price: line.unit_price,
+        line_amount: line.line_amount,
+        item_type: line.item_type,
+        project_id: projectIds.length === 1 ? projectIds[0] : null,
+        notes: line.notes,
+      })),
+    )
+    if (lineError) throw lineError
+  }
 }
 
 async function applyDetectedProjects(
@@ -603,6 +821,7 @@ async function processMessage(event: LineEvent) {
           analysis: {
             ...fallbackAnalysis('ได้รับรูปจาก LINE แต่ระบบวิเคราะห์ภาพไม่สำเร็จ กรุณาตรวจสอบรูปต้นฉบับ'),
             financial_document: null,
+            accounting_document: null,
           },
           provider: 'rules',
           model: null,
@@ -628,12 +847,26 @@ async function processMessage(event: LineEvent) {
       }, { onConflict: 'source_message_id' })
       if (summaryError) throw summaryError
 
+      const imageHash = await sha256Hex(bytes)
+
       if (result.analysis.financial_document?.is_transfer_slip) {
         await saveFinancialTransaction(
           saved.id,
           assignedProjectIds,
           result.analysis.financial_document,
-          await sha256Hex(bytes),
+          imageHash,
+          result.provider,
+          result.model,
+          result.error,
+        )
+      }
+
+      if (result.analysis.accounting_document?.is_accounting_document) {
+        await saveAccountingDocument(
+          saved.id,
+          assignedProjectIds,
+          result.analysis.accounting_document,
+          imageHash,
           result.provider,
           result.model,
           result.error,

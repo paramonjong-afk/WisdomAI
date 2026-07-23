@@ -26,6 +26,21 @@ The integration stores new LINE group events after the bot webhook is enabled. L
 - If no project can be identified, the message appears in **รอจัดประเภท** for a manager to assign manually.
 - The original LINE message is stored once; project links use a many-to-many mapping table.
 
-## No-cost analysis
+## Gemini Free Tier analysis
 
-The current classifier uses Thai and English keywords for completed, in progress, planned, issue, risk, material, safety, and general. Images and files are stored securely but are not visually interpreted without an AI service.
+1. Create a Gemini API key in Google AI Studio.
+2. Do not paste the key into `.env`, Vite variables, source code, chat, or GitHub.
+3. Run:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts/setup-gemini-integration.ps1 -ProjectRef YOUR_PROJECT_REF
+   ```
+
+4. Enter the key when prompted. Input is hidden and the temporary secret file is deleted automatically.
+5. Send a new text message in a connected LINE group.
+
+The webhook uses `gemini-3.5-flash-lite` to produce a category, concise Thai summary,
+assignee, urgency, confidence, and matching project codes. If the Gemini free quota
+is exhausted or the service is unavailable, the original message is still saved and
+the keyword classifier is used as a fallback. Server-only secrets stay in Supabase
+Edge Function Secrets.
