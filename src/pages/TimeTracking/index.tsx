@@ -1,5 +1,5 @@
-import { Alert, Button, CircularProgress, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material'
-import { useCallback, useEffect, useState } from 'react'
+import { Alert, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
@@ -23,6 +23,10 @@ export function TimeTrackingPage() {
   const [assignment, setAssignment] = useState({ profileId:'', siteId:'' })
   const [siteId, setSiteId] = useState('')
   const [selfie, setSelfie] = useState<File | null>(null)
+  const [cameraOpen, setCameraOpen] = useState(false)
+  const [cameraReady, setCameraReady] = useState(false)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [form, setForm] = useState({ projectId:'', name:'', latitude:'', longitude:'', radius:'200', lineGroupId:'' })
@@ -76,6 +80,51 @@ export function TimeTrackingPage() {
     if (!navigator.geolocation) reject(new Error('อุปกรณ์นี้ไม่รองรับ GPS'))
     else navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy:true, timeout:20_000, maximumAge:0 })
   })
+
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current = null
+    if (videoRef.current) videoRef.current.srcObject = null
+    setCameraReady(false)
+    setCameraOpen(false)
+  }, [])
+
+  const startCamera = async () => {
+    setMessage('')
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('อุปกรณ์หรือเบราว์เซอร์นี้ไม่รองรับกล้อง')
+      setCameraOpen(true)
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+      const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false })
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        await videoRef.current.play()
+        setCameraReady(true)
+      }
+    } catch (error) {
+      stopCamera()
+      setMessage(error instanceof Error ? `เปิดกล้องไม่ได้: ${error.message}` : 'เปิดกล้องไม่ได้')
+    }
+  }
+
+  const captureSelfie = async () => {
+    const video = videoRef.current
+    if (!video || !video.videoWidth || !video.videoHeight) return
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('ไม่สามารถบันทึกภาพจากกล้องได้')
+    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85))
+    if (!blob) throw new Error('ไม่สามารถบันทึกภาพจากกล้องได้')
+    setSelfie(new File([blob], `selfie-${Date.now()}.jpg`, { type:'image/jpeg' }))
+    stopCamera()
+    setMessage('ถ่ายรูป Selfie สำเร็จ พร้อมลงเวลา')
+  }
+
+  useEffect(() => () => streamRef.current?.getTracks().forEach((track) => track.stop()), [])
 
   const uploadSelfie = async (kind:'in'|'out') => {
     if (!selfie || !user) throw new Error('กรุณาถ่ายรูป Selfie ก่อนลงเวลา')
@@ -166,12 +215,23 @@ export function TimeTrackingPage() {
         {sites.map((site) => <MenuItem key={site.id} value={site.id}>{site.projects?.name} · {site.name}</MenuItem>)}
       </TextField>}
       {!openSession && sites.length === 0 && <Alert severity="info" sx={{mt:2}}>ยังไม่มีไซต์ที่ได้รับมอบหมาย กรุณาติดต่อผู้จัดการ</Alert>}
-      <Button component="label" variant="outlined" disabled={busy} sx={{mt:2}}>ถ่ายรูป Selfie<input hidden type="file" accept="image/*" capture="user" onChange={(event) => setSelfie(event.target.files?.[0] ?? null)} /></Button>
-      {selfie && <Typography variant="body2" sx={{mt:1}}>เลือกรูปแล้ว: {selfie.name}</Typography>}
+      <Button variant="outlined" disabled={busy} sx={{mt:2}} onClick={() => void startCamera()}>เปิดกล้องถ่าย Selfie</Button>
+      {selfie && <Typography variant="body2" color="success.main" sx={{mt:1}}>✓ ถ่ายรูป Selfie แล้ว</Typography>}
       <Button fullWidth size="large" variant="contained" color={openSession ? 'error' : 'primary'} disabled={busy || (!openSession && sites.length === 0)} sx={{mt:2}} onClick={() => void clock(openSession ? 'clock_out' : 'clock_in')}>
         {busy ? <CircularProgress size={24} color="inherit" /> : openSession ? 'ลงเวลาออก' : 'ลงเวลาเข้า'}
       </Button>
     </Paper>
+    <Dialog open={cameraOpen} onClose={stopCamera} fullWidth maxWidth="sm">
+      <DialogTitle>ถ่ายรูป Selfie สด</DialogTitle>
+      <DialogContent>
+        <video ref={videoRef} playsInline muted style={{width:'100%', borderRadius:12, background:'#111', transform:'scaleX(-1)'}} />
+        {!cameraReady && <Stack sx={{py:2, alignItems:'center'}}><CircularProgress /><Typography sx={{mt:1}}>กำลังเปิดกล้อง...</Typography></Stack>}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={stopCamera}>ยกเลิก</Button>
+        <Button variant="contained" disabled={!cameraReady} onClick={() => void captureSelfie()}>ถ่ายภาพนี้</Button>
+      </DialogActions>
+    </Dialog>
     <Paper variant="outlined" sx={{p:2}}>
       <Typography variant="h6">ประวัติล่าสุด</Typography>
       {sessions.length === 0 && <Typography color="text.secondary">ยังไม่มีประวัติลงเวลา</Typography>}
