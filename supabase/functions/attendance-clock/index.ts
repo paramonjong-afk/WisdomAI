@@ -7,6 +7,14 @@ type ClockBody = {
   longitude: number
   accuracy?: number
   selfiePath: string
+  device?: {
+    id?: string
+    label?: string
+    platform?: string
+    userAgent?: string
+    screen?: string
+    timezone?: string
+  }
 }
 
 const cors = {
@@ -24,6 +32,17 @@ const distanceMeters = (lat1: number, lon1: number, lat2: number, lon2: number) 
     + Math.cos(lat1 * radians) * Math.cos(lat2 * radians) * Math.sin(longitudeDelta / 2) ** 2
   return 2 * radius * Math.asin(Math.sqrt(value))
 }
+
+const cleanText = (value: unknown, maxLength: number) =>
+  typeof value === 'string' ? value.trim().slice(0, maxLength) : ''
+
+const deviceInfo = (device: ClockBody['device']) => ({
+  label: cleanText(device?.label, 120) || 'ไม่ทราบอุปกรณ์',
+  platform: cleanText(device?.platform, 80),
+  userAgent: cleanText(device?.userAgent, 500),
+  screen: cleanText(device?.screen, 40),
+  timezone: cleanText(device?.timezone, 80),
+})
 
 type LineNotification = {
   status: 'sent' | 'skipped' | 'failed'
@@ -79,7 +98,15 @@ Deno.serve(async (request) => {
 
     const userId = authData.user.id
     const { data: profile } = await admin.from('profiles').select('full_name,email,role').eq('id', userId).single()
+    const employeeName = profile?.full_name?.trim()
+    if (!employeeName) {
+      return Response.json({
+        error: 'ยังไม่ได้ระบุชื่อพนักงาน กรุณาเปิดเมนู Employees เพื่อบันทึกชื่อก่อนลงเวลา',
+      }, { status: 400, headers: cors })
+    }
     const isManager = profile?.role === 'admin' || profile?.role === 'manager'
+    const attendanceDeviceId = cleanText(body.device?.id, 100) || null
+    const attendanceDeviceInfo = deviceInfo(body.device)
     const now = new Date()
     let site: { id:string; name:string; latitude:number; longitude:number; radius_meters:number; line_group_id:string|null; projects:{name:string}|null } | null = null
     let attendanceId = ''
@@ -127,6 +154,7 @@ Deno.serve(async (request) => {
         clock_in_latitude: body.latitude, clock_in_longitude: body.longitude,
         clock_in_accuracy_meters: body.accuracy ?? null, clock_in_distance_meters: meters,
         clock_in_selfie_path: body.selfiePath, status,
+        clock_in_device_id: attendanceDeviceId, clock_in_device_info: attendanceDeviceInfo,
       }).select('id').single()
       if (insertError?.code === '23505') {
         throw new Error('คุณลงเวลาเข้าแล้ว กรุณาลงเวลาออกก่อน')
@@ -151,6 +179,7 @@ Deno.serve(async (request) => {
         clock_out_at: now.toISOString(), clock_out_latitude: body.latitude,
         clock_out_longitude: body.longitude, clock_out_accuracy_meters: body.accuracy ?? null,
         clock_out_distance_meters: meters, clock_out_selfie_path: body.selfiePath,
+        clock_out_device_id: attendanceDeviceId, clock_out_device_info: attendanceDeviceInfo,
         status,
       }).eq('id', open.id).eq('profile_id', userId).is('clock_out_at', null).select('id').maybeSingle()
       if (updateError) throw updateError
@@ -158,12 +187,11 @@ Deno.serve(async (request) => {
       attendanceId = open.id
     }
 
-    const employee = profile?.full_name || profile?.email || authData.user.email || 'พนักงาน'
     const eventName = body.action === 'clock_in' ? 'ลงเวลาเข้างาน' : 'ลงเวลาออกงาน'
     const thaiTime = now.toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'medium', timeStyle: 'short' })
     const reviewText = status === 'needs_review' ? '\n⚠️ อยู่นอกรัศมีไซต์ กรุณาตรวจสอบ' : ''
     const lineNotification = await notifyLine(site?.line_group_id ?? null,
-      `✅ ${eventName}\nชื่อ: ${employee}\nโครงการ: ${site?.projects?.name ?? '-'}\nไซต์: ${site?.name ?? '-'}\nเวลา: ${thaiTime}${reviewText}`)
+      `✅ ${eventName}\nชื่อ: ${employeeName}\nโครงการ: ${site?.projects?.name ?? '-'}\nไซต์: ${site?.name ?? '-'}\nเวลา: ${thaiTime}\nอุปกรณ์: ${attendanceDeviceInfo.label}${reviewText}`)
 
     return Response.json({ ok: true, attendanceId, status, serverTime: now.toISOString(), lineNotification }, { headers: cors })
   } catch (error) {

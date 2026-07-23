@@ -22,6 +22,46 @@ const distanceMeters = (lat1:number, lon1:number, lat2:number, lon2:number) => {
   return 2 * radius * Math.asin(Math.sqrt(value))
 }
 
+const getDeviceId = () => {
+  const storageKey = 'wisdomai-device-id'
+  const existing = window.localStorage.getItem(storageKey)
+  if (existing) return existing
+  const created = crypto.randomUUID()
+  window.localStorage.setItem(storageKey, created)
+  return created
+}
+
+const getDeviceInfo = () => {
+  const userAgent = navigator.userAgent
+  const operatingSystem = /Android/i.test(userAgent)
+    ? 'Android'
+    : /iPhone|iPad|iPod/i.test(userAgent)
+      ? 'iPhone/iPad'
+      : /Windows/i.test(userAgent)
+        ? 'Windows'
+        : /Macintosh|Mac OS X/i.test(userAgent)
+          ? 'macOS'
+          : navigator.platform || 'ไม่ทราบระบบ'
+  const browser = /Edg\//i.test(userAgent)
+    ? 'Edge'
+    : /Chrome\//i.test(userAgent)
+      ? 'Chrome'
+      : /Safari\//i.test(userAgent)
+        ? 'Safari'
+        : /Firefox\//i.test(userAgent)
+          ? 'Firefox'
+          : 'Browser'
+
+  return {
+    id: getDeviceId(),
+    label: `${operatingSystem} · ${browser}`,
+    platform: navigator.platform,
+    userAgent,
+    screen: `${window.screen.width}x${window.screen.height}`,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  }
+}
+
 export function TimeTrackingPage() {
   usePageTitle('ลงเวลาทำงาน')
   const { user, profile } = useAuth()
@@ -237,7 +277,7 @@ export function TimeTrackingPage() {
       const { data, error } = await supabase.functions.invoke('attendance-clock', { body:{
         action, siteId: action === 'clock_in' ? siteId : undefined,
         latitude:locationCheck.latitude, longitude:locationCheck.longitude,
-        accuracy:locationCheck.accuracy, selfiePath,
+        accuracy:locationCheck.accuracy, selfiePath, device:getDeviceInfo(),
       } })
       if (error) throw error
       if (data?.error) throw new Error(data.error)
