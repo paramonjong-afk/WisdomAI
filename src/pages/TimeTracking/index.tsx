@@ -1,6 +1,7 @@
 import { Alert, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
+import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
@@ -440,12 +441,54 @@ export function TimeTrackingPage() {
           รีเฟรชข้อมูล
         </Button>
       </Stack>
-      {sessions.length === 0 && <Typography color="text.secondary">ยังไม่มีประวัติลงเวลา</Typography>}
-      {sessions.map((session) => <Typography key={session.id} sx={{py:.5}}>
-        {session.project_sites?.name ?? '-'} · เข้า {new Date(session.clock_in_at).toLocaleString('th-TH')}
-        {session.clock_out_at ? ` · ออก ${new Date(session.clock_out_at).toLocaleString('th-TH')}` : ' · กำลังทำงาน'}
-        {session.status === 'needs_review' ? ' ⚠️ รอตรวจสอบ' : ''}
-      </Typography>)}
+      <StandardDataTable
+        rows={sessions}
+        getRowId={(session) => session.id}
+        getSearchText={(session) => [
+          session.project_sites?.projects?.name,
+          session.project_sites?.name,
+          session.status,
+        ].filter(Boolean).join(' ')}
+        searchLabel="ค้นหาโครงการ ไซต์ หรือสถานะ"
+        emptyText="ยังไม่มีประวัติลงเวลา"
+        exportFileName="wisdomai-time-tracking"
+        columns={[
+          {
+            id: 'project',
+            label: 'โครงการ',
+            minWidth: 180,
+            render: (session) => session.project_sites?.projects?.name ?? '-',
+            exportValue: (session) => session.project_sites?.projects?.name,
+          },
+          {
+            id: 'site',
+            label: 'ไซต์',
+            minWidth: 160,
+            render: (session) => session.project_sites?.name ?? '-',
+            exportValue: (session) => session.project_sites?.name,
+          },
+          {
+            id: 'clock-in',
+            label: 'เวลาเข้า',
+            minWidth: 180,
+            render: (session) => new Date(session.clock_in_at).toLocaleString('th-TH'),
+            exportValue: (session) => new Date(session.clock_in_at).toLocaleString('th-TH'),
+          },
+          {
+            id: 'clock-out',
+            label: 'เวลาออก',
+            minWidth: 180,
+            render: (session) => session.clock_out_at ? new Date(session.clock_out_at).toLocaleString('th-TH') : 'กำลังทำงาน',
+            exportValue: (session) => session.clock_out_at ? new Date(session.clock_out_at).toLocaleString('th-TH') : '',
+          },
+          {
+            id: 'status',
+            label: 'สถานะ',
+            render: (session) => session.status === 'needs_review' ? '⚠️ รอตรวจสอบ' : session.status,
+            exportValue: (session) => session.status === 'needs_review' ? 'รอตรวจสอบ' : session.status,
+          },
+        ]}
+      />
     </Paper>
   </Stack>
 }

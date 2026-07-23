@@ -5,6 +5,7 @@ import {
 } from '@mui/material'
 import { useCallback, useEffect, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
+import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
@@ -322,37 +323,57 @@ export function EmployeePage() {
       {tab === 0 && (loading ? (
         <Stack sx={{ alignItems: 'center', py: 6 }}><CircularProgress /></Stack>
       ) : (
-        <Stack spacing={2}>
-          {employees.map((employee) => (
-            <Paper key={employee.id} variant="outlined" sx={{ p: 2.5 }}>
-              <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ alignItems: { md: 'center' } }}>
-                <Stack sx={{ minWidth: { md: 260 } }}>
-                  <Typography sx={{ fontWeight: 700 }}>{employee.email ?? 'ไม่มีอีเมล'}</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    สิทธิ์: {employee.role}
-                  </Typography>
-                </Stack>
-                <TextField
-                  fullWidth
-                  label="ชื่อพนักงานที่แจ้งใน LINE"
-                  value={names[employee.id] ?? ''}
-                  slotProps={{ htmlInput: { maxLength: 120 } }}
-                  onChange={(event) => setNames((current) => ({
-                    ...current,
-                    [employee.id]: event.target.value,
-                  }))}
-                />
-                <Button
-                  variant="contained"
-                  disabled={savingId === employee.id || (names[employee.id]?.trim().length ?? 0) < 2}
-                  onClick={() => void saveName(employee)}
-                >
-                  {savingId === employee.id ? <CircularProgress size={22} color="inherit" /> : 'บันทึกชื่อ'}
-                </Button>
-              </Stack>
-            </Paper>
-          ))}
-        </Stack>
+        <StandardDataTable
+          rows={employees}
+          getRowId={(employee) => employee.id}
+          getSearchText={(employee) => `${employee.full_name ?? ''} ${employee.email ?? ''} ${employee.role}`}
+          searchLabel="ค้นหาชื่อ อีเมล หรือสิทธิ์"
+          emptyText="ยังไม่มีรายชื่อพนักงาน"
+          exportFileName="wisdomai-employees"
+          minWidth={900}
+          columns={[
+            {
+              id: 'email',
+              label: 'อีเมล',
+              minWidth: 240,
+              render: (employee) => <Typography sx={{ fontWeight: 700 }}>{employee.email ?? 'ไม่มีอีเมล'}</Typography>,
+              exportValue: (employee) => employee.email,
+            },
+            {
+              id: 'name',
+              label: 'ชื่อพนักงานที่แจ้งใน LINE',
+              minWidth: 320,
+              render: (employee) => <TextField
+                fullWidth
+                size="small"
+                value={names[employee.id] ?? ''}
+                slotProps={{ htmlInput: { maxLength: 120 } }}
+                onChange={(event) => setNames((current) => ({ ...current, [employee.id]: event.target.value }))}
+              />,
+              exportValue: (employee) => names[employee.id] ?? employee.full_name,
+            },
+            {
+              id: 'role',
+              label: 'สิทธิ์',
+              minWidth: 120,
+              render: (employee) => <Chip size="small" label={employee.role} />,
+              exportValue: (employee) => employee.role,
+            },
+            {
+              id: 'actions',
+              label: 'ดำเนินการ',
+              minWidth: 140,
+              render: (employee) => <Button
+                size="small"
+                variant="contained"
+                disabled={savingId === employee.id || (names[employee.id]?.trim().length ?? 0) < 2}
+                onClick={() => void saveName(employee)}
+              >
+                {savingId === employee.id ? <CircularProgress size={20} color="inherit" /> : 'บันทึกชื่อ'}
+              </Button>,
+            },
+          ]}
+        />
       ))}
 
       {tab === 1 && canManage && (
@@ -376,63 +397,101 @@ export function EmployeePage() {
 
           {loadingLogs ? (
             <Stack sx={{ alignItems: 'center', py: 6 }}><CircularProgress /></Stack>
-          ) : attendanceLogs.length === 0 ? (
-            <Alert severity="info">ไม่พบรายการลงเวลาตามตัวกรองที่เลือก</Alert>
-          ) : attendanceLogs.map((log) => {
-            const employeeName = log.profiles?.full_name || log.profiles?.email || 'ไม่ทราบชื่อ'
-            const isReview = log.status === 'needs_review' || log.status === 'pending'
-            return (
-              <Paper key={log.id} variant="outlined" sx={{ p: 2.5 }}>
-                <Stack spacing={1.25}>
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ justifyContent: 'space-between' }}>
-                    <Stack>
-                      <Typography variant="h6">{employeeName}</Typography>
-                      <Typography color="text.secondary">
-                        {log.project_sites?.projects?.name ?? '-'} · {log.project_sites?.name ?? '-'}
-                      </Typography>
-                    </Stack>
-                    <Chip
+          ) : (
+            <StandardDataTable
+              rows={attendanceLogs}
+              getRowId={(log) => log.id}
+              getSearchText={(log) => [
+                log.profiles?.full_name,
+                log.profiles?.email,
+                log.project_sites?.projects?.name,
+                log.project_sites?.name,
+                log.status,
+                log.clock_in_device_info?.ownerName,
+                log.clock_in_device_info?.label,
+              ].filter(Boolean).join(' ')}
+              searchLabel="ค้นหาพนักงาน โครงการ ไซต์ อุปกรณ์ หรือสถานะ"
+              emptyText="ไม่พบรายการลงเวลาตามตัวกรองที่เลือก"
+              exportFileName="wisdomai-employee-attendance"
+              minWidth={1450}
+              columns={[
+                {
+                  id: 'employee',
+                  label: 'พนักงาน',
+                  minWidth: 180,
+                  render: (log) => log.profiles?.full_name || log.profiles?.email || 'ไม่ทราบชื่อ',
+                  exportValue: (log) => log.profiles?.full_name || log.profiles?.email,
+                },
+                {
+                  id: 'project',
+                  label: 'โครงการ/ไซต์',
+                  minWidth: 200,
+                  render: (log) => `${log.project_sites?.projects?.name ?? '-'} · ${log.project_sites?.name ?? '-'}`,
+                  exportValue: (log) => `${log.project_sites?.projects?.name ?? ''} · ${log.project_sites?.name ?? ''}`,
+                },
+                {
+                  id: 'clock-in',
+                  label: 'เวลาเข้า',
+                  minWidth: 180,
+                  render: (log) => new Date(log.clock_in_at).toLocaleString('th-TH'),
+                  exportValue: (log) => new Date(log.clock_in_at).toLocaleString('th-TH'),
+                },
+                {
+                  id: 'clock-out',
+                  label: 'เวลาออก',
+                  minWidth: 180,
+                  render: (log) => log.clock_out_at ? new Date(log.clock_out_at).toLocaleString('th-TH') : 'ยังไม่ได้ลงเวลาออก',
+                  exportValue: (log) => log.clock_out_at ? new Date(log.clock_out_at).toLocaleString('th-TH') : '',
+                },
+                {
+                  id: 'distance',
+                  label: 'ระยะจากไซต์ เข้า/ออก',
+                  minWidth: 170,
+                  render: (log) => `${log.clock_in_distance_meters === null ? '-' : `${Math.round(log.clock_in_distance_meters)} ม.`} / ${log.clock_out_distance_meters === null ? '-' : `${Math.round(log.clock_out_distance_meters)} ม.`}`,
+                  exportValue: (log) => `${log.clock_in_distance_meters ?? ''}/${log.clock_out_distance_meters ?? ''}`,
+                },
+                {
+                  id: 'accuracy',
+                  label: 'ความแม่นยำ GPS เข้า/ออก',
+                  minWidth: 190,
+                  render: (log) => `±${log.clock_in_accuracy_meters === null ? '-' : `${Math.round(log.clock_in_accuracy_meters)} ม.`} / ±${log.clock_out_accuracy_meters === null ? '-' : `${Math.round(log.clock_out_accuracy_meters)} ม.`}`,
+                  exportValue: (log) => `${log.clock_in_accuracy_meters ?? ''}/${log.clock_out_accuracy_meters ?? ''}`,
+                },
+                {
+                  id: 'device',
+                  label: 'เจ้าของมือถือ/อุปกรณ์',
+                  minWidth: 220,
+                  render: (log) => `${log.clock_in_device_info?.ownerName || 'ยังไม่ระบุ'} · ${log.clock_in_device_info?.label || 'ไม่ทราบอุปกรณ์'}`,
+                  exportValue: (log) => `${log.clock_in_device_info?.ownerName || ''} · ${log.clock_in_device_info?.label || ''}`,
+                },
+                {
+                  id: 'status',
+                  label: 'สถานะ',
+                  minWidth: 150,
+                  render: (log) => {
+                    const isReview = log.status === 'needs_review' || log.status === 'pending'
+                    return <Chip
+                      size="small"
                       label={log.status === 'needs_review' ? 'รอตรวจสอบ/อยู่นอกไซต์' : log.status}
                       color={isReview ? 'warning' : log.status === 'approved' || log.status === 'normal' ? 'success' : log.status === 'rejected' ? 'error' : 'default'}
                     />
-                  </Stack>
-                  <Typography>เข้า: {new Date(log.clock_in_at).toLocaleString('th-TH')}</Typography>
-                  <Typography>ออก: {log.clock_out_at ? new Date(log.clock_out_at).toLocaleString('th-TH') : 'ยังไม่ได้ลงเวลาออก'}</Typography>
-                  <Typography>
-                    ระยะจากไซต์: เข้า {log.clock_in_distance_meters === null ? '-' : `${Math.round(log.clock_in_distance_meters)} เมตร`}
-                    {' · '}ออก {log.clock_out_distance_meters === null ? '-' : `${Math.round(log.clock_out_distance_meters)} เมตร`}
-                  </Typography>
-                  <Typography>
-                    ความแม่นยำ GPS: เข้า ±{log.clock_in_accuracy_meters === null ? '-' : `${Math.round(log.clock_in_accuracy_meters)} เมตร`}
-                    {' · '}ออก ±{log.clock_out_accuracy_meters === null ? '-' : `${Math.round(log.clock_out_accuracy_meters)} เมตร`}
-                  </Typography>
-                  <Typography color="text.secondary">
-                    มือถือของ: {log.clock_in_device_info?.ownerName || 'ยังไม่ระบุ'} · {log.clock_in_device_info?.label || 'ไม่ทราบอุปกรณ์'}
-                  </Typography>
-                  {isReview && (
-                    <Stack direction="row" spacing={1} sx={{ pt: 1 }}>
-                      <Button
-                        variant="contained"
-                        color="success"
-                        disabled={reviewingId === log.id}
-                        onClick={() => void reviewAttendance(log.id, 'approved')}
-                      >
-                        อนุมัติ
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        color="error"
-                        disabled={reviewingId === log.id}
-                        onClick={() => void reviewAttendance(log.id, 'rejected')}
-                      >
-                        ไม่อนุมัติ
-                      </Button>
+                  },
+                  exportValue: (log) => log.status === 'needs_review' ? 'รอตรวจสอบ/อยู่นอกไซต์' : log.status,
+                },
+                {
+                  id: 'actions',
+                  label: 'ดำเนินการ',
+                  minWidth: 170,
+                  render: (log) => log.status === 'needs_review' || log.status === 'pending' ? (
+                    <Stack direction="row" spacing={0.5}>
+                      <Button size="small" variant="contained" color="success" disabled={reviewingId === log.id} onClick={() => void reviewAttendance(log.id, 'approved')}>อนุมัติ</Button>
+                      <Button size="small" variant="outlined" color="error" disabled={reviewingId === log.id} onClick={() => void reviewAttendance(log.id, 'rejected')}>ไม่อนุมัติ</Button>
                     </Stack>
-                  )}
-                </Stack>
-              </Paper>
-            )
-          })}
+                  ) : '-',
+                },
+              ]}
+            />
+          )}
         </Stack>
       )}
 

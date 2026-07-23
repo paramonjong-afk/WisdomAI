@@ -2,6 +2,7 @@ import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined'
 import { Alert, Box, Button, Chip, CircularProgress, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
+import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
@@ -155,34 +156,95 @@ export function WorkSummaryPage() {
         ))}
       </Box>
       {loading ? <Box sx={{ display: 'grid', placeItems: 'center', py: 8 }}><CircularProgress /></Box> : (
-        <Stack spacing={1.5}>
-          {filteredItems.length === 0 && <Alert severity="info">{items.length === 0 ? 'ยังไม่มีข้อมูลจาก LINE กรุณาส่งข้อความทดสอบแล้วกดรีเฟรช' : 'ไม่พบข้อมูลที่ตรงกับตัวกรอง'}</Alert>}
-          {filteredItems.map((item) => {
+        <StandardDataTable
+          rows={filteredItems}
+          getRowId={(item) => item.id}
+          getSearchText={(item) => {
             const source = messagesById.get(item.source_message_id)
             const itemMappings = mappingsByMessage.get(item.source_message_id) ?? []
-            const senderName = source?.line_senders?.display_name || source?.line_user_id || 'ไม่ทราบผู้ส่ง'
-            const groupName = source?.line_groups?.display_name || (source?.line_group_id ? 'กลุ่ม LINE' : 'แชตส่วนตัว')
-            return (
-              <Paper key={item.id} variant="outlined" sx={{ p: 2.5 }}><Stack spacing={2}>
-                <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
-                  <Chip size="small" color={categoryColors[item.category] ?? 'default'} label={categoryLabels[item.category]} />
-                  <Chip size="small" variant="outlined" label={statusLabels[item.status]} /><Chip size="small" variant="outlined" label={item.work_date} />
-                  {itemMappings.length === 0 && <Chip size="small" color="warning" label="รอระบุโครงการ" />}
-                  {itemMappings.map((mapping) => <Chip key={mapping.project_id} size="small" variant="outlined" label={`${mapping.projects?.code ? `${mapping.projects.code} · ` : ''}${mapping.projects?.name ?? mapping.project_id}`} onDelete={canManage ? () => void removeProject(item.source_message_id, mapping.project_id) : undefined} />)}
+            return [
+              item.summary_text, item.assignee_text, categoryLabels[item.category], statusLabels[item.status],
+              source?.line_senders?.display_name, source?.line_groups?.display_name,
+              ...itemMappings.map((mapping) => mapping.projects?.name),
+            ].filter(Boolean).join(' ')
+          }}
+          searchLabel="ค้นหางาน ผู้รายงาน โครงการ หรือข้อความ"
+          emptyText={items.length === 0 ? 'ยังไม่มีข้อมูลจาก LINE กรุณาส่งข้อความทดสอบแล้วกดรีเฟรช' : 'ไม่พบข้อมูลที่ตรงกับตัวกรอง'}
+          exportFileName="wisdomai-line-work-summary"
+          minWidth={1400}
+          columns={[
+            { id: 'date', label: 'วันที่', minWidth: 110, render: (item) => item.work_date, exportValue: (item) => item.work_date },
+            {
+              id: 'category', label: 'หมวดหมู่', minWidth: 130,
+              render: (item) => <Chip size="small" color={categoryColors[item.category] ?? 'default'} label={categoryLabels[item.category]} />,
+              exportValue: (item) => categoryLabels[item.category],
+            },
+            {
+              id: 'summary', label: 'รายละเอียดงาน', minWidth: 320,
+              render: (item) => <Typography sx={{ whiteSpace: 'pre-wrap' }}>{item.summary_text}</Typography>,
+              exportValue: (item) => item.summary_text,
+            },
+            {
+              id: 'projects', label: 'โครงการ', minWidth: 290,
+              render: (item) => {
+                const itemMappings = mappingsByMessage.get(item.source_message_id) ?? []
+                return <Stack spacing={1}>
+                  <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
+                    {itemMappings.length === 0 && <Chip size="small" color="warning" label="รอระบุโครงการ" />}
+                    {itemMappings.map((mapping) => <Chip
+                      key={mapping.project_id}
+                      size="small"
+                      variant="outlined"
+                      label={`${mapping.projects?.code ? `${mapping.projects.code} · ` : ''}${mapping.projects?.name ?? mapping.project_id}`}
+                      onDelete={canManage ? () => void removeProject(item.source_message_id, mapping.project_id) : undefined}
+                    />)}
+                  </Stack>
+                  {canManage && <Stack direction="row" spacing={0.5}>
+                    <Select
+                      size="small"
+                      displayEmpty
+                      value={selectedProjects[item.source_message_id] ?? ''}
+                      onChange={(event) => setSelectedProjects((current) => ({ ...current, [item.source_message_id]: event.target.value }))}
+                      sx={{ minWidth: 180 }}
+                    >
+                      <MenuItem value="">เพิ่มโครงการ...</MenuItem>
+                      {projects.filter((project) => !itemMappings.some((mapping) => mapping.project_id === project.id)).map((project) => (
+                        <MenuItem key={project.id} value={project.id}>{project.code ? `${project.code} · ` : ''}{project.name}</MenuItem>
+                      ))}
+                    </Select>
+                    <Button size="small" variant="outlined" disabled={!selectedProjects[item.source_message_id]} onClick={() => void assignProject(item.source_message_id)}>เพิ่ม</Button>
+                  </Stack>}
                 </Stack>
-                <Typography sx={{ whiteSpace: 'pre-wrap' }}>{item.summary_text}</Typography>
-                <Typography variant="body2" color="text.secondary">ผู้รายงาน: {senderName} · แหล่งที่มา: {groupName}{source?.occurred_at ? ` · ${new Date(source.occurred_at).toLocaleString('th-TH')}` : ''}</Typography>
-                {canManage && <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                  <Select size="small" displayEmpty value={selectedProjects[item.source_message_id] ?? ''} onChange={(event) => setSelectedProjects((current) => ({ ...current, [item.source_message_id]: event.target.value }))} sx={{ minWidth: 220 }}>
-                    <MenuItem value="">เพิ่มโครงการ...</MenuItem>{projects.filter((project) => !itemMappings.some((mapping) => mapping.project_id === project.id)).map((project) => <MenuItem key={project.id} value={project.id}>{project.code ? `${project.code} · ` : ''}{project.name}</MenuItem>)}
-                  </Select>
-                  <Button variant="outlined" disabled={!selectedProjects[item.source_message_id]} onClick={() => void assignProject(item.source_message_id)}>เพิ่ม</Button>
-                  {item.status === 'pending' && <><Button variant="contained" onClick={() => void review(item.id, 'confirmed')}>ยืนยัน</Button><Button color="inherit" onClick={() => void review(item.id, 'dismissed')}>ไม่นำมาใช้</Button></>}
-                </Stack>}
-              </Stack></Paper>
-            )
-          })}
-        </Stack>
+              },
+              exportValue: (item) => (mappingsByMessage.get(item.source_message_id) ?? []).map((mapping) => mapping.projects?.name).filter(Boolean).join(', '),
+            },
+            {
+              id: 'source', label: 'ผู้รายงาน/กลุ่ม LINE', minWidth: 210,
+              render: (item) => {
+                const source = messagesById.get(item.source_message_id)
+                return `${source?.line_senders?.display_name || source?.line_user_id || 'ไม่ทราบผู้ส่ง'} · ${source?.line_groups?.display_name || (source?.line_group_id ? 'กลุ่ม LINE' : 'แชตส่วนตัว')}`
+              },
+              exportValue: (item) => {
+                const source = messagesById.get(item.source_message_id)
+                return `${source?.line_senders?.display_name || source?.line_user_id || 'ไม่ทราบผู้ส่ง'} · ${source?.line_groups?.display_name || (source?.line_group_id ? 'กลุ่ม LINE' : 'แชตส่วนตัว')}`
+              },
+            },
+            {
+              id: 'status', label: 'สถานะ', minWidth: 120,
+              render: (item) => <Chip size="small" variant="outlined" label={statusLabels[item.status]} />,
+              exportValue: (item) => statusLabels[item.status],
+            },
+            {
+              id: 'actions', label: 'ดำเนินการ', minWidth: 190,
+              render: (item) => canManage && item.status === 'pending' ? (
+                <Stack direction="row" spacing={0.5}>
+                  <Button size="small" variant="contained" onClick={() => void review(item.id, 'confirmed')}>ยืนยัน</Button>
+                  <Button size="small" color="inherit" onClick={() => void review(item.id, 'dismissed')}>ไม่นำมาใช้</Button>
+                </Stack>
+              ) : '-',
+            },
+          ]}
+        />
       )}
     </Stack>
   )

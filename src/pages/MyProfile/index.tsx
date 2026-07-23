@@ -3,6 +3,7 @@ import {
 } from '@mui/material'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
+import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
@@ -224,31 +225,70 @@ export function MyProfilePage() {
 
           {loading ? (
             <Stack sx={{ alignItems: 'center', py: 5 }}><CircularProgress /></Stack>
-          ) : attendance.length === 0 ? (
-            <Alert severity="info">ไม่พบข้อมูลลงเวลาในเดือนนี้</Alert>
-          ) : attendance.map((item) => {
-            const status = statusDetails[item.status] ?? { label: item.status, color: 'default' as const }
-            const duration = item.clock_out_at
-              ? (new Date(item.clock_out_at).getTime() - new Date(item.clock_in_at).getTime()) / 3_600_000
-              : null
-            return (
-              <Paper key={item.id} variant="outlined" sx={{ p: 2 }}>
-                <Stack spacing={1}>
-                  <Stack direction="row" spacing={1} sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography sx={{ fontWeight: 700 }}>
-                      {item.project_sites?.projects?.name ?? '-'} · {item.project_sites?.name ?? '-'}
-                    </Typography>
-                    <Chip size="small" label={status.label} color={status.color} />
-                  </Stack>
-                  <Typography>เข้า: {new Date(item.clock_in_at).toLocaleString('th-TH')}</Typography>
-                  <Typography>ออก: {item.clock_out_at ? new Date(item.clock_out_at).toLocaleString('th-TH') : 'ยังไม่ได้ลงเวลาออก'}</Typography>
-                  <Typography color="text.secondary">
-                    ระยะเวลาทำงาน: {duration === null ? '-' : `${duration.toFixed(1)} ชั่วโมง`}
-                  </Typography>
-                </Stack>
-              </Paper>
-            )
-          })}
+          ) : (
+            <StandardDataTable
+              rows={attendance}
+              getRowId={(item) => item.id}
+              getSearchText={(item) => [
+                item.project_sites?.projects?.name,
+                item.project_sites?.name,
+                statusDetails[item.status]?.label,
+              ].filter(Boolean).join(' ')}
+              searchLabel="ค้นหาโครงการ ไซต์ หรือสถานะ"
+              emptyText="ไม่พบข้อมูลลงเวลาในเดือนนี้"
+              exportFileName="wisdomai-my-attendance"
+              columns={[
+                {
+                  id: 'project',
+                  label: 'โครงการ',
+                  minWidth: 180,
+                  render: (item) => item.project_sites?.projects?.name ?? '-',
+                  exportValue: (item) => item.project_sites?.projects?.name,
+                },
+                {
+                  id: 'site',
+                  label: 'ไซต์',
+                  minWidth: 160,
+                  render: (item) => item.project_sites?.name ?? '-',
+                  exportValue: (item) => item.project_sites?.name,
+                },
+                {
+                  id: 'clock-in',
+                  label: 'เวลาเข้า',
+                  minWidth: 180,
+                  render: (item) => new Date(item.clock_in_at).toLocaleString('th-TH'),
+                  exportValue: (item) => new Date(item.clock_in_at).toLocaleString('th-TH'),
+                },
+                {
+                  id: 'clock-out',
+                  label: 'เวลาออก',
+                  minWidth: 180,
+                  render: (item) => item.clock_out_at ? new Date(item.clock_out_at).toLocaleString('th-TH') : 'ยังไม่ได้ลงเวลาออก',
+                  exportValue: (item) => item.clock_out_at ? new Date(item.clock_out_at).toLocaleString('th-TH') : '',
+                },
+                {
+                  id: 'duration',
+                  label: 'ชั่วโมงทำงาน',
+                  align: 'right',
+                  render: (item) => item.clock_out_at
+                    ? ((new Date(item.clock_out_at).getTime() - new Date(item.clock_in_at).getTime()) / 3_600_000).toFixed(1)
+                    : '-',
+                  exportValue: (item) => item.clock_out_at
+                    ? ((new Date(item.clock_out_at).getTime() - new Date(item.clock_in_at).getTime()) / 3_600_000).toFixed(1)
+                    : '',
+                },
+                {
+                  id: 'status',
+                  label: 'สถานะ',
+                  render: (item) => {
+                    const status = statusDetails[item.status] ?? { label: item.status, color: 'default' as const }
+                    return <Chip size="small" label={status.label} color={status.color} />
+                  },
+                  exportValue: (item) => statusDetails[item.status]?.label ?? item.status,
+                },
+              ]}
+            />
+          )}
         </Stack>
       )}
     </Stack>
