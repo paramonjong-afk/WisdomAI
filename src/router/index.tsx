@@ -9,6 +9,7 @@ import { TimeTrackingPage } from '../pages/TimeTracking'
 import { WorkSummaryPage } from '../pages/WorkSummary'
 import { SolarPage } from '../pages/Solar'
 import { SettingsPage } from '../pages/Settings'
+import { MyProfilePage } from '../pages/MyProfile'
 import { ProtectedRoute } from './ProtectedRoute'
 import { PublicOnlyRoute } from './PublicOnlyRoute'
 
@@ -34,6 +35,7 @@ export const router = createBrowserRouter([
           { path: 'work-summary', element: <WorkSummaryPage /> },
           { path: 'solar', element: <SolarPage /> },
           { path: 'settings', element: <SettingsPage /> },
+          { path: 'my-profile', element: <MyProfilePage /> },
         ],
       },
     ],

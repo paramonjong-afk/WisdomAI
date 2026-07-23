@@ -39,7 +39,11 @@ export function TopBar() {
           </IconButton>
         </Tooltip>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-          <Avatar sx={{ width: 34, height: 34, bgcolor: 'primary.main', fontSize: 14 }}>{initials}</Avatar>
+          <Tooltip title="ข้อมูลส่วนตัว">
+            <IconButton aria-label="ข้อมูลส่วนตัว" onClick={() => navigate('/my-profile')} sx={{ p: 0 }}>
+              <Avatar sx={{ width: 34, height: 34, bgcolor: 'primary.main', fontSize: 14 }}>{initials}</Avatar>
+            </IconButton>
+          </Tooltip>
           <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
             <Typography variant="body2" sx={{ fontWeight: 700 }}>{displayName}</Typography>
             <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'capitalize' }}>{role}</Typography>
