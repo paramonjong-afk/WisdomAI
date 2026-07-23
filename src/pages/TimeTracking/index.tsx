@@ -29,6 +29,7 @@ export function TimeTrackingPage() {
   const streamRef = useRef<MediaStream | null>(null)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [form, setForm] = useState({ projectId:'', name:'', latitude:'', longitude:'', radius:'200', lineGroupId:'' })
 
   const loadData = useCallback(async () => {
@@ -68,12 +69,46 @@ export function TimeTrackingPage() {
       if (groupError) throw groupError
       setLineGroups(groupRows ?? [])
     }
+    setLastUpdated(new Date())
   }, [isManager, user])
 
   useEffect(() => {
-    const timer = window.setTimeout(() => { void loadData().catch((error:Error) => setMessage(error.message)) }, 0)
-    return () => window.clearTimeout(timer)
-  }, [loadData])
+    if (!user) return
+
+    const refresh = () => {
+      void loadData().catch((error: Error) => setMessage(error.message))
+    }
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+
+    const timer = window.setTimeout(refresh, 0)
+    const interval = window.setInterval(refresh, 15_000)
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+
+    const channel = supabase
+      .channel(`attendance-session-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'attendance_sessions',
+          filter: `profile_id=eq.${user.id}`,
+        },
+        refresh,
+      )
+      .subscribe()
+
+    return () => {
+      window.clearTimeout(timer)
+      window.clearInterval(interval)
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+      void supabase.removeChannel(channel)
+    }
+  }, [loadData, user])
   const openSession = sessions.find((session) => !session.clock_out_at)
 
   const getLocation = () => new Promise<GeolocationPosition>((resolve, reject) => {
@@ -233,7 +268,17 @@ export function TimeTrackingPage() {
       </DialogActions>
     </Dialog>
     <Paper variant="outlined" sx={{p:2}}>
-      <Typography variant="h6">ประวัติล่าสุด</Typography>
+      <Stack direction={{xs:'column',sm:'row'}} spacing={1} sx={{alignItems:{sm:'center'}, justifyContent:'space-between'}}>
+        <Stack>
+          <Typography variant="h6">ประวัติล่าสุด</Typography>
+          <Typography variant="caption" color="text.secondary">
+            {lastUpdated ? `อัปเดตล่าสุด ${lastUpdated.toLocaleTimeString('th-TH')}` : 'กำลังโหลดข้อมูล...'}
+          </Typography>
+        </Stack>
+        <Button variant="outlined" disabled={busy} onClick={() => void loadData().catch((error:Error) => setMessage(error.message))}>
+          รีเฟรชข้อมูล
+        </Button>
+      </Stack>
       {sessions.length === 0 && <Typography color="text.secondary">ยังไม่มีประวัติลงเวลา</Typography>}
       {sessions.map((session) => <Typography key={session.id} sx={{py:.5}}>{new Date(session.clock_in_at).toLocaleString('th-TH')} · {session.project_sites?.name ?? '-'} · {session.clock_out_at ? 'ออกแล้ว' : 'กำลังทำงาน'} {session.status === 'needs_review' ? '⚠️ รอตรวจสอบ' : ''}</Typography>)}
     </Paper>

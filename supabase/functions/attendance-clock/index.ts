@@ -25,15 +25,32 @@ const distanceMeters = (lat1: number, lon1: number, lat2: number, lon2: number) 
   return 2 * radius * Math.asin(Math.sqrt(value))
 }
 
-async function notifyLine(groupId: string | null, message: string) {
+type LineNotification = {
+  status: 'sent' | 'skipped' | 'failed'
+  reason?: string
+}
+
+async function notifyLine(groupId: string | null, message: string): Promise<LineNotification> {
   const token = Deno.env.get('LINE_CHANNEL_ACCESS_TOKEN')
-  if (!groupId || !token) return
-  const response = await fetch('https://api.line.me/v2/bot/message/push', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ to: groupId, messages: [{ type: 'text', text: message }] }),
-  })
-  if (!response.ok) console.error('LINE push failed', response.status, await response.text())
+  if (!groupId) return { status: 'skipped', reason: 'site_has_no_line_group' }
+  if (!token) return { status: 'failed', reason: 'missing_line_channel_access_token' }
+
+  try {
+    const response = await fetch('https://api.line.me/v2/bot/message/push', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to: groupId, messages: [{ type: 'text', text: message }] }),
+    })
+    if (response.ok) return { status: 'sent' }
+
+    const detail = await response.text()
+    console.error('LINE push failed', response.status, detail)
+    return { status: 'failed', reason: `line_api_${response.status}: ${detail}` }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    console.error('LINE push request failed', detail)
+    return { status: 'failed', reason: `line_request_failed: ${detail}` }
+  }
 }
 
 Deno.serve(async (request) => {
@@ -65,6 +82,25 @@ Deno.serve(async (request) => {
 
     if (body.action === 'clock_in') {
       if (!body.siteId) throw new Error('กรุณาเลือกไซต์')
+      const { data: existingOpen, error: existingOpenError } = await admin
+        .from('attendance_sessions')
+        .select('id,clock_in_at,project_sites(name)')
+        .eq('profile_id', userId)
+        .is('clock_out_at', null)
+        .order('clock_in_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (existingOpenError) throw existingOpenError
+      if (existingOpen) {
+        const existingTime = new Date(existingOpen.clock_in_at).toLocaleString('th-TH', {
+          timeZone: 'Asia/Bangkok',
+          dateStyle: 'medium',
+          timeStyle: 'short',
+        })
+        const existingSite = (existingOpen.project_sites as unknown as { name?: string } | null)?.name ?? '-'
+        throw new Error(`คุณลงเวลาเข้าแล้ว เวลา ${existingTime} ที่ไซต์ ${existingSite} กรุณาลงเวลาออกก่อน`)
+      }
+
       const { data, error: siteError } = await admin.from('project_sites')
         .select('id,name,latitude,longitude,radius_meters,line_group_id,projects(name)')
         .eq('id', body.siteId).eq('active', true).single()
@@ -87,24 +123,33 @@ Deno.serve(async (request) => {
         clock_in_accuracy_meters: body.accuracy ?? null, clock_in_distance_meters: meters,
         clock_in_selfie_path: body.selfiePath, status,
       }).select('id').single()
+      if (insertError?.code === '23505') {
+        throw new Error('คุณลงเวลาเข้าแล้ว กรุณาลงเวลาออกก่อน')
+      }
       if (insertError) throw insertError
       attendanceId = created.id
     } else {
       const { data: open, error: openError } = await admin.from('attendance_sessions')
         .select('id,site_id,project_sites(id,name,latitude,longitude,radius_meters,line_group_id,projects(name))')
-        .eq('profile_id', userId).is('clock_out_at', null).maybeSingle()
-      if (openError || !open) throw new Error('ไม่พบรายการลงเวลาเข้าที่ยังเปิดอยู่')
+        .eq('profile_id', userId)
+        .is('clock_out_at', null)
+        .order('clock_in_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (openError) throw openError
+      if (!open) throw new Error('ไม่พบรายการที่กำลังทำงาน หรือคุณได้ลงเวลาออกแล้ว')
       site = open.project_sites as unknown as typeof site
       if (!site) throw new Error('ไม่พบข้อมูลไซต์')
       const meters = distanceMeters(body.latitude, body.longitude, site.latitude, site.longitude)
       status = meters <= site.radius_meters ? 'normal' : 'needs_review'
-      const { error: updateError } = await admin.from('attendance_sessions').update({
+      const { data: updated, error: updateError } = await admin.from('attendance_sessions').update({
         clock_out_at: now.toISOString(), clock_out_latitude: body.latitude,
         clock_out_longitude: body.longitude, clock_out_accuracy_meters: body.accuracy ?? null,
         clock_out_distance_meters: meters, clock_out_selfie_path: body.selfiePath,
         status,
-      }).eq('id', open.id).eq('profile_id', userId).is('clock_out_at', null)
+      }).eq('id', open.id).eq('profile_id', userId).is('clock_out_at', null).select('id').maybeSingle()
       if (updateError) throw updateError
+      if (!updated) throw new Error('รายการนี้ลงเวลาออกแล้ว กรุณารีเฟรชหน้าจอ')
       attendanceId = open.id
     }
 
@@ -112,10 +157,10 @@ Deno.serve(async (request) => {
     const eventName = body.action === 'clock_in' ? 'ลงเวลาเข้างาน' : 'ลงเวลาออกงาน'
     const thaiTime = now.toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', dateStyle: 'medium', timeStyle: 'short' })
     const reviewText = status === 'needs_review' ? '\n⚠️ อยู่นอกรัศมีไซต์ กรุณาตรวจสอบ' : ''
-    await notifyLine(site?.line_group_id ?? null,
+    const lineNotification = await notifyLine(site?.line_group_id ?? null,
       `✅ ${eventName}\nชื่อ: ${employee}\nโครงการ: ${site?.projects?.name ?? '-'}\nไซต์: ${site?.name ?? '-'}\nเวลา: ${thaiTime}${reviewText}`)
 
-    return Response.json({ ok: true, attendanceId, status, serverTime: now.toISOString() }, { headers: cors })
+    return Response.json({ ok: true, attendanceId, status, serverTime: now.toISOString(), lineNotification }, { headers: cors })
   } catch (error) {
     console.error(error)
     return Response.json({ error: error instanceof Error ? error.message : 'ไม่สามารถลงเวลาได้' }, { status: 400, headers: cors })
