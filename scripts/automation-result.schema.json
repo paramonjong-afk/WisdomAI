@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "properties": {
+    "status": { "type": "string", "enum": ["review", "done", "blocked"] },
+    "progress": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "current_step": { "type": "string" },
+    "evidence": { "type": "string" },
+    "production_status": { "type": "string" },
+    "error_fingerprint": { "type": "string" }
+  },
+  "required": ["status", "progress", "current_step", "evidence", "production_status", "error_fingerprint"],
+  "additionalProperties": false
+}

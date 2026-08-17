@@ -1,18 +1,24 @@
-import MenuIcon from '@mui/icons-material/Menu'
 import NotificationsNoneOutlinedIcon from '@mui/icons-material/NotificationsNoneOutlined'
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined'
-import { AppBar, Avatar, Badge, Box, IconButton, Toolbar, Tooltip, Typography } from '@mui/material'
+import TimerOutlinedIcon from '@mui/icons-material/TimerOutlined'
+import { AppBar, Avatar, Badge, Box, Button, Divider, IconButton, ListSubheader, MenuItem, Paper, TextField, Toolbar, Tooltip, Typography } from '@mui/material'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { logAppEvent, updateAppStatus } from '../lib/telemetry'
+import { navigationItems } from '../utils/navigation'
+
+const mobileNavigationItems = navigationItems.filter(
+  (item) => item.path === '/time-tracking' || item.path === '/my-profile',
+)
 
 export function TopBar() {
   const navigate = useNavigate()
-  const { profile, user, signOut } = useAuth()
+  const { profile, user, companies, currentCompany, switchCompany, signOut } = useAuth()
   const [signingOut, setSigningOut] = useState(false)
   const displayName = profile?.full_name || user?.email || 'Wisdom user'
   const role = profile?.role ?? 'employee'
+  const isPlatformAdmin = profile?.platform_role === 'admin'
   const initials = displayName.slice(0, 2).toUpperCase()
 
   const handleSignOut = async () => {
@@ -32,14 +38,107 @@ export function TopBar() {
   return (
     <AppBar position="sticky" elevation={0} color="inherit" sx={{ borderBottom: 1, borderColor: 'divider' }}>
       <Toolbar>
-        <IconButton edge="start" sx={{ display: { md: 'none' }, mr: 1 }} aria-label="Open navigation">
-          <MenuIcon />
-        </IconButton>
-        <Typography variant="body2" color="text.secondary" sx={{ flexGrow: 1 }}>
-          Construction Management Platform
+        <Box
+          component="details"
+          sx={{
+            display: { xs: 'block', md: 'none' },
+            '@media (pointer: coarse)': { display: 'block' },
+            mr: 1,
+            position: 'relative',
+            flexShrink: 0,
+          }}
+        >
+          <Box
+            component="summary"
+            aria-label="เปิดเมนูนำทาง"
+            sx={{
+              width: 48,
+              height: 48,
+              display: 'grid',
+              placeItems: 'center',
+              fontSize: 30,
+              lineHeight: 1,
+              cursor: 'pointer',
+              listStyle: 'none',
+              touchAction: 'manipulation',
+              userSelect: 'none',
+              '&::-webkit-details-marker': { display: 'none' },
+            }}
+          >
+            ☰
+          </Box>
+          <Paper elevation={12} sx={{
+            position: 'absolute', zIndex: 2147483647, top: 52, left: 0,
+            width: 'min(86vw, 320px)', maxHeight: '75vh', overflowY: 'auto', p: 1,
+          }}>
+            {mobileNavigationItems.map((item) => <Box
+              component="a" key={item.path} href={item.path}
+              sx={{
+                display: 'block', minHeight: 48, px: 2, py: 1.5,
+                color: 'text.primary', textDecoration: 'none', borderRadius: 1,
+                fontWeight: item.path === '/time-tracking' ? 800 : 600,
+                bgcolor: item.path === '/time-tracking' ? 'action.selected' : 'transparent',
+              }}
+            >
+              {item.path === '/time-tracking' ? '⏱ ลงเวลาของฉัน' : '👤 ข้อมูลส่วนตัว'}
+            </Box>)}
+            <Box
+              component="button"
+              type="button"
+              disabled={signingOut}
+              onClick={() => void handleSignOut()}
+              sx={{
+                width: '100%',
+                minHeight: 48,
+                px: 2,
+                py: 1.5,
+                border: 0,
+                borderTop: 1,
+                borderColor: 'divider',
+                bgcolor: 'transparent',
+                color: 'text.primary',
+                textAlign: 'left',
+                font: 'inherit',
+                fontWeight: 600,
+                cursor: 'pointer',
+                '&:active': { bgcolor: 'action.selected' },
+              }}
+            >
+              👥 ลงเวลาให้ผู้อื่น (เปลี่ยนบัญชี)
+            </Box>
+          </Paper>
+        </Box>
+        <Typography variant="body2" color="text.secondary" sx={{ flexGrow: 1, display: { xs: 'none', sm: 'block' } }}>
+          {currentCompany?.company_name ?? 'Construction Management Platform'}
         </Typography>
+        <Box sx={{ flexGrow: 1, display: { xs: 'block', sm: 'none' } }} />
+        <Button
+          component="a"
+          href="/time-tracking"
+          variant="contained"
+          size="small"
+          startIcon={<TimerOutlinedIcon />}
+          sx={{
+            display: { xs: 'inline-flex', md: 'none' },
+            '@media (pointer: coarse)': { display: 'inline-flex' },
+            mr: 1,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          ลงเวลา
+        </Button>
+        {(companies.length>1||isPlatformAdmin)&&<TextField
+          select size="small" aria-label="เลือกบริษัท" value={currentCompany?.company_id??''}
+          onChange={(event)=>event.target.value==='__platform__'?navigate('/platform-control-center'):void switchCompany(event.target.value)}
+          sx={{minWidth:180,mr:1,display:{xs:'none',md:'block'}}}
+        >
+          {isPlatformAdmin&&<ListSubheader>Platform Mode</ListSubheader>}
+          {isPlatformAdmin&&<MenuItem value="__platform__">ศูนย์จัดการระบบกลาง</MenuItem>}
+          {isPlatformAdmin&&<Divider/>}
+          {companies.map(company=><MenuItem key={company.company_id} value={company.company_id}>{company.company_name}</MenuItem>)}
+        </TextField>}
         <Tooltip title="Notifications">
-          <IconButton aria-label="Notifications" sx={{ mr: 1 }}>
+          <IconButton aria-label="Notifications" onClick={() => navigate('/notifications')} sx={{ mr: 1, display: { xs: 'none', sm: 'inline-flex' } }}>
             <Badge color="error" variant="dot"><NotificationsNoneOutlinedIcon /></Badge>
           </IconButton>
         </Tooltip>

@@ -1,0 +1,18 @@
+{
+  "system_mode": "autonomous",
+  "guard_interval_minutes": 3,
+  "buffers": {
+    "urgent": {"max_capacity": 100, "priority": 1},
+    "standard": {"max_capacity": 500, "priority": 2},
+    "screening": {"max_capacity": 1000, "priority": 3}
+  },
+  "targets": {
+    "website": ["https://example-client-site.com"],
+    "facebook": ["@example_page"],
+    "x": ["#example_tag"],
+    "tiktok": ["@example_creator"]
+  },
+  "notification": {
+    "line_token": "YOUR_LINE_TOKEN_HERE"
+  }
+}

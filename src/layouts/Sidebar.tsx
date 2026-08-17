@@ -10,17 +10,104 @@ import AccountCircleOutlinedIcon from '@mui/icons-material/AccountCircleOutlined
 import PaidOutlinedIcon from '@mui/icons-material/PaidOutlined'
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined'
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined'
-import { Box, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography } from '@mui/material'
+import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined'
+import WorkHistoryOutlinedIcon from '@mui/icons-material/WorkHistoryOutlined'
+import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
+import RateReviewOutlinedIcon from '@mui/icons-material/RateReviewOutlined'
+import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded'
+import { Avatar, Box, Divider, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography } from '@mui/material'
 import { NavLink } from 'react-router-dom'
-import { navigationItems } from '../utils/navigation'
+import { navigationGroups } from '../utils/navigation'
+import { useAuth } from '../hooks/useAuth'
+import { useLocation } from 'react-router-dom'
 
 export const sidebarWidth = 260
 
-const navigationIcons = [
-  <DashboardOutlinedIcon />, <GroupOutlinedIcon />, <EngineeringOutlinedIcon />,
-  <FormatListBulletedOutlinedIcon />, <TimerOutlinedIcon />, <SummarizeOutlinedIcon />, <PaidOutlinedIcon />, <ReceiptLongOutlinedIcon />, <FactCheckOutlinedIcon />, <SolarPowerOutlinedIcon />,
-  <AccountCircleOutlinedIcon />, <SettingsOutlinedIcon />,
-]
+const navigationIcons:Record<string,React.ReactNode>={
+  '/dashboard':<DashboardOutlinedIcon/>,'/employees':<GroupOutlinedIcon/>,
+  '/projects':<EngineeringOutlinedIcon/>,'/boq':<FormatListBulletedOutlinedIcon/>,
+  '/project-controls':<PaidOutlinedIcon/>,
+  '/boq-compare':<RateReviewOutlinedIcon/>,
+  '/drawing-ai':<AutoAwesomeOutlinedIcon/>,'/time-tracking':<TimerOutlinedIcon/>,
+  '/workforce':<WorkHistoryOutlinedIcon/>,'/workforce-setup':<SettingsOutlinedIcon/>,
+  '/contractors':<PaidOutlinedIcon/>,'/image-review':<RateReviewOutlinedIcon/>,
+  '/document-flows':<HubOutlinedIcon/>,
+  '/wisdom-ai':<AutoAwesomeOutlinedIcon/>,
+  '/approvals':<FactCheckOutlinedIcon/>,'/reports':<SummarizeOutlinedIcon/>,
+  '/work-summary':<SummarizeOutlinedIcon/>,'/financial-summary':<PaidOutlinedIcon/>,
+  '/accounting-documents':<ReceiptLongOutlinedIcon/>,'/line-monitor':<FactCheckOutlinedIcon/>,
+  '/solar':<SolarPowerOutlinedIcon/>,'/my-profile':<AccountCircleOutlinedIcon/>,
+  '/settings':<SettingsOutlinedIcon/>,
+  '/platform-control-center':<HubOutlinedIcon/>,
+}
+
+function NavigationContent() {
+  const {profile}=useAuth()
+  const location=useLocation()
+  const role=profile?.role??'employee'
+  const isPlatformAdmin=profile?.platform_role==='admin'
+  const displayName=profile?.full_name||profile?.email||'ผู้ใช้งาน'
+  const roleLabel=role==='admin'?'ผู้ดูแลระบบ':role==='manager'?'ผู้จัดการ':'พนักงาน'
+  return (
+    <Box sx={{ width:sidebarWidth,height:'100%',display:'flex',flexDirection:'column',bgcolor:'#333333',color:'common.white' }}>
+      <Toolbar sx={{ px:3,minHeight:'64px!important' }}>
+        <Typography variant="h6" sx={{ fontWeight:900,letterSpacing:'-0.5px' }}>
+          WisdomAI
+        </Typography>
+      </Toolbar>
+      <Typography variant="overline" sx={{ px:3,color:'#FABFB2',letterSpacing:'.08em' }}>
+        Construction platform
+      </Typography>
+      <List sx={{ px:1.5,pt:1,pb:3,flex:1,overflowY:'auto' }}>
+        {navigationGroups.map((group)=>{
+          const items=group.items.filter((item)=>(!item.roles||item.roles.includes(role))&&(!item.platformOnly||isPlatformAdmin))
+          if(items.length===0)return null
+          const active=items.some((item)=>location.pathname===item.path)
+          return <Box component="details" key={group.label} open={active} sx={{
+            mb:.5,'&[open] .group-arrow':{transform:'rotate(180deg)'},
+          }}>
+            <Box component="summary" sx={{
+              px:1.5,py:1.1,color:'rgba(255,255,255,.62)',fontSize:11,fontWeight:800,
+              textTransform:'uppercase',letterSpacing:'.055em',cursor:'pointer',
+              listStyle:'none',display:'flex',alignItems:'center',justifyContent:'space-between',
+              '&::-webkit-details-marker':{display:'none'},'&:hover':{color:'#FABFB2'},
+            }}>{group.label}<KeyboardArrowDownRoundedIcon className="group-arrow" sx={{fontSize:17,transition:'transform .18s'}}/></Box>
+            {items.map((item)=>(
+          <ListItemButton
+            component={NavLink}
+            to={item.path}
+            key={item.path}
+            end={item.path === '/'}
+            sx={{
+              mb: 0.35,
+              borderRadius:2.5,
+              color:'rgba(255,255,255,.82)',
+              minHeight:44,position:'relative',px:1.5,
+              '&:hover':{bgcolor:'rgba(250,191,178,.10)',color:'common.white'},
+              '&.active':{bgcolor:'rgba(166,89,64,.72)',color:'common.white'},
+              '&.active:before':{content:'""',position:'absolute',left:0,top:8,bottom:8,width:3,borderRadius:2,bgcolor:'#FABFB2'},
+            }}
+          >
+            <ListItemIcon sx={{ minWidth:38,color:'inherit','& svg':{fontSize:21} }}>{navigationIcons[item.path]}</ListItemIcon>
+            <ListItemText primary={item.label} slotProps={{primary:{sx:{fontWeight:650,fontSize:14,lineHeight:1.35}}}} />
+          </ListItemButton>
+            ))}
+          </Box>
+        })}
+      </List>
+      <Box sx={{px:2,pb:2}}>
+        <Divider sx={{borderColor:'rgba(255,255,255,.12)',mb:2}}/>
+        <Box sx={{display:'flex',alignItems:'center',gap:1.25}}>
+          <Avatar sx={{width:36,height:36,bgcolor:'#A65940',fontSize:13}}>{displayName.slice(0,2).toUpperCase()}</Avatar>
+          <Box sx={{minWidth:0}}>
+            <Typography variant="body2" noWrap sx={{fontWeight:800}}>{displayName}</Typography>
+            <Typography variant="caption" sx={{color:'rgba(255,255,255,.58)'}}>{roleLabel}</Typography>
+          </Box>
+        </Box>
+      </Box>
+    </Box>
+  )
+}
 
 export function Sidebar() {
   return (
@@ -33,37 +120,11 @@ export function Sidebar() {
           width: sidebarWidth,
           position: 'fixed',
           inset: 0,
-          bgcolor: '#14213d',
+          bgcolor: '#333333',
           color: 'common.white',
         }}
       >
-        <Toolbar sx={{ px: 3 }}>
-          <Typography variant="h6" sx={{ fontWeight: 800, letterSpacing: '-0.4px' }}>
-            WisdomAI
-          </Typography>
-        </Toolbar>
-        <Typography variant="overline" sx={{ px: 3, color: 'rgba(255,255,255,.55)' }}>
-          Construction platform
-        </Typography>
-        <List sx={{ px: 1.5, pt: 1 }}>
-          {navigationItems.map((item, index) => (
-            <ListItemButton
-              component={NavLink}
-              to={item.path}
-              key={item.path}
-              end={item.path === '/'}
-              sx={{
-                mb: 0.5,
-                borderRadius: 2,
-                color: 'rgba(255,255,255,.75)',
-                '&.active, &:hover': { bgcolor: 'rgba(255,255,255,.12)', color: 'common.white' },
-              }}
-            >
-              <ListItemIcon sx={{ minWidth: 38, color: 'inherit' }}>{navigationIcons[index]}</ListItemIcon>
-              <ListItemText primary={item.label} slotProps={{ primary: { sx: { fontWeight: 600 } } }} />
-            </ListItemButton>
-          ))}
-        </List>
+        <NavigationContent />
       </Box>
     </Box>
   )

@@ -2,7 +2,7 @@ import type { Session, User } from '@supabase/supabase-js'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
-import type { AuthContextValue, Profile } from '../types/auth'
+import type { AuthContextValue, CompanyMembership, Profile, ProfileRole } from '../types/auth'
 import { AuthContext } from './auth-context'
 
 function profileFromUser(user: User): Profile {
@@ -16,11 +16,10 @@ function profileFromUser(user: User): Profile {
 }
 
 async function loadOrCreateProfile(user: User): Promise<Profile> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, full_name, email, role, created_at, updated_at')
-    .eq('id', user.id)
-    .maybeSingle<Profile>()
+  const { data: rpcRows, error } = await supabase.rpc('get_my_profile')
+  const data = Array.isArray(rpcRows) && rpcRows.length > 0
+    ? rpcRows[0] as Profile
+    : null
 
   if (error) throw error
   if (data) return data
@@ -38,6 +37,7 @@ async function loadOrCreateProfile(user: User): Promise<Profile> {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [companies, setCompanies] = useState<CompanyMembership[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -47,14 +47,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (!currentSession?.user) {
       setProfile(null)
+      setCompanies([])
       return
     }
 
     try {
-      setProfile(await loadOrCreateProfile(currentSession.user))
+      const loadedProfile=await loadOrCreateProfile(currentSession.user)
+      const {data:companyRows,error:companyError}=await supabase.rpc('get_my_companies')
+      if(companyError) throw companyError
+      const memberships=(companyRows??[]) as CompanyMembership[]
+      const companyRole=memberships.find(item=>item.is_active)?.company_role
+      const effectiveRole:ProfileRole=companyRole==='company_admin'?'admin':companyRole&&['executive','manager','accounting_hr'].includes(companyRole)?'manager':'employee'
+      setCompanies(memberships)
+      setProfile({...loadedProfile,role:effectiveRole,platform_role:loadedProfile.role})
     } catch (profileError) {
-      setProfile(null)
-      setError(profileError instanceof Error ? profileError.message : 'Unable to load user profile.')
+      console.error('Unable to load user profile; using session fallback', profileError)
+      setProfile(profileFromUser(currentSession.user))
+      setError(null)
     }
   }, [])
 
@@ -68,8 +77,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (active) setLoading(false)
     })
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!active) return
+      // A background token refresh must not replace the whole application with
+      // AuthLoadingScreen. The user and permissions have not changed here.
+      if (event === 'TOKEN_REFRESHED') {
+        setSession(nextSession)
+        return
+      }
       setLoading(true)
       window.setTimeout(() => {
         if (!active) return
@@ -94,9 +109,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (signOutError) throw signOutError
   }, [])
 
+  const switchCompany = useCallback(async (companyId:string) => {
+    const {error:switchError}=await supabase.rpc('switch_company',{target_company_id:companyId})
+    if(switchError) throw switchError
+    window.location.reload()
+  },[])
+
+  const currentCompany=companies.find(item=>item.is_active)??companies[0]??null
+
   const value = useMemo<AuthContextValue>(
-    () => ({ session, user: session?.user ?? null, profile, loading, error, signOut, refreshProfile }),
-    [error, loading, profile, refreshProfile, session, signOut],
+    () => ({ session, user: session?.user ?? null, profile, companies, currentCompany, loading, error, signOut, refreshProfile, switchCompany }),
+    [companies, currentCompany, error, loading, profile, refreshProfile, session, signOut, switchCompany],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

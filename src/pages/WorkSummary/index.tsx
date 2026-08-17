@@ -40,7 +40,7 @@ export function WorkSummaryPage() {
       supabase.from('work_summary_items')
         .select('id, source_message_id, work_date, category, summary_text, assignee_text, status, project_id')
         .order('work_date', { ascending: false }).limit(500),
-      supabase.from('projects').select('id, name, code').eq('status', 'active').order('name'),
+      supabase.from('projects').select('id:project_id, name, code').eq('status', 'active').order('name'),
     ])
     const initialError = summaryResult.error ?? projectResult.error
     if (initialError) { setError(initialError.message); setLoading(false); return }

@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict'
+import {readFileSync} from 'node:fs'
+const migration=readFileSync('supabase/migrations/202608110023_company_scoped_employee_readiness_view.sql','utf8')
+const edge=readFileSync('supabase/functions/health-monitor/index.ts','utf8')
+const page=readFileSync('src/pages/SystemHealth/index.tsx','utf8')
+assert.match(migration,/member\.company_id/)
+assert.match(migration,/employment\.company_id=member\.company_id/)
+assert.match(migration,/site_assignment\.company_id=member\.company_id/)
+assert.match(edge,/\[value\.code,value\.message,value\.details,value\.hint\]/)
+assert.doesNotMatch(edge,/message: error instanceof Error \? error\.message\.slice\(0, 500\) : String\(error\)/)
+assert.match(page,/สาเหตุที่วิเคราะห์ได้/)
+assert.match(page,/แนวทางแก้ไข/)
+assert.match(page,/ข้อมูลเทคนิค/)
+assert.match(page,/if\(s\.data\)setSettings/)
+assert.match(page,/โหลดข้อมูลบางส่วนไม่สำเร็จ/)
+assert.match(page,/loaded&&!settings\.line_group_id/)
+console.log('Workforce readiness health diagnosis checks passed')

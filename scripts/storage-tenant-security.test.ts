@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+const migration=readFileSync('supabase/migrations/202608100009_storage_tenant_security.sql','utf8')
+const boq=readFileSync('src/pages/BOQ/index.tsx','utf8')
+const line=readFileSync('supabase/functions/line-webhook/index.ts','utf8')
+for(const bucket of ['line-attachments','drawing-ai','boq-imports']) assert.match(migration,new RegExp(`bucket_id='${bucket}'`))
+assert.match(migration,/current_company_id\(\)/)
+assert.match(migration,/line_attachments a/)
+assert.match(migration,/drawing_ai_jobs j/)
+assert.match(migration,/boq_documents d/)
+assert.match(migration,/'application\/pdf'/)
+assert.ok(boq.includes('${currentCompany.company_id}/${profile.id}/'))
+assert.match(line,/`\$\{companyId\}\/\$\{groupId \?\? 'direct'\}/)
+console.log('TEN-009 storage tenant security checks passed')

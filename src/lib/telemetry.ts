@@ -6,6 +6,7 @@ export type ActivityEventType =
   | 'page_view'
   | 'client_error'
   | 'request_error'
+  | 'export_data'
 
 export type ActivitySeverity = 'info' | 'warning' | 'error'
 
@@ -47,6 +48,29 @@ function safeMessage(message?: string) {
   return message?.replace(/(token|password|secret|authorization)[^,\s]*/gi, '[redacted]').slice(0, 500) || null
 }
 
+export async function registerClientError(event: {
+  fingerprint: string
+  correlationKey: string
+  source: string
+  title: string
+  message: string
+  module?: string
+  severity?: 'warning' | 'error' | 'critical'
+  metadata?: Record<string, string | number | boolean | null>
+}) {
+  const { error } = await supabase.rpc('register_client_error_event', {
+    target_fingerprint: event.fingerprint,
+    target_correlation_key: event.correlationKey,
+    target_source: event.source,
+    target_title: event.title,
+    target_message: safeMessage(event.message),
+    target_module: event.module ?? null,
+    target_severity: event.severity ?? 'error',
+    target_metadata: event.metadata ?? {},
+  })
+  if (error) console.warn('Unable to register system error event.', error.message)
+}
+
 export async function logAppEvent(
   profileId: string,
   event: {
@@ -85,4 +109,3 @@ export async function updateAppStatus(
   }, { onConflict: 'profile_id,device_id' })
   if (error) console.warn('Unable to update application status.', error.message)
 }
-

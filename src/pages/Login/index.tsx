@@ -5,26 +5,16 @@ import {
   Box,
   Button,
   Container,
-  CssBaseline,
   Paper,
   Stack,
   TextField,
-  ThemeProvider,
   Typography,
-  createTheme,
 } from '@mui/material'
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
-
-const theme = createTheme({
-  palette: {
-    primary: {
-      main: '#2563eb',
-    },
-  },
-})
+import { getPostLoginDestination } from '../../utils/authRouting'
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -32,6 +22,7 @@ export function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
+  const [recoveryMessage, setRecoveryMessage] = useState('')
   const [loading, setLoading] = useState(false)
 
   usePageTitle('Login')
@@ -40,7 +31,7 @@ export function LoginPage() {
     setLoading(true)
     setErrorMessage('')
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data: signInData, error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password,
     })
@@ -52,26 +43,45 @@ export function LoginPage() {
     }
 
     setLoading(false)
-    const requestedPath = (location.state as { from?: unknown } | null)?.from
-    const destination = typeof requestedPath === 'string'
-      && requestedPath.startsWith('/')
-      && !requestedPath.startsWith('//')
-      && requestedPath !== '/login'
-      ? requestedPath
-      : '/'
-    navigate(destination, { replace: true })
+    let signedInRole: 'admin' | 'manager' | 'employee' | null = null
+    if (signInData.user) {
+      const { data: signedInProfile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', signInData.user.id)
+        .maybeSingle()
+      signedInRole = signedInProfile?.role ?? null
+    }
+    const requested=(location.state as {from?:string}|null)?.from
+    const safeDestination=requested?.startsWith('/')&&!requested.startsWith('//')?requested:getPostLoginDestination(signedInRole)
+    navigate(safeDestination, { replace: true })
+  }
+
+  const handleForgotPassword = async () => {
+    setErrorMessage('')
+    setRecoveryMessage('')
+    const normalizedEmail = email.trim()
+    if (!normalizedEmail) {
+      setErrorMessage('กรุณากรอกอีเมลก่อนขอลิงก์ตั้งรหัสใหม่')
+      return
+    }
+    setLoading(true)
+    const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    })
+    if (error) setErrorMessage(error.message)
+    else setRecoveryMessage('หากอีเมลนี้มีบัญชี ระบบได้ส่งลิงก์ตั้งรหัสผ่านใหม่แล้ว กรุณาตรวจกล่องจดหมายและ Spam')
+    setLoading(false)
   }
 
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-
+    <>
       <Box
         sx={{
           minHeight: '100vh',
           display: 'grid',
           placeItems: 'center',
-          bgcolor: '#f5f7fb',
+          bgcolor: 'background.default',
           py: 3,
         }}
       >
@@ -108,6 +118,7 @@ export function LoginPage() {
                 {errorMessage && (
                   <Alert severity="error">{errorMessage}</Alert>
                 )}
+                {recoveryMessage && <Alert severity="success">{recoveryMessage}</Alert>}
 
                 <TextField
                   label="Email address"
@@ -139,11 +150,19 @@ export function LoginPage() {
                 >
                   {loading ? 'Signing in...' : 'Sign in'}
                 </Button>
+                <Button
+                  type="button"
+                  variant="text"
+                  disabled={loading}
+                  onClick={() => void handleForgotPassword()}
+                >
+                  ลืมรหัสผ่าน / ตั้งรหัสใหม่
+                </Button>
               </Stack>
             </Stack>
           </Paper>
         </Container>
       </Box>
-    </ThemeProvider>
+    </>
   )
 }

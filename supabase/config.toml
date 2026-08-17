@@ -3,3 +3,24 @@ verify_jwt = false
 
 [functions.create-employee]
 verify_jwt = false
+
+[functions.drawing-ai-benchmark]
+verify_jwt = false
+
+[functions.health-monitor]
+verify_jwt = false
+
+[functions.attendance-reminders]
+verify_jwt = false
+
+[functions.manage-employee]
+verify_jwt = false
+
+[functions.telegram-admin]
+verify_jwt = false
+
+[functions.automation-worker]
+verify_jwt = false
+
+[functions.image-storage-optimizer]
+verify_jwt = false

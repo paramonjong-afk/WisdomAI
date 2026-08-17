@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+
+const migration=readFileSync(new URL('../supabase/migrations/202608100018_employee_attendance_policy_reporting.sql',import.meta.url),'utf8')
+const report=readFileSync(new URL('../src/pages/Reports/index.tsx',import.meta.url),'utf8')
+const employee=readFileSync(new URL('../src/pages/Employee/index.tsx',import.meta.url),'utf8')
+const dashboard=readFileSync(new URL('../src/pages/Dashboard/index.tsx',import.meta.url),'utf8')
+
+assert.match(migration,/attendance_policy[\s\S]*required[\s\S]*record_only[\s\S]*exempt/)
+assert.match(migration,/early_arrival_minutes/)
+assert.match(migration,/pre_shift_overtime_minutes/)
+assert.match(migration,/excluded_minutes/)
+assert.match(migration,/derive_attendance_explainable_minutes_trigger/)
+assert.match(report,/เฉลี่ย\/วัน/)
+assert.match(report,/มาก่อน \/ OT ก่อนกะ \/ ไม่นับ/)
+assert.match(report,/รายละเอียดที่มาของยอด/)
+assert.match(report,/ไม่พบการลงเวลา/)
+assert.match(report,/วันหยุดตามตาราง/)
+assert.match(report,/รายรับงวดนี้/)
+assert.match(report,/ชม\./)
+assert.match(employee,/นโยบายลงเวลา/)
+assert.match(employee,/ไม่ต้องลงเวลาและไม่สร้างการแจ้งเตือน/)
+assert.match(dashboard,/project-cost-live/)
+assert.match(dashboard,/employee_site_cost_allocations/)
+console.log('employee attendance policy regression passed')

@@ -1,19 +1,34 @@
 import {
-  Alert, Button, Chip, CircularProgress, MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography,
+  Alert, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
+  MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography,
 } from '@mui/material'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '../../components/PageHeader'
 import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { PersonalDocumentsPanel } from './PersonalDocumentsPanel'
 
 type Attendance = {
   id: string
   clock_in_at: string
   clock_out_at: string | null
   status: string
+  break_minutes: number
+  worked_minutes: number | null
+  normal_minutes: number | null
+  overtime_minutes: number
   project_sites: { name: string; projects: { name: string } | null } | null
+}
+type PayAdjustment = {
+  id: string
+  effective_date: string
+  adjustment_type: string
+  amount: number
+  description: string | null
+  status: string
 }
 
 const monthValue = (date: Date) =>
@@ -36,6 +51,7 @@ const statusDetails: Record<string, { label: string; color: 'success' | 'warning
 export function MyProfilePage() {
   usePageTitle('ข้อมูลส่วนตัว')
   const { user, profile, refreshProfile } = useAuth()
+  const navigate = useNavigate()
   const currentMonth = useMemo(() => monthValue(new Date()), [])
   const previousMonth = useMemo(() => {
     const date = new Date()
@@ -49,6 +65,11 @@ export function MyProfilePage() {
     () => window.localStorage.getItem('wisdomai-device-owner') ?? profile?.full_name ?? '',
   )
   const [attendance, setAttendance] = useState<Attendance[]>([])
+  const [adjustments, setAdjustments] = useState<PayAdjustment[]>([])
+  const [correctionSession, setCorrectionSession] = useState<Attendance | null>(null)
+  const [correctionIn, setCorrectionIn] = useState('')
+  const [correctionOut, setCorrectionOut] = useState('')
+  const [correctionReason, setCorrectionReason] = useState('')
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [changingPassword, setChangingPassword] = useState(false)
@@ -64,28 +85,86 @@ export function MyProfilePage() {
     const [year, month] = selectedMonth.split('-').map(Number)
     const start = new Date(year, month - 1, 1)
     const end = new Date(year, month, 1)
-    const { data, error } = await supabase
-      .from('attendance_sessions')
-      .select('id,clock_in_at,clock_out_at,status,project_sites(name,projects(name))')
-      .eq('profile_id', user.id)
-      .gte('clock_in_at', start.toISOString())
-      .lt('clock_in_at', end.toISOString())
-      .order('clock_in_at', { ascending: false })
-    if (error) setErrorMessage(error.message)
-    else setAttendance((data ?? []) as unknown as Attendance[])
+    const [attendanceResult, adjustmentResult] = await Promise.all([
+      supabase.from('attendance_sessions')
+        .select('id,clock_in_at,clock_out_at,status,break_minutes,worked_minutes,normal_minutes,overtime_minutes,project_sites(name,projects(name))')
+        .eq('profile_id', user.id)
+        .neq('status', 'duplicate')
+        .gte('clock_in_at', start.toISOString())
+        .lt('clock_in_at', end.toISOString())
+        .order('clock_in_at', { ascending: false }),
+      supabase.from('employee_pay_adjustments')
+        .select('id,effective_date,adjustment_type,amount,description,status')
+        .eq('profile_id', user.id)
+        .gte('effective_date', start.toISOString().slice(0, 10))
+        .lt('effective_date', end.toISOString().slice(0, 10))
+        .order('effective_date', { ascending: false }),
+    ])
+    if (attendanceResult.error) setErrorMessage(attendanceResult.error.message)
+    else setAttendance((attendanceResult.data ?? []) as unknown as Attendance[])
+    if (!adjustmentResult.error) setAdjustments((adjustmentResult.data ?? []) as PayAdjustment[])
     setLoading(false)
   }, [selectedMonth, user])
 
   useEffect(() => {
-    if (tab !== 1) return
+    if (tab !== 1 && tab !== 2) return
     const timer = window.setTimeout(() => void loadAttendance(), 0)
     return () => window.clearTimeout(timer)
   }, [loadAttendance, tab])
 
   const totalHours = attendance.reduce((total, item) => {
     if (!item.clock_out_at) return total
-    return total + Math.max(0, new Date(item.clock_out_at).getTime() - new Date(item.clock_in_at).getTime())
-  }, 0) / 3_600_000
+    return total + Math.max(0, Number(item.worked_minutes ?? 0))
+  }, 0) / 60
+  const payProfile = profile as (typeof profile & {
+    employment_type?: 'daily' | 'monthly'
+    daily_rate?: number
+    monthly_salary?: number
+  })
+  const estimatedBasePay = payProfile?.employment_type === 'monthly'
+    ? Number(payProfile.monthly_salary ?? 0)
+    : attendance.filter((item) => item.clock_out_at && ['normal', 'approved'].includes(item.status)).length
+      * Number(payProfile?.daily_rate ?? 0)
+  const positiveAdjustments = adjustments
+    .filter((item) => ['allowance', 'bonus', 'reimbursement'].includes(item.adjustment_type) && item.status !== 'rejected')
+    .reduce((sum, item) => sum + Number(item.amount), 0)
+  const deductions = adjustments
+    .filter((item) => ['wage_advance', 'cash_advance', 'deduction'].includes(item.adjustment_type) && item.status !== 'rejected')
+    .reduce((sum, item) => sum + Number(item.amount), 0)
+
+  const submitCorrection = async () => {
+    if (!correctionSession || !correctionIn || !correctionOut || correctionReason.trim().length < 3) return
+    setSaving(true)
+    setErrorMessage('')
+    const { error } = await supabase.rpc('request_attendance_correction', {
+      target_session_id: correctionSession.id,
+      requested_in: new Date(correctionIn).toISOString(),
+      requested_out: new Date(correctionOut).toISOString(),
+      request_reason: correctionReason.trim(),
+    })
+    if (error) setErrorMessage(error.message)
+    else {
+      setMessage('ส่งคำขอแก้ไขเวลาให้ผู้จัดการตรวจสอบแล้ว')
+      setCorrectionSession(null)
+      setCorrectionIn('')
+      setCorrectionOut('')
+      setCorrectionReason('')
+      await loadAttendance()
+    }
+    setSaving(false)
+  }
+
+  const openCorrection = (item:Attendance) => {
+    const localValue = (value:string) => {
+      const date = new Date(value)
+      const offset = date.getTimezoneOffset()
+      return new Date(date.getTime()-offset*60_000).toISOString().slice(0,16)
+    }
+    setCorrectionSession(item)
+    setCorrectionIn(localValue(item.clock_in_at))
+    setCorrectionOut(item.clock_out_at ? localValue(item.clock_out_at) : '')
+    setCorrectionReason('')
+  }
 
   const saveProfile = async () => {
     if (!user) return
@@ -130,10 +209,21 @@ export function MyProfilePage() {
   return (
     <Stack spacing={3}>
       <PageHeader title="ข้อมูลส่วนตัว" description="ข้อมูลพนักงานและประวัติการลงเวลาของคุณ" />
+      <Button
+        type="button"
+        variant="contained"
+        size="large"
+        onClick={() => navigate('/time-tracking')}
+        sx={{ display: { xs: 'inline-flex', md: 'none' }, minHeight: 48 }}
+      >
+        ไปหน้าลงเวลา
+      </Button>
       <Paper variant="outlined">
         <Tabs value={tab} onChange={(_event, nextTab: number) => setTab(nextTab)} variant="fullWidth">
           <Tab label="ข้อมูลส่วนตัว" />
           <Tab label="ประวัติลงเวลา" />
+          <Tab label="รายได้และการเบิก" />
+          <Tab label="เอกสารส่วนตัว" />
         </Tabs>
       </Paper>
 
@@ -205,6 +295,9 @@ export function MyProfilePage() {
 
       {tab === 1 && (
         <Stack spacing={2}>
+          <Button variant="contained" size="large" onClick={() => navigate('/time-tracking')}>
+            กลับไปหน้าลงเวลา
+          </Button>
           <Paper variant="outlined" sx={{ p: 2 }}>
             <TextField select fullWidth label="เลือกเดือน" value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)}>
               <MenuItem value={currentMonth}>{monthLabel(currentMonth)} (เดือนปัจจุบัน)</MenuItem>
@@ -226,7 +319,46 @@ export function MyProfilePage() {
           {loading ? (
             <Stack sx={{ alignItems: 'center', py: 5 }}><CircularProgress /></Stack>
           ) : (
-            <StandardDataTable
+            <>
+            <Stack spacing={1.5} sx={{ display: { xs: 'flex', md: 'none' } }}>
+              {attendance.map((item) => {
+                const duration = item.clock_out_at
+                  ? Number(item.worked_minutes ?? 0) / 60
+                  : null
+                const status = statusDetails[item.status] ?? { label: item.status, color: 'default' as const }
+                return (
+                  <Paper key={item.id} variant="outlined" sx={{ p: 2 }}>
+                    <Stack spacing={1}>
+                      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography sx={{ fontWeight: 800 }}>
+                          {new Date(item.clock_in_at).toLocaleDateString('th-TH', { dateStyle: 'medium' })}
+                        </Typography>
+                        <Chip size="small" label={!item.clock_out_at ? 'ขาดเวลาออก' : status.label}
+                          color={!item.clock_out_at ? 'error' : status.color} />
+                      </Stack>
+                      <Typography>{item.project_sites?.name ?? 'ไม่ระบุไซต์'}</Typography>
+                      <Typography color="text.secondary">
+                        เข้า {new Date(item.clock_in_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+                        {' · '}ออก {item.clock_out_at
+                          ? new Date(item.clock_out_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
+                          : '--:--'}
+                      </Typography>
+                      <Typography sx={{ fontWeight: 700 }}>
+                        รวม {duration === null ? 'ยังไม่สรุป' : `${duration.toFixed(1)} ชั่วโมง`}
+                      </Typography>
+                      {(!item.clock_out_at || ['needs_review', 'pending', 'rejected'].includes(item.status)) && (
+                        <Button variant="outlined" onClick={() => openCorrection(item)}>
+                          แจ้งขอแก้ไข
+                        </Button>
+                      )}
+                    </Stack>
+                  </Paper>
+                )
+              })}
+              {attendance.length === 0 && <Alert severity="info">ไม่พบข้อมูลลงเวลาในเดือนนี้</Alert>}
+            </Stack>
+            <Stack sx={{ display: { xs: 'none', md: 'block' } }}>
+              <StandardDataTable
               rows={attendance}
               getRowId={(item) => item.id}
               getSearchText={(item) => [
@@ -271,10 +403,10 @@ export function MyProfilePage() {
                   label: 'ชั่วโมงทำงาน',
                   align: 'right',
                   render: (item) => item.clock_out_at
-                    ? ((new Date(item.clock_out_at).getTime() - new Date(item.clock_in_at).getTime()) / 3_600_000).toFixed(1)
+                    ? (Number(item.worked_minutes ?? 0) / 60).toFixed(1)
                     : '-',
                   exportValue: (item) => item.clock_out_at
-                    ? ((new Date(item.clock_out_at).getTime() - new Date(item.clock_in_at).getTime()) / 3_600_000).toFixed(1)
+                    ? (Number(item.worked_minutes ?? 0) / 60).toFixed(1)
                     : '',
                 },
                 {
@@ -288,9 +420,94 @@ export function MyProfilePage() {
                 },
               ]}
             />
+            </Stack>
+            </>
           )}
         </Stack>
       )}
+
+      {tab === 2 && (
+        <Stack spacing={2}>
+          <Paper variant="outlined" sx={{ p: 2 }}>
+            <TextField select fullWidth label="เลือกเดือน" value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)}>
+              <MenuItem value={currentMonth}>{monthLabel(currentMonth)} (เดือนปัจจุบัน)</MenuItem>
+              <MenuItem value={previousMonth}>{monthLabel(previousMonth)} (เดือนก่อน)</MenuItem>
+            </TextField>
+          </Paper>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+            {[
+              ['ค่าจ้างประมาณการ', estimatedBasePay],
+              ['เงินเพิ่ม/คืนค่าใช้จ่าย', positiveAdjustments],
+              ['เบิก/รายการหัก', deductions],
+              ['ยอดสุทธิประมาณการ', estimatedBasePay + positiveAdjustments - deductions],
+            ].map(([label, amount]) => (
+              <Paper key={String(label)} variant="outlined" sx={{ p: 2, flex: 1 }}>
+                <Typography color="text.secondary">{label}</Typography>
+                <Typography variant="h5" sx={{ fontWeight: 800 }}>
+                  ฿{Number(amount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                </Typography>
+              </Paper>
+            ))}
+          </Stack>
+          <Alert severity="info">
+            ยอดนี้เป็นประมาณการจากเวลาที่สมบูรณ์และรายการที่อนุมัติ ไม่ถือว่า “จ่ายแล้ว”
+            จนกว่าฝ่ายบัญชีจะยืนยันการจ่าย
+          </Alert>
+          <Stack spacing={1.5}>
+            {adjustments.map((item) => (
+              <Paper key={item.id} variant="outlined" sx={{ p: 2 }}>
+                <Stack direction="row" sx={{ justifyContent: 'space-between', gap: 2 }}>
+                  <Stack>
+                    <Typography sx={{ fontWeight: 800 }}>{item.description || item.adjustment_type}</Typography>
+                    <Typography color="text.secondary">
+                      {new Date(item.effective_date).toLocaleDateString('th-TH')} · {item.status}
+                    </Typography>
+                  </Stack>
+                  <Typography sx={{ fontWeight: 800 }}>฿{Number(item.amount).toLocaleString('th-TH')}</Typography>
+                </Stack>
+              </Paper>
+            ))}
+            {!loading && adjustments.length === 0 && <Alert severity="info">ยังไม่มีรายการเบิกหรือปรับค่าจ้างในเดือนนี้</Alert>}
+          </Stack>
+        </Stack>
+      )}
+
+      {tab === 3 && user && <PersonalDocumentsPanel profileId={user.id} />}
+
+      <Dialog open={Boolean(correctionSession)} onClose={() => !saving && setCorrectionSession(null)} fullWidth maxWidth="sm">
+        <DialogTitle>แจ้งขอแก้ไขเวลา</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <TextField
+              type="datetime-local"
+              label="เวลาเข้าที่ถูกต้อง"
+              value={correctionIn}
+              onChange={(event) => setCorrectionIn(event.target.value)}
+              slotProps={{ inputLabel: { shrink: true } }}
+            />
+            <TextField
+              type="datetime-local"
+              label="เวลาออกที่ถูกต้อง"
+              value={correctionOut}
+              onChange={(event) => setCorrectionOut(event.target.value)}
+              slotProps={{ inputLabel: { shrink: true } }}
+            />
+            <TextField
+              multiline minRows={3} label="เหตุผล"
+              value={correctionReason}
+              onChange={(event) => setCorrectionReason(event.target.value)}
+              helperText="ผู้จัดการจะเห็นเหตุผลนี้ก่อนอนุมัติ"
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button disabled={saving} onClick={() => setCorrectionSession(null)}>ยกเลิก</Button>
+          <Button variant="contained" disabled={saving || !correctionIn || !correctionOut || correctionReason.trim().length < 3}
+            onClick={() => void submitCorrection()}>
+            ส่งคำขอ
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   )
 }
