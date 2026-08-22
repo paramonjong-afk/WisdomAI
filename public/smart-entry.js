@@ -41,11 +41,10 @@ const probeOnce = (target, timeoutMs) => new Promise((resolve) => {
 })
 
 export const probeTarget = async (target, { attempts = 3, timeoutMs = 2500 } = {}) => {
-  const samples = []
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const result = await probeOnce(target, timeoutMs)
-    if (result.available) samples.push(result.latency)
-  }
+  const attemptsResult = await Promise.all(
+    Array.from({ length: attempts }, () => probeOnce(target, timeoutMs)),
+  )
+  const samples = attemptsResult.filter((result) => result.available).map((result) => result.latency)
   return { ...target, available: samples.length > 0, latency: median(samples), samples }
 }
 
