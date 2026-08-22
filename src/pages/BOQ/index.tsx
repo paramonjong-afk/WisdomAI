@@ -11,8 +11,10 @@ import { PageHeader } from '../../components/PageHeader'
 import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { supabase } from '../../lib/supabase'
+import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 import { readBoqFile, type BoqImportResult, type ImportedBoqRow } from '../../utils/boqImport'
 import { compareBoqSources, readBoqPdf, type PdfExtraction } from '../../utils/boqPdfCompare'
+import { userError } from '../../utils/userError'
 
 type Project = { id: string; name: string; code: string | null }
 type BoqDocument = {
@@ -69,6 +71,8 @@ export function BOQPage() {
   const [priceDecisions, setPriceDecisions] = useState<PriceDecision[]>([])
   const [pricingItem, setPricingItem] = useState<BoqItem | null>(null)
   const [pricingForms, setPricingForms] = useState<Record<'material' | 'labour', PriceDecision> | null>(null)
+  const runAttempt = <T = { data?: unknown; error?: unknown }>(action: string, request: Record<string, unknown>, operation: () => unknown) =>
+    runWithMutationAttempt({ module: 'boq', action, actorProfileId: profile?.id, companyId: currentCompany?.company_id, request, operation }) as Promise<T>
 
   const selected = documents.find((document) => document.id === selectedId)
   const importRows=useMemo(()=>importResult?.rows.filter(row=>selectedImportSheets.includes(row.sheet_name))??[],[importResult,selectedImportSheets])
@@ -87,7 +91,7 @@ export function BOQPage() {
         .order('updated_at', { ascending: false }),
     ])
     if (projectResult.error || documentResult.error) {
-      setMessage(projectResult.error?.message ?? documentResult.error?.message ?? 'โหลดข้อมูลไม่สำเร็จ')
+      setMessage(projectResult.error ? userError(projectResult.error) : documentResult.error ? userError(documentResult.error) : 'โหลดข้อมูลไม่สำเร็จ')
     } else {
       setProjects((projectResult.data ?? []) as Project[])
       const rows = (documentResult.data ?? []) as BoqDocument[]
@@ -105,7 +109,7 @@ export function BOQPage() {
     const { data, error } = await supabase.from('boq_items')
       .select('id,line_number,boq_code,category,description,unit,quantity,material_unit_cost,labour_unit_cost,equipment_unit_cost,subcontract_unit_cost,indirect_unit_cost,selling_unit_price,work_status,progress_percent')
       .eq('boq_document_id', documentId).order('line_number')
-    if (error) setMessage(error.message)
+    if (error) setMessage(userError(error))
     else {
       const loadedItems = (data ?? []) as BoqItem[]
       setItems(loadedItems)
@@ -113,7 +117,7 @@ export function BOQPage() {
       else {
         const decisionResult = await supabase.from('boq_item_price_decisions').select('*')
           .in('boq_item_id', loadedItems.map((item) => item.id))
-        if (decisionResult.error) setMessage(decisionResult.error.message)
+        if (decisionResult.error) setMessage(userError(decisionResult.error))
         else setPriceDecisions((decisionResult.data ?? []) as PriceDecision[])
       }
     }
@@ -150,7 +154,11 @@ export function BOQPage() {
   const createDocument = async () => {
     if (!documentForm.projectId || !documentForm.documentNumber.trim() || !documentForm.title.trim()) return
     setSaving(true)
-    const { data, error } = await supabase.from('boq_documents').insert({
+    const { data, error } = await runAttempt<{ data?: { id?: string }; error?: unknown }>('create_document', {
+      project_id: documentForm.projectId,
+      document_number: documentForm.documentNumber.trim(),
+      title: documentForm.title.trim(),
+    }, async () => await supabase.from('boq_documents').insert({
       project_id: documentForm.projectId,
       document_number: documentForm.documentNumber.trim(),
       title: documentForm.title.trim(),
@@ -158,9 +166,9 @@ export function BOQPage() {
       profit_percent: numeric(documentForm.profit),
       vat_percent: numeric(documentForm.vat),
       created_by: profile?.id,
-    }).select('id').single()
+    }).select('id').single())
     setSaving(false)
-    if (error) setMessage(error.message)
+    if (error) setMessage(userError(error))
     else {
       setDocumentOpen(false); setDocumentForm(emptyDocument)
       await loadDocuments()
@@ -171,7 +179,12 @@ export function BOQPage() {
   const createItem = async () => {
     if (!selected || !itemForm.code.trim() || !itemForm.category.trim() || !itemForm.description.trim() || !itemForm.unit.trim()) return
     setSaving(true)
-    const { error } = await supabase.from('boq_items').insert({
+    const { error } = await runAttempt('create_item', {
+      boq_document_id: selected.id,
+      boq_code: itemForm.code.trim(),
+      category: itemForm.category.trim(),
+      description: itemForm.description.trim(),
+    }, async () => await supabase.from('boq_items').insert({
       boq_document_id: selected.id,
       line_number: items.length ? Math.max(...items.map((item) => item.line_number)) + 1 : 1,
       boq_code: itemForm.code.trim(), category: itemForm.category.trim(),
@@ -180,9 +193,9 @@ export function BOQPage() {
       labour_unit_cost: numeric(itemForm.labour), equipment_unit_cost: numeric(itemForm.equipment),
       subcontract_unit_cost: numeric(itemForm.subcontract), indirect_unit_cost: numeric(itemForm.indirect),
       selling_unit_price: numeric(itemForm.selling),
-    })
+    }))
     setSaving(false)
-    if (error) setMessage(error.message)
+    if (error) setMessage(userError(error))
     else {
       setItemOpen(false); setItemForm(emptyItem)
       await loadItems(selected.id)
@@ -199,7 +212,7 @@ export function BOQPage() {
       setImportResult(result);setSelectedImportSheets(result.sheets.filter(sheet=>sheet.selected).map(sheet=>sheet.name))
       if(!importForm.title)setImportForm((current)=>({...current,title:file.name.replace(/\.[^.]+$/,'')}))
     }catch(error){
-      setImportError(error instanceof Error?error.message:'อ่านไฟล์ไม่สำเร็จ')
+      setImportError(error instanceof Error ? userError(error) : 'อ่านไฟล์ไม่สำเร็จ')
     }finally{setImportBusy(false)}
   }
 
@@ -209,7 +222,7 @@ export function BOQPage() {
     if(file.size>30*1024*1024){setImportError('PDF ต้องมีขนาดไม่เกิน 30 MB');return}
     setImportBusy(true)
     try{setPdfExtraction(await readBoqPdf(file))}
-    catch(error){setImportError(error instanceof Error?error.message:'อ่าน PDF ไม่สำเร็จ')}
+    catch(error){setImportError(error instanceof Error ? userError(error) : 'อ่าน PDF ไม่สำเร็จ')}
     finally{setImportBusy(false)}
   }
 
@@ -241,7 +254,11 @@ export function BOQPage() {
       })
       if(upload.error)throw upload.error
       if(importPdf){const pdfUpload=await supabase.storage.from('boq-imports').upload(pdfStoragePath,importPdf,{contentType:'application/pdf',upsert:false});if(pdfUpload.error){await supabase.storage.from('boq-imports').remove([storagePath]);throw pdfUpload.error}}
-      const result=await supabase.rpc('import_boq_document',{
+      const result = await runAttempt('import_boq_document', {
+        target_project_id: importForm.projectId,
+        target_document_number: importForm.documentNumber.trim(),
+        target_title: importForm.title.trim(),
+      }, async () => await supabase.rpc('import_boq_document',{
         target_project_id:importForm.projectId,
         target_document_number:importForm.documentNumber.trim(),
         target_title:importForm.title.trim(),
@@ -251,7 +268,7 @@ export function BOQPage() {
         source_file_name:importPdf?`${importFile.name} + ${importPdf.name}`:importFile.name,
         source_storage_path:importPdf?JSON.stringify({excel:storagePath,pdf:pdfStoragePath}):storagePath,
         imported_items:importRows,
-      })
+      }))
       if(result.error){
         await supabase.storage.from('boq-imports').remove([storagePath,...(pdfStoragePath?[pdfStoragePath]:[])])
         throw result.error
@@ -261,8 +278,8 @@ export function BOQPage() {
       await loadDocuments()
       if(result.data)setSelectedId(String(result.data))
     }catch(error){
-      setImportError(error instanceof Error?error.message:
-        typeof error==='object'&&error&&'message' in error?String(error.message):'นำเข้า BOQ ไม่สำเร็จ')
+      setImportError(error instanceof Error ? userError(error) :
+        typeof error==='object'&&error&&'message' in error?String(userError(error)):'นำเข้า BOQ ไม่สำเร็จ')
     }finally{setImportBusy(false)}
   }
 
@@ -294,20 +311,20 @@ export function BOQPage() {
         decided_at: pricingForms[kind].sale_decided_price == null ? null : new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }))
-      const decisionResult = await supabase.from('boq_item_price_decisions').upsert(rows, { onConflict: 'boq_item_id,cost_kind' })
+      const decisionResult = await runAttempt('save_price_decisions', { boq_item_id: pricingItem.id, rows: rows.length }, async () => await supabase.from('boq_item_price_decisions').upsert(rows, { onConflict: 'boq_item_id,cost_kind' }))
       if (decisionResult.error) throw decisionResult.error
-      const updateResult = await supabase.from('boq_items').update({
+      const updateResult = await runAttempt('update_pricing_item', { boq_item_id: pricingItem.id }, async () => await supabase.from('boq_items').update({
         material_unit_cost: pricingForms.material.sale_decided_price ?? 0,
         labour_unit_cost: pricingForms.labour.sale_decided_price ?? 0,
         selling_unit_price: (pricingForms.material.sale_decided_price ?? 0) + (pricingForms.labour.sale_decided_price ?? 0),
         updated_at: new Date().toISOString(),
-      }).eq('id', pricingItem.id)
+      }).eq('id', pricingItem.id))
       if (updateResult.error) throw updateResult.error
       setPricingItem(null); setPricingForms(null)
       setMessage('บันทึกราคาที่ Sale ตัดสินใจแล้ว')
       await loadItems(selectedId)
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'บันทึกราคาไม่สำเร็จ')
+      setMessage(error instanceof Error ? userError(error) : 'บันทึกราคาไม่สำเร็จ')
     } finally {
       setSaving(false)
     }
@@ -316,14 +333,14 @@ export function BOQPage() {
   const analyzePricing = async () => {
     if (!pricingItem) return
     setSaving(true)
-    const result = await supabase.rpc('analyze_boq_item_prices', { p_boq_item_id: pricingItem.id })
+    const result = await runAttempt('analyze_pricing', { p_boq_item_id: pricingItem.id }, async () => await supabase.rpc('analyze_boq_item_prices', { p_boq_item_id: pricingItem.id }))
     if (result.error) {
-      setMessage(result.error.message)
+      setMessage(userError(result.error))
       setSaving(false)
       return
     }
     const refreshed = await supabase.from('boq_item_price_decisions').select('*').eq('boq_item_id', pricingItem.id)
-    if (refreshed.error) setMessage(refreshed.error.message)
+    if (refreshed.error) setMessage(userError(refreshed.error))
     else {
       const rows = refreshed.data as PriceDecision[]
       const material = rows.find((row) => row.cost_kind === 'material') ?? blankDecision(pricingItem, 'material')

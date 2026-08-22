@@ -7,6 +7,7 @@ import { PageHeader } from '../../components/PageHeader'
 import { StandardDataTable } from '../../components/StandardDataTable'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { userError } from '../../utils/userError'
 
 type Registry = { id:string; provider:string; model:string; role:string; availability:string; cost_tier:string; notes:string|null }
 type ModuleState = {
@@ -55,7 +56,7 @@ export function WisdomAIControlPage(){
       setCounts({lineProcessed,lineFailed,imagePending,imageConfirmed,ocrQueued,ocrDone,drawingTotal,drawingDone,
         learningReady,trainingQueued,accounting,healthOpen})
       setUpdatedAt(new Date())
-    }catch(reason){setError(reason instanceof Error?reason.message:'โหลดสถานะ WisdomAI ไม่สำเร็จ')}
+    }catch(reason){setError(reason instanceof Error?userError(reason):'โหลดสถานะ WisdomAI ไม่สำเร็จ')}
     finally{setLoading(false)}
   },[])
   useEffect(()=>{const timer=window.setTimeout(()=>void load(),0);return()=>window.clearTimeout(timer)},[load])
@@ -123,3 +124,4 @@ export function WisdomAIControlPage(){
     </Paper>
   </Stack>
 }
+

@@ -8,6 +8,9 @@ import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { userError } from '../../utils/userError'
+import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
+import { isEmployeeResigned } from '../../utils/employeeLifecycle'
 
 type LeaveType = { id: string; code: string; name_th: string }
 type LeaveRequest = {
@@ -32,7 +35,7 @@ type Payroll = {
   profiles?: { full_name: string | null; email: string | null } | null
   employee_payslips?: { document_number: string; status: string }[] | null
 }
-type Employee = { id: string; full_name: string | null; email: string | null }
+type Employee = { id: string; full_name: string | null; email: string | null; employment_status?: string | null; membership_active?: boolean | null }
 type PayPeriod = { id: string; name: string; starts_on: string; ends_on: string; pay_date: string; status: string }
 type LeaveBalance = {
   profile_id: string; balance_year: number; granted_minutes: number; used_minutes: number; pending_minutes: number
@@ -52,7 +55,7 @@ const employeeName = (row: { profiles?: { full_name: string | null; email: strin
 
 export function WorkforcePage() {
   usePageTitle('งานบุคคล')
-  const { user, profile } = useAuth()
+  const { user, profile, currentCompany } = useAuth()
   const canManage = profile?.role === 'admin' || profile?.role === 'manager'
   const [tab, setTab] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -111,7 +114,7 @@ export function WorkforcePage() {
         .select('profile_id,balance_year,granted_minutes,used_minutes,pending_minutes,leave_types(name_th)')
         .eq('profile_id', user.id).eq('balance_year', new Date().getFullYear()),
     ])
-    const [employeeResult, periodResult, attendanceResult, siteResult] = canManage
+    const [employeeResult, periodResult, attendanceResult, siteResult, membershipResult, employmentResult] = canManage
       ? await Promise.all([
         supabase.from('profiles').select('id,full_name,email').order('full_name'),
         supabase.from('pay_periods').select('id,name,starts_on,ends_on,pay_date,status').order('starts_on', { ascending: false }),
@@ -122,38 +125,69 @@ export function WorkforcePage() {
           .neq('status','duplicate')
           .order('clock_in_at',{ascending:false}),
         supabase.from('project_sites').select('id,name,projects(name)').eq('active',true).order('name'),
+        supabase.from('company_members').select('profile_id,active').eq('company_id', currentCompany?.company_id ?? '').eq('active', true),
+        supabase.from('employee_employment_records').select('profile_id,employment_status').eq('company_id', currentCompany?.company_id ?? ''),
       ])
       : [
           { data: [] as Employee[], error: null }, { data: [] as PayPeriod[], error: null },
           { data: [] as AttendanceRow[], error: null }, { data: [] as Site[], error: null },
+          { data: [] as { profile_id: string; active: boolean }[], error: null },
+          { data: [] as { profile_id: string; employment_status: string | null }[], error: null },
         ]
-    const allResults = [leaveTypesResult, leaveResult, otResult, documentResult, payrollResult, balanceResult, employeeResult, periodResult, attendanceResult, siteResult]
+    const allResults = [leaveTypesResult, leaveResult, otResult, documentResult, payrollResult, balanceResult, employeeResult, periodResult, attendanceResult, siteResult, membershipResult, employmentResult]
     const firstError = allResults.find((result) => result.error)?.error
-    if (firstError) setErrorMessage(firstError.message)
+    if (firstError) setErrorMessage(userError(firstError))
     setLeaveTypes((leaveTypesResult.data ?? []) as LeaveType[])
     setLeaveRequests((leaveResult.data ?? []) as unknown as LeaveRequest[])
     setOvertime((otResult.data ?? []) as unknown as Overtime[])
     setDocumentRequests((documentResult.data ?? []) as unknown as DocumentRequest[])
     setPayrolls((payrollResult.data ?? []) as unknown as Payroll[])
     setLeaveBalances((balanceResult.data ?? []) as unknown as LeaveBalance[])
-    setEmployees((employeeResult.data ?? []) as unknown as Employee[])
+    const activeProfileSet = new Set((membershipResult.data ?? []).map((row) => row.profile_id))
+    const statusByProfile = new Map((employmentResult.data ?? []).map((row: { profile_id: string; employment_status: string | null }) => [row.profile_id, row.employment_status]))
+    const activeEmployees = ((employeeResult.data ?? []) as Employee[]).filter((employee) => !isEmployeeResigned({
+      employment_status: statusByProfile.get(employee.id) ?? employee.employment_status ?? null,
+      membership_active: activeProfileSet.has(employee.id),
+    }))
+    setEmployees(activeEmployees)
     setPeriods((periodResult.data ?? []) as unknown as PayPeriod[])
     setAttendanceRows((attendanceResult.data ?? []) as unknown as AttendanceRow[])
     setSites((siteResult.data ?? []) as unknown as Site[])
     setLoading(false)
-  }, [canManage, reportMonth, user])
+  }, [canManage, currentCompany?.company_id, reportMonth, user])
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadData(), 0)
     return () => window.clearTimeout(timer)
   }, [loadData])
 
-  const run = async (operation: () => PromiseLike<{ error: { message: string } | null }>, success: string) => {
-    setBusy(true); setMessage(''); setErrorMessage('')
-    const result = await operation()
-    if (result.error) setErrorMessage(result.error.message)
-    else { setMessage(success); await loadData() }
-    setBusy(false)
+  const run = async (
+    operation: () => PromiseLike<{ error: { message: string } | null }>,
+    success: string,
+    request = {},
+  ) => {
+    setBusy(true)
+    setMessage('')
+    setErrorMessage('')
+    try {
+      await runWithMutationAttempt({
+        module: 'workforce',
+        action: success,
+        actorProfileId: user?.id,
+        companyId: null,
+        request: {
+          ...request,
+          company_id: currentCompany?.company_id ?? null,
+        },
+        operation,
+      })
+      setMessage(success)
+      await loadData()
+    } catch (error) {
+      setErrorMessage(userError(error))
+    } finally {
+      setBusy(false)
+    }
   }
 
   const submitLeave = async () => {
@@ -557,3 +591,4 @@ export function WorkforcePage() {
     </Stack>}
   </Stack>
 }
+

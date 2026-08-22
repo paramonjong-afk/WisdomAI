@@ -2,14 +2,43 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/branding/wisdom-ai-app-icon-32.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#162544" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="WisdomAI" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/branding/wisdom-ai-app-icon-180.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <title>ลงเวลาทำงาน | WisdomAI</title>
+    <script>
+      (function () {
+        const hostname = window.location.hostname
+        const port = window.location.port
+        const isLocal = hostname === '127.0.0.1' || hostname === 'localhost'
+        if (!isLocal || !port || port === '4173') return
+
+        const key = '__wisdomai_dev_port_warned__'
+        if (sessionStorage.getItem(key) === '1') return
+        sessionStorage.setItem(key, '1')
+
+        const message = `Dev server ควรถูกเปิดที่พอร์ท 4173 เสมอ (ขณะนี้เข้าที่ ${window.location.host})`
+        const container = document.createElement('div')
+        container.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.78);color:#fff;display:flex;align-items:center;justify-content:center;padding:20px;'
+        container.innerHTML = `
+          <div style="max-width:640px;background:#1f2937;border:1px solid #374151;border-radius:12px;padding:16px 18px;font-family:Arial,sans-serif;">
+            <div style="font-weight:700;margin-bottom:6px;">ตรวจพบการรันหน้าเว็บจากพอร์ทที่ไม่ใช่ Vite</div>
+            <div style="opacity:.95;line-height:1.45;margin-bottom:14px;">${message}</div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <a href="http://127.0.0.1:4173${window.location.pathname}${window.location.search}${window.location.hash}" style="padding:8px 12px;background:#a855f7;color:#fff;border-radius:8px;text-decoration:none;">เปิดที่ ${window.location.protocol}//127.0.0.1:4173</a>
+              <button onclick="this.parentElement.parentElement.parentElement.remove();" style="padding:8px 12px;background:#334155;color:#fff;border-radius:8px;border:1px solid #64748b;cursor:pointer;">ปิดประกาศชั่วคราว</button>
+            </div>
+          </div>`
+        document.addEventListener('DOMContentLoaded', () => {
+          document.body.appendChild(container)
+        })
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

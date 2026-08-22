@@ -7,6 +7,7 @@ import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { userError } from '../../utils/userError'
 import { readBoqFile } from '../../utils/boqImport'
 import { readBoqPdf } from '../../utils/boqPdfCompare'
 
@@ -52,9 +53,9 @@ export function BoqComparePage(){
   const {profile}=useAuth(),canManage=profile?.role==='admin'||profile?.role==='manager'
   const [projects,setProjects]=useState<Project[]>([]),[projectId,setProjectId]=useState(''),[primary,setPrimary]=useState<'a'|'b'>('a'),[purpose,setPurpose]=useState('ตรวจฉบับเดิมกับฉบับแก้ไข')
   const [sourceA,setSourceA]=useState<SourceData|null>(null),[sourceB,setSourceB]=useState<SourceData|null>(null),[loading,setLoading]=useState<'a'|'b'|''>(''),[error,setError]=useState(''),[tab,setTab]=useState(0)
-  useEffect(()=>{void supabase.from('projects').select('id:project_id,name,code').eq('status','active').order('name').then(({data,error:loadError})=>{if(loadError)setError(loadError.message);else setProjects((data??[]) as Project[])})},[])
+  useEffect(()=>{void supabase.from('projects').select('id:project_id,name,code').eq('status','active').order('name').then(({data,error:loadError})=>{if(loadError)setError(userError(loadError));else setProjects((data??[]) as Project[])})},[])
   const results=useMemo(()=>compareSources(sourceA,sourceB),[sourceA,sourceB]),matched=results.filter(row=>row.status==='matched'),changed=results.filter(row=>row.status==='changed'),onlyA=results.filter(row=>row.status==='only_a'),onlyB=results.filter(row=>row.status==='only_b')
-  const read=async(side:'a'|'b',file:File|null)=>{if(!file)return;setLoading(side);setError('');try{const data=await readSource(file);if(side==='a')setSourceA(data);else setSourceB(data)}catch(readError){setError(readError instanceof Error?readError.message:'อ่านไฟล์ไม่สำเร็จ')}finally{setLoading('')}}
+  const read=async(side:'a'|'b',file:File|null)=>{if(!file)return;setLoading(side);setError('');try{const data=await readSource(file);if(side==='a')setSourceA(data);else setSourceB(data)}catch(readError){setError(readError instanceof Error?userError(readError):'อ่านไฟล์ไม่สำเร็จ')}finally{setLoading('')}}
   if(!canManage)return <Alert severity="error">เฉพาะผู้ดูแลระบบและผู้จัดการ</Alert>
   const shown=tab===1?changed:tab===2?[...onlyA,...onlyB]:tab===3?matched:results
   return <Stack spacing={2.5}>
@@ -77,3 +78,4 @@ export function BoqComparePage(){
     </>}
   </Stack>
 }
+

@@ -5,6 +5,8 @@ import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { userError } from '../../utils/userError'
+import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 
 type Leave={id:string;reason:string;starts_at:string;ends_at:string;profiles:{full_name:string|null;email:string|null}|null;leave_types:{name_th:string}|null}
 type Correction={id:string;reason:string;requested_clock_in_at:string|null;requested_clock_out_at:string|null;profiles:{full_name:string|null;email:string|null}|null}
@@ -14,7 +16,7 @@ const name=(profile:{full_name:string|null;email:string|null}|null)=>profile?.fu
 
 export function ApprovalsPage(){
   usePageTitle('ศูนย์อนุมัติ')
-  const {profile}=useAuth(),canManage=profile?.role==='admin'||profile?.role==='manager'
+  const {profile,currentCompany}=useAuth(),canManage=profile?.role==='admin'||profile?.role==='manager'
   const [tab,setTab]=useState(0),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false)
   const [error,setError]=useState(''),[message,setMessage]=useState('')
   const [leaves,setLeaves]=useState<Leave[]>([]),[corrections,setCorrections]=useState<Correction[]>([]),[claims,setClaims]=useState<Claim[]>([])
@@ -32,9 +34,26 @@ export function ApprovalsPage(){
     setLeaves((l.data??[]) as unknown as Leave[]);setCorrections((c.data??[]) as unknown as Correction[]);setClaims((cl.data??[]) as unknown as Claim[]);setAttendanceReviews((a.data??[]) as unknown as AttendanceReview[]);setLoading(false)
   },[canManage])
   useEffect(()=>{const timer=window.setTimeout(()=>void load(),0);return()=>window.clearTimeout(timer)},[load])
-  const run=async(operation:()=>PromiseLike<{error:{message:string}|null}>,success:string)=>{
-    setBusy(true);setError('');setMessage('');const result=await operation()
-    if(result.error)setError(result.error.message);else{setMessage(success);await load()}setBusy(false)
+  const run = async (operation: () => PromiseLike<{ error: { message: string } | null }>, success: string, request: Record<string, unknown> = {}) => {
+    setBusy(true)
+    setError('')
+    setMessage('')
+    try {
+      await runWithMutationAttempt({
+        module: 'approvals',
+        action: success,
+        actorProfileId: profile?.id,
+        companyId: currentCompany?.company_id,
+        request,
+        operation,
+      })
+      setMessage(success)
+      await load()
+    } catch (error) {
+      setError(userError(error))
+    } finally {
+      setBusy(false)
+    }
   }
   const reviewGps=(id:string,action:'approve'|'reject'|'request_more')=>run(()=>supabase.rpc('review_gps_attendance',{target_session_id:id,review_action:action,review_note:reviewNote.trim()||null,review_source:'web',source_line_group_id:null,source_line_user_id:null}),action==='approve'?'อนุมัติรายการ GPS แล้ว':action==='reject'?'ปฏิเสธรายการแล้ว':'ส่งคำขอข้อมูลเพิ่มแล้ว')
   if(!canManage)return <Alert severity="error">เฉพาะผู้จัดการและผู้ดูแลระบบ</Alert>

@@ -1,6 +1,8 @@
 import { Alert, Box, Button, Chip, CircularProgress, Divider, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material'
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { userError } from '../../utils/userError'
+import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 
 type Company={company_id:string;company_name:string;company_slug:string;company_role:string;is_active:boolean}
 type Group={line_group_id:string;display_name:string|null;company_id:string;company_name:string;active:boolean;last_event_at:string|null;historical_message_count:number}
@@ -31,7 +33,7 @@ export function PlatformLineGroupManager(){
       supabase.from('line_webhook_intake_events').select('id,fingerprint,webhook_event_id,source_type,line_group_id,event_type,message_type,signature_valid,intake_status,diagnostic_code,diagnostic_message,occurrence_count,last_seen_at').order('last_seen_at',{ascending:false}).limit(50),
     ])
     if(companyResult.error||groupResult.error||requestResult.error||optionResult.error||intakeResult.error){
-      setMessage({severity:'error',text:companyResult.error?.message??groupResult.error?.message??requestResult.error?.message??optionResult.error?.message??intakeResult.error?.message??'โหลดข้อมูลไม่สำเร็จ'})
+      setMessage({severity:'error',text:companyResult.error?userError(companyResult.error):groupResult.error?userError(groupResult.error):requestResult.error?userError(requestResult.error):optionResult.error?userError(optionResult.error):intakeResult.error?userError(intakeResult.error):'โหลดข้อมูลไม่สำเร็จ'})
     }else{
       const loadedCompanies=(companyResult.data??[]) as Company[]
       const loadedGroups=(groupResult.data??[]) as Group[]
@@ -56,9 +58,23 @@ export function PlatformLineGroupManager(){
     const targetName=companies.find(company=>company.company_id===target)?.company_name??target
     if(!window.confirm(`ยืนยันย้ายกลุ่ม “${group.display_name??group.line_group_id}” จาก ${group.company_name} ไป ${targetName}\n\nการแจ้งเตือนและโครงการเดิมจะถูกยกเลิกการผูกก่อนย้าย ประวัติข้อความเดิมยังคงอยู่กับบริษัทเดิม`))return
     setBusy(true);setMessage(null)
-    const {error}=await supabase.rpc('assign_line_group_company',{target_line_group_id:group.line_group_id,target_company_id:target})
-    if(error)setMessage({severity:'error',text:error.message})
-    else{setMessage({severity:'success',text:`ผูกกลุ่ม LINE กับ ${targetName} แล้ว`});await load()}
+    try {
+      await runWithMutationAttempt({
+        module: 'LineMonitor',
+        action: 'ผูกกลุ่ม LINE กับบริษัท',
+        actorProfileId: null,
+        companyId: target,
+        request: { target_line_group_id: group.line_group_id, target_company_id: target },
+        operation: async () => await supabase.rpc('assign_line_group_company',{
+          target_line_group_id: group.line_group_id,
+          target_company_id: target,
+        }),
+      })
+      setMessage({severity:'success',text:`ผูกกลุ่ม LINE กับ ${targetName} แล้ว`})
+      await load()
+    } catch (error) {
+      setMessage({severity:'error',text:error instanceof Error ? error.message : userError(error)})
+    }
     setBusy(false)
   }
 
@@ -69,10 +85,20 @@ export function PlatformLineGroupManager(){
     const companyName=option.companies?.name??companies.find(company=>company.company_id===option.company_id)?.company_name??option.company_id
     if(!window.confirm(`ยืนยันผูกกลุ่มใหม่ “${request.display_name??request.line_group_id}” กับ ${companyName}\n\nข้อความก่อนอนุมัติจะไม่ถูกนำเข้าบริษัท`))return
     setBusy(true);setMessage(null)
-    const {data,error}=await supabase.rpc('approve_line_group_assignment',{target_option_id:optionId})
-    if(error)setMessage({severity:'error',text:error.message})
-    else{setMessage({severity:'success',text:`อนุมัติกลุ่ม ${request.display_name??request.line_group_id} ให้ ${companyName} แล้ว`});await load()}
-    void data
+    try {
+      await runWithMutationAttempt({
+        module: 'LineMonitor',
+        action: 'อนุมัติงานผูกกลุ่ม LINE ให้บริษัท',
+        actorProfileId: null,
+        companyId: option.company_id,
+        request: { target_option_id: optionId },
+        operation: async () => await supabase.rpc('approve_line_group_assignment',{target_option_id:optionId}),
+      })
+      setMessage({severity:'success',text:`อนุมัติกลุ่ม ${request.display_name??request.line_group_id} ให้ ${companyName} แล้ว`})
+      await load()
+    } catch (error) {
+      setMessage({severity:'error',text:error instanceof Error ? error.message : userError(error)})
+    }
     setBusy(false)
   }
 
@@ -95,7 +121,7 @@ export function PlatformLineGroupManager(){
             {intakes.slice(0,20).map(item=><Box key={item.id} sx={{display:'grid',gridTemplateColumns:{xs:'1fr',md:'180px 1fr 220px'},gap:1,py:1,alignItems:'center'}}>
               <Box><Chip size="small" color={['signature_rejected','payload_rejected','failed'].includes(item.intake_status)?'error':item.intake_status==='quarantined'?'warning':'success'} label={intakeLabels[item.intake_status]??item.intake_status}/></Box>
               <Box sx={{minWidth:0}}>
-                <Typography variant="body2" sx={{fontWeight:700}}>{item.event_type??'HTTP request'}{item.message_type?` · ${item.message_type}`:''}</Typography>
+                <Typography variant="body2" sx={{fontWeight:700}}>{item.event_type??'HTTP request'}{item.event_type?` · ${item.event_type}`:''}</Typography>
                 <Typography variant="caption" color="text.secondary" sx={{wordBreak:'break-all'}}>{item.line_group_id?`Group ${item.line_group_id}`:'ไม่พบ Group ID'} · {item.diagnostic_code??'-'}{item.occurrence_count>1?` · ซ้ำ ${item.occurrence_count} ครั้ง`:''}</Typography>
                 {item.diagnostic_message&&<Typography variant="caption" sx={{display:'block'}} color="text.secondary">{item.diagnostic_message}</Typography>}
               </Box>
@@ -141,3 +167,4 @@ export function PlatformLineGroupManager(){
     {!busy&&groups.length===0&&<Alert severity="warning">ยังไม่พบกลุ่ม LINE ให้เชิญ Bot เข้ากลุ่มและส่งข้อความหนึ่งครั้งก่อน</Alert>}
   </Stack>
 }
+

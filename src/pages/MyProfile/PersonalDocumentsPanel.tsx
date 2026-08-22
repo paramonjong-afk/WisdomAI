@@ -3,6 +3,8 @@ import {
 } from '@mui/material'
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { userError } from '../../utils/userError'
+import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 
 type Props = { profileId: string }
 type IdentityDocument = {
@@ -55,7 +57,7 @@ export function PersonalDocumentsPanel({ profileId }: Props) {
       ).eq('profile_id', profileId).order('is_primary', { ascending: false }),
     ])
     const firstError = [profileResult, documentResult, contactResult].find((result) => result.error)?.error
-    if (firstError) setErrorMessage(firstError.message)
+    if (firstError) setErrorMessage(userError(firstError))
     if (profileResult.data) setPersonal(Object.fromEntries(
       Object.entries(personal).map(([key]) => [key, profileResult.data?.[key as keyof typeof profileResult.data] ?? '']),
     ) as typeof personal)
@@ -72,29 +74,51 @@ export function PersonalDocumentsPanel({ profileId }: Props) {
 
   const savePersonal = async () => {
     setBusy(true); setMessage(''); setErrorMessage('')
-    const { error } = await supabase.from('employee_private_profiles').upsert({
-      profile_id: profileId,
-      ...personal,
-      date_of_birth: personal.date_of_birth || null,
-      data_status: 'pending_review',
-      updated_at: new Date().toISOString(),
-    })
-    if (error) setErrorMessage(error.message)
-    else setMessage('บันทึกข้อมูลส่วนตัวและส่งรอตรวจสอบแล้ว')
+    try {
+      await runWithMutationAttempt({
+        module: 'PersonalDocuments',
+        action: 'บันทึกข้อมูลส่วนตัวจากเอกสาร',
+        actorProfileId: profileId,
+        companyId: null,
+        request: {
+          profile_id: profileId,
+          data_status: 'pending_review',
+          date_of_birth: personal.date_of_birth || null,
+        },
+        operation: async () => await supabase.from('employee_private_profiles').upsert({
+          profile_id: profileId,
+          ...personal,
+          date_of_birth: personal.date_of_birth || null,
+          data_status: 'pending_review',
+          updated_at: new Date().toISOString(),
+        }),
+      })
+      setMessage('บันทึกข้อมูลส่วนตัวและส่งรอตรวจสอบแล้ว')
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : userError(error))
+    }
     setBusy(false)
   }
 
   const addContact = async () => {
     setBusy(true); setMessage(''); setErrorMessage('')
-    const { error } = await supabase.from('employee_emergency_contacts').insert({
-      profile_id: profileId, ...contact, is_primary: contacts.length === 0,
-      consent_confirmed_at: new Date().toISOString(),
-    })
-    if (error) setErrorMessage(error.message)
-    else {
+    try {
+      await runWithMutationAttempt({
+        module: 'PersonalDocuments',
+        action: 'เพิ่มผู้ติดต่อฉุกเฉิน',
+        actorProfileId: profileId,
+        companyId: null,
+        request: { profile_id: profileId, ...contact },
+        operation: async () => await supabase.from('employee_emergency_contacts').insert({
+          profile_id: profileId, ...contact, is_primary: contacts.length === 0,
+          consent_confirmed_at: new Date().toISOString(),
+        }),
+      })
       setContact({ full_name: '', relationship: '', phone: '' })
       setMessage('เพิ่มผู้ติดต่อฉุกเฉินแล้ว')
       await load()
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : userError(error))
     }
     setBusy(false)
   }
@@ -108,26 +132,40 @@ export function PersonalDocumentsPanel({ profileId }: Props) {
       contentType: file.type, upsert: false,
     })
     if (upload.error) {
-      setErrorMessage(upload.error.message); setBusy(false); return
+      setErrorMessage(userError(upload.error)); setBusy(false); return
     }
-    const { error } = await supabase.from('employee_identity_documents').insert({
-      profile_id: profileId,
-      document_type: document.document_type,
-      identifier_last4: document.identifier_last4.trim() || null,
-      issued_on: document.issued_on || null,
-      expires_on: document.expires_on || null,
-      storage_path: path,
-      mime_type: file.type,
-      file_size_bytes: file.size,
-      source: 'employee_upload',
-      review_status: 'pending',
-    })
-    if (error) setErrorMessage(error.message)
-    else {
+    try {
+      await runWithMutationAttempt({
+        module: 'PersonalDocuments',
+        action: 'อัปโหลดเอกสารบุคคล',
+        actorProfileId: profileId,
+        companyId: null,
+        request: {
+          profile_id: profileId,
+          document_type: document.document_type,
+          identifier_last4: document.identifier_last4.trim() || null,
+          issued_on: document.issued_on || null,
+          expires_on: document.expires_on || null,
+        },
+        operation: async () => await supabase.from('employee_identity_documents').insert({
+          profile_id: profileId,
+          document_type: document.document_type,
+          identifier_last4: document.identifier_last4.trim() || null,
+          issued_on: document.issued_on || null,
+          expires_on: document.expires_on || null,
+          storage_path: path,
+          mime_type: file.type,
+          file_size_bytes: file.size,
+          source: 'employee_upload',
+          review_status: 'pending',
+        }),
+      })
       setFile(null)
       setDocument({ document_type: 'thai_national_id', identifier_last4: '', issued_on: '', expires_on: '' })
       setMessage('อัปโหลดเอกสารแล้ว เจ้าหน้าที่จะตรวจสอบก่อนนำไปใช้')
       await load()
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : userError(error))
     }
     setBusy(false)
   }
@@ -228,3 +266,4 @@ export function PersonalDocumentsPanel({ profileId }: Props) {
     </Paper>
   </Stack>
 }
+

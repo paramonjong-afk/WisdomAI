@@ -6,6 +6,8 @@ import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { userError } from '../../utils/userError'
+import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 import type { LineMessageSource, MessageProjectMapping, ReviewStatus, WorkCategory, WorkProject, WorkSummaryItem } from '../../types/work-summary'
 
 const categoryLabels: Record<WorkCategory, string> = {
@@ -19,7 +21,7 @@ const categoryColors: Partial<Record<WorkCategory, 'success' | 'warning' | 'erro
 
 export function WorkSummaryPage() {
   usePageTitle('สรุปงาน LINE')
-  const { profile, user } = useAuth()
+  const { profile, user, currentCompany } = useAuth()
   const canManage = profile?.role === 'admin' || profile?.role === 'manager'
   const [items, setItems] = useState<WorkSummaryItem[]>([])
   const [projects, setProjects] = useState<WorkProject[]>([])
@@ -43,7 +45,7 @@ export function WorkSummaryPage() {
       supabase.from('projects').select('id:project_id, name, code').eq('status', 'active').order('name'),
     ])
     const initialError = summaryResult.error ?? projectResult.error
-    if (initialError) { setError(initialError.message); setLoading(false); return }
+    if (initialError) { setError(userError(initialError)); setLoading(false); return }
     const summaryItems = (summaryResult.data ?? []) as WorkSummaryItem[]
     const messageIds = summaryItems.map((item) => item.source_message_id)
     let sourceMessages: LineMessageSource[] = []
@@ -57,7 +59,7 @@ export function WorkSummaryPage() {
           .select('message_id, project_id, assignment_source, projects(name, code)').in('message_id', messageIds),
       ])
       const relatedError = messageResult.error ?? mappingResult.error
-      if (relatedError) { setError(relatedError.message); setLoading(false); return }
+      if (relatedError) { setError(userError(relatedError)); setLoading(false); return }
       sourceMessages = (messageResult.data ?? []) as unknown as LineMessageSource[]
       projectMappings = (mappingResult.data ?? []) as unknown as MessageProjectMapping[]
     }
@@ -92,37 +94,66 @@ export function WorkSummaryPage() {
   const unclassifiedCount = filteredItems.filter((item) => !(mappingsByMessage.get(item.source_message_id)?.length)).length
 
   const review = async (id: string, status: ReviewStatus) => {
-    if (!user) return
+    if (!user || !currentCompany) return
     setError(null)
-    const { error: updateError } = await supabase.from('work_summary_items').update({
-      status, reviewed_by: user.id, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-    }).eq('id', id)
-    if (updateError) setError(updateError.message)
-    else setItems((current) => current.map((item) => item.id === id ? { ...item, status } : item))
+    try {
+      await runWithMutationAttempt({
+        module: 'WorkSummary',
+        action: `อัปเดตสถานะงานสรุปเป็น ${status}`,
+        actorProfileId: user.id,
+        companyId: currentCompany.company_id,
+        request: { summary_item_id: id, status },
+        operation: async () => await supabase.from('work_summary_items').update({
+          status, reviewed_by: user.id, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+        }).eq('id', id),
+      })
+      setItems((current) => current.map((item) => item.id === id ? { ...item, status } : item))
+    } catch (error) {
+      setError(error instanceof Error ? error.message : userError(error))
+    }
   }
   const assignProject = async (messageId: string) => {
-    if (!user) return
+    if (!user || !currentCompany) return
     const projectId = selectedProjects[messageId]
     if (!projectId) return
     setError(null)
-    const { error: insertError } = await supabase.from('line_message_projects').insert({
-      message_id: messageId, project_id: projectId, assignment_source: 'manual', assigned_by: user.id,
-    })
-    if (insertError) setError(insertError.message)
-    else {
+    try {
+      await runWithMutationAttempt({
+        module: 'WorkSummary',
+        action: 'ผูกโครงการให้งาน LINE',
+        actorProfileId: user.id,
+        companyId: currentCompany.company_id,
+        request: { message_id: messageId, project_id: projectId },
+        operation: async () => await supabase.from('line_message_projects').insert({
+          message_id: messageId, project_id: projectId, assignment_source: 'manual', assigned_by: user.id,
+        }),
+      })
       const project = projects.find((item) => item.id === projectId)
       setMappings((current) => [...current, {
         message_id: messageId, project_id: projectId, assignment_source: 'manual',
         projects: project ? { name: project.name, code: project.code } : null,
       }])
       setSelectedProjects((current) => ({ ...current, [messageId]: '' }))
+    } catch (error) {
+      setError(error instanceof Error ? error.message : userError(error))
     }
   }
   const removeProject = async (messageId: string, projectId: string) => {
+    if (!user || !currentCompany) return
     setError(null)
-    const { error: deleteError } = await supabase.from('line_message_projects').delete().eq('message_id', messageId).eq('project_id', projectId)
-    if (deleteError) setError(deleteError.message)
-    else setMappings((current) => current.filter((item) => item.message_id !== messageId || item.project_id !== projectId))
+    try {
+      await runWithMutationAttempt({
+        module: 'WorkSummary',
+        action: 'ลบการเชื่อมงาน LINE กับโครงการ',
+        actorProfileId: user.id,
+        companyId: currentCompany.company_id,
+        request: { message_id: messageId, project_id: projectId },
+        operation: async () => await supabase.from('line_message_projects').delete().eq('message_id', messageId).eq('project_id', projectId),
+      })
+      setMappings((current) => current.filter((item) => item.message_id !== messageId || item.project_id !== projectId))
+    } catch (error) {
+      setError(error instanceof Error ? error.message : userError(error))
+    }
   }
 
   return (
@@ -249,3 +280,4 @@ export function WorkSummaryPage() {
     </Stack>
   )
 }
+

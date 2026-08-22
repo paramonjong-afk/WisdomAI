@@ -4,11 +4,13 @@ import {
   MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography,
 } from '@mui/material'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { PageHeader } from '../../components/PageHeader'
 import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { userError } from '../../utils/userError'
 
 type ReviewStatus = 'pending' | 'confirmed' | 'corrected' | 'dismissed' | 'needs_information' | 'forwarded'
 type ReviewCase = {
@@ -138,6 +140,7 @@ const reviewFields = (item: ReviewCase): FieldReview[] => {
 export function ImageReviewPage() {
   usePageTitle('คอนเฟิร์มรูปและสอน WisdomAI')
   const { profile } = useAuth()
+  const [searchParams] = useSearchParams()
   const canManage = profile?.role === 'admin' || profile?.role === 'manager'
   const [tab, setTab] = useState(0)
   const [cases, setCases] = useState<ReviewCase[]>([])
@@ -185,7 +188,7 @@ export function ImageReviewPage() {
     const firstError = caseResult.error ?? purposeResult.error ?? documentTypeResult.error ?? projectResult.error
       ?? profileResult.error ?? sampleResult.error ?? scoreResult.error ?? observationResult.error ?? progressResult.error
     if (firstError) {
-      setError(firstError.message)
+      setError(userError(firstError))
       setLoading(false)
       return
     }
@@ -203,7 +206,7 @@ export function ImageReviewPage() {
         : Promise.resolve({ data: [], error: null }),
     ])
     const relatedError = messageResult.error ?? attachmentResult.error
-    if (relatedError) setError(relatedError.message)
+    if (relatedError) setError(userError(relatedError))
     setCases(loadedCases)
     setPurposes((purposeResult.data ?? []) as Purpose[])
     setDocumentTypes((documentTypeResult.data ?? []) as DocumentType[])
@@ -245,10 +248,21 @@ export function ImageReviewPage() {
     if (attachment) {
       const signed = await supabase.storage.from(attachment.storage_bucket)
         .createSignedUrl(attachment.storage_path, 600)
-      if (signed.error) setError(signed.error.message)
+      if (signed.error) setError(userError(signed.error))
       else setImageUrl(signed.data.signedUrl)
     }
   }
+
+  useEffect(() => {
+    const caseId = searchParams.get('case')
+    if (!caseId || selected?.id === caseId || cases.length === 0) return
+    const target = cases.find((item) => item.id === caseId)
+    if (!target) return
+    const timer = window.setTimeout(() => void openCase(target), 0)
+    return () => window.clearTimeout(timer)
+  // `openCase` intentionally reads the latest attachment map for the requested case.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attachments, cases, searchParams, selected?.id])
 
   const saveDecision = async (decision: ReviewStatus) => {
     if (!selected) return
@@ -270,7 +284,7 @@ export function ImageReviewPage() {
         })),
       })
       if (fieldError) {
-        setError(fieldError.message)
+        setError(userError(fieldError))
         setSaving(false)
         return
       }
@@ -286,7 +300,7 @@ export function ImageReviewPage() {
       corrected_output: selected.proposed_output,
       document_type: primaryPurpose === 'financial_document' ? documentType : null,
     })
-    if (saveError) setError(saveError.message)
+    if (saveError) setError(userError(saveError))
     else {
       if (['confirmed', 'corrected'].includes(finalDecision) && primaryPurpose === 'system_error') {
         const { error: intakeError } = await supabase.rpc('register_reviewed_system_error_image', {
@@ -294,7 +308,7 @@ export function ImageReviewPage() {
           target_note: note || null,
         })
         if (intakeError) {
-          setError(`ยืนยันหมวดรูปแล้ว แต่สร้างทะเบียน Error ไม่สำเร็จ: ${intakeError.message}`)
+          setError(`ยืนยันหมวดรูปแล้ว แต่สร้างทะเบียน Error ไม่สำเร็จ: ${userError(intakeError)}`)
           setSaving(false)
           return
         }
@@ -340,7 +354,7 @@ export function ImageReviewPage() {
       setSuccess(`Open Source OCR อ่านได้ ${result.data.text.trim().length.toLocaleString()} ตัวอักษร`)
       await load()
     } catch (ocrError) {
-      setError(ocrError instanceof Error ? ocrError.message : 'Open Source OCR ทำงานไม่สำเร็จ')
+      setError(ocrError instanceof Error ? userError(ocrError) : 'Open Source OCR ทำงานไม่สำเร็จ')
     } finally {
       setOcrRunning(false)
     }
@@ -588,3 +602,4 @@ export function ImageReviewPage() {
     </Dialog>
   </Stack>
 }
+

@@ -2,6 +2,7 @@ import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined'
 import EngineeringOutlinedIcon from '@mui/icons-material/EngineeringOutlined'
 import FormatListBulletedOutlinedIcon from '@mui/icons-material/FormatListBulletedOutlined'
 import GroupOutlinedIcon from '@mui/icons-material/GroupOutlined'
+import ChatBubbleOutlineOutlinedIcon from '@mui/icons-material/ChatBubbleOutlineOutlined'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import SolarPowerOutlinedIcon from '@mui/icons-material/SolarPowerOutlined'
 import TimerOutlinedIcon from '@mui/icons-material/TimerOutlined'
@@ -15,10 +16,12 @@ import WorkHistoryOutlinedIcon from '@mui/icons-material/WorkHistoryOutlined'
 import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
 import RateReviewOutlinedIcon from '@mui/icons-material/RateReviewOutlined'
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded'
+import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined'
 import { Avatar, Box, Divider, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography } from '@mui/material'
 import { NavLink } from 'react-router-dom'
 import { navigationGroups } from '../utils/navigation'
 import { useAuth } from '../hooks/useAuth'
+import { isPlatformAdmin as resolvePlatformAdmin } from '../utils/permissions'
 import { useLocation } from 'react-router-dom'
 
 export const sidebarWidth = 260
@@ -36,18 +39,26 @@ const navigationIcons:Record<string,React.ReactNode>={
   '/approvals':<FactCheckOutlinedIcon/>,'/reports':<SummarizeOutlinedIcon/>,
   '/work-summary':<SummarizeOutlinedIcon/>,'/financial-summary':<PaidOutlinedIcon/>,
   '/accounting-documents':<ReceiptLongOutlinedIcon/>,'/line-monitor':<FactCheckOutlinedIcon/>,
+  '/advance-settlements':<PaidOutlinedIcon/>,'/advance-holders':<AccountCircleOutlinedIcon/>,
+  '/chat':<ChatBubbleOutlineOutlinedIcon/>,
   '/solar':<SolarPowerOutlinedIcon/>,'/my-profile':<AccountCircleOutlinedIcon/>,
   '/settings':<SettingsOutlinedIcon/>,
   '/platform-control-center':<HubOutlinedIcon/>,
+  '/mutation-attempt-center':<HistoryOutlinedIcon/>,
+  '/flow-registry':<HubOutlinedIcon/>,
 }
 
 function NavigationContent() {
-  const {profile}=useAuth()
+  const {profile,currentCompany}=useAuth()
   const location=useLocation()
-  const role=profile?.role??'employee'
-  const isPlatformAdmin=profile?.platform_role==='admin'
+  const roleFromProfile=(profile?.role ?? 'employee') as 'admin' | 'manager' | 'employee'
+  const companyRole=currentCompany?.company_role
+  const canManager = roleFromProfile==='admin'||roleFromProfile==='manager'||['company_admin','executive','manager','site_supervisor'].includes(companyRole ?? '')
+  const canAdmin = roleFromProfile==='admin'||companyRole==='company_admin'
+  const role = roleFromProfile === 'admin' || canAdmin ? 'admin' : canManager ? 'manager' : roleFromProfile
+  const isPlatformAdmin=resolvePlatformAdmin(profile)
+  const roleLabel = role === 'admin' ? 'ผู้ดูแลระบบ' : role === 'manager' ? 'ผู้จัดการ' : 'พนักงาน'
   const displayName=profile?.full_name||profile?.email||'ผู้ใช้งาน'
-  const roleLabel=role==='admin'?'ผู้ดูแลระบบ':role==='manager'?'ผู้จัดการ':'พนักงาน'
   return (
     <Box sx={{ width:sidebarWidth,height:'100%',display:'flex',flexDirection:'column',bgcolor:'#333333',color:'common.white' }}>
       <Toolbar sx={{ px:3,minHeight:'64px!important' }}>

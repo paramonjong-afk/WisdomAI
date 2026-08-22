@@ -32,7 +32,10 @@ export const navigationGroups:NavigationGroup[]=[
   ]},
   {label:'การเงินและบัญชี',items:[
     {label:'สรุปรายการเงิน',path:'/financial-summary',roles:managers},
+    {label:'ศูนย์ข้อมูลกลาง',path:'/master-data',roles:managers},
+    {label:'ทะเบียนผู้ถือเงินสำรองจ่าย',path:'/advance-holders',roles:managers},
     {label:'เอกสารบัญชี',path:'/accounting-documents',roles:managers},
+    {label:'เงินทดรองและปิดยอด',path:'/advance-settlements',roles:managers},
   ]},
   {label:'ระบบอื่น',items:[
     {label:'Solar',path:'/solar',roles:managers},
@@ -41,9 +44,14 @@ export const navigationGroups:NavigationGroup[]=[
     {label:'ข้อมูลส่วนตัว',path:'/my-profile',roles:all},
     {label:'ตั้งค่าระบบ',path:'/settings',roles:['admin']},
   ]},
+  {label:'การสื่อสาร',items:[
+    {label:'ห้องแชต',path:'/chat',roles:all},
+  ]},
   {label:'ระบบตรวจสอบ',items:[
+    {label:'ทะเบียน Flow ระบบ',path:'/flow-registry',roles:['admin']},
     {label:'ศูนย์สั่งงาน',path:'/work-command-center',roles:['admin']},
     {label:'สถานะระบบ',path:'/system-health',roles:['admin']},
+    {label:'Mutation Attempt Center',path:'/mutation-attempt-center',roles:['admin']},
   ]},
 ]
 

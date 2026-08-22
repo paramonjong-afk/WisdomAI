@@ -28,7 +28,12 @@ dist-ssr
 
 .vercel
 .npm-cache
+.cache
+.tmp_*.mjs
 backups
 WisdomAI-React-multi-project-v2
 WisdomAI-React-multi-project-v2.zip
 *.traineddata
+
+.vercel
+.env*

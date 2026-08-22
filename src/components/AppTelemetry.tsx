@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { logAppEvent, registerClientError, updateAppStatus } from '../lib/telemetry'
+import { logAppEvent, logPerformanceMetric, registerClientError, updateAppStatus } from '../lib/telemetry'
 
 export function AppTelemetry() {
   const { user } = useAuth()
@@ -18,6 +18,32 @@ export function AppTelemetry() {
     }
     void logAppEvent(profileId, { eventType: 'page_view', pagePath: path })
     void updateAppStatus(profileId, document.hidden ? 'away' : 'online', path)
+  }, [location.pathname, user])
+
+  useEffect(() => {
+    if (!user || typeof PerformanceObserver === 'undefined') return
+    const profileId = user.id
+    const path = location.pathname
+    let lcp: number | null = null
+    let interactionReported = false
+    const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
+    if (navigation) void logPerformanceMetric(profileId, 'page_load', navigation.duration, path)
+    const observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        if (entry.entryType === 'largest-contentful-paint') lcp = entry.startTime
+        if (entry.entryType === 'event' && !interactionReported && entry.duration > 0) {
+          interactionReported = true
+          void logPerformanceMetric(profileId, 'interaction_delay', entry.duration, path)
+        }
+      }
+    })
+    try {
+      observer.observe({ type: 'largest-contentful-paint', buffered: true })
+      observer.observe({ type: 'event', buffered: true, durationThreshold: 16 } as PerformanceObserverInit)
+    } catch { /* older browsers do not expose optional performance entries */ }
+    const reportLcp = () => { if (lcp !== null) void logPerformanceMetric(profileId, 'largest_contentful_paint', lcp, path) }
+    window.addEventListener('pagehide', reportLcp, { once: true })
+    return () => { reportLcp(); observer.disconnect(); window.removeEventListener('pagehide', reportLcp) }
   }, [location.pathname, user])
 
   useEffect(() => {
@@ -76,6 +102,13 @@ export function AppTelemetry() {
       const message = `${status || 'NETWORK'} ${detail.statusText || 'Request failed'} at ${path}`
       persistError('request', message, path, `http_${status || 'network'}`, { status, request_path: path })
     }
+    const handleRequestMetric = (event: Event) => {
+      const detail = (event as CustomEvent<{ route?: string; method?: string; status?: number; latency_ms?: number; query_length?: number; url_length?: number; result?: string }>).detail ?? {}
+      void logAppEvent(profileId, {
+        eventType: 'performance_metric', pagePath: detail.route || window.location.pathname, message: 'API performance sample',
+        metadata: { performance_kind: 'api', route: detail.route || 'unknown-request', method: detail.method || 'GET', status: Number(detail.status || 0), latency_ms: Number(detail.latency_ms || 0), query_length: Number(detail.query_length || 0), url_length: Number(detail.url_length || 0), result: detail.result === 'success' ? 'success' : 'error' },
+      })
+    }
     const timer = window.setInterval(heartbeat, 60_000)
     document.addEventListener('visibilitychange', heartbeat)
     window.addEventListener('focus', heartbeat)
@@ -84,6 +117,7 @@ export function AppTelemetry() {
     window.addEventListener('error', handleError)
     window.addEventListener('unhandledrejection', handleRejection)
     window.addEventListener('wisdomai-request-error', handleRequestError)
+    window.addEventListener('wisdomai-request-complete', handleRequestMetric)
     return () => {
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', heartbeat)
@@ -93,6 +127,7 @@ export function AppTelemetry() {
       window.removeEventListener('error', handleError)
       window.removeEventListener('unhandledrejection', handleRejection)
       window.removeEventListener('wisdomai-request-error', handleRequestError)
+      window.removeEventListener('wisdomai-request-complete', handleRequestMetric)
     }
   }, [user])
 

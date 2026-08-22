@@ -5,6 +5,7 @@ import { PageHeader } from '../../components/PageHeader'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 
 type Notice={id:string;title:string;detail:string;path:string;severity:'info'|'warning'|'error'}
 type NoticeResult={count:number|null;data:{id:string;updated_at?:string;created_at?:string}[]|null;error:{message:string}|null}
@@ -44,11 +45,21 @@ export function NotificationsPage(){
   if(loading)return <Stack sx={{alignItems:'center',py:8}}><CircularProgress/></Stack>
   const markRead=async(item:Notice)=>{
     if(!user)return
-    const {error:saveError}=await supabase.from('notification_read_states').upsert({
-      profile_id:user.id,notification_key:item.id,read_at:new Date().toISOString(),
-    })
-    if(saveError)setError('บันทึกสถานะอ่านแล้วไม่สำเร็จ')
-    else setItems((current)=>current.filter((row)=>row.id!==item.id))
+    try {
+      await runWithMutationAttempt({
+        module: 'Notifications',
+        action: 'บันทึกสถานะอ่านแจ้งเตือน',
+        actorProfileId: user.id,
+        companyId: null,
+        request: { notification_key: item.id },
+        operation: async () => await supabase.from('notification_read_states').upsert({
+          profile_id:user.id,notification_key:item.id,read_at:new Date().toISOString(),
+        }),
+      })
+      setItems((current)=>current.filter((row)=>row.id!==item.id))
+    } catch {
+      setError('บันทึกสถานะอ่านแล้วไม่สำเร็จ')
+    }
   }
   return <Stack spacing={3}>
     <PageHeader title="ศูนย์การแจ้งเตือน" description="รวมเหตุการณ์ที่ต้องติดตาม กดเพื่อไปยังหน้าดำเนินการ" action={<Button onClick={()=>void load()}>รีเฟรช</Button>}/>

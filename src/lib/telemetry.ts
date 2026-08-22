@@ -7,6 +7,7 @@ export type ActivityEventType =
   | 'client_error'
   | 'request_error'
   | 'export_data'
+  | 'performance_metric'
 
 export type ActivitySeverity = 'info' | 'warning' | 'error'
 
@@ -92,6 +93,36 @@ export async function logAppEvent(
     metadata: event.metadata ?? {},
   })
   if (error) console.warn('Unable to save application activity.', error.message)
+}
+
+export type PerformanceMetricName = 'page_load' | 'largest_contentful_paint' | 'interaction_delay'
+
+const performanceThresholds: Record<PerformanceMetricName, { warning: number; critical: number }> = {
+  page_load: { warning: 2500, critical: 4000 },
+  largest_contentful_paint: { warning: 2500, critical: 4000 },
+  interaction_delay: { warning: 300, critical: 800 },
+}
+
+/** Stores a measured browser value centrally; threshold breaches become deduplicated System Health errors. */
+export async function logPerformanceMetric(profileId: string, metric: PerformanceMetricName, valueMs: number, pagePath = window.location.pathname) {
+  if (!Number.isFinite(valueMs) || valueMs < 0) return
+  const roundedValue = Math.round(valueMs)
+  const threshold = performanceThresholds[metric]
+  const severity = roundedValue > threshold.critical ? 'error' : roundedValue > threshold.warning ? 'warning' : 'info'
+  await logAppEvent(profileId, {
+    eventType: 'performance_metric', severity, pagePath,
+    message: `${metric}: ${roundedValue} ms`,
+    metadata: { metric, value_ms: roundedValue, warning_ms: threshold.warning, critical_ms: threshold.critical },
+  })
+  if (severity === 'info') return
+  await registerClientError({
+    fingerprint: `performance:${metric}:${severity}:${pagePath}`,
+    correlationKey: `performance|${metric}|${severity}|${pagePath}`,
+    source: 'web:performance', title: `Web performance ${severity}: ${metric}`,
+    message: `${metric} measured ${roundedValue} ms (warning ${threshold.warning} ms, critical ${threshold.critical} ms)`,
+    module: pagePath, severity: severity === 'error' ? 'critical' : 'warning',
+    metadata: { metric, value_ms: roundedValue, warning_ms: threshold.warning, critical_ms: threshold.critical, page_path: pagePath },
+  })
 }
 
 export async function updateAppStatus(

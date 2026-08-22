@@ -11,6 +11,8 @@ import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
+import { userError } from '../../utils/userError'
 
 type DocumentStatus = 'pending' | 'confirmed' | 'duplicate' | 'dismissed' | 'needs_correction'
 type ItemType = 'stock' | 'direct_project' | 'tool_asset' | 'expense' | 'service' | 'labor' | 'unknown'
@@ -78,7 +80,7 @@ const payableDocumentTypes = ['invoice', 'invoice_tax_invoice', 'tax_invoice_ful
 const stockModeLabels: Record<StockMode, string> = { central_stock: 'คลังกลาง', project_stock: 'Stock โครงการ', direct_use: 'รับและใช้ทันที' }
 
 const documentLabels: Record<string, string> = {
-  receipt: 'ใบเสร็จรับเงิน', tax_invoice_full: 'ใบกำกับภาษีเต็มรูป', tax_invoice_abbreviated: 'ใบกำกับภาษีอย่างย่อ',
+  receipt: 'ใบเสร็จรับเงิน', cash_receipt: 'บิลเงินสด', tax_invoice_full: 'ใบกำกับภาษีเต็มรูป', tax_invoice_abbreviated: 'ใบกำกับภาษีอย่างย่อ',
   receipt_tax_invoice: 'ใบเสร็จรับเงิน/ใบกำกับภาษี', invoice_tax_invoice: 'ใบแจ้งหนี้/ใบกำกับภาษี',
   receipt_tax_invoice_abbreviated: 'ใบเสร็จรับเงิน/ใบกำกับภาษีอย่างย่อ',
   quotation: 'ใบเสนอราคา', purchase_order: 'ใบสั่งซื้อ', invoice: 'ใบแจ้งหนี้', billing_note: 'ใบวางบิล',
@@ -111,8 +113,17 @@ const matchRequirements: readonly SetMatchGap[] = [
 
 export function AccountingDocumentsPage() {
   usePageTitle('เอกสารบัญชีและสต๊อก')
-  const { profile } = useAuth()
+  const { profile,currentCompany } = useAuth()
   const canManage = profile?.role === 'admin' || profile?.role === 'manager'
+  const runAttempt = (action: string, request: Record<string, unknown>, operation: () => unknown) =>
+    runWithMutationAttempt({
+      module: 'accounting_documents',
+      action,
+      actorProfileId: profile?.id,
+      companyId: currentCompany?.company_id ?? null,
+      request,
+      operation,
+    })
   const [tab, setTab] = useState(0)
   const [documents, setDocuments] = useState<AccountingDocument[]>([])
   const [inventory, setInventory] = useState<InventoryBalance[]>([])
@@ -183,7 +194,7 @@ export function AccountingDocumentsPage() {
       supabase.from('vendors').select('id,name,tax_id,phone').order('name'),
     ])
     const firstError = [documentResult.error, inventoryResult.error, projectInventoryResult.error, productPriceResult.error, actualPriceResult.error, projectResult.error, siteResult.error, categoryResult.error, vendorResult.error].find(Boolean)
-    if (firstError) setError(firstError.message)
+    if (firstError) setError(userError(firstError))
     setDocuments((documentResult.data ?? []) as unknown as AccountingDocument[])
     setInventory((inventoryResult.data ?? []) as InventoryBalance[])
     setProjectInventory((projectInventoryResult.data ?? []) as unknown as ProjectInventoryBalance[])
@@ -208,7 +219,7 @@ export function AccountingDocumentsPage() {
       const {data:setRows,error:setLoadError}=await supabase.from('accounting_documents')
         .select('id,source_message_id,document_type,status,page_number,created_at')
         .eq('document_set_id',document.document_set_id).order('page_number',{ascending:true})
-      if(setLoadError)setError(setLoadError.message)
+      if(setLoadError)setError(userError(setLoadError))
       else setDocumentSetMembers((setRows??[]) as DocumentSetMember[])
     }
     const savedDraft = document.review_draft
@@ -232,7 +243,7 @@ export function AccountingDocumentsPage() {
       supabase.from('goods_receipt_reviews').select('supplier_name,receiving_location').eq('document_id', document.id).maybeSingle(),
       supabase.from('goods_receipt_line_reviews').select('id,document_line_id,accepted,received_quantity,condition,note,goods_receipt_reviews!inner(document_id)').eq('goods_receipt_reviews.document_id', document.id),
     ])
-    if (lineResult.error || allocationResult.error) { setError(lineResult.error?.message ?? allocationResult.error?.message ?? 'โหลดข้อมูลไม่สำเร็จ'); return }
+    if (lineResult.error || allocationResult.error) { setError(lineResult.error ? userError(lineResult.error) : allocationResult ? userError(allocationResult.error) : 'โหลดข้อมูลไม่สำเร็จ'); return }
     const supplierNameNext = savedDraft?.supplier_name ?? goodsReviewResult.data?.supplier_name ?? document.vendor_name ?? ''
     const receivingLocationNext = savedDraft?.receiving_location ?? goodsReviewResult.data?.receiving_location ?? ''
     const allocations = allocationResult.data ?? []
@@ -244,7 +255,7 @@ export function AccountingDocumentsPage() {
     const goodsLineMap = new Map((goodsLineResult.data ?? []).map(item => [item.document_line_id, item]))
     const reviewIds=(goodsLineResult.data??[]).map(item=>item.id)
     const stockAllocationResult=reviewIds.length?await supabase.from('goods_receipt_allocations').select('review_line_id,project_id,site_id,allocation_mode,quantity').in('review_line_id',reviewIds):{data:[],error:null}
-    if(stockAllocationResult.error){setError(stockAllocationResult.error.message);return}
+    if(stockAllocationResult.error){setError(userError(stockAllocationResult.error));return}
     const documentLineByReviewId=new Map((goodsLineResult.data??[]).map(item=>[item.id,item.document_line_id]))
     const savedStockAllocations=new Map<string,StockAllocation[]>()
     for(const allocation of stockAllocationResult.data??[]){const lineId=documentLineByReviewId.get(allocation.review_line_id);if(!lineId)continue;const list=savedStockAllocations.get(lineId)??[];list.push({project_id:allocation.project_id??'',site_id:allocation.site_id??'',quantity:Number(allocation.quantity),mode:allocation.allocation_mode as StockMode});savedStockAllocations.set(lineId,list)}
@@ -295,14 +306,14 @@ export function AccountingDocumentsPage() {
         supabase.from('accounting_documents').select('id,source_message_id,document_type,document_number,document_date,vendor_name,total_amount').in('document_type',['delivery_note','goods_receipt']).eq('status','confirmed').order('created_at',{ascending:false}).limit(300),
         supabase.from('billing_delivery_note_links').select('billing_document_id,delivery_note_document_id'),
       ])
-      if(deliveryNotes.error||existingLinks.error){setError(deliveryNotes.error?.message??existingLinks.error?.message??'โหลดใบส่งของไม่สำเร็จ');return}
+      if(deliveryNotes.error||existingLinks.error){setError(deliveryNotes.error?userError(deliveryNotes.error):existingLinks.error?userError(existingLinks.error):'โหลดใบส่งของไม่สำเร็จ');return}
       const linkedElsewhere=new Set((existingLinks.data??[]).filter(item=>item.billing_document_id!==document.id).map(item=>item.delivery_note_document_id))
       const availableDocuments=(deliveryNotes.data??[]).filter(item=>!linkedElsewhere.has(item.id))
       setDeliveryNoteCandidates(availableDocuments.map(item=>({id:item.id,sourceMessageId:item.source_message_id,amount:Number(item.total_amount??0),vendorName:item.vendor_name??'',documentType:item.document_type as 'delivery_note'|'goods_receipt',label:`${item.document_type==='goods_receipt'?'ใบรับสินค้า':'ใบส่งของ'} · ${item.document_number??'ไม่มีเลขที่'} · ${item.document_date??'-'} · ${item.vendor_name??'ไม่ระบุผู้ขาย'} · ${money(item.total_amount)}`})))
       const availableIds=availableDocuments.map(item=>item.id)
       if(availableIds.length){
         const receivingLines=await supabase.from('accounting_document_lines').select('id,document_id,description,quantity,unit,line_amount').in('document_id',availableIds).order('line_number')
-        if(receivingLines.error){setError(receivingLines.error.message);return}
+        if(receivingLines.error){setError(userError(receivingLines.error));return}
         setReceivingComparisonLines((receivingLines.data??[]) as ReceivingComparisonLine[])
       }else setReceivingComparisonLines([])
       setSelectedDeliveryNoteIds((existingLinks.data??[]).filter(item=>item.billing_document_id===document.id).map(item=>item.delivery_note_document_id))
@@ -344,31 +355,62 @@ export function AccountingDocumentsPage() {
   const saveProductName = async (line: DocumentLine) => {
     if(!canManage||!line.description.trim())return
     setSavingLineId(line.id);setError(null)
-    const {data,error:nameError}=await supabase.rpc('save_accounting_product_details',{p_line_id:line.id,p_description:line.description.trim(),p_quantity:Number(line.quantity??0),p_unit:line.unit??'',p_unit_price:line.unit_price,p_item_type:line.item_type})
-    if(nameError)setError(`บันทึกรายละเอียดสินค้าไม่สำเร็จ: ${nameError.message}`)
-    else{const result=data as {stock_movement_updated?:boolean;will_enter_stock_on_confirmation?:boolean};setSuccess(`บันทึกชื่อและจำนวน “${line.description.trim()}” แล้ว${result.stock_movement_updated?' · ปรับยอด Stock แล้ว':result.will_enter_stock_on_confirmation?' · จะรับเข้า Stock เมื่อยืนยันเอกสาร':' · รายการนี้เป็นต้นทุนตรง จึงไม่เพิ่ม Stock'}`);await loadData()}
+    try {
+      const data = await runAttempt(
+        'save_accounting_product_details',
+        {
+          p_line_id: line.id,
+          p_description: line.description.trim(),
+          p_quantity: Number(line.quantity ?? 0),
+          p_unit: line.unit ?? '',
+          p_unit_price: line.unit_price,
+          p_item_type: line.item_type,
+        },
+        () => supabase.rpc('save_accounting_product_details',{
+          p_line_id: line.id,p_description:line.description.trim(),p_quantity:Number(line.quantity ?? 0),
+          p_unit: line.unit ?? '',p_unit_price: line.unit_price,p_item_type: line.item_type,
+        })
+      )
+      const result = data as { stock_movement_updated?: boolean; will_enter_stock_on_confirmation?: boolean } | null
+      setSuccess(`บันทึกชื่อและจำนวน “${line.description.trim()}” แล้ว${result?.stock_movement_updated?' · ปรับยอด Stock แล้ว':result?.will_enter_stock_on_confirmation?' · จะรับเข้า Stock เมื่อยืนยันเอกสาร':' · รายการนี้เป็นต้นทุนตรง จึงไม่เพิ่ม Stock'}`)
+      await loadData()
+    } catch(error) {
+      setError(`บันทึกรายละเอียดสินค้าไม่สำเร็จ: ${userError(error)}`)
+    }
     setSavingLineId('')
   }
 
   const saveQuotationReferenceLine = async (line: DocumentLine) => {
     if (!canManage || !line.description.trim()) return
     setSavingLineId(line.id); setError(null)
-    const { error: lineError } = await supabase.rpc('save_accounting_product_details', {
-      p_line_id: line.id, p_description: line.description.trim(), p_quantity: Number(line.quantity ?? 0),
-      p_unit: line.unit ?? '', p_unit_price: line.unit_price, p_item_type: 'direct_project',
-    })
-    if (lineError) setError(lineError.message)
-    else setSuccess(`บันทึก “${line.description.trim()}” เป็นราคาอ้างอิงแล้ว ยังไม่เข้า Stock และยังไม่เป็นต้นทุน`)
+    try {
+      await runAttempt(
+        'save_accounting_product_details',
+        {
+          p_line_id: line.id, p_description: line.description.trim(), p_quantity: Number(line.quantity ?? 0),
+          p_unit: line.unit ?? '', p_unit_price: line.unit_price, p_item_type: 'direct_project',
+        },
+        () => supabase.rpc('save_accounting_product_details', {
+          p_line_id: line.id, p_description: line.description.trim(), p_quantity: Number(line.quantity ?? 0),
+          p_unit: line.unit ?? '', p_unit_price: line.unit_price, p_item_type: 'direct_project',
+        })
+      )
+      setSuccess(`บันทึก “${line.description.trim()}” เป็นราคาอ้างอิงแล้ว ยังไม่เข้า Stock และยังไม่เป็นต้นทุน`)
+    } catch(error) {
+      setError(userError(error))
+    }
     setSavingLineId('')
   }
 
   const savePurchaseVendor = async () => {
     if(!selected||!canManage||!supplierName.trim())return
     setSaving(true);setError(null)
-    const {error:vendorError}=await supabase.rpc('save_purchase_document_vendor',{p_document_id:selected.id,p_vendor_name:supplierName.trim()})
-    if(vendorError)setError(`บันทึกผู้ขายไม่สำเร็จ: ${vendorError.message}`)
-    else{
-      const savedSupplier=supplierName.trim()
+    const savedSupplier=supplierName.trim()
+    try {
+      await runAttempt('save_purchase_document_vendor',{
+        p_document_id:selected.id,
+        p_vendor_name:savedSupplier,
+      },()=>supabase.rpc('save_purchase_document_vendor',{p_document_id:selected.id,p_vendor_name:savedSupplier}))
       setSelected(current=>current?{...current,vendor_name:savedSupplier}:current)
       setDraftTrackingReady(true)
       try { 
@@ -379,8 +421,9 @@ export function AccountingDocumentsPage() {
       }
       setSuccess(`${registeredVendor?'บันทึกผู้ขาย':'เพิ่มผู้ขายใหม่ในทะเบียน'} “${savedSupplier}” และบันทึก Audit แล้ว`)
       await loadData()
-    }
-    setSaving(false)
+    } catch(error) {
+      setError(`บันทึกผู้ขายไม่สำเร็จ: ${userError(error)}`)
+    } finally {setSaving(false)}
   }
   const updateAllocation = (lineId: string, index: number, patch: Partial<Allocation>) => setLines(current => current.map(line => line.id !== lineId ? line : {
     ...line, allocations: line.allocations.map((allocation, allocationIndex) => allocationIndex === index ? { ...allocation, ...patch } : allocation),
@@ -490,71 +533,99 @@ export function AccountingDocumentsPage() {
       account_code: line.account_code, account_name: line.account_name,
       allocations: line.allocations,
     }))
-    const { error: typeError } = await supabase.rpc('classify_accounting_document', {
-      p_document_id: selected.id, p_document_type: documentType,
-      p_document_purpose: documentPurpose, p_apply_to_similar: applyToSimilar,
-    })
-    if (typeError) { setError(`ขั้นตอนบันทึกประเภทเอกสาร: ${typeError.message}`); setSaving(false); return }
-    const { error: saveError } = await supabase.rpc('save_accounting_document_classification', { p_document_id: selected.id, p_header: header, p_lines: payload })
-    if (saveError) setError(`ขั้นตอนบันทึกโครงการ หมวดต้นทุน หรือบัญชี: ${saveError.message}`)
-    else if (confirmAfterSave) {
-      const { error: confirmError } = await supabase.rpc('confirm_accounting_document', { p_document_id: selected.id })
-      if (confirmError) setError(`ขั้นตอนยืนยันและสร้างรายการบัญชี: ${confirmError.message}`)
-      else {
-        await supabase.rpc('clear_accounting_document_review_draft', { p_document_id: selected.id })
+    try {
+      await runAttempt('classify_accounting_document',{
+        p_document_id: selected.id, p_document_type: documentType,
+        p_document_purpose: documentPurpose, p_apply_to_similar: applyToSimilar,
+      },()=>supabase.rpc('classify_accounting_document', {
+        p_document_id: selected.id, p_document_type: documentType,
+        p_document_purpose: documentPurpose, p_apply_to_similar: applyToSimilar,
+      }))
+      await runAttempt('save_accounting_document_classification',{
+        p_document_id: selected.id, p_header: header, p_lines: payload,
+      },()=>supabase.rpc('save_accounting_document_classification', {
+        p_document_id: selected.id, p_header: header, p_lines: payload,
+      }))
+      if (confirmAfterSave) {
+        await runAttempt('confirm_accounting_document',{
+          p_document_id: selected.id,
+        },()=>supabase.rpc('confirm_accounting_document', { p_document_id: selected.id }))
+        await runAttempt('clear_accounting_document_review_draft', { p_document_id: selected.id }, () =>
+          supabase.rpc('clear_accounting_document_review_draft', { p_document_id: selected.id }))
         setSuccess('ยืนยันเอกสารและสร้างรายการบัญชีแยกตามโครงการเรียบร้อยแล้ว'); setSelected(null); await loadData()
-      }
-    } else setSuccess('บันทึกโครงการ หมวดต้นทุน และการแบ่งยอดเรียบร้อยแล้ว')
-    setSaving(false)
+      } else setSuccess('บันทึกโครงการ หมวดต้นทุน และการแบ่งยอดเรียบร้อยแล้ว')
+    } catch (error) {
+      setError(`บันทึกเอกสารไม่สำเร็จ: ${userError(error)}`)
+    } finally { setSaving(false) }
   }
 
   const persistCurrentDocumentType = async () => {
     if (!selected || !canManage) return false
     if (selected.status === 'confirmed' && documentType === selected.document_type && documentPurpose === selected.document_purpose) return true
-    const result = selected.status === 'confirmed'
-      ? await supabase.rpc('correct_confirmed_accounting_document_type', {
-        p_document_id: selected.id, p_document_type: documentType,
-        p_document_purpose: documentPurpose, p_reason: 'saved_from_accounting_documents_ui',
-      })
-      : await supabase.rpc('classify_accounting_document', {
-        p_document_id: selected.id, p_document_type: documentType,
-        p_document_purpose: documentPurpose, p_apply_to_similar: applyToSimilar,
-      })
-    if (result.error) {
-      if (result.error.message.includes('confirmed_document_type_is_locked')) {
+    try {
+      const result = selected.status === 'confirmed'
+        ? await runAttempt('correct_confirmed_accounting_document_type',{
+          p_document_id: selected.id, p_document_type: documentType, p_document_purpose: documentPurpose, p_reason: 'saved_from_accounting_documents_ui',
+        },()=>supabase.rpc('correct_confirmed_accounting_document_type', {
+          p_document_id: selected.id, p_document_type: documentType,
+          p_document_purpose: documentPurpose, p_reason: 'saved_from_accounting_documents_ui',
+        }))
+        : await runAttempt('classify_accounting_document',{
+          p_document_id: selected.id, p_document_type: documentType, p_document_purpose: documentPurpose, p_apply_to_similar: applyToSimilar,
+        },()=>supabase.rpc('classify_accounting_document', {
+          p_document_id: selected.id, p_document_type: documentType,
+          p_document_purpose: documentPurpose, p_apply_to_similar: applyToSimilar,
+        }))
+      if (result) setSelected(current => current ? { ...current, document_type: documentType, document_purpose: documentPurpose, classification_source: 'human' } : current)
+      return true
+    } catch (error) {
+      const rawDocumentTypeError = typeof (error as { message?: unknown })?.message === 'string' ? ((error as { message?: string }).message ?? '') : ''
+      if (rawDocumentTypeError.includes('confirmed_document_type_is_locked')) {
         setSelected(current => current ? { ...current, status: 'confirmed' } : current)
         setError('เอกสารนี้ยืนยันเรียบร้อยแล้ว ไม่ต้องบันทึกประเภทซ้ำ กรุณารีเฟรชหากสถานะยังไม่เปลี่ยน')
         await loadData()
-      } else setError(`บันทึกประเภทเอกสารไม่สำเร็จ: ${result.error.message}`)
+      } else setError(`บันทึกประเภทเอกสารไม่สำเร็จ: ${userError(error)}`)
       return false
     }
-    setSelected(current => current ? { ...current, document_type: documentType, document_purpose: documentPurpose, classification_source: 'human' } : current)
-    return true
   }
 
   const persistDocumentProject = async () => {
     if (!selected || !canManage) return false
-    const { error: projectError } = await supabase.rpc('save_accounting_document_project', { p_document_id:selected.id,p_project_id:header.project_id||null,p_site_id:header.site_id||null })
-    if (projectError) { setError(`บันทึกโครงการไม่สำเร็จ: ${projectError.message}`); return false }
-    setSelected(current=>current?{...current,project_id:header.project_id||null,site_id:header.site_id||null}:current)
-    return true
+    try {
+      await runAttempt('save_accounting_document_project', {
+        p_document_id:selected.id,
+        p_project_id:header.project_id||null,
+        p_site_id:header.site_id||null,
+      },()=>supabase.rpc('save_accounting_document_project', { p_document_id:selected.id,p_project_id:header.project_id||null,p_site_id:header.site_id||null }))
+      setSelected(current=>current?{...current,project_id:header.project_id||null,site_id:header.site_id||null}:current)
+      return true
+    } catch (error) {
+      setError(`บันทึกโครงการไม่สำเร็จ: ${userError(error)}`)
+      return false
+    }
   }
 
   const savePartialDraft = async () => {
     if (!selected || !canManage) return
     setSaving(true); setError(null)
     if (!await persistCurrentDocumentType()) { setSaving(false); return }
-    const { error: draftError } = await supabase.rpc('save_accounting_document_review_draft', {
-      p_document_id: selected.id,
-      p_draft: { header, lines, document_type: documentType, document_purpose: documentPurpose, supplier_name: supplierName, receiving_location: receivingLocation, stock_review: stockReview },
-    })
-    if (draftError) setError(draftError.message)
-    else {
-      setSuccess(`บันทึกร่างและประเภท “${documentLabels[documentType] ?? documentType}” ลงฐานข้อมูลเรียบร้อยแล้ว สามารถกลับมาแก้ไขต่อภายหลังได้`)
-      setSelected(current => current ? { ...current, document_type: documentType, document_purpose: documentPurpose, review_draft: { header, lines, document_type: documentType, document_purpose: documentPurpose, supplier_name: supplierName, receiving_location: receivingLocation, stock_review: stockReview } } : current)
-      setSavedDraftSnapshot(currentDraftSnapshot)
-      setDraftTrackingReady(true)
-      await loadData()
+    try {
+      await runAttempt('save_accounting_document_review_draft', {
+        p_document_id: selected.id,
+        p_draft: { header, lines, document_type: documentType, document_purpose: documentPurpose, supplier_name: supplierName, receiving_location: receivingLocation, stock_review: stockReview },
+      }, () => supabase.rpc('save_accounting_document_review_draft', {
+        p_document_id: selected.id,
+        p_draft: { header, lines, document_type: documentType, document_purpose: documentPurpose, supplier_name: supplierName, receiving_location: receivingLocation, stock_review: stockReview },
+      }))
+      if (selected) {
+        setSuccess(`บันทึกร่างและประเภท “${documentLabels[documentType] ?? documentType}” ลงฐานข้อมูลเรียบร้อยแล้ว สามารถกลับมาแก้ไขต่อภายหลังได้`)
+        setSelected(current => current ? { ...current, document_type: documentType, document_purpose: documentPurpose, review_draft: { header, lines, document_type: documentType, document_purpose: documentPurpose, supplier_name: supplierName, receiving_location: receivingLocation, stock_review: stockReview } } : current)
+        setSavedDraftSnapshot(currentDraftSnapshot)
+        setDraftTrackingReady(true)
+        await loadData()
+      }
+    } catch (error) {
+      setError(userError(error))
     }
     setSaving(false)
   }
@@ -573,19 +644,32 @@ export function AccountingDocumentsPage() {
     setSaving(true); setError(null)
     if (!await persistCurrentDocumentType()) { setSaving(false); return }
     if (!await persistDocumentProject()) { setSaving(false); return }
-    const savedLines = await Promise.all(lines.map(line => supabase.rpc('save_accounting_product_details', {
-      p_line_id: line.id, p_description: line.description.trim(), p_quantity: Number(line.quantity ?? 0),
-      p_unit: line.unit ?? '', p_unit_price: line.unit_price, p_item_type: 'direct_project',
-    })))
-    const lineSaveError = savedLines.find(result => result.error)?.error
-    if (lineSaveError) { setError(`บันทึกรายการราคาไม่สำเร็จ: ${lineSaveError.message}`); setSaving(false); return }
-    const { data, error: decisionError } = await supabase.rpc('process_quotation_decision_with_project', {
-      p_document_id: selected.id, p_action: quotationAction, p_lines: selectedLines,
-      p_reason: quotationReason || null, p_valid_until: quotationValidUntil || null,
-      p_project_id: header.project_id || null,
-    })
-    if (decisionError) setError(decisionError.message)
-    else {
+    try {
+      await Promise.all(
+        lines.map(line =>
+          runAttempt(
+            'save_accounting_product_details',
+            {
+              p_line_id: line.id, p_description: line.description.trim(), p_quantity: Number(line.quantity ?? 0),
+              p_unit: line.unit ?? '', p_unit_price: line.unit_price, p_item_type: 'direct_project',
+            },
+            () =>
+              supabase.rpc('save_accounting_product_details', {
+                p_line_id: line.id, p_description: line.description.trim(), p_quantity: Number(line.quantity ?? 0),
+                p_unit: line.unit ?? '', p_unit_price: line.unit_price, p_item_type: 'direct_project',
+              })
+          )
+        )
+      )
+      const data = await runAttempt('process_quotation_decision_with_project', {
+        p_document_id: selected.id, p_action: quotationAction, p_lines: selectedLines,
+        p_reason: quotationReason || null, p_valid_until: quotationValidUntil || null,
+        p_project_id: header.project_id || null,
+      }, () => supabase.rpc('process_quotation_decision_with_project', {
+        p_document_id: selected.id, p_action: quotationAction, p_lines: selectedLines,
+        p_reason: quotationReason || null, p_valid_until: quotationValidUntil || null,
+        p_project_id: header.project_id || null,
+      }))
       const result = data as { status?: string; purchase_order_number?: string | null; ordered_total?: number }
       setQuotationStatus(result.status ?? quotationAction)
       setSuccess(result.purchase_order_number
@@ -594,6 +678,8 @@ export function AccountingDocumentsPage() {
       const confirmedQuotation = { ...selected, status: 'confirmed' as DocumentStatus, posting_status: 'not_posted', project_id: header.project_id || selected.project_id }
       await loadData()
       await openDocument(confirmedQuotation)
+    } catch (error) {
+      setError(`บันทึกการตัดสินใจใบเสนอราคาไม่สำเร็จ: ${userError(error)}`)
     }
     setSaving(false)
   }
@@ -608,17 +694,20 @@ export function AccountingDocumentsPage() {
     setSaving(true); setError(null)
     if (!await persistCurrentDocumentType()) { setSaving(false); return }
     if (!await persistDocumentProject()) { setSaving(false); return }
-    const { data, error: receiptError } = await supabase.rpc('confirm_goods_receipt_stock', {
-      p_document_id: selected.id, p_supplier_name: supplierName.trim(),
-      p_receiving_location: receivingLocation.trim() || null, p_lines: receiptLines,
-    })
-    if (receiptError) setError(receiptError.message)
-    else {
+    try {
+      const data = await runAttempt('confirm_goods_receipt_stock', {
+        p_document_id: selected.id, p_supplier_name: supplierName.trim(),
+        p_receiving_location: receivingLocation.trim() || null, p_lines: receiptLines,
+      }, () => supabase.rpc('confirm_goods_receipt_stock', {
+        p_document_id: selected.id, p_supplier_name: supplierName.trim(),
+        p_receiving_location: receivingLocation.trim() || null, p_lines: receiptLines,
+      }))
       const result = data as { received_line_count?: number }
-      const { error: grniError } = await supabase.rpc('create_goods_receipt_grni', { p_document_id: selected.id })
-      if (grniError) { setError(`รับเข้า Stock แล้ว แต่สร้างรายการพักเจ้าหนี้ไม่สำเร็จ: ${grniError.message}`); setSaving(false); return }
+      await runAttempt('create_goods_receipt_grni', { p_document_id: selected.id }, () => supabase.rpc('create_goods_receipt_grni', { p_document_id: selected.id }))
       setSuccess(`ยืนยันรับสินค้าเข้า Stock ${result.received_line_count ?? 0} รายการ และสร้างรายการพักเจ้าหนี้ (GRNI) แล้ว`)
       setSelected(null); await loadData()
+    } catch (error) {
+      setError(`ยืนยันรับสินค้าไม่สำเร็จ: ${userError(error)}`)
     }
     setSaving(false)
   }
@@ -630,14 +719,15 @@ export function AccountingDocumentsPage() {
       setError('กรุณาระบุราคาซื้อจริงต่อหน่วยให้ครบทุกรายการที่รับ'); return
     }
     setSaving(true); setError(null)
-    const { data, error: priceError } = await supabase.rpc('save_confirmed_goods_receipt_prices', {
-      p_document_id: selected.id, p_lines: pricedLines,
-    })
-    if (priceError) setError(priceError.message)
-    else {
+    try {
+      const data = await runAttempt('save_confirmed_goods_receipt_prices',{
+        p_document_id:selected.id,p_lines:pricedLines,
+      },()=>supabase.rpc('save_confirmed_goods_receipt_prices',{p_document_id:selected.id,p_lines:pricedLines}))
       const result = data as { updated_count?: number }
       setSuccess(`บันทึกราคาซื้อจริง ${result.updated_count ?? 0} รายการ และอัปเดตประวัติราคาสินค้าแล้ว`)
       await openDocument(selected); await loadData()
+    } catch (error) {
+      setError(`บันทึกราคาซื้อจริงไม่สำเร็จ: ${userError(error)}`)
     }
     setSaving(false)
   }
@@ -648,18 +738,24 @@ export function AccountingDocumentsPage() {
     if (approveMatchException && !matchExceptionReason.trim()) { setError('กรุณาระบุเหตุผลอนุมัติส่วนต่าง'); return }
     setSaving(true); setError(null)
     if (!await persistCurrentDocumentType()) { setSaving(false); return }
-    const {error:creditorError}=await supabase.rpc('save_supplier_invoice_creditor',{p_document_id:selected.id,p_creditor_name:supplierName.trim()})
-    if(creditorError){setError(`บันทึกเจ้าหนี้ไม่สำเร็จ: ${creditorError.message}`);setSaving(false);return}
-    const { data, error: matchError } = await supabase.rpc('match_invoice_and_create_ap', {
-      p_invoice_document_id: selected.id, p_goods_receipt_document_id: matchedReceiptId,
-      p_purchase_order_id: matchedPoId || null, p_approve_exception: approveMatchException,
-      p_exception_reason: matchExceptionReason.trim() || null,
-    })
-    if (matchError) setError(matchError.message)
-    else {
+    try {
+      await runAttempt('save_supplier_invoice_creditor', {
+        p_document_id: selected.id, p_creditor_name: supplierName.trim(),
+      }, ()=>supabase.rpc('save_supplier_invoice_creditor',{p_document_id:selected.id,p_creditor_name:supplierName.trim()}))
+      const data = await runAttempt('match_invoice_and_create_ap',{
+        p_invoice_document_id: selected.id, p_goods_receipt_document_id: matchedReceiptId,
+        p_purchase_order_id: matchedPoId || null, p_approve_exception: approveMatchException,
+        p_exception_reason: matchExceptionReason.trim() || null,
+      },()=>supabase.rpc('match_invoice_and_create_ap', {
+        p_invoice_document_id: selected.id, p_goods_receipt_document_id: matchedReceiptId,
+        p_purchase_order_id: matchedPoId || null, p_approve_exception: approveMatchException,
+        p_exception_reason: matchExceptionReason.trim() || null,
+      }))
       const result = data as { status?: string; variance_amount?: number; ap_created?: boolean }
       if (!result.ap_created) setError(`ยอดไม่ตรงกัน ส่วนต่าง ${money(result.variance_amount)} — ยังไม่สร้างเจ้าหนี้ กรุณาตรวจสอบหรืออนุมัติส่วนต่าง`)
       else { setSuccess(`จับคู่เอกสารสำเร็จและสร้างเจ้าหนี้แล้ว${result.status === 'approved_exception' ? ` (อนุมัติส่วนต่าง ${money(result.variance_amount)})` : ''}`); setSelected(null); await loadData() }
+    } catch (error) {
+      setError(`บันทึกเจ้าหนี้ไม่สำเร็จ: ${userError(error)}`)
     }
     setSaving(false)
   }
@@ -670,18 +766,18 @@ export function AccountingDocumentsPage() {
     if (validationErrors.length) { setError(validationErrors[0]); return }
     setSaving(true); setError(null)
     const payload = lines.map(line => ({ line_id: line.id, item_type: line.item_type, cost_category_id: line.cost_category_id, account_code: line.account_code, account_name: line.account_name, allocations: line.allocations }))
-    const { error: typeError } = await supabase.rpc('classify_accounting_document', { p_document_id: selected.id, p_document_type: documentType, p_document_purpose: documentPurpose, p_apply_to_similar: applyToSimilar })
-    if (typeError) { setError(typeError.message); setSaving(false); return }
-    const { error: classificationError } = await supabase.rpc('save_accounting_document_classification', { p_document_id: selected.id, p_header: header, p_lines: payload })
-    if (classificationError) { setError(classificationError.message); setSaving(false); return }
-    const { error: creditorError } = await supabase.rpc('save_supplier_invoice_creditor', { p_document_id: selected.id, p_creditor_name: supplierName.trim() })
-    if (creditorError) { setError(`บันทึกเจ้าหนี้ไม่สำเร็จ: ${creditorError.message}`); setSaving(false); return }
-    const { error: apError } = await supabase.rpc('create_utility_invoice_ap', { p_document_id: selected.id })
-    if (apError) setError(apError.message)
-    else {
-      await supabase.rpc('clear_accounting_document_review_draft', { p_document_id: selected.id })
+    try {
+      await runAttempt('classify_accounting_document', {
+        p_document_id: selected.id, p_document_type: documentType, p_document_purpose: documentPurpose, p_apply_to_similar: applyToSimilar,
+      },()=>supabase.rpc('classify_accounting_document', { p_document_id: selected.id, p_document_type: documentType, p_document_purpose: documentPurpose, p_apply_to_similar: applyToSimilar }))
+      await runAttempt('save_accounting_document_classification', { p_document_id: selected.id, p_header: header, p_lines: payload }, ()=>supabase.rpc('save_accounting_document_classification', { p_document_id: selected.id, p_header: header, p_lines: payload }))
+      await runAttempt('save_supplier_invoice_creditor',{p_document_id:selected.id,p_creditor_name:supplierName.trim()},()=>supabase.rpc('save_supplier_invoice_creditor',{p_document_id:selected.id,p_creditor_name:supplierName.trim()}))
+      await runAttempt('create_utility_invoice_ap',{p_document_id:selected.id},()=>supabase.rpc('create_utility_invoice_ap', { p_document_id: selected.id }))
+      await runAttempt('clear_accounting_document_review_draft', { p_document_id: selected.id }, () => supabase.rpc('clear_accounting_document_review_draft', { p_document_id: selected.id }))
       setSuccess('สร้างเจ้าหนี้ค่าสาธารณูปโภคและลงค่าใช้จ่ายตามโครงการแล้ว โดยไม่ผ่านใบรับสินค้า')
       setSelected(null); await loadData()
+    } catch (error) {
+      setError(`บันทึกเจ้าหนี้ไม่สำเร็จ: ${userError(error)}`)
     }
     setSaving(false)
   }
@@ -692,15 +788,16 @@ export function AccountingDocumentsPage() {
     if(!selectedDeliveryNoteIds.length){setError('กรุณาเลือกใบส่งของอย่างน้อย 1 ใบ');return}
     setSaving(true);setError(null)
     if(!await persistCurrentDocumentType()){setSaving(false);return}
-    if(!await persistDocumentProject()){setSaving(false);return}
-    const {error:creditorError}=await supabase.rpc('save_supplier_invoice_creditor',{p_document_id:selected.id,p_creditor_name:supplierName.trim()})
-    if(creditorError){setError(`บันทึกผู้ขายไม่สำเร็จ: ${creditorError.message}`);setSaving(false);return}
-    const {data,error:billingError}=await supabase.rpc('confirm_billing_note_delivery_notes',{p_billing_document_id:selected.id,p_delivery_note_ids:selectedDeliveryNoteIds})
-    if(billingError)setError(`ยืนยันใบวางบิลไม่สำเร็จ: ${billingError.message}`)
-    else{
-      const result=data as {delivery_note_count?:number;delivery_note_total?:number;variance?:number;matched_line_count?:number;unmatched_line_count?:number}
-      setSuccess(`ยืนยันใบวางบิลและจับคู่เอกสารรับ ${result.delivery_note_count??selectedDeliveryNoteIds.length} ใบ ยอดรวม ${money(result.delivery_note_total)}${Math.abs(Number(result.variance??0))>.01?` · ส่วนต่าง ${money(result.variance)}`:' · ยอดตรงกัน'} · รายการตรง ${result.matched_line_count??0} รายการ${Number(result.unmatched_line_count??0)>0?` ไม่ตรง ${result.unmatched_line_count} รายการ`:''}`)
+    try {
+      if(!await persistCurrentDocumentType()){setSaving(false);return}
+      if(!await persistDocumentProject()){setSaving(false);return}
+      await runAttempt('save_supplier_invoice_creditor',{p_document_id:selected.id,p_creditor_name:supplierName.trim()},()=>supabase.rpc('save_supplier_invoice_creditor',{p_document_id:selected.id,p_creditor_name:supplierName.trim()}))
+      const data = await runAttempt('confirm_billing_note_delivery_notes',{p_billing_document_id:selected.id,p_delivery_note_ids:selectedDeliveryNoteIds},()=>supabase.rpc('confirm_billing_note_delivery_notes',{p_billing_document_id:selected.id,p_delivery_note_ids:selectedDeliveryNoteIds}))
+      const result = data as {delivery_note_count?:number;delivery_note_total?:number;variance?:number;matched_line_count?:number;unmatched_line_count?:number}
+      setSuccess(`ยืนยันใบวางบิลและจับคู่เอกสารรับ ${result.delivery_note_count ?? selectedDeliveryNoteIds.length} ใบ ยอดรวม ${money(result.delivery_note_total)}${Math.abs(Number(result.variance ?? 0))>.01?` · ส่วนต่าง ${money(result.variance)}`:' · ยอดตรงกัน'} · รายการตรง ${result.matched_line_count ?? 0} รายการ${Number(result.unmatched_line_count ?? 0)>0?` ไม่ตรง ${result.unmatched_line_count} รายการ`:''}`)
       setSelected(null);await loadData()
+    } catch (error) {
+      setError(`บันทึกเจ้าหนี้ไม่สำเร็จ: ${userError(error)}`)
     }
     setSaving(false)
   }
@@ -712,13 +809,20 @@ export function AccountingDocumentsPage() {
     if (!operationStock || operationQuantity <= 0 || !operationReason.trim()) return
     if (operationType === 'transfer' && (!operationTargetProject || !operationTargetLocation)) { setError('กรุณาระบุโครงการและคลังปลายทาง'); return }
     setSaving(true); setError(null)
-    const { error: operationError } = await supabase.rpc('process_project_stock_operation', {
-      p_operation_type: operationType,p_inventory_item_id: operationStock.inventory_item_id,p_from_project_id: operationStock.project_id,
-      p_from_location_id: operationStock.location_id,p_quantity: operationQuantity,p_to_project_id: operationType === 'transfer' ? operationTargetProject : null,
-      p_to_location_id: operationType === 'transfer' ? operationTargetLocation : null,p_reason: operationReason.trim(),
-    })
-    if (operationError) setError(operationError.message)
-    else { setSuccess(operationType === 'transfer' ? 'โอน Stock เรียบร้อยแล้ว' : operationType === 'waste' ? 'ตัดของเสียเรียบร้อยแล้ว' : 'เบิกวัสดุเป็นต้นทุนโครงการเรียบร้อยแล้ว'); setOperationStock(null); await loadData() }
+    try {
+      await runAttempt('process_project_stock_operation', {
+        p_operation_type: operationType,p_inventory_item_id: operationStock.inventory_item_id,p_from_project_id: operationStock.project_id,
+        p_from_location_id: operationStock.location_id,p_quantity: operationQuantity,p_to_project_id: operationType === 'transfer' ? operationTargetProject : null,
+        p_to_location_id: operationType === 'transfer' ? operationTargetLocation : null,p_reason: operationReason.trim(),
+      }, ()=>supabase.rpc('process_project_stock_operation', {
+        p_operation_type: operationType,p_inventory_item_id: operationStock.inventory_item_id,p_from_project_id: operationStock.project_id,
+        p_from_location_id: operationStock.location_id,p_quantity: operationQuantity,p_to_project_id: operationType === 'transfer' ? operationTargetProject : null,
+        p_to_location_id: operationType === 'transfer' ? operationTargetLocation : null,p_reason: operationReason.trim(),
+      }))
+      setSuccess(operationType === 'transfer' ? 'โอน Stock เรียบร้อยแล้ว' : operationType === 'waste' ? 'ตัดของเสียเรียบร้อยแล้ว' : 'เบิกวัสดุเป็นต้นทุนโครงการเรียบร้อยแล้ว'); setOperationStock(null); await loadData()
+    } catch (error) {
+      setError(userError(error))
+    }
     setSaving(false)
   }
 
@@ -748,9 +852,20 @@ export function AccountingDocumentsPage() {
     setSaving(true);setError(null)
     const splitPayload=splitItems.map(item=>({...item,description:item.description.trim()}))
     const splitRpc=selected?.status==='confirmed'?'reclassify_confirmed_receipt_stock_line_standard':'split_accounting_document_line'
-    const {error:splitError}=await supabase.rpc(splitRpc,{p_line_id:splitLine.id,p_items:splitPayload})
-    if(splitError)setError(splitError.message)
-    else if(selected){setSuccess(`แยกรายการ Stock ${splitItems.length} รายการ รวม ${splitTotal} ${splitLine.unit??''} โดยยอดรวมไม่เปลี่ยน`);setSplitLine(null);await openDocument(selected);await loadData()}
+    try {
+      await runAttempt(splitRpc,{
+        p_line_id: splitLine.id,
+        p_items: splitPayload,
+      },()=>supabase.rpc(splitRpc,{p_line_id:splitLine.id,p_items:splitPayload}))
+      if (selected) {
+        setSuccess(`แยกรายการ Stock ${splitItems.length} รายการ รวม ${splitTotal} ${splitLine.unit ?? ''} โดยยอดรวมไม่เปลี่ยน`)
+        setSplitLine(null)
+        await openDocument(selected)
+        await loadData()
+      }
+    } catch (error) {
+      setError(userError(error))
+    }
     setSaving(false)
   }
 
@@ -776,11 +891,11 @@ export function AccountingDocumentsPage() {
     const { data: attachment, error: attachmentError } = await supabase.from('line_attachments')
       .select('storage_bucket,storage_path,content_type').eq('message_id', sourceMessageId)
       .order('created_at', { ascending: false }).limit(1).maybeSingle()
-    if (attachmentError) setError(attachmentError.message)
+    if (attachmentError) setError(userError(attachmentError))
     else if (!attachment) setError('ไม่พบไฟล์ภาพต้นฉบับของเอกสารนี้')
     else {
       const { data: signed, error: signedError } = await supabase.storage.from(attachment.storage_bucket).createSignedUrl(attachment.storage_path, 600)
-      if (signedError) setError(signedError.message)
+      if (signedError) setError(userError(signedError))
       else setPreview({ url: signed.signedUrl, contentType: attachment.content_type ?? 'image/jpeg' })
     }
     setPreviewLoading(false)
@@ -794,13 +909,14 @@ export function AccountingDocumentsPage() {
   const mergeCurrentDocumentSet = async () => {
     if(!selected||!canManage||documentSetMembers.length<2)return
     setSaving(true);setError(null);setSuccess(null)
-    const {data,error:mergeError}=await supabase.rpc('merge_accounting_document_set',{p_primary_document_id:selected.id})
-    if(mergeError)setError(`ขั้นตอนรวมชุดเอกสาร: ${mergeError.message}`)
-    else{
-      const pageCount=Number((data as {page_count?:number}|null)?.page_count??documentSetMembers.length)
+    try {
+      const data = await runAttempt('merge_accounting_document_set',{p_primary_document_id:selected.id},()=>supabase.rpc('merge_accounting_document_set',{p_primary_document_id:selected.id}))
+      const pageCount = Number((data as { page_count?: number } | null)?.page_count ?? documentSetMembers.length)
       await loadData()
-      await openDocument({...selected,status:'needs_correction'})
+      await openDocument({ ...selected, status: 'needs_correction' })
       setSuccess(`รวมเป็นเอกสารชุดเดียว ${pageCount} หน้าแล้ว กรุณาตรวจประเภท ผู้ขาย รายการ และยอดรวมก่อนยืนยัน`)
+    } catch (error) {
+      setError(`ขั้นตอนรวมชุดเอกสาร: ${userError(error)}`)
     }
     setSaving(false)
   }
@@ -808,17 +924,28 @@ export function AccountingDocumentsPage() {
   const detachCurrentDocumentFromSet = async () => {
     if(!selected||!canManage||documentSetMembers.length<2)return
     setSaving(true);setError(null);setSuccess(null)
-    const {error:detachError}=await supabase.rpc('detach_accounting_document_from_set',{p_document_id:selected.id})
-    if(detachError)setError(`ขั้นตอนแยกหน้าเอกสาร: ${detachError.message}`)
-    else{setSelected(null);setSuccess('แยกภาพออกเป็นเอกสารคนละชุดแล้ว');await loadData()}
+    try {
+      await runAttempt('detach_accounting_document_from_set', { p_document_id: selected.id }, () =>
+        supabase.rpc('detach_accounting_document_from_set', { p_document_id: selected.id })
+      )
+      setSelected(null);setSuccess('แยกภาพออกเป็นเอกสารคนละชุดแล้ว');await loadData()
+    } catch (error) {
+      setError(`ขั้นตอนแยกหน้าเอกสาร: ${userError(error)}`)
+    }
     setSaving(false)
   }
 
   const dismissDocument = async () => {
     if (!selected || !canManage) return
     setSaving(true)
-    const { error: updateError } = await supabase.from('accounting_documents').update({ status: 'dismissed', updated_at: new Date().toISOString() }).eq('id', selected.id)
-    if (updateError) setError(updateError.message); else { setSelected(null); await loadData() }
+    try {
+      await runAttempt('dismiss_accounting_document', { target_document_id: selected.id }, () =>
+        supabase.from('accounting_documents').update({ status: 'dismissed', updated_at: new Date().toISOString() }).eq('id', selected.id),
+      )
+      setSelected(null); await loadData()
+    } catch (error) {
+      setError(userError(error))
+    }
     setSaving(false)
   }
 
@@ -1187,6 +1314,7 @@ export function AccountingDocumentsPage() {
     </Dialog>
   </Stack>
 }
+
 
 
 

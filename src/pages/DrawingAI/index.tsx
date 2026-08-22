@@ -9,6 +9,8 @@ import { PageHeader } from '../../components/PageHeader'
 import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { supabase } from '../../lib/supabase'
+import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
+import { userError } from '../../utils/userError'
 
 type Provider = 'gemini' | 'openai' | 'anthropic'
 type ModelProvider = Provider | 'wisdom' | 'mistral' | 'paddleocr'
@@ -102,6 +104,8 @@ export function DrawingAIPage() {
   const [sheetItems, setSheetItems] = useState<SheetItem[]>([])
   const [detailJob, setDetailJob] = useState<Job | null>(null)
   const [scopeSystems, setScopeSystems] = useState<string[]>([])
+  const runAttempt = <T = { data?: unknown; error?: unknown }>(action: string, request: Record<string, unknown>, operation: () => unknown) =>
+    runWithMutationAttempt({ module: 'drawing_ai', action, actorProfileId: profile?.id, companyId: currentCompany?.company_id ?? null, request, operation }) as Promise<T>
 
   const load = useCallback(async () => {
     const companyId = currentCompany?.company_id
@@ -119,7 +123,7 @@ export function DrawingAIPage() {
       supabase.from('drawing_sheet_items').select('id,job_id,page_number,system_code,item_code,description,specification,unit,quantity,building,floor,zone,room,count_method,evidence,confidence,review_status').eq('company_id', companyId).order('page_number').limit(2000),
     ])
     const error = p.error ?? j.error ?? r.error ?? registry.error ?? modules.error ?? sheetResult.error ?? itemResult.error
-    if (error) setMessage(error.message)
+    if (error) setMessage(userError(error))
     setProjects((p.data ?? []) as Project[])
     setJobs((j.data ?? []) as Job[])
     setRuns((r.data ?? []) as Run[])
@@ -173,17 +177,24 @@ export function DrawingAIPage() {
       }
     }
     const path = `${currentCompany.company_id}/${projectId || 'auto-project'}/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
-    const upload = await supabase.storage.from('drawing-ai').upload(path, file, { contentType: file.type })
-    if (upload.error) { setMessage(upload.error.message); setBusy(false); return }
-    const created = await supabase.from('drawing_ai_jobs').insert({
+    const upload = await runAttempt<{ data?: { path: string; id?: string }; error?: unknown }>('upload_source_file', { path, file_name: file.name }, async () =>
+      supabase.storage.from('drawing-ai').upload(path, file, { contentType: file.type }))
+    if (upload.error) { setMessage(userError(upload.error)); setBusy(false); return }
+    const created = await runAttempt<{ data?: { id: string }; error?: unknown }>('create_job', {
+      company_id: currentCompany.company_id,
+      project_id: projectId || null,
+      drawing_type: drawingType,
+    }, async () => await supabase.from('drawing_ai_jobs').insert({
       company_id: currentCompany.company_id,
       project_id: projectId || null, name: file.name, drawing_type: drawingType,
       storage_path: path, mime_type: file.type, requested_providers: providers,
       open_source_ocr: openSourceOcr, created_by: profile.id,
-    }).select('id').single()
-    if (created.error) { setMessage(created.error.message); setBusy(false); return }
-    const invoked = await supabase.functions.invoke('drawing-ai-benchmark', { body: { jobId: created.data.id } })
-    if (invoked.error) setMessage(invoked.error.message)
+    }).select('id').single())
+    if (created.error || !created.data?.id) { setMessage(userError(created.error)); setBusy(false); return }
+    const createdJobId = created.data.id
+    const invoked = await runAttempt('invoke_benchmark', { jobId: createdJobId }, async () =>
+      supabase.functions.invoke('drawing-ai-benchmark', { body: { jobId: createdJobId } }))
+    if (invoked.error) setMessage(userError(invoked.error))
     else setMessage('รับงานเข้าคิวแล้ว ปิดหน้านี้ได้และกลับมาดูผลภายหลัง ระบบจะอัปเดตสถานะอัตโนมัติ')
     setBusy(false); setFile(null); await load()
   }
@@ -195,21 +206,25 @@ export function DrawingAIPage() {
       let project = projects.find((item) =>
         manualProjectCode.trim() && item.code?.toLowerCase() === manualProjectCode.trim().toLowerCase())
       if (!project) {
-        const created = await supabase.from('projects').insert({
+      const created = await runAttempt<{ data?: { id: string; name: string; code: string }; error?: unknown }>('create_manual_project', {
+          company_id: currentCompany.company_id,
+          name: manualProjectName.trim(),
+          code: manualProjectCode.trim() || 'auto-generated',
+        }, async () => await supabase.from('projects').insert({
           company_id: currentCompany.company_id,
           name: manualProjectName.trim(),
           code: manualProjectCode.trim() || `MANUAL-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
           status: 'active',
           created_by: profile.id,
-        }).select('id:project_id,name,code').single()
+        }).select('id:project_id,name,code').single())
         if (created.error) throw created.error
         project = created.data as Project
       }
-      const updated = await supabase.from('drawing_ai_jobs').update({
+      const updated = await runAttempt<{ error?: unknown }>('attach_job_to_project', { job_id: manualProjectJob.id }, async () => await supabase.from('drawing_ai_jobs').update({
         project_id: project.id,
         status: runs.some((run) => run.job_id === manualProjectJob.id && run.status === 'completed') ? 'completed' : 'failed',
         updated_at: new Date().toISOString(),
-      }).eq('company_id', currentCompany.company_id).eq('id', manualProjectJob.id)
+      }).eq('company_id', currentCompany.company_id).eq('id', manualProjectJob.id))
       if (updated.error) throw updated.error
       setManualProjectJob(null)
       setManualProjectName('')
@@ -217,7 +232,7 @@ export function DrawingAIPage() {
       setMessage('ผูกแบบเข้ากับโครงการเรียบร้อยแล้ว')
       await load()
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'สร้างโครงการไม่สำเร็จ')
+      setMessage(error instanceof Error ? userError(error) : 'สร้างโครงการไม่สำเร็จ')
     } finally {
       setBusy(false)
     }
@@ -263,25 +278,25 @@ export function DrawingAIPage() {
       if (!Array.isArray(truth)) throw new Error('Ground truth ต้องเป็น JSON array')
       if (truth.some((item) => !keyOf(item))) throw new Error('ทุกรายการต้องมี code หรือ category + description')
       setBusy(true)
-      const truthResult = await supabase.from('drawing_ai_ground_truth').upsert({
+      const truthResult = await runAttempt('save_ground_truth', { job_id: reviewJobId, truths: truth.length }, async () => await supabase.from('drawing_ai_ground_truth').upsert({
         company_id: currentCompany.company_id,
         job_id: reviewJobId, items: truth, verified_by: profile.id, verified_at: new Date().toISOString(),
-      })
+      }))
       if (truthResult.error) throw truthResult.error
       const jobRuns = runs.filter((run) => run.job_id === reviewJobId && run.status === 'completed' && Array.isArray(run.result?.items))
       const scores = jobRuns.map((run) => ({ company_id: currentCompany.company_id, run_id: run.id, ...scoreRun(run.result!.items as TakeoffItem[], truth) }))
       if (scores.length) {
-        const scoreResult = await supabase.from('drawing_ai_scores').upsert(scores)
+        const scoreResult = await runAttempt('save_scores', { job_id: reviewJobId, score_count: scores.length }, async () => await supabase.from('drawing_ai_scores').upsert(scores))
         if (scoreResult.error) throw scoreResult.error
       }
-      const jobResult = await supabase.from('drawing_ai_jobs').update({
+      const jobResult = await runAttempt('mark_job_verified', { job_id: reviewJobId }, async () => await supabase.from('drawing_ai_jobs').update({
         status: 'verified', verified_by: profile.id, verified_at: new Date().toISOString(),
-      }).eq('company_id', currentCompany.company_id).eq('id', reviewJobId)
+      }).eq('company_id', currentCompany.company_id).eq('id', reviewJobId))
       if (jobResult.error) throw jobResult.error
       setReviewJobId(''); setMessage('ยืนยัน ground truth และคำนวณอันดับทุกโมเดลแล้ว')
       await load()
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'บันทึก ground truth ไม่สำเร็จ')
+      setMessage(error instanceof Error ? userError(error) : 'บันทึก ground truth ไม่สำเร็จ')
     } finally {
       setBusy(false)
     }
@@ -297,7 +312,7 @@ export function DrawingAIPage() {
     if (!detailJob || !profile || !currentCompany || !scopeSystems.length) return
     setBusy(true)
     try {
-      const scopeResult = await supabase.from('drawing_takeoff_scopes').upsert({
+      const scopeResult = await runAttempt('save_scope', { job_id: detailJob.id, systems: scopeSystems }, async () => await supabase.from('drawing_takeoff_scopes').upsert({
         company_id: currentCompany.company_id,
         job_id: detailJob.id,
         output_system_codes: scopeSystems,
@@ -305,7 +320,7 @@ export function DrawingAIPage() {
         selected_by: profile.id,
         selected_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      })
+      }))
       if (scopeResult.error) throw scopeResult.error
       const jobSheets = sheets.filter((sheet) => sheet.job_id === detailJob.id)
       const dependencies = scopeSystems.flatMap((outputCode) => jobSheets.flatMap((sheet) => {
@@ -320,21 +335,23 @@ export function DrawingAIPage() {
         }
         return []
       }))
-      await supabase.from('drawing_sheet_dependencies').delete().eq('company_id', currentCompany.company_id).eq('job_id', detailJob.id)
+      await runAttempt('delete_sheet_dependencies', { job_id: detailJob.id }, async () =>
+        supabase.from('drawing_sheet_dependencies').delete().eq('company_id', currentCompany.company_id).eq('job_id', detailJob.id))
       if (dependencies.length) {
-        const dependencyResult = await supabase.from('drawing_sheet_dependencies').insert(
-          dependencies.map((dependency) => ({ ...dependency, company_id: currentCompany.company_id })),
-        )
+        const dependencyResult = await runAttempt('save_sheet_dependencies', { job_id: detailJob.id, count: dependencies.length }, async () =>
+          supabase.from('drawing_sheet_dependencies').insert(
+            dependencies.map((dependency) => ({ ...dependency, company_id: currentCompany.company_id })),
+          ))
         if (dependencyResult.error) throw dependencyResult.error
       }
-      const updateResult = await supabase.from('drawing_ai_jobs').update({
+      const updateResult = await runAttempt('mark_job_awaiting_review', { job_id: detailJob.id }, async () => await supabase.from('drawing_ai_jobs').update({
         status: 'awaiting_review', updated_at: new Date().toISOString(),
-      }).eq('company_id', currentCompany.company_id).eq('id', detailJob.id)
+      }).eq('company_id', currentCompany.company_id).eq('id', detailJob.id))
       if (updateResult.error) throw updateResult.error
       setMessage(`บันทึกขอบเขต BOQ แล้ว ${scopeSystems.length} ระบบ พร้อมเลือกแบบอ้างอิงข้ามระบบอัตโนมัติ`)
       await load()
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'บันทึกขอบเขต BOQ ไม่สำเร็จ')
+      setMessage(error instanceof Error ? userError(error) : 'บันทึกขอบเขต BOQ ไม่สำเร็จ')
     } finally {
       setBusy(false)
     }
@@ -532,3 +549,4 @@ export function DrawingAIPage() {
     </Dialog>
   </Stack>
 }
+

@@ -8,17 +8,46 @@ import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { userError } from '../../utils/userError'
 
 type Project={id:string;name:string;code:string|null;status:string}
 type BoqDocument={id:string;project_id:string;status:string;boq_document_totals:{direct_cost:number;item_selling_total:number}|null}
 type BoqTotal={id:string;direct_cost:number;item_selling_total:number}
 type Expense={id:string;project_id:string|null;total_amount:number|null;paid_amount:number|null;status:string;document_date:string|null;document_type:string}
-type Payroll={id:string;net_pay:number;status:string;pay_periods:{starts_on:string;ends_on:string}|null}
+type Payroll={
+  id:string
+  profile_id:string
+  normal_minutes:number
+  overtime_minutes:number
+  base_pay:number
+  overtime_pay:number
+  additions:number
+  deductions:number
+  reimbursements:number
+  net_pay:number
+  status:string
+  pay_periods:{name:string;starts_on:string;ends_on:string}|null
+}
 type Contract={id:string;site_id:string;contract_amount:number;status:string;project_sites:{project_id:string;name:string}|null}
 type Claim={id:string;contract_id:string;gross_amount:number;net_amount:number;status:string}
 type Attendance={id:string;profile_id:string;site_id:string;worked_minutes:number|null;overtime_minutes:number|null;clock_out_at:string|null;status:string;project_sites:{project_id:string;name:string}|null}
 type InventoryMovement={id:string;project_id:string|null;movement_type:string;quantity:number;unit_cost:number|null;occurred_at:string}
 type SiteRow={id:string;name:string;budget:number;expense:number;contract:number;labour:number;progress:number;usage:number;status:string}
+type PayrollForecastRow={
+  profile_id:string
+  employee_name:string
+  employment_type:string
+  attendance_policy:string
+  actual_normal_minutes:number
+  actual_overtime_minutes:number
+  future_planned_minutes:number
+  future_planned_overtime_minutes:number
+  accrued_cost:number
+  committed_cost:number
+  forecast_month_end:number
+  missing_data:string[]
+  as_of:string
+}
 
 const money=(value:number)=>new Intl.NumberFormat('th-TH',{style:'currency',currency:'THB',maximumFractionDigits:0}).format(value)
 const sum=(values:number[])=>values.reduce((total,value)=>total+Number(value||0),0)
@@ -41,6 +70,7 @@ export function DashboardPage(){
   const [month,setMonth]=useState(new Date().toISOString().slice(0,7)),[projectId,setProjectId]=useState('all'),[updatedAt,setUpdatedAt]=useState<Date|null>(null)
   const [projects,setProjects]=useState<Project[]>([]),[boqs,setBoqs]=useState<BoqDocument[]>([]),[expenses,setExpenses]=useState<Expense[]>([])
   const [payrolls,setPayrolls]=useState<Payroll[]>([]),[contracts,setContracts]=useState<Contract[]>([]),[claims,setClaims]=useState<Claim[]>([])
+  const [payrollForecast,setPayrollForecast]=useState<PayrollForecastRow[]>([])
   const [attendance,setAttendance]=useState<Attendance[]>([]),[inventory,setInventory]=useState<InventoryMovement[]>([])
   const load=useCallback(async()=>{
     if(!canManage)return
@@ -51,19 +81,21 @@ export function DashboardPage(){
       supabase.from('boq_documents').select('id,project_id,status').in('status',['approved','in_review']),
       supabase.from('boq_document_totals').select('id,direct_cost,item_selling_total'),
       supabase.from('accounting_documents').select('id,project_id,total_amount,paid_amount,status,document_date,document_type').gte('document_date',range.start).lt('document_date',range.end).neq('status','duplicate'),
-      supabase.from('employee_payrolls').select('id,net_pay,status,pay_periods(starts_on,ends_on)').order('created_at',{ascending:false}).limit(1000),
+      supabase.from('employee_payrolls').select('id,profile_id,normal_minutes,overtime_minutes,base_pay,overtime_pay,additions,deductions,reimbursements,net_pay,status,pay_periods(name,starts_on,ends_on)').order('created_at',{ascending:false}).limit(1000),
+      supabase.rpc('get_realtime_payroll_forecast',{target_month:`${month}-01`}),
       supabase.from('contractor_contracts').select('id,site_id,contract_amount,status,project_sites(project_id,name)'),
       supabase.from('contractor_payment_claims').select('id,contract_id,gross_amount,net_amount,status'),
       supabase.from('attendance_sessions').select('id,profile_id,site_id,worked_minutes,overtime_minutes,clock_out_at,status,project_sites(project_id,name)').gte('clock_in_at',`${range.start}T00:00:00+07:00`).lt('clock_in_at',`${range.end}T00:00:00+07:00`).neq('status','duplicate'),
       supabase.from('inventory_movements').select('id,project_id,movement_type,quantity,unit_cost,occurred_at').gte('occurred_at',`${range.start}T00:00:00+07:00`).lt('occurred_at',`${range.end}T00:00:00+07:00`),
     ])
     const first=requests.find(request=>request.error)?.error
-    if(first)setError(`โหลดข้อมูลบางส่วนไม่สำเร็จ: ${first.message}`)
+    if(first)setError(`โหลดข้อมูลบางส่วนไม่สำเร็จ: ${userError(first)}`)
     const totals=new Map(((requests[2].data??[]) as BoqTotal[]).map(row=>[row.id,row]))
     setProjects((requests[0].data??[]) as unknown as Project[]);setBoqs(((requests[1].data??[]) as Omit<BoqDocument,'boq_document_totals'>[]).map(row=>({...row,boq_document_totals:totals.get(row.id)??null})))
     setExpenses((requests[3].data??[]) as Expense[]);setPayrolls((requests[4].data??[]) as unknown as Payroll[])
-    setContracts((requests[5].data??[]) as unknown as Contract[]);setClaims((requests[6].data??[]) as Claim[])
-    setAttendance((requests[7].data??[]) as unknown as Attendance[]);setInventory((requests[8].data??[]) as InventoryMovement[])
+    setPayrollForecast((requests[5].data??[]) as unknown as PayrollForecastRow[])
+    setContracts((requests[6].data??[]) as unknown as Contract[]);setClaims((requests[7].data??[]) as Claim[])
+    setAttendance((requests[8].data??[]) as unknown as Attendance[]);setInventory((requests[9].data??[]) as InventoryMovement[])
     setUpdatedAt(new Date());setLoading(false)
   },[canManage,month])
   useEffect(()=>{const timer=window.setTimeout(()=>void load(),0);return()=>window.clearTimeout(timer)},[load])
@@ -74,6 +106,8 @@ export function DashboardPage(){
     const channel=supabase.channel('project-cost-live')
       .on('postgres_changes',{event:'*',schema:'public',table:'attendance_sessions'},refresh)
       .on('postgres_changes',{event:'*',schema:'public',table:'employee_payrolls'},refresh)
+      .on('postgres_changes',{event:'*',schema:'public',table:'employee_employment_records'},refresh)
+      .on('postgres_changes',{event:'*',schema:'public',table:'workforce_daily_plans'},refresh)
       .on('postgres_changes',{event:'*',schema:'public',table:'accounting_documents'},refresh)
       .on('postgres_changes',{event:'*',schema:'public',table:'contractor_payment_claims'},refresh)
       .on('postgres_changes',{event:'*',schema:'public',table:'employee_site_cost_allocations'},refresh)
@@ -89,12 +123,40 @@ export function DashboardPage(){
     const selectedClaims=claims.filter(row=>contractIds.has(row.contract_id)),selectedAttendance=attendance.filter(row=>row.project_sites&&selectedIds.has(row.project_sites.project_id))
     const selectedInventory=inventory.filter(row=>row.project_id&&selectedIds.has(row.project_id))
     const payrollMonth=payrolls.filter(row=>row.pay_periods&&(row.pay_periods.starts_on.startsWith(month)||row.pay_periods.ends_on.startsWith(month)))
+    const payrollBase = payrollMonth.filter(row=>['estimated','needs_review','adjusted','approved','pending_payment','closed','paid'].includes(row.status))
+    const payrollByStatus = {
+      estimated: payrollMonth.filter((row)=>row.status==='estimated').reduce((sum,row)=>sum+Number(row.net_pay||0),0),
+      needsReview: payrollMonth.filter((row)=>row.status==='needs_review').reduce((sum,row)=>sum+Number(row.net_pay||0),0),
+      adjusted: payrollMonth.filter((row)=>row.status==='adjusted').reduce((sum,row)=>sum+Number(row.net_pay||0),0),
+      approved: payrollMonth.filter((row)=>row.status==='approved').reduce((sum,row)=>sum+Number(row.net_pay||0),0),
+      pendingPayment: payrollMonth.filter((row)=>row.status==='pending_payment').reduce((sum,row)=>sum+Number(row.net_pay||0),0),
+      closed: payrollMonth.filter((row)=>row.status==='closed').reduce((sum,row)=>sum+Number(row.net_pay||0),0),
+      paid: payrollMonth.filter((row)=>row.status==='paid').reduce((sum,row)=>sum+Number(row.net_pay||0),0),
+      void: payrollMonth.filter((row)=>row.status==='void').reduce((sum,row)=>sum+Number(row.net_pay||0),0),
+    }
+    const forecastAccrued=sum(payrollForecast.map(row=>Number(row.accrued_cost||0)))
+    const forecastCommitted=sum(payrollForecast.map(row=>Number(row.committed_cost||0)))
+    const forecastMonthEnd=sum(payrollForecast.map(row=>Number(row.forecast_month_end||0)))
+    const forecastWorkers=new Set(payrollForecast.map(row=>row.profile_id)).size
+    const forecastWorkHours=payrollForecast.reduce((total,row)=>total+Number(row.actual_normal_minutes||0)+Number(row.actual_overtime_minutes||0),0)/60
+    const forecastIssues=payrollForecast.reduce((total,row)=>total+(row.missing_data?.length??0),0)
+    const payrollLockedCost=sum(payrollBase.map(row=>Number(row.net_pay||0)))
+    const payrollCostForActual=payrollLockedCost||forecastAccrued
+    const payrollWorkers = forecastWorkers || new Set(payrollMonth.map((row)=>row.profile_id)).size
+    const payrollWorkHours = forecastWorkHours || payrollMonth.reduce((sum,row)=>sum+Number(row.normal_minutes||0)+Number(row.overtime_minutes||0),0)/60
+    const payrollComponents = payrollMonth.reduce((acc,row)=>({
+      base: acc.base+Number(row.base_pay||0),
+      overtime: acc.overtime+Number(row.overtime_pay||0),
+      additions: acc.additions+Number(row.additions||0),
+      reimbursements: acc.reimbursements+Number(row.reimbursements||0),
+      deductions: acc.deductions+Math.abs(Number(row.deductions||0)),
+    }),{base:0,overtime:0,additions:0,reimbursements:0,deductions:0})
     const budget=sum(selectedBoqs.map(row=>Number(row.boq_document_totals?.direct_cost||0))),revenuePlan=sum(selectedBoqs.map(row=>Number(row.boq_document_totals?.item_selling_total||0)))
     const documented=sum(selectedExpenses.filter(row=>['confirmed','pending','needs_correction'].includes(row.status)).map(row=>Number(row.total_amount||0)))
     const paid=sum(selectedExpenses.map(row=>Number(row.paid_amount||0)))+sum(selectedClaims.filter(row=>row.status==='paid').map(row=>Number(row.net_amount||0)))
     const committed=sum(selectedClaims.filter(row=>['approved','pending_payment'].includes(row.status)).map(row=>Number(row.net_amount||0)))
-    const payroll=projectId==='all'?sum(payrollMonth.map(row=>Number(row.net_pay||0))):0,contractCost=sum(selectedClaims.filter(row=>!['rejected','void'].includes(row.status)).map(row=>Number(row.net_amount||0)))
-    const actualCost=documented+contractCost+payroll,forecast=actualCost+committed,profit=revenuePlan-forecast
+    const payroll=projectId==='all'?payrollCostForActual:0,contractCost=sum(selectedClaims.filter(row=>!['rejected','void'].includes(row.status)).map(row=>Number(row.net_amount||0)))
+    const actualCost=documented+contractCost+payroll,forecast=actualCost+committed+(projectId==='all'?Math.max(0,forecastMonthEnd-payroll):0),profit=revenuePlan-forecast
     const review=selectedAttendance.filter(row=>!row.clock_out_at||['pending','needs_review'].includes(row.status)).length+selectedExpenses.filter(row=>['pending','needs_correction'].includes(row.status)).length+selectedClaims.filter(row=>['submitted','needs_revision'].includes(row.status)).length
     const siteRows:SiteRow[]=selectedProjects.map(project=>{
       const projectBoq=selectedBoqs.filter(row=>row.project_id===project.id),projectExpenses=selectedExpenses.filter(row=>row.project_id===project.id)
@@ -104,9 +166,14 @@ export function DashboardPage(){
       const progress=projectBoq.length?Math.min(100,projectBoq.filter(row=>row.status==='approved').length/projectBoq.length*100):0,usage=projectBudget?((expense+contract)/projectBudget*100):0
       return{id:project.id,name:project.name,budget:projectBudget,expense,contract,labour,progress,usage,status:usage>100||usage-progress>25?'เสี่ยง':usage-progress>10?'เฝ้าระวัง':'ปกติ'}
     })
-    const costMix=[{label:'เอกสารค่าใช้จ่าย',value:documented,color:'#a65940'},{label:'ผู้รับเหมา',value:contractCost,color:'#fabfb2'},{label:'ค่าจ้าง',value:payroll,color:'#333333'}]
-    return{selectedProjects,selectedExpenses,selectedContracts,selectedClaims,selectedAttendance,selectedInventory,budget,revenuePlan,documented,paid,committed,payroll,contractCost,actualCost,forecast,profit,review,siteRows,costMix,payrollMonth}
-  },[attendance,boqs,claims,contracts,expenses,inventory,month,payrolls,projectId,projects])
+    const costMix=[{label:'เอกสารค่าใช้จ่าย',value:documented,color:'#a65940'},{label:'ผู้รับเหมา',value:contractCost,color:'#fabfb2'},{label:payrollLockedCost?'ค่าแรง Payroll':'ค่าแรงเกิดขึ้นจริง',value:payroll,color:'#333333'}]
+    return{
+      selectedProjects,selectedExpenses,selectedContracts,selectedClaims,selectedAttendance,selectedInventory,
+      budget,revenuePlan,documented,paid,committed,payroll,contractCost,actualCost,forecast,profit,review,
+      siteRows,costMix,payrollMonth,payrollComponents,payrollWorkers,payrollWorkHours,payrollByStatus,
+      forecastAccrued,forecastCommitted,forecastMonthEnd,forecastIssues,payrollLockedCost,payrollCostSource: payrollLockedCost?'payroll':'forecast',
+    }
+  },[attendance,boqs,claims,contracts,expenses,inventory,month,payrollForecast,payrolls,projectId,projects])
 
   if(!canManage)return <Alert severity="info">Dashboard นี้สำหรับผู้ดูแลระบบและผู้จัดการ</Alert>
   if(loading)return <Stack sx={{alignItems:'center',py:8}}><CircularProgress/></Stack>
@@ -124,7 +191,7 @@ export function DashboardPage(){
     <Paper variant="outlined" sx={{position:'sticky',top:64,zIndex:4,overflow:'hidden'}}><Tabs value={tab} onChange={(_event,value)=>setTab(value)} variant="scrollable" scrollButtons="auto">{tabs.map(label=><Tab key={label} label={label} sx={{textTransform:'none'}}/>)}</Tabs></Paper>
 
     {tab===0&&<><Box sx={{display:'grid',gridTemplateColumns:{xs:'repeat(2,1fr)',lg:'repeat(4,1fr)'},gap:1.5}}>
-      <MetricCard label="งบประมาณ BOQ" value={money(model.budget)} detail={`${model.selectedProjects.length} โครงการ`}/><MetricCard label="ค่าใช้จ่ายและภาระผูกพัน" value={money(model.forecast)} detail={`จ่ายแล้ว ${money(model.paid)}`} color="warning"/><MetricCard label="มูลค่างานตาม BOQ" value={money(model.revenuePlan)} detail="จาก BOQ ที่อนุมัติ/รอตรวจ" color="success"/><MetricCard label="กำไรคาดการณ์" value={money(model.profit)} detail="มูลค่างานหักต้นทุนและภาระผูกพัน" color={model.profit<0?'error':'success'}/>
+      <MetricCard label="งบประมาณ BOQ" value={money(model.budget)} detail={`${model.selectedProjects.length} โครงการ`}/><MetricCard label="ค่าใช้จ่ายและภาระผูกพัน" value={money(model.forecast)} detail={`รวมค่าแรง ${money(model.payroll)}`} color="warning"/><MetricCard label="ค่าแรงเกิดขึ้นจริง" value={money(model.payroll)} detail={model.payrollCostSource==='payroll'?'จาก Payroll ที่คำนวณแล้ว':'จาก Forecast/Reports ถึงวันนี้'} color="error"/><MetricCard label="กำไรคาดการณ์" value={money(model.profit)} detail="มูลค่างานหักต้นทุนและภาระผูกพัน" color={model.profit<0?'error':'success'}/>
     </Box><Box sx={{display:'grid',gridTemplateColumns:{xs:'1fr',lg:'1.35fr 1fr'},gap:2}}>
       <Paper variant="outlined" sx={{p:2.5}}><Typography variant="h6" sx={{mb:2}}>งบประมาณเทียบต้นทุนรายโครงการ</Typography><BarChart items={model.siteRows.map(row=>({label:row.name,value:row.expense+row.contract,color:row.status==='เสี่ยง'?'#d32f2f':row.status==='เฝ้าระวัง'?'#ed6c02':'#a65940'}))}/></Paper>
       <Paper variant="outlined" sx={{p:2.5}}><Typography variant="h6">สัดส่วนต้นทุน</Typography><Box sx={{display:'grid',gridTemplateColumns:'140px 1fr',gap:2,alignItems:'center',mt:2}}><Box sx={{width:140,height:140,borderRadius:'50%',background:costTotal?`conic-gradient(#a65940 0 ${model.documented/costTotal*100}%,#fabfb2 0 ${(model.documented+model.contractCost)/costTotal*100}%,#333 0 100%)`:'#eee',position:'relative','&:after':{content:'""',position:'absolute',inset:28,borderRadius:'50%',bgcolor:'background.paper'}}}/><Stack spacing={1}>{model.costMix.map(item=><Stack key={item.label} direction="row" sx={{justifyContent:'space-between',gap:2}}><Typography variant="body2"><Box component="span" sx={{display:'inline-block',width:9,height:9,borderRadius:5,bgcolor:item.color,mr:1}}/>{item.label}</Typography><Typography variant="body2" sx={{fontWeight:700}}>{money(item.value)}</Typography></Stack>)}</Stack></Box></Paper>
@@ -134,7 +201,16 @@ export function DashboardPage(){
 
     {tab===2&&<Box sx={{display:'grid',gridTemplateColumns:{xs:'1fr',lg:'1fr 1fr'},gap:2}}><Paper variant="outlined" sx={{p:2.5}}><Typography variant="h6" sx={{mb:2}}>ต้นทุนตามหมวด</Typography><BarChart items={model.costMix}/></Paper><Paper variant="outlined" sx={{p:2.5}}><Typography variant="h6" sx={{mb:2}}>งบและประมาณการ</Typography><BarChart items={[{label:'งบ BOQ',value:model.budget,color:'#333'},{label:'ต้นทุนจริง',value:model.actualCost,color:'#a65940'},{label:'ภาระผูกพัน',value:model.committed,color:'#fabfb2'},{label:'ประมาณการรวม',value:model.forecast,color:model.forecast>model.budget?'#d32f2f':'#2e7d32'}]}/></Paper></Box>}
 
-    {tab===3&&<><Box sx={{display:'grid',gridTemplateColumns:{xs:'repeat(2,1fr)',md:'repeat(4,1fr)'},gap:1.5}}><MetricCard label="พนักงานที่ลงเวลา" value={String(new Set(model.selectedAttendance.map(row=>row.profile_id)).size)} detail={`${model.selectedAttendance.length} รายการ`}/><MetricCard label="ชั่วโมงทำงาน" value={`${(sum(model.selectedAttendance.map(row=>Number(row.worked_minutes||0)))/60).toFixed(1)} ชม.`} detail="ตามเวลาที่ปิดรายการแล้ว"/><MetricCard label="OT บันทึกแล้ว" value={`${(sum(model.selectedAttendance.map(row=>Number(row.overtime_minutes||0)))/60).toFixed(1)} ชม.`} detail="ใช้ยอดอนุมัติจากระบบ" color="warning"/><MetricCard label="ค่าจ้างในรอบ" value={money(model.payroll)} detail={`${model.payrollMonth.length} รายการ Payroll`} color="success"/></Box><Alert severity="info">ค่าแรงรายไซต์จะแม่นยำเมื่อกำหนดสัดส่วนพนักงานประจำไซต์ครบ 100% ขณะนี้ Dashboard แสดงชั่วโมงตามไซต์ที่ลงเวลาจริง</Alert></>}
+    {tab===3&&<><Box sx={{display:'grid',gridTemplateColumns:{xs:'repeat(2,1fr)',md:'repeat(4,1fr)'},gap:1.5}}>
+      <MetricCard label="จำนวนพนักงานในรอบ" value={String(model.payrollWorkers)} detail={`${model.payrollMonth.length} payroll · ${payrollForecast.length} forecast`}/>
+      <MetricCard label="ชั่วโมงที่คำนวณ" value={`${model.payrollWorkHours.toFixed(1)} ชม.`} detail="ค่าน้ำหนักรวมปกติ+OT" />
+      <MetricCard label="ค่าจ้างรออนุมัติ" value={money(model.payrollByStatus.estimated + model.payrollByStatus.needsReview + model.payrollByStatus.adjusted)} detail="estimated/needs_review/adjusted" color="warning"/>
+      <MetricCard label="ค่าจ้างรอจ่าย" value={money(model.payrollByStatus.approved + model.payrollByStatus.pendingPayment)} detail="approved + pending_payment" color="error"/>
+      <MetricCard label="ค่าจ้างจ่ายแล้ว" value={money(model.payrollByStatus.paid + model.payrollByStatus.closed)} detail="closed + paid" color="success"/>
+      <MetricCard label="ค่าแรงเฉลี่ยต่อคน" value={money(model.payrollWorkers ? (model.payroll / model.payrollWorkers) : 0)} detail={`${model.payrollWorkers ? 'เฉลี่ยเดือน' : 'ยังไม่มีข้อมูล'}`} color="success"/>
+      <MetricCard label="ค่าแรงตามส่วนประกอบ" value={money(model.payrollComponents.base)} detail={`OT ${money(model.payrollComponents.overtime)} · ล่วงเวลา ${money(model.payrollComponents.reimbursements)}`}/>
+      <MetricCard label="ฐานการคาดการณ์เดือนนี้" value={money(model.forecastMonthEnd)} detail={`เกิดขึ้นจริง ${money(model.forecastAccrued)} · แผน ${money(model.forecastCommitted)}`}/>
+    </Box><Paper variant="outlined" sx={{p:2.5,mt:1.5}}><Typography variant="h6" sx={{mb:1.5}}>Breakdown ค่าแรง</Typography><Alert severity={model.forecastIssues?'warning':'info'}>ยอดที่ขึ้น Dashboard รวมตอนนี้: {money(model.payroll)} ({model.payrollCostSource==='payroll'?'Payroll ที่ generate แล้ว':'Forecast เกิดขึ้นจริงจาก Reports'}) · ประมาณการสิ้นเดือน {money(model.forecastMonthEnd)} · ข้อมูลต้องเติม {model.forecastIssues} จุด</Alert><Typography variant="body2" color="text.secondary" sx={{mt:1}}>Payroll locked: {money(model.payrollLockedCost)} · ฐาน: {money(model.payrollComponents.base)} · โบนัส/เพิ่ม: {money(model.payrollComponents.additions)} · OT: {money(model.payrollComponents.overtime)} · คืนเงิน: {money(model.payrollComponents.reimbursements)} · หัก: {money(model.payrollComponents.deductions)}</Typography></Paper></>}
 
     {tab===4&&<Box sx={{display:'grid',gridTemplateColumns:{xs:'1fr',lg:'1fr 1fr'},gap:2}}><Paper variant="outlined" sx={{p:2.5}}><Typography variant="h6" sx={{mb:2}}>มูลค่าการเคลื่อนไหววัสดุ</Typography><BarChart items={['receipt','issue','return','adjustment'].map(kind=>({label:{receipt:'รับเข้า',issue:'เบิกใช้',return:'คืน',adjustment:'ปรับยอด'}[kind]||kind,value:sum(model.selectedInventory.filter(row=>row.movement_type===kind).map(row=>Number(row.quantity||0)*Number(row.unit_cost||0)))}))}/></Paper><Alert severity="info" sx={{alignItems:'center'}}>กราฟใช้รายการคลังที่ระบุโครงการและราคาต่อหน่วย รายการไม่มีราคาจะนับปริมาณได้แต่ไม่รวมมูลค่า</Alert></Box>}
 
@@ -145,3 +221,4 @@ export function DashboardPage(){
     {tab===7&&<><Box sx={{display:'grid',gridTemplateColumns:{xs:'repeat(2,1fr)',md:'repeat(4,1fr)'},gap:1.5}}><MetricCard label="ต้องตรวจทั้งหมด" value={String(model.review)} detail="เวลา เอกสาร และผู้รับเหมา" color="warning"/><MetricCard label="ลืมลงเวลาออก" value={String(model.selectedAttendance.filter(row=>!row.clock_out_at).length)} detail="เปิดรายงานเวลาเพื่อแก้ไข" color="error"/><MetricCard label="เอกสารรอตรวจ" value={String(model.selectedExpenses.filter(row=>['pending','needs_correction'].includes(row.status)).length)} detail="เอกสารบัญชี" color="warning"/><MetricCard label="งวดผู้รับเหมารอตรวจ" value={String(model.selectedClaims.filter(row=>['submitted','needs_revision'].includes(row.status)).length)} detail="เปิดศูนย์อนุมัติ" color="warning"/></Box><Paper variant="outlined" sx={{p:2.5}}><Stack direction={{xs:'column',sm:'row'}} spacing={1}><Button component={Link} to="/reports" startIcon={<WarningAmberOutlinedIcon/>}>ตรวจเวลาทำงาน</Button><Button component={Link} to="/approvals">เปิดศูนย์อนุมัติ</Button><Button component={Link} to="/contractors">ตรวจผู้รับเหมา</Button><Button component={Link} to="/boq">ตรวจ BOQ</Button></Stack></Paper></>}
   </Stack>
 }
+

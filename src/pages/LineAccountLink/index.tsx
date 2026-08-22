@@ -5,6 +5,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { userError } from '../../utils/userError'
+import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 
 export function LineAccountLinkPage(){
   usePageTitle('ผูกบัญชี LINE')
@@ -17,16 +19,24 @@ export function LineAccountLinkPage(){
   const [error,setError]=useState('')
   const confirm=async()=>{
     setBusy(true);setError('')
-    const {data,error:claimError}=await supabase.rpc('claim_line_account',{one_time_token:token})
-    if(claimError)setError(claimError.message)
-    else{
+    try {
+      const data = await runWithMutationAttempt({
+        module: 'LineAccountLink',
+        action: 'ผูกบัญชี LINE',
+        actorProfileId: profile?.id,
+        companyId: currentCompany?.company_id ?? null,
+        request: { one_time_token: token },
+        operation: async () => await supabase.rpc('claim_line_account',{one_time_token:token}),
+      })
       const result=data as {employee_name?:string}|null
       setSuccess(`ผูก LINE กับ ${result?.employee_name||profile?.full_name||profile?.email||'บัญชีพนักงาน'} เรียบร้อยแล้ว`)
+    } catch (claimError) {
+      setError(userError(claimError))
     }
     setBusy(false)
   }
   return <Box sx={{minHeight:{xs:'calc(100vh - 72px)',md:'auto'},display:'grid',placeItems:'center',py:3}}>
-    <Container maxWidth="xs"><Paper variant="outlined" sx={{p:{xs:3,sm:4},borderRadius:3}}>
+    <Container maxWidth={false} sx={{ maxWidth: 560, width: '100%' }}><Paper variant="outlined" sx={{p:{xs:3,sm:4},borderRadius:3}}>
       <Stack spacing={2.5} sx={{alignItems:'center'}}>
         <Avatar sx={{width:54,height:54,bgcolor:'primary.main'}}><LinkOutlinedIcon/></Avatar>
         <Box sx={{textAlign:'center'}}><Typography variant="h5" sx={{fontWeight:850}}>ยืนยันการผูกบัญชี LINE</Typography>
@@ -48,3 +58,4 @@ export function LineAccountLinkPage(){
     </Paper></Container>
   </Box>
 }
+

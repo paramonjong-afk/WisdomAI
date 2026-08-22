@@ -2,6 +2,7 @@ import { Alert, Box, Chip, Paper, Stack, Typography } from '@mui/material'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { StandardDataTable } from '../../components/StandardDataTable'
 import { supabase } from '../../lib/supabase'
+import { userError } from '../../utils/userError'
 
 type ForecastRow={profile_id:string;employee_name:string;employment_type:string;attendance_policy:string;actual_normal_minutes:number;actual_overtime_minutes:number;future_planned_minutes:number;future_planned_overtime_minutes:number;accrued_cost:number;committed_cost:number;forecast_month_end:number;missing_data:string[];as_of:string}
 const money=(value:number)=>Number(value||0).toLocaleString('th-TH',{style:'currency',currency:'THB'})
@@ -10,7 +11,7 @@ const missingLabel:Record<string,string>={work_policy:'ขาดนโยบา�
 
 export function RealtimePayrollForecast({month,employeeId,employmentTypes}:{month:string;employeeId:string;employmentTypes?:string[]}){
   const [rows,setRows]=useState<ForecastRow[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState('')
-  const load=useCallback(async()=>{setLoading(true);setError('');const {data,error:loadError}=await supabase.rpc('get_realtime_payroll_forecast',{target_month:`${month}-01`});if(loadError){const message=loadError.message||'';setError(message.includes('Permission denied')?'บัญชีนี้ไม่มีสิทธิ์ดูข้อมูลค่าแรงของบริษัทที่เลือก':message.includes('Could not find the function')?'ระบบประมาณการค่าแรงยังติดตั้งไม่ครบ กรุณาให้ผู้ดูแลติดตั้ง Migration ล่าสุด':`คำนวณประมาณการค่าแรงไม่สำเร็จ (${loadError.code||'RPC_ERROR'}) กรุณาแจ้งผู้ดูแลระบบ`);setRows([])}else setRows((data??[]) as ForecastRow[]);setLoading(false)},[month])
+  const load=useCallback(async()=>{setLoading(true);setError('');const {data,error:loadError}=await supabase.rpc('get_realtime_payroll_forecast',{target_month:`${month}-01`});if(loadError){const message=userError(loadError)||'';setError(message.includes('Permission denied')?'บัญชีนี้ไม่มีสิทธิ์ดูข้อมูลค่าแรงของบริษัทที่เลือก':message.includes('Could not find the function')?'ระบบประมาณการค่าแรงยังติดตั้งไม่ครบ กรุณาให้ผู้ดูแลติดตั้ง Migration ล่าสุด':`คำนวณประมาณการค่าแรงไม่สำเร็จ (${loadError.code||'RPC_ERROR'}) กรุณาแจ้งผู้ดูแลระบบ`);setRows([])}else setRows((data??[]) as ForecastRow[]);setLoading(false)},[month])
   useEffect(()=>{const timer=window.setTimeout(()=>void load(),0);const channel=supabase.channel(`payroll-forecast-${month}`).on('postgres_changes',{event:'*',schema:'public',table:'attendance_sessions'},()=>void load()).on('postgres_changes',{event:'*',schema:'public',table:'workforce_daily_plans'},()=>void load()).on('postgres_changes',{event:'*',schema:'public',table:'employee_employment_records'},()=>void load()).subscribe();return()=>{window.clearTimeout(timer);void supabase.removeChannel(channel)}},[load,month])
   const visible=rows.filter(row=>(employeeId==='all'||row.profile_id===employeeId)&&(!employmentTypes?.length||employmentTypes.includes(row.employment_type)))
   const totals=useMemo(()=>visible.reduce((sum,row)=>({accrued:sum.accrued+Number(row.accrued_cost),committed:sum.committed+Number(row.committed_cost),forecast:sum.forecast+Number(row.forecast_month_end),issues:sum.issues+row.missing_data.length}),{accrued:0,committed:0,forecast:0,issues:0}),[visible])
@@ -30,3 +31,4 @@ export function RealtimePayrollForecast({month,employeeId,employmentTypes}:{mont
     ]}/>
   </Stack>
 }
+

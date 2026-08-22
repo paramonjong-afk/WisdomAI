@@ -1,12 +1,14 @@
 import NotificationsNoneOutlinedIcon from '@mui/icons-material/NotificationsNoneOutlined'
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined'
 import TimerOutlinedIcon from '@mui/icons-material/TimerOutlined'
-import { AppBar, Avatar, Badge, Box, Button, Divider, IconButton, ListSubheader, MenuItem, Paper, TextField, Toolbar, Tooltip, Typography } from '@mui/material'
+import { AppBar, Avatar, Badge, Box, Chip, Divider, IconButton, ListSubheader, MenuItem, Paper, TextField, Toolbar, Tooltip, Typography } from '@mui/material'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { logAppEvent, updateAppStatus } from '../lib/telemetry'
+import { releaseInfo, releaseLabel } from '../lib/releaseInfo'
 import { navigationItems } from '../utils/navigation'
+import { isPlatformAdmin as resolvePlatformAdmin } from '../utils/permissions'
 
 const mobileNavigationItems = navigationItems.filter(
   (item) => item.path === '/time-tracking' || item.path === '/my-profile',
@@ -18,7 +20,7 @@ export function TopBar() {
   const [signingOut, setSigningOut] = useState(false)
   const displayName = profile?.full_name || user?.email || 'Wisdom user'
   const role = profile?.role ?? 'employee'
-  const isPlatformAdmin = profile?.platform_role === 'admin'
+  const isPlatformAdmin = resolvePlatformAdmin(profile)
   const initials = displayName.slice(0, 2).toUpperCase()
 
   const handleSignOut = async () => {
@@ -112,21 +114,25 @@ export function TopBar() {
           {currentCompany?.company_name ?? 'Construction Management Platform'}
         </Typography>
         <Box sx={{ flexGrow: 1, display: { xs: 'block', sm: 'none' } }} />
-        <Button
-          component="a"
-          href="/time-tracking"
-          variant="contained"
-          size="small"
-          startIcon={<TimerOutlinedIcon />}
-          sx={{
-            display: { xs: 'inline-flex', md: 'none' },
-            '@media (pointer: coarse)': { display: 'inline-flex' },
-            mr: 1,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          ลงเวลา
-        </Button>
+        <Tooltip title="ลงเวลา">
+          <IconButton
+            component="a"
+            href="/time-tracking"
+            color="primary"
+            aria-label="ลงเวลา"
+            sx={{
+              display: { xs: 'inline-flex', md: 'none' },
+              '@media (pointer: coarse)': { display: 'inline-flex' },
+              mr: 1,
+              width: 44,
+              height: 44,
+              border: '1px solid',
+              borderColor: 'primary.main',
+            }}
+          >
+            <TimerOutlinedIcon />
+          </IconButton>
+        </Tooltip>
         {(companies.length>1||isPlatformAdmin)&&<TextField
           select size="small" aria-label="เลือกบริษัท" value={currentCompany?.company_id??''}
           onChange={(event)=>event.target.value==='__platform__'?navigate('/platform-control-center'):void switchCompany(event.target.value)}
@@ -137,6 +143,15 @@ export function TopBar() {
           {isPlatformAdmin&&<Divider/>}
           {companies.map(company=><MenuItem key={company.company_id} value={company.company_id}>{company.company_name}</MenuItem>)}
         </TextField>}
+        <Tooltip title={`เวอร์ชันที่กำลังใช้งาน: ${releaseLabel} · สร้าง ${new Date(releaseInfo.builtAt).toLocaleString('th-TH')} · กดเพื่อดูรายละเอียด`}>
+          <Chip
+            size="small"
+            variant="outlined"
+            label={releaseLabel}
+            onClick={() => navigate('/system-health')}
+            sx={{ mr: 1, cursor: 'pointer', display: { xs: 'none', md: 'inline-flex' }, fontVariantNumeric: 'tabular-nums' }}
+          />
+        </Tooltip>
         <Tooltip title="Notifications">
           <IconButton aria-label="Notifications" onClick={() => navigate('/notifications')} sx={{ mr: 1, display: { xs: 'none', sm: 'inline-flex' } }}>
             <Badge color="error" variant="dot"><NotificationsNoneOutlinedIcon /></Badge>

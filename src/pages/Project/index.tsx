@@ -12,6 +12,8 @@ import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { userError } from '../../utils/userError'
+import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 
 type ProjectStatus = 'active' | 'paused' | 'completed' | 'archived'
 type Project = {
@@ -72,7 +74,7 @@ export function ProjectPage() {
       supabase.from('project_cost_entries').select('project_id,actual_amount,forecast_amount'),
     ])
     const loadError=projectResult.error||commercialResult.error||siteResult.error||costResult.error
-    if (loadError) setError(loadError.message)
+    if (loadError) setError(userError(loadError))
     else {const commercialMap=new Map((commercialResult.data??[]).map(row=>[row.project_id,row]));const siteCounts=new Map<string,number>();for(const row of siteResult.data??[])siteCounts.set(row.project_id,(siteCounts.get(row.project_id)??0)+1);const costMap=new Map<string,{actual:number;forecast:number}>();for(const row of costResult.data??[]){const value=costMap.get(row.project_id)??{actual:0,forecast:0};value.actual+=Number(row.actual_amount||0);value.forecast+=Number(row.forecast_amount||0);costMap.set(row.project_id,value)}setProjects((projectResult.data??[]).map(row=>({...row,...commercialMap.get(row.id),site_count:siteCounts.get(row.id)??0,actual_cost:costMap.get(row.id)?.actual??0,forecast_cost:costMap.get(row.id)?.forecast??0})) as Project[])}
     setLoading(false)
   }, [])
@@ -109,8 +111,20 @@ export function ProjectPage() {
     if(status!=='active'&&!reason)return
     if(!window.confirm(`ยืนยันเปลี่ยนสถานะ ${project.name} เป็น ${statusLabels[status]}`))return
     setUpdatingStatus(project.id);setError('');setSuccess('')
-    const {error:statusError}=await supabase.rpc('change_project_primary_status',{target_project_id:project.id,target_status:status,change_reason:reason||null})
-    if(statusError)setError(statusError.message);else{setSuccess('เปลี่ยนสถานะโครงการแล้ว');await load()}
+    try {
+      await runWithMutationAttempt({
+        module: 'Project',
+        action: `เปลี่ยนสถานะโปรเจกต์เป็น ${statusLabels[status]}`,
+        actorProfileId: profile?.id,
+        companyId: project.id ? null : null,
+        request: { target_project_id: project.id, target_status: status, change_reason: reason || null },
+        operation: async () => await supabase.rpc('change_project_primary_status', { target_project_id: project.id, target_status: status, change_reason: reason || null }),
+      })
+      setSuccess('เปลี่ยนสถานะโครงการแล้ว')
+      await load()
+    } catch (error) {
+      setError(error instanceof Error ? error.message : userError(error))
+    }
     setUpdatingStatus('')
   }
 
@@ -140,15 +154,36 @@ export function ProjectPage() {
       code: code || null,
       updated_at: new Date().toISOString(),
     }
-    const result = selected
-      ? await supabase.from('projects').update(payload).eq('project_id', selected.id)
-      : await supabase.from('projects').insert({ ...payload, status:'active', created_by: profile?.id })
-    if (result.error) {
-      setError(result.error.code === '23505' ? 'รหัสโปรเจกต์นี้มีอยู่ในระบบแล้ว' : result.error.message)
-    } else {
+    try {
+      if (selected) {
+        await runWithMutationAttempt({
+          module: 'Project',
+          action: 'แก้ไขข้อมูลโปรเจกต์',
+          actorProfileId: profile?.id,
+          companyId: null,
+          request: { ...payload, target_project_id: selected.id },
+          operation: async () => await supabase.from('projects').update(payload).eq('project_id', selected.id),
+        })
+        setSuccess('บันทึกการแก้ไขโปรเจกต์แล้ว')
+      } else {
+        await runWithMutationAttempt({
+          module: 'Project',
+          action: 'เพิ่มโปรเจกต์ใหม่',
+          actorProfileId: profile?.id,
+          companyId: null,
+          request: { ...payload, created_by: profile?.id },
+          operation: async () => await supabase.from('projects').insert({ ...payload, status: 'active', created_by: profile?.id }),
+        })
+        setSuccess('สร้างโปรเจกต์ใหม่แล้ว')
+      }
       setDialogOpen(false)
-      setSuccess(selected ? 'บันทึกการแก้ไขโปรเจกต์แล้ว' : 'สร้างโปรเจกต์ใหม่แล้ว')
       await load()
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && (error as { code?: string }).code === '23505') {
+        setError('รหัสโปรเจกต์นี้มีอยู่ในระบบแล้ว')
+      } else {
+        setError(error instanceof Error ? error.message : userError(error))
+      }
     }
     setSaving(false)
   }
@@ -241,3 +276,4 @@ export function ProjectPage() {
     </Dialog>
   </Stack>
 }
+

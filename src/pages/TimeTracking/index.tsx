@@ -1,15 +1,20 @@
-import { Alert, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Paper, Stack, TextField, Tooltip, Typography, Chip } from '@mui/material'
+import ChatBubbleOutlineOutlinedIcon from '@mui/icons-material/ChatBubbleOutlineOutlined'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
 import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { userError } from '../../utils/userError'
+import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
+import { isEmployeeResigned } from '../../utils/employeeLifecycle'
+import { useNavigate } from 'react-router-dom'
 
 type Site = { id:string; name:string; latitude:number; longitude:number; radius_meters:number; projects:{name:string}|null }
 type Attendance = { id:string; clock_in_at:string; clock_out_at:string|null; status:string; project_sites:Site|null }
 type Project = { id:string; name:string }
-type Employee = { id:string; full_name:string|null; email:string|null }
+type Employee = { id:string; full_name:string|null; email:string|null; employment_status?:string|null; membership_active?:boolean|null }
 type LineGroup = { line_group_id:string; display_name:string|null }
 type GpsPolicy={id:string;error_code:string;action:'allow'|'review'|'reject';require_selfie:boolean;require_reason:boolean;notify_line:boolean}
 type LocationCheck = { latitude:number|null; longitude:number|null; accuracy:number|null; distance:number|null; site:Site; gpsErrorCode?:string; gpsErrorMessage?:string }
@@ -91,12 +96,14 @@ const getDeviceInfo = () => {
 
 export function TimeTrackingPage() {
   usePageTitle('ลงเวลาทำงาน')
+  const navigate = useNavigate()
   const { user, profile, currentCompany } = useAuth()
   const isManager = profile?.role === 'admin' || profile?.role === 'manager'
   const [sites, setSites] = useState<Site[]>([])
   const [sessions, setSessions] = useState<Attendance[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
+  const [resignedEmployees, setResignedEmployees] = useState<Employee[]>([])
   const [lineGroups, setLineGroups] = useState<LineGroup[]>([])
   const [gpsPolicies,setGpsPolicies]=useState<GpsPolicy[]>([])
   const [assignment, setAssignment] = useState({ profileId:'', siteId:'' })
@@ -169,24 +176,44 @@ export function TimeTrackingPage() {
     setSites(availableSites)
     setSessions(mergedAttendance)
     if (settingRows) setSettings(settingRows as AttendanceSettings)
-    if (isManager) {
-      const [
-        { data: projectRows, error: projectsError },
-        { data: employeeRows, error: employeeError },
-        { data: groupRows, error: groupError },
-        { data: policyRows, error: policyError },
-      ] = await Promise.all([
-        supabase.from('projects').select('id:project_id,name').eq('status', 'active').order('name'),
-        supabase.from('profiles').select('id,full_name,email').order('full_name'),
-        supabase.from('line_groups').select('line_group_id,display_name').eq('active', true).order('display_name'),
-        supabase.from('attendance_gps_error_policies').select('id,error_code,action,require_selfie,require_reason,notify_line').eq('active',true).order('error_code'),
-      ])
-      if (projectsError) throw projectsError
-      if (employeeError) throw employeeError
-      if (groupError) throw groupError
-      if (policyError) throw policyError
+      if (isManager) {
+        const [
+          { data: projectRows, error: projectsError },
+          { data: employeeRows, error: employeeError },
+          { data: groupRows, error: groupError },
+          { data: policyRows, error: policyError },
+          { data: membershipRows, error: membershipError },
+          { data: employmentRows, error: employmentError },
+        ] = await Promise.all([
+          supabase.from('projects').select('id:project_id,name').eq('status', 'active').order('name'),
+          supabase.from('profiles').select('id,full_name,email').order('full_name'),
+          supabase.from('line_groups').select('line_group_id,display_name').eq('active', true).order('display_name'),
+          supabase.from('attendance_gps_error_policies').select('id,error_code,action,require_selfie,require_reason,notify_line').eq('active',true).order('error_code'),
+          supabase.from('company_members').select('profile_id,active').eq('company_id', currentCompany?.company_id ?? ''),
+          supabase.from('employee_employment_records').select('profile_id,employment_status').eq('company_id', currentCompany?.company_id ?? ''),
+        ])
+        if (projectsError) throw projectsError
+        if (employeeError) throw employeeError
+        if (groupError) throw groupError
+        if (policyError) throw policyError
+        if (membershipError) throw membershipError
+        if (employmentError) throw employmentError
       setProjects(projectRows ?? [])
-      setEmployees(employeeRows ?? [])
+      const employmentMap = new Map((employmentRows ?? []).map((row: { profile_id: string; employment_status: string | null }) => [row.profile_id, row.employment_status]))
+      const fullEmployeeDirectory = ((employeeRows ?? []) as Employee[]).map((employee) => {
+        const membership = (membershipRows ?? []).find((row: { profile_id: string; active: boolean }) => row.profile_id === employee.id)
+        return { ...employee, membership_active: membership?.active ?? false, employment_status: employmentMap.get(employee.id) ?? employee.employment_status ?? null }
+      })
+      const activeEmployees = fullEmployeeDirectory.filter((employee) => !isEmployeeResigned({
+        employment_status: employee.employment_status ?? null,
+        membership_active: employee.membership_active ?? false,
+      }))
+      const resignedList = fullEmployeeDirectory.filter((employee) => isEmployeeResigned({
+        employment_status: employee.employment_status ?? null,
+        membership_active: employee.membership_active ?? false,
+      }))
+      setResignedEmployees(resignedList)
+      setEmployees(activeEmployees)
       setLineGroups(groupRows ?? [])
       setGpsPolicies((policyRows??[]) as GpsPolicy[])
     }
@@ -197,7 +224,7 @@ export function TimeTrackingPage() {
     if (!user) return
 
     const refresh = () => {
-      void loadData().catch((error: Error) => setMessage(error.message))
+      void loadData().catch((error: Error) => setMessage(userError(error)))
     }
     const refreshWhenVisible = () => {
       if (document.visibilityState === 'visible') refresh()
@@ -285,7 +312,7 @@ export function TimeTrackingPage() {
       }
     } catch (error) {
       stopCamera()
-      setMessage(error instanceof Error ? `เปิดกล้องไม่ได้: ${error.message}` : 'เปิดกล้องไม่ได้')
+      setMessage(error instanceof Error ? `เปิดกล้องไม่ได้: ${userError(error)}` : 'เปิดกล้องไม่ได้')
     }
   }
 
@@ -327,7 +354,7 @@ export function TimeTrackingPage() {
       const code=error instanceof GeolocationPositionError
         ? error.code===1?'permission_denied':error.code===2?'position_unavailable':'location_timeout'
         : !navigator.geolocation?'gps_unsupported':'gps_unavailable'
-      const detail=error instanceof Error?error.message:String(error)
+      const detail=error instanceof Error?userError(error):String(error)
       setSiteId(selectedSite.id)
       setLocationCheck({latitude:null,longitude:null,accuracy:null,distance:null,site:selectedSite,gpsErrorCode:code,gpsErrorMessage:detail})
       setMessage(`รับเคส GPS: ${code} ไว้รอตรวจสอบ กรุณาถ่าย Selfie และยืนยันข้อมูล`)
@@ -368,41 +395,57 @@ export function TimeTrackingPage() {
   }
 
   const clock = async (action:'clock_in'|'clock_out') => {
+    const request = { action, siteId, locationCheck, company_id: currentCompany?.company_id ?? null }
     setBusy(true); setMessage('')
-    let uploadedSelfiePath = ''
-    let serverRejectedBeforeSave = false
+    let selfiePath = ''
+    let shouldCleanupSelfie = false
     try {
       if (action === 'clock_in' && !siteId) throw new Error('กรุณาเลือกไซต์งาน')
       if (!locationCheck) throw new Error('กรุณาตรวจสอบตำแหน่งและถ่ายรูปใหม่')
-      const selfiePath = await uploadSelfie(action === 'clock_in' ? 'in' : 'out')
-      uploadedSelfiePath = selfiePath
-      const { data, error } = await supabase.functions.invoke('attendance-clock', { body:{
-        action, siteId: action === 'clock_in' ? siteId : undefined,
-        latitude:locationCheck.latitude, longitude:locationCheck.longitude,
-        accuracy:locationCheck.accuracy, gpsErrorCode:locationCheck.gpsErrorCode,
-        gpsErrorMessage:locationCheck.gpsErrorMessage, selfiePath, device:getDeviceInfo(),
-      } })
-      if (error) {
-        let detail = error.message
-        const context = (error as { context?: Response }).context
-        if (context && typeof context.clone === 'function') {
-          try {
-            const payload = await context.clone().json() as { error?: string }
-            if (payload.error) {
-              detail = payload.error
-              serverRejectedBeforeSave = true
+      const result = await runWithMutationAttempt<Record<string, unknown>, { message: string; selfiePath: string }>({
+        module: 'time-tracking',
+        action: action === 'clock_in' ? 'clock_in' : 'clock_out',
+        actorProfileId: user?.id,
+        companyId: currentCompany?.company_id,
+        request,
+        operation: async () => {
+          const uploadedPath = await uploadSelfie(action === 'clock_in' ? 'in' : 'out')
+          selfiePath = uploadedPath
+          const { data, error } = await supabase.functions.invoke('attendance-clock', { body:{
+            action, siteId: action === 'clock_in' ? siteId : undefined,
+            latitude:locationCheck.latitude, longitude:locationCheck.longitude,
+            accuracy:locationCheck.accuracy, gpsErrorCode:locationCheck.gpsErrorCode,
+            gpsErrorMessage:locationCheck.gpsErrorMessage, selfiePath: uploadedPath, device:getDeviceInfo(),
+          } })
+          if (error) {
+            let detail = userError(error)
+            const context = (error as { context?: Response }).context
+            if (context && typeof context.clone === 'function') {
+              try {
+                const payload = await context.clone().json() as { error?: string }
+                if (payload.error) {
+                  detail = payload.error
+                  shouldCleanupSelfie = true
+                }
+              } catch {
+                // Keep transport error when response body is not JSON.
+              }
             }
-          } catch {
-            // Keep the transport error when the response body is not JSON.
+            throw new Error(detail)
           }
-        }
-        throw new Error(detail)
-      }
-      if (data?.error) {
-        serverRejectedBeforeSave = true
-        throw new Error(data.error)
-      }
-      const successText = data?.message || (action === 'clock_in' ? 'ลงเวลาเข้าสำเร็จ' : 'ลงเวลาออกสำเร็จ')
+          if (data?.error) {
+            shouldCleanupSelfie = true
+            throw new Error(data.error)
+          }
+          const responseMessage = typeof data === 'object' && data !== null && 'message' in data
+            ? (data as { message?: string }).message
+            : null
+          return { message: responseMessage || (action === 'clock_in' ? 'ลงเวลาเข้าสำเร็จ' : 'ลงเวลาออกสำเร็จ'), selfiePath: uploadedPath }
+        },
+        errorAction: 'ลงเวลาไม่สำเร็จ',
+      })
+      const successText = result.message || (action === 'clock_in' ? 'ลงเวลาเข้าสำเร็จ' : 'ลงเวลาออกสำเร็จ')
+      selfiePath = result?.selfiePath ?? selfiePath
       setSelfie(null); setLocationCheck(null); setConfirmOpen(false)
       forgetPendingSelfie(selfiePath)
       await loadData()
@@ -413,13 +456,13 @@ export function TimeTrackingPage() {
         detail: successText,
       })
     } catch (error) {
-      if (serverRejectedBeforeSave && uploadedSelfiePath) {
-        const {error:removeError}=await supabase.storage.from('attendance-selfies').remove([uploadedSelfiePath])
-        if(!removeError)forgetPendingSelfie(uploadedSelfiePath)
+      if (shouldCleanupSelfie && selfiePath) {
+        const {error:removeError}=await supabase.storage.from('attendance-selfies').remove([selfiePath])
+        if(!removeError)forgetPendingSelfie(selfiePath)
       }
       const detail = error instanceof GeolocationPositionError
-        ? `ไม่สามารถอ่าน GPS: ${error.message}`
-        : error instanceof Error ? error.message : 'ลงเวลาไม่สำเร็จ'
+        ? `ไม่สามารถอ่าน GPS: ${userError(error)}`
+        : error instanceof Error ? userError(error) : 'ลงเวลาไม่สำเร็จ'
       setMessage(detail)
       setConfirmOpen(false)
       const duplicate = /วันนี้|ลงเวลาเข้าแล้ว|ลงเวลาออกแล้ว|รายการเดิม/.test(detail)
@@ -430,59 +473,138 @@ export function TimeTrackingPage() {
   }
 
   const addSite = async () => {
-    setBusy(true); setMessage('')
+    const request = { form, company_id: currentCompany?.company_id ?? null, type: 'add-site' }
+    setBusy(true)
+    setMessage('')
     try {
-      const latitude = Number(form.latitude), longitude = Number(form.longitude), radius = Number(form.radius)
-      if (!form.projectId || !form.name.trim() || !Number.isFinite(latitude) || !Number.isFinite(longitude)) throw new Error('กรุณากรอกข้อมูลไซต์และพิกัดให้ครบ')
-      const { error } = await supabase.from('project_sites').insert({ project_id:form.projectId, name:form.name.trim(), latitude, longitude, radius_meters:radius, line_group_id:form.lineGroupId || null })
-      if (error) throw error
-      setMessage('เพิ่มไซต์สำเร็จ'); setForm({ projectId:'', name:'', latitude:'', longitude:'', radius:'200', lineGroupId:'' }); await loadData()
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'เพิ่มไซต์ไม่สำเร็จ') }
-    finally { setBusy(false) }
+      await runWithMutationAttempt({
+        module: 'time-tracking',
+        action: 'เพิ่มไซต์สำเร็จ',
+        actorProfileId: user?.id,
+        companyId: currentCompany?.company_id,
+        request,
+        operation: async () => {
+          const latitude = Number(form.latitude), longitude = Number(form.longitude), radius = Number(form.radius)
+          if (!form.projectId || !form.name.trim() || !Number.isFinite(latitude) || !Number.isFinite(longitude)) throw new Error('กรุณากรอกข้อมูลไซต์และพิกัดให้ครบ')
+          const { error } = await supabase.from('project_sites').insert({
+            project_id: form.projectId,
+            name: form.name.trim(),
+            latitude,
+            longitude,
+            radius_meters: radius,
+            line_group_id: form.lineGroupId || null,
+          })
+          if (error) throw error
+          return error
+        },
+      })
+      setForm({ projectId:'', name:'', latitude:'', longitude:'', radius:'200', lineGroupId:'' })
+      await loadData()
+      setMessage('เพิ่มไซต์สำเร็จ')
+    } catch (error) {
+      setMessage(error instanceof Error ? userError(error) : 'เพิ่มไซต์ไม่สำเร็จ')
+    } finally { setBusy(false) }
   }
 
   const assignSite = async () => {
-    setBusy(true); setMessage('')
+    const request = { profile_id: assignment.profileId, site_id: assignment.siteId, company_id: currentCompany?.company_id ?? null, type: 'assign-site' }
+    setBusy(true)
+    setMessage('')
     try {
-      if (!user || !assignment.profileId || !assignment.siteId) throw new Error('กรุณาเลือกพนักงานและไซต์')
-      const { error } = await supabase.rpc('assign_employee_site',{
-        target_profile_id:assignment.profileId,target_site_id:assignment.siteId,
-        target_starts_on:new Date().toISOString().slice(0,10),target_ends_on:null,
-        target_work_policy_id:null,target_is_primary:false,
+      await runWithMutationAttempt({
+        module: 'time-tracking',
+        action: 'มอบหมายไซต์ให้พนักงานสำเร็จ',
+        actorProfileId: user?.id,
+        companyId: currentCompany?.company_id,
+        request,
+        operation: async () => {
+          if (!user || !assignment.profileId || !assignment.siteId) throw new Error('กรุณาเลือกพนักงานและไซต์')
+          const { error } = await supabase.rpc('assign_employee_site',{
+            target_profile_id:assignment.profileId,target_site_id:assignment.siteId,
+            target_starts_on:new Date().toISOString().slice(0,10),target_ends_on:null,
+            target_work_policy_id:null,target_is_primary:false,
+          })
+          if (error) throw error
+          return error
+        },
       })
-      if (error) throw error
       setMessage('มอบหมายไซต์ให้พนักงานสำเร็จ')
       setAssignment({ profileId:'', siteId:'' })
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'มอบหมายไซต์ไม่สำเร็จ') }
-    finally { setBusy(false) }
+    } catch (error) {
+      setMessage(error instanceof Error ? userError(error) : 'มอบหมายไซต์ไม่สำเร็จ')
+    } finally { setBusy(false) }
   }
 
   const saveAttendanceSettings = async () => {
+    if (!user || !currentCompany) return
     setBusy(true)
     setMessage('')
-    const { error } = await supabase.from('attendance_system_settings').update({
-      ...settings,
-      updated_by:user?.id,
-      updated_at:new Date().toISOString(),
-    }).eq('company_id',currentCompany?.company_id ?? '').eq('singleton',true)
-    if (error) setMessage(error.message)
-    else {
+    try {
+      await runWithMutationAttempt({
+        module: 'TimeTracking',
+        action: 'บันทึกตั้งค่าการลงเวลา',
+        actorProfileId: user.id,
+        companyId: currentCompany.company_id,
+        request: {
+          settings,
+          company_id: currentCompany.company_id,
+        },
+        operation: async () => await supabase.from('attendance_system_settings').update({
+          ...settings,
+          updated_by: user.id,
+          updated_at: new Date().toISOString(),
+        }).eq('company_id', currentCompany.company_id).eq('singleton', true),
+      })
       setMessage('บันทึกตั้งค่าการลงเวลาแล้ว')
       await loadData()
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : userError(error))
+    } finally {
+      setBusy(false)
     }
-    setBusy(false)
   }
   const updateGpsPolicy=async(policy:GpsPolicy,action:GpsPolicy['action'])=>{
+    if (!user || !currentCompany) return
     setBusy(true);setMessage('')
-    const {error}=await supabase.from('attendance_gps_error_policies').update({action,updated_by:user?.id,updated_at:new Date().toISOString()}).eq('id',policy.id)
-    if(error)setMessage(error.message);else{setMessage(`บันทึกนโยบาย ${policy.error_code} แล้ว`);await loadData()}
-    setBusy(false)
+    try {
+      await runWithMutationAttempt({
+        module: 'TimeTracking',
+        action: 'อัปเดตนโยบาย GPS',
+        actorProfileId: user.id,
+        companyId: currentCompany.company_id,
+        request: { policy_id: policy.id, error_code: policy.error_code, action },
+        operation: async () => await supabase.from('attendance_gps_error_policies').update({
+          action,
+          updated_by:user.id,
+          updated_at:new Date().toISOString(),
+        }).eq('id', policy.id),
+      })
+      setMessage(`บันทึกนโยบาย ${policy.error_code} แล้ว`)
+      await loadData()
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : userError(error))
+    } finally {
+      setBusy(false)
+    }
   }
 
   return <Stack spacing={3}>
-    <Stack sx={{display:{xs:'none', md:'flex'}}}>
-      <PageHeader title="ลงเวลาทำงาน" description="บันทึกเวลาเซิร์ฟเวอร์ พิกัด GPS รูป Selfie และแจ้งกลุ่ม LINE" />
-    </Stack>
+    <PageHeader
+      title="ลงเวลาทำงาน"
+      description="บันทึกเวลาเซิร์ฟเวอร์ พิกัด GPS รูป Selfie และแจ้งกลุ่ม LINE หรือเปิด Web Chat เพื่อพูดคุย/แจ้งลงเวลา"
+      action={
+        <Tooltip title="เปิด Web Chat">
+          <IconButton
+            color="primary"
+            onClick={() => navigate('/chat')}
+            aria-label="เปิด Web Chat"
+            sx={{ width: 48, height: 48, border: '1px solid', borderColor: 'primary.main' }}
+          >
+            <ChatBubbleOutlineOutlinedIcon />
+          </IconButton>
+        </Tooltip>
+      }
+    />
     {message && <Alert severity={message.includes('สำเร็จ') ? 'success' : 'warning'}>{message}</Alert>}
     <Alert severity="info" sx={{ display: { xs: 'flex', md: 'none' } }}>
       เวลาทำงานมาตรฐาน 08:00–17:00 น.
@@ -536,6 +658,9 @@ export function TimeTrackingPage() {
         <Button variant="contained" disabled={busy} onClick={() => void addSite()}>เพิ่มไซต์</Button>
       </Stack>
       <Typography variant="h6" sx={{mt:3}}>มอบหมายพนักงานให้ไซต์ (พนักงานหนึ่งคนเลือกได้หลายไซต์)</Typography>
+      <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+        {resignedEmployees.length > 0 && <Chip color="default" label={`พนักงานลาออกถูกซ่อน ${resignedEmployees.length} คน`} />}
+      </Stack>
       <Stack direction={{xs:'column',md:'row'}} spacing={1} sx={{mt:2}}>
         <TextField select fullWidth label="พนักงาน" value={assignment.profileId} onChange={(event) => setAssignment({...assignment, profileId:event.target.value})}>
           {employees.map((employee) => <MenuItem key={employee.id} value={employee.id}>{employee.full_name || employee.email || employee.id}</MenuItem>)}
@@ -660,7 +785,7 @@ export function TimeTrackingPage() {
             {lastUpdated ? `อัปเดตล่าสุด ${lastUpdated.toLocaleTimeString('th-TH')}` : 'กำลังโหลดข้อมูล...'}
           </Typography>
         </Stack>
-        <Button variant="outlined" disabled={busy} onClick={() => void loadData().catch((error:Error) => setMessage(error.message))}>
+        <Button variant="outlined" disabled={busy} onClick={() => void loadData().catch((error:Error) => setMessage(userError(error)))}>
           รีเฟรชข้อมูล
         </Button>
       </Stack>
@@ -715,3 +840,4 @@ export function TimeTrackingPage() {
     </Paper>
   </Stack>
 }
+

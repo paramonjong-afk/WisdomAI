@@ -6,16 +6,16 @@ import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
 import { userError } from '../../utils/userError'
+import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 
 type Vendor={id:string;legal_name:string;contact_name:string|null;phone:string|null;tax_id:string|null;vendor_type:string;vat_registered:boolean;active:boolean}
 type Site={id:string;name:string;projects:{name:string}|null}
 type Contract={id:string;contractor_id:string;site_id:string;contract_number:string;title:string;pricing_model:string;unit_name:string|null;unit_rate:number|null;contract_amount:number;retention_percent:number;withholding_percent:number;vat_percent:number;starts_on:string;ends_on:string|null;status:string;contractor_vendors:{legal_name:string}|null;project_sites:{name:string;projects:{name:string}|null}|null}
 type Claim={id:string;contract_id:string;claim_number:string;period_starts_on:string;period_ends_on:string;description:string;quantity:number|null;progress_percent:number|null;gross_amount:number;retention_amount:number;withholding_amount:number;vat_amount:number;advance_deduction:number;other_deduction:number;net_amount:number;status:string;payment_reference:string|null;contractor_contracts:{contract_number:string;title:string;contractor_vendors:{legal_name:string}|null}|null}
 const money=(value:number)=>`฿${Number(value).toLocaleString('th-TH',{minimumFractionDigits:2})}`
-
 export function ContractorsPage(){
   usePageTitle('ผู้รับเหมา')
-  const {profile,user}=useAuth()
+  const {profile,user,currentCompany}=useAuth()
   const canManage=profile?.role==='admin'||profile?.role==='manager'
   const [tab,setTab]=useState(0),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false)
   const [message,setMessage]=useState(''),[error,setError]=useState('')
@@ -35,15 +35,32 @@ export function ContractorsPage(){
       supabase.from('contractor_contracts').select('*,contractor_vendors(legal_name),project_sites(name,projects(name))').order('created_at',{ascending:false}),
       supabase.from('contractor_payment_claims').select('*,contractor_contracts(contract_number,title,contractor_vendors(legal_name))').order('created_at',{ascending:false}),
     ])
-    const first=[v,s,c,cl].find((item)=>item.error)?.error;if(first)setError(first.message)
+    const first=[v,s,c,cl].find((item)=>item.error)?.error;if(first)setError(userError(first))
     setVendors((v.data??[]) as Vendor[]);setSites((s.data??[]) as unknown as Site[])
     setContracts((c.data??[]) as unknown as Contract[]);setClaims((cl.data??[]) as unknown as Claim[])
     setLoading(false)
   },[canManage])
   useEffect(()=>{const timer=window.setTimeout(()=>void load(),0);return()=>window.clearTimeout(timer)},[load])
-  const run=async(operation:()=>PromiseLike<{error:{message:string}|null}>,success:string)=>{
-    setBusy(true);setMessage('');setError('');const result=await operation()
-    if(result.error)setError(userError(result.error));else{setMessage(success);await load()}setBusy(false)
+  const run = async (operation: () => PromiseLike<{ error: { message: string } | null }>, success: string, request: Record<string, unknown> = {}) => {
+    setBusy(true)
+    setMessage('')
+    setError('')
+    try {
+      await runWithMutationAttempt({
+        module: 'contractors',
+        action: success,
+        actorProfileId: user?.id,
+        companyId: currentCompany?.company_id,
+        request,
+        operation,
+      })
+      setMessage(success)
+      await load()
+    } catch (error) {
+      setError(userError(error))
+    } finally {
+      setBusy(false)
+    }
   }
   const addVendor=()=>run(()=>supabase.from('contractor_vendors').insert({
     ...vendor,vat_registered:vendor.vat_registered==='true',created_by:user?.id,
@@ -145,3 +162,4 @@ export function ContractorsPage(){
     </>}
   </Stack>
 }
+

@@ -14,7 +14,10 @@ import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { userError } from '../../utils/userError'
+import { getPasswordResetRedirectUrl } from '../../utils/authRedirect'
 import { getPostLoginDestination } from '../../utils/authRouting'
+import { registerAuthSecurityEvent } from '../../utils/authSecurityEvent'
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -37,12 +40,23 @@ export function LoginPage() {
     })
 
     if (error) {
+      void supabase.rpc('register_login_attempt', {
+        target_email: email.trim(),
+        target_outcome: 'failure',
+        target_reason: error.code ?? 'invalid_credentials',
+        target_user_agent: navigator.userAgent,
+      })
       setErrorMessage('อีเมลหรือรหัสผ่านไม่ถูกต้อง')
       setLoading(false)
       return
     }
 
     setLoading(false)
+    void supabase.rpc('register_login_attempt', {
+      target_email: email.trim(),
+      target_outcome: 'success',
+      target_user_agent: navigator.userAgent,
+    })
     let signedInRole: 'admin' | 'manager' | 'employee' | null = null
     if (signInData.user) {
       const { data: signedInProfile } = await supabase
@@ -67,10 +81,20 @@ export function LoginPage() {
     }
     setLoading(true)
     const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
-      redirectTo: `${window.location.origin}/reset-password`,
+      redirectTo: getPasswordResetRedirectUrl(),
     })
-    if (error) setErrorMessage(error.message)
-    else setRecoveryMessage('หากอีเมลนี้มีบัญชี ระบบได้ส่งลิงก์ตั้งรหัสผ่านใหม่แล้ว กรุณาตรวจกล่องจดหมายและ Spam')
+    if (error) {
+      const friendly = userError(error)
+      setErrorMessage(friendly)
+      void registerAuthSecurityEvent({
+        email: normalizedEmail,
+        eventType: 'password_recovery_failed',
+        reason: error,
+        severity: /rate_limit|429|banned/i.test(`${error.code ?? ''} ${error.message ?? ''}`) ? 'critical' : 'warning',
+      })
+    } else {
+      setRecoveryMessage('หากอีเมลนี้มีบัญชี ระบบได้ส่งลิงก์ตั้งรหัสผ่านใหม่แล้ว กรุณาตรวจกล่องจดหมายและ Spam')
+    }
     setLoading(false)
   }
 
@@ -85,7 +109,7 @@ export function LoginPage() {
           py: 3,
         }}
       >
-        <Container maxWidth="xs">
+        <Container maxWidth={false} sx={{ maxWidth: 560, width: '100%' }}>
           <Paper
             elevation={0}
             variant="outlined"
@@ -166,3 +190,4 @@ export function LoginPage() {
     </>
   )
 }
+

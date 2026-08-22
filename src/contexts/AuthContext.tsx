@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import type { AuthContextValue, CompanyMembership, Profile, ProfileRole } from '../types/auth'
 import { AuthContext } from './auth-context'
+import { runWithMutationAttempt } from '../utils/mutationAttemptRunner'
 
 function profileFromUser(user: User): Profile {
   const metadataName = user.user_metadata.full_name
@@ -24,14 +25,23 @@ async function loadOrCreateProfile(user: User): Promise<Profile> {
   if (error) throw error
   if (data) return data
 
-  const { data: createdProfile, error: createError } = await supabase
-    .from('profiles')
-    .insert(profileFromUser(user))
-    .select('id, full_name, email, role, created_at, updated_at')
-    .single<Profile>()
+  const created = await runWithMutationAttempt<{ email: string | null | undefined }, { data?: Profile; error?: unknown }>({
+    module: 'auth',
+    action: 'create_profile',
+    actorProfileId: null,
+    companyId: null,
+    request: { email: user.email ?? null },
+    operation: async () => await supabase
+      .from('profiles')
+      .insert(profileFromUser(user))
+      .select('id, full_name, email, role, created_at, updated_at')
+      .single<Profile>(),
+    errorCode: 'PROFILE_CREATE_FAILED',
+    errorAction: 'ติดต่อแอดมินเพื่อจัดการบัญชีผู้ใช้และตรวจสิทธิ์',
+  })
 
-  if (createError) throw createError
-  return createdProfile
+  if (!created?.data) throw new Error('ไม่สามารถสร้างโปรไฟล์ได้')
+  return created.data
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -57,7 +67,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if(companyError) throw companyError
       const memberships=(companyRows??[]) as CompanyMembership[]
       const companyRole=memberships.find(item=>item.is_active)?.company_role
-      const effectiveRole:ProfileRole=companyRole==='company_admin'?'admin':companyRole&&['executive','manager','accounting_hr'].includes(companyRole)?'manager':'employee'
+      const effectiveRole:ProfileRole=companyRole==='company_admin' ? 'admin'
+        : companyRole && ['executive','manager','site_supervisor','accounting_hr'].includes(companyRole) ? 'manager'
+          : 'employee'
       setCompanies(memberships)
       setProfile({...loadedProfile,role:effectiveRole,platform_role:loadedProfile.role})
     } catch (profileError) {
@@ -110,10 +122,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const switchCompany = useCallback(async (companyId:string) => {
-    const {error:switchError}=await supabase.rpc('switch_company',{target_company_id:companyId})
-    if(switchError) throw switchError
+    await runWithMutationAttempt({
+      module: 'auth',
+      action: 'switch_company',
+      actorProfileId: profile?.id,
+      companyId,
+      request: { targetCompanyId: companyId },
+      operation: async () => await supabase.rpc('switch_company',{target_company_id:companyId}),
+      errorCode: 'COMPANY_SWITCH_FAILED',
+      errorAction: 'รีเฟรชหน้าแล้วลองสลับบริษัทใหม่ หรือแจ้ง IT ตรวจสิทธิ์',
+    })
     window.location.reload()
-  },[])
+  },[profile?.id])
 
   const currentCompany=companies.find(item=>item.is_active)??companies[0]??null
 

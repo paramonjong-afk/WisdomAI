@@ -7,6 +7,8 @@ import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
 import { userError } from '../../utils/userError'
+import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
+import { isEmployeeResigned } from '../../utils/employeeLifecycle'
 
 type Policy = {
   id:string; name:string; work_start_time:string; work_end_time:string
@@ -15,7 +17,7 @@ type Policy = {
 }
 type Site = { id:string; name:string; work_policy_id:string|null; projects:{name:string}|null }
 type Employment = {
-  profile_id:string; work_policy_id:string|null
+  profile_id:string; work_policy_id:string|null; employment_status:string|null
   profiles:{full_name:string|null;email:string|null}|null
 }
 type SiteAssignment = {
@@ -85,21 +87,37 @@ export function WorkforceSetupPage() {
   const load=useCallback(async()=>{
     if(!canManage)return
     setLoading(true);setError('')
-    const [p,s,e,c,r,q,w,a]=await Promise.all([
+    const [p,s,e,c,r,q,w,a,m]=await Promise.all([
       supabase.from('work_policies').select('id,name,work_start_time,work_end_time,break_start_time,break_end_time,grace_minutes,standard_minutes,overtime_round_minutes,active').order('name'),
       supabase.from('project_sites').select('id,name,work_policy_id,projects(name)').eq('active',true).order('name'),
-      supabase.from('employee_employment_records').select('profile_id,work_policy_id,profiles!employee_employment_records_profile_id_fkey(full_name,email)').eq('company_id',currentCompany?.company_id??'').order('employee_code'),
+      supabase.from('employee_employment_records').select('profile_id,employment_status,work_policy_id,profiles!employee_employment_records_profile_id_fkey(full_name,email)').eq('company_id',currentCompany?.company_id??'').order('employee_code'),
       supabase.from('pay_cycle_settings').select('first_period_end_day,first_pay_day,second_pay_day,second_pay_month_offset,holiday_adjustment').eq('company_id',currentCompany?.company_id??'').eq('singleton',true).single(),
       supabase.from('pay_periods').select('id,name,starts_on,ends_on,pay_date,status').order('starts_on',{ascending:false}).limit(12),
       supabase.from('employee_onboarding_readiness').select('*').eq('company_id',currentCompany?.company_id??'').order('full_name'),
       supabase.from('workforce_rule_settings').select('*').eq('company_id',currentCompany?.company_id??'').eq('singleton',true).single(),
       supabase.from('employee_site_assignments').select('id,profile_id,site_id,starts_on,ends_on,active,is_primary,work_policy_id,status,change_reason').eq('company_id',currentCompany?.company_id??'').order('starts_on',{ascending:false}),
+      supabase.from('company_members').select('profile_id,active').eq('company_id', currentCompany?.company_id ?? '').eq('active', true),
     ])
-    const first=[p,s,e,c,r,q,w,a].find((item)=>item.error)?.error
-    if(first)setError(first.message)
+    const first=[p,s,e,c,r,q,w,a,m].find((item)=>item.error)?.error
+    if(first)setError(userError(first))
     setPolicies((p.data??[]) as Policy[])
     setSites((s.data??[]) as unknown as Site[])
-    setEmployments((e.data??[]) as unknown as Employment[])
+    const activeMemberSet = new Set((m.data ?? []).map((row: { profile_id: string; active: boolean }) => row.profile_id))
+    const normalizedEmployments = ((e.data ?? []) as unknown as Array<{
+      profile_id: string
+      work_policy_id: string | null
+      employment_status: string | null
+      profiles: { full_name: string | null; email: string | null } | { full_name: string | null; email: string | null }[] | null
+    }>).map((employment) => ({
+      profile_id: employment.profile_id,
+      work_policy_id: employment.work_policy_id,
+      employment_status: employment.employment_status,
+      profiles: Array.isArray(employment.profiles) ? employment.profiles[0] ?? null : employment.profiles,
+    } satisfies Employment))
+    setEmployments(normalizedEmployments.filter((employment) => !isEmployeeResigned({
+      membership_active: activeMemberSet.has(employment.profile_id),
+      employment_status: employment.employment_status ?? null,
+    })))
     if(c.data)setPaySettings(c.data as PaySettings)
     setPeriods((r.data??[]) as Period[])
     setReadiness((q.data??[]) as Readiness[])
@@ -109,12 +127,30 @@ export function WorkforceSetupPage() {
   },[canManage,currentCompany?.company_id])
   useEffect(()=>{const timer=window.setTimeout(()=>void load(),0);return()=>window.clearTimeout(timer)},[load])
 
-  const run=async(operation:()=>PromiseLike<{error:{message:string}|null}>,success:string)=>{
-    setBusy(true);setMessage('');setError('')
-    const result=await operation()
-    if(result.error)setError(userError(result.error))
-    else{setMessage(success);await load()}
-    setBusy(false)
+  const run=async(
+    operation:()=>PromiseLike<{error:{message:string}|null}>,
+    success:string,
+    request: Record<string, unknown> = {},
+  )=>{
+    setBusy(true)
+    setMessage('')
+    setError('')
+    try {
+      await runWithMutationAttempt({
+        module: 'workforce-setup',
+        action: success,
+        actorProfileId: user?.id,
+        companyId: currentCompany?.company_id,
+        request,
+        operation,
+      })
+      setMessage(success)
+      await load()
+    } catch (error) {
+      setError(userError(error))
+    } finally {
+      setBusy(false)
+    }
   }
   const createPolicy=()=>run(()=>supabase.from('work_policies').insert({
     name:policyForm.name.trim(),work_start_time:policyForm.work_start_time,
@@ -391,3 +427,4 @@ export function WorkforceSetupPage() {
     </Paper>}
   </Stack>
 }
+

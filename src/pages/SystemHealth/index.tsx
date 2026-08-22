@@ -11,6 +11,9 @@ import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { releaseInfo, releaseLabel } from '../../lib/releaseInfo'
+import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
+import { userError } from '../../utils/userError'
 
 type HealthStatus='healthy'|'warning'|'critical'|'unknown'
 type Settings={enabled:boolean;line_group_id:string|null;responsible_name:string|null;check_interval_minutes:number;alert_after_failures:number;repeat_alert_minutes:number;daily_summary_time:string}
@@ -24,6 +27,7 @@ type ImageOptimizationProgress={total_images:number;optimized_images:number;kept
 type Group={line_group_id:string;display_name:string|null}
 type Run={id:string;status:string;healthy_count:number;warning_count:number;critical_count:number;started_at:string;finished_at:string|null;error_message:string|null}
 type CommunicationEvent={event_id:string;company_id:string|null;occurred_at:string;channel:string;event_type:string;status:string;title:string|null;message:string|null;destination:string|null;source_type:string;source_id:string;actor_profile_id:string|null;related_profile_id:string|null;related_work_key:string|null;error_message:string|null;responded_at:string|null}
+type PerformanceMetric={id:string;page_path:string|null;severity:'info'|'warning'|'error';message:string|null;metadata:Record<string,unknown>|null;created_at:string}
 type WorkItem={id:string;title:string;category:'automation'|'line'|'report'|'audit'|'tenant'|'operations';status:'ready'|'doing'|'review'|'done'|'blocked';progress:number;risk:'low'|'medium'|'high'|'critical';production:string;detail:string;errorFingerprint?:string|null;evidence?:string|null;currentStep?:string|null;owner?:string|null;createdAt?:string;updatedAt?:string}
 type WorkItemRow={work_key:string;title:string;category:WorkItem['category'];status:WorkItem['status'];progress:number;risk:WorkItem['risk'];production_status:string;detail:string|null;error_fingerprint:string|null;evidence:string|null;current_step:string|null;owner:string|null;created_at:string;updated_at:string}
 type ProblemStatus='pending'|'repairing'|'verification'|'stuck'|'resolved'
@@ -47,7 +51,7 @@ const readableCheckMessage=(value:unknown,fallback:string)=>{
   if(typeof value==='string'&&value.trim()&&value.trim()!=='[object Object]')return value
   if(value&&typeof value==='object'){
     const record=value as Record<string,unknown>
-    const parts=[record.code,record.message,record.details,record.hint].filter(part=>typeof part==='string'&&part.trim())
+    const parts=[record.code,userError(record),record.details,record.hint].filter(part=>typeof part==='string'&&part.trim())
     if(parts.length)return parts.join(' · ')
     try{return JSON.stringify(record)}catch{return fallback}
   }
@@ -114,6 +118,15 @@ export function SystemHealthPage(){
   usePageTitle('สถานะระบบ')
   const {profile,currentCompany}=useAuth()
   const companyId=currentCompany?.company_id??''
+  const runAttempt = <T = { data?: unknown; error?: unknown }>(action: string, request: Record<string, unknown>, operation: () => unknown) =>
+    runWithMutationAttempt({
+      module: 'system_health',
+      action,
+      actorProfileId: profile?.id,
+      companyId,
+      request,
+      operation,
+    }) as Promise<T>
   const [settings,setSettings]=useState(initial)
   const [checks,setChecks]=useState<Check[]>([])
   const [incidents,setIncidents]=useState<Incident[]>([])
@@ -122,6 +135,7 @@ export function SystemHealthPage(){
   const [groups,setGroups]=useState<Group[]>([])
   const [runs,setRuns]=useState<Run[]>([])
   const [communicationEvents,setCommunicationEvents]=useState<CommunicationEvent[]>([])
+  const [performanceMetrics,setPerformanceMetrics]=useState<PerformanceMetric[]>([])
   const [workItems,setWorkItems]=useState<WorkItem[]>(legacyWorkItems)
   const [busy,setBusy]=useState(false)
   const [loaded,setLoaded]=useState(false)
@@ -142,7 +156,7 @@ export function SystemHealthPage(){
 
   const load=useCallback(async(silent=false)=>{
     if(!silent)setBusy(true)
-    const [s,c,i,g,r,w,e,errorRows,errorStats,imageStorage,imageOptimizationProgress]=await Promise.all([
+    const [s,c,i,g,r,w,e,errorRows,errorStats,imageStorage,imageOptimizationProgress,performanceRows]=await Promise.all([
       supabase.from('health_monitor_settings').select('*').eq('company_id',companyId).eq('singleton',true).maybeSingle(),
       supabase.from('health_monitor_checks').select('*').eq('company_id',companyId).order('module'),
       supabase.from('health_monitor_incidents').select('*').eq('company_id',companyId).order('started_at',{ascending:false}).limit(100),
@@ -154,11 +168,12 @@ export function SystemHealthPage(){
       supabase.rpc('get_system_error_statistics'),
       supabase.from('line_image_storage_report').select('*').eq('company_id',companyId).order('retention_class'),
       supabase.from('line_image_optimization_progress').select('*').eq('company_id',companyId).maybeSingle(),
+      supabase.from('app_activity_logs').select('id,page_path,severity,message,metadata,created_at').eq('company_id',companyId).eq('event_type','performance_metric').order('created_at',{ascending:false}).limit(200),
     ])
     const failures=[
       ['การตั้งค่า',s.error],['ผลตรวจ',c.error],['เหตุการณ์',i.error],['กลุ่ม LINE',g.error],
       ['ประวัติรอบตรวจ',r.error],['งานระบบ',w.error],['Log การสื่อสาร',e.error],
-      ['ทะเบียน Error',errorRows.error],['สถิติ Error',errorStats.error],['พื้นที่รูปจาก LINE',imageStorage.error],
+      ['ทะเบียน Error',errorRows.error],['สถิติ Error',errorStats.error],['พื้นที่รูปจาก LINE',imageStorage.error],['ข้อมูลความเร็วหน้าเว็บ',performanceRows.error],
     ].filter((entry):entry is [string,NonNullable<typeof s.error>]=>Boolean(entry[1]))
     if(s.data)setSettings({...initial,...s.data,daily_summary_time:String(s.data.daily_summary_time??initial.daily_summary_time).slice(0,5)})
     if(c.data)setChecks(c.data)
@@ -189,8 +204,9 @@ export function SystemHealthPage(){
     }
     if(errorStats.data)setErrorStatistics({...initialErrorStatistics,...(errorStats.data as unknown as ErrorStatistics)})
     if(imageStorage.data)setImageStorageRows(imageStorage.data as ImageStorageRow[])
+    if(performanceRows.data)setPerformanceMetrics(performanceRows.data as PerformanceMetric[])
     setImageOptimization(imageOptimizationProgress.data as ImageOptimizationProgress|null)
-    setMessage(failures.length?`โหลดข้อมูลบางส่วนไม่สำเร็จ: ${failures.map(([name,error])=>`${name} (${error.message})`).join(', ')}`:'')
+    setMessage(failures.length?`โหลดข้อมูลบางส่วนไม่สำเร็จ: ${failures.map(([name,error])=>`${name} (${userError(error)})`).join(', ')}`:'')
     setLoaded(true)
     if(!silent)setBusy(false)
   },[companyId])
@@ -208,53 +224,87 @@ export function SystemHealthPage(){
 
   const save=async()=>{
     setBusy(true)
-    const {error}=await supabase.from('health_monitor_settings').update({...settings,updated_by:profile?.id,updated_at:new Date().toISOString()}).eq('company_id',companyId).eq('singleton',true)
+    const {error}=await runAttempt('save_health_settings',{
+      company_id:companyId,
+      updated_by:profile?.id,
+      settings,
+    }, async ()=>await supabase.from('health_monitor_settings').update({
+      ...settings,updated_by:profile?.id,updated_at:new Date().toISOString(),
+    }).eq('company_id',companyId).eq('singleton',true))
     if(!error)window.dispatchEvent(new Event('wisdomai-health-config-changed'))
-    setMessage(error?error.message:'บันทึกการตั้งค่าแล้ว');setBusy(false)
+    setMessage(error?userError(error):'บันทึกการตั้งค่าแล้ว');setBusy(false)
   }
   const runNow=async()=>{
     setBusy(true);setMessage('')
-    const {data:sessionData,error:refreshError}=await supabase.auth.refreshSession()
-    if(refreshError){setMessage('Session หมดอายุ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่');setBusy(false);return}
-    const accessToken=sessionData.session?.access_token
-    if(!accessToken){setMessage('Session หมดอายุ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่');setBusy(false);return}
-    const {data,error}=await supabase.functions.invoke('health-monitor',{
-      body:{source:'system_health_page'},
-      headers:{
-        Authorization:`Bearer ${accessToken}`,
-        'x-user-authorization':`Bearer ${accessToken}`,
-      },
-    })
-    if(error){
-      const context=error.context as Response|undefined
-      let detail=''
-      if(context){try{const payload=await context.clone().json() as {error?:string;message?:string};detail=payload.error??payload.message??''}catch{detail=context.status?`HTTP ${context.status}`:'ไม่สามารถเชื่อมต่อ Edge Function ได้'}}
-      setMessage(detail||error.message)
-    }else if(data?.status==='rate_limited'){
-      setMessage(`ระบบเพิ่งตรวจไปแล้ว กรุณารอให้ครบรอบ ${settings.check_interval_minutes} นาที`)
-      await load()
-    }else{
-      await load();setMessage('ตรวจระบบเรียบร้อยแล้ว และอัปเดตสถานะงานจากผลตรวจล่าสุดแล้ว')
+    try {
+      const result = await runAttempt('run_health_check_now',{
+        source:'system_health_page',
+        company_id:companyId,
+      }, async () => {
+        const {data:sessionData,error:refreshError}=await supabase.auth.refreshSession()
+        if(refreshError) throw refreshError
+        const accessToken=sessionData.session?.access_token
+        if(!accessToken) throw new Error('Session หมดอายุ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่')
+        return await supabase.functions.invoke('health-monitor',{
+          body:{source:'system_health_page'},
+          headers:{
+            Authorization:`Bearer ${accessToken}`,
+            'x-user-authorization':`Bearer ${accessToken}`,
+          },
+        })
+      })
+      const data = result?.data as { status?: string } | null
+      const error = result?.error
+      if(error){
+        const context=(error as { context?: Response }).context as Response|undefined
+        let detail=''
+        if(context){try{const payload=await context.clone().json() as {error?:string;message?:string};detail=payload.error??userError(payload)??''}catch{detail=context.status?`HTTP ${context.status}`:'ไม่สามารถเชื่อมต่อ Edge Function ได้'}}
+        setMessage(detail||userError(error))
+      }else if(data?.status==='rate_limited'){
+        setMessage(`ระบบเพิ่งตรวจไปแล้ว กรุณารอให้ครบรอบ ${settings.check_interval_minutes} นาที`)
+        await load()
+      }else{
+        await load();setMessage('ตรวจระบบเรียบร้อยแล้ว และอัปเดตสถานะงานจากผลตรวจล่าสุดแล้ว')
+      }
+    } catch(error){
+      setMessage(error instanceof Error ? userError(error) : userError({ message: String(error) }))
+    } finally {
+      setBusy(false)
     }
-    setBusy(false)
   }
   const runImageOptimizer=async()=>{
     if(profile?.role!=='admin'||optimizerRunning)return
     setOptimizerRunning(true);stopOptimizer.current=false;setMessage('กำลังปรับรูปเก่าตาม Profile ที่กำหนด...')
-    const {data:sessionData,error:refreshError}=await supabase.auth.refreshSession()
-    const accessToken=sessionData.session?.access_token
-    if(refreshError||!accessToken){setMessage('Session หมดอายุ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่');setOptimizerRunning(false);return}
+    const tokenResult = await runAttempt('authorize_image_optimizer',{
+      source:'system_health_page',
+      company_id:companyId,
+    }, async () => {
+      const {data:sessionData,error:refreshError}=await supabase.auth.refreshSession()
+      if(refreshError) throw refreshError
+      const accessToken=sessionData.session?.access_token
+      if(!accessToken) throw new Error('Session หมดอายุ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่')
+      return accessToken
+    })
+    const accessToken = tokenResult?.data as string | undefined
+    if(!accessToken){setOptimizerRunning(false);return}
     let totalProcessed=0,totalSaved=0,failures=0
     try{
       for(let batch=0;batch<300&&!stopOptimizer.current;batch+=1){
-        const {data,error}=await supabase.functions.invoke('image-storage-optimizer',{
+        const optimizeResult = await runAttempt('run_image_optimizer_batch',{
+          source:'system_health_page',
+          company_id:companyId,
+          resume_processing:batch===0,
+          batch,
+        }, async () => await supabase.functions.invoke('image-storage-optimizer',{
           body:{batch_size:1,company_id:companyId,resume_processing:batch===0},headers:{Authorization:`Bearer ${accessToken}`,'x-user-authorization':`Bearer ${accessToken}`},
-        })
+        }))
+        const data=optimizeResult?.data as { processed?: number; saved_bytes?: number; failed?: number; pending?: number } | undefined
+        const error=optimizeResult?.error as unknown
         if(error){
-          const context=error.context as Response|undefined
+          const context=(error as {context?:Response}).context as Response|undefined
           let detail=''
-          if(context)try{const payload=await context.clone().json() as {error?:string;message?:string};detail=payload.error??payload.message??''}catch{detail=context.status?`HTTP ${context.status}`:''}
-          throw new Error(detail||error.message)
+          if(context)try{const payload=await context.clone().json() as {error?:string;message?:string};detail=payload.error??userError(payload)??''}catch{detail=context.status?`HTTP ${context.status}`:''}
+          throw new Error(detail||userError(error))
         }
         totalProcessed+=Number(data?.processed??0);totalSaved+=Number(data?.saved_bytes??0);failures+=Number(data?.failed??0)
         const pending=Number(data?.pending??0)
@@ -264,25 +314,32 @@ export function SystemHealthPage(){
       }
       await load(true)
       setMessage(stopOptimizer.current?`หยุดชั่วคราวแล้ว · รอบนี้ประมวลผล ${totalProcessed.toLocaleString('th-TH')} รูป`:`ปรับรูปเก่าเสร็จแล้ว ${totalProcessed.toLocaleString('th-TH')} รูป · ลดพื้นที่เพิ่ม ${(totalSaved/1024/1024).toLocaleString('th-TH',{maximumFractionDigits:1})} MB${failures?` · ล้มเหลว ${failures} รูป`:''}`)
-    }catch(error){setMessage(`ปรับรูปหยุดเพราะ Error: ${error instanceof Error?error.message:String(error)}`);await load(true)}
+    }catch(error){setMessage(`ปรับรูปหยุดเพราะ Error: ${error instanceof Error?userError(error):String(error)}`);await load(true)}
     finally{setOptimizerRunning(false);stopOptimizer.current=false}
   }
   const sendTelegramStatus=async()=>{
     setBusy(true);setMessage('')
-    const {data:sessionData,error:refreshError}=await supabase.auth.refreshSession()
-    if(refreshError){setMessage('Session หมดอายุ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่');setBusy(false);return}
-    const accessToken=sessionData.session?.access_token
-    if(!accessToken){setMessage('Session หมดอายุ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่');setBusy(false);return}
-    const {data,error}=await supabase.functions.invoke('health-monitor',{
-      body:{action:'send_status_report',group_name:'กลุ่มทดสอบโปรแกรม'},
-      headers:{Authorization:`Bearer ${accessToken}`,'x-user-authorization':`Bearer ${accessToken}`},
+    const result = await runAttempt('send_telegram_status',{
+      source:'system_health_page',
+      company_id:companyId,
+    }, async () => {
+      const {data:sessionData,error:refreshError}=await supabase.auth.refreshSession()
+      if(refreshError) throw refreshError
+      const accessToken=sessionData.session?.access_token
+      if(!accessToken) throw new Error('Session หมดอายุ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่')
+      return supabase.functions.invoke('health-monitor',{
+        body:{action:'send_status_report',group_name:'กลุ่มทดสอบโปรแกรม'},
+        headers:{Authorization:`Bearer ${accessToken}`,'x-user-authorization':`Bearer ${accessToken}`},
+      })
     })
+    const data = result?.data as {status?:string;destination?:string} | null
+    const error = result?.error as unknown
     if(error){
-      const context=error.context as Response|undefined
+      const context = (error as { context?: Response }).context
       let detail=''
-      if(context){try{const payload=await context.clone().json() as {error?:string;message?:string};detail=payload.error??payload.message??''}catch{detail=context.status?`HTTP ${context.status}`:'ไม่สามารถเชื่อมต่อ Edge Function ได้'}}
-      setMessage(detail||error.message)
-    }else if(data?.status==='rate_limited')setMessage(data.message||'ส่งรายงานไปแล้วภายใน 5 นาที')
+      if(context){try{const payload=await context.clone().json() as {error?:string;message?:string};detail=payload.error??userError(payload)??''}catch{detail=context.status?`HTTP ${context.status}`:'ไม่สามารถเชื่อมต่อ Edge Function ได้'}}
+      setMessage(detail||userError(error))
+    }else if(data?.status==='rate_limited')setMessage(userError(data)||'ส่งรายงานไปแล้วภายใน 5 นาที')
     else{setMessage(`ส่งรายงานไป ${data?.destination||'กลุ่มทดสอบโปรแกรม'} แล้ว`);await load()}
     setBusy(false)
   }
@@ -301,21 +358,36 @@ export function SystemHealthPage(){
     if(!auditAction||!reason||!profile?.id)return
     setBusy(true);setMessage('')
     const action=auditAction
-    const result=action.kind==='work'
-      ?await supabase.from('system_work_items').update({
-        status:action.approved?'ready':'blocked',
-        production_status:action.approved?'approved_for_execution':'rejected_by_admin',
-        evidence:`${action.approved?'อนุมัติ':'ไม่อนุมัติ'}ผ่าน Web: ${reason}`,
-        updated_by:profile.id,
-        updated_at:new Date().toISOString(),
-      }).eq('work_key',action.item.id).eq('status','review')
-      :await supabase.rpc('resolve_system_error_event',{target_event_id:action.row.sourceId,target_status:action.status,target_reason:reason})
-    const {error}=result
-    setMessage(error?error.message:action.kind==='work'
-      ?`${action.approved?'อนุมัติ':'ไม่อนุมัติ'} ${action.item.id} และบันทึก Audit แล้ว`
-      :`บันทึกผล ${action.row.reference} แล้ว`)
-    if(!error)await load()
-    if(!error){setAuditAction(null);setAuditReason('')}
+    try {
+      const result = await (action.kind === 'work'
+        ? runAttempt('resolve_work_item',{
+          action: `${action.approved ? 'approve_work' : 'reject_work'}`,
+          work_key: action.item.id,
+          reason,
+          evidence: `${action.approved ? 'อนุมัติ' : 'ไม่อนุมัติ'}ผ่าน Web: ${reason}`,
+          actor: profile.id,
+        }, async () => await supabase.from('system_work_items').update({
+          status:action.approved?'ready':'blocked',
+          production_status:action.approved?'approved_for_execution':'rejected_by_admin',
+          evidence:`${action.approved?'อนุมัติ':'ไม่อนุมัติ'}ผ่าน Web: ${reason}`,
+          updated_by:profile.id,
+          updated_at:new Date().toISOString(),
+        }).eq('work_key',action.item.id).eq('status','review'))
+        : runAttempt('resolve_system_error',{
+          action: action.status,
+          error_id: action.row.sourceId,
+          reason,
+        }, async ()=> await supabase.rpc('resolve_system_error_event',{target_event_id:action.row.sourceId,target_status:action.status,target_reason:reason})
+        ))
+      const error = result?.error
+      setMessage(error?userError(error):action.kind==='work'
+        ?`${action.approved?'อนุมัติ':'ไม่อนุมัติ'} ${action.item.id} และบันทึก Audit แล้ว`
+        :`บันทึกผล ${action.row.reference} แล้ว`)
+      if(!error)await load()
+      if(!error){setAuditAction(null);setAuditReason('')}
+    } catch (error) {
+      setMessage(error instanceof Error ? userError(error) : userError({ message: String(error) }))
+    }
     setBusy(false)
   }
   const openErrorEvidence=async(row:ProblemRow)=>{
@@ -324,7 +396,7 @@ export function SystemHealthPage(){
     setBusy(true);setMessage('')
     const signed=await Promise.all(evidence.map(item=>supabase.storage.from(item.bucket).createSignedUrl(item.path,600)))
     const firstError=signed.find(item=>item.error)?.error
-    if(firstError)setMessage(`เปิดรูปหลักฐานไม่สำเร็จ: ${firstError.message}`)
+    if(firstError)setMessage(`เปิดรูปหลักฐานไม่สำเร็จ: ${userError(firstError)}`)
     else setEvidencePreview({urls:signed.flatMap(item=>item.data?[item.data.signedUrl]:[]),reference:row.reference})
     setBusy(false)
   }
@@ -347,14 +419,14 @@ export function SystemHealthPage(){
   const problemRows=useMemo<ProblemRow[]>(()=>{
     const errorRows=errorEvents.map<ProblemRow>(event=>({
       id:`error:${event.id}`,source:'error',sourceId:event.id,reference:`ERR-${event.id.slice(0,8).toUpperCase()}`,title:event.title,
-      detail:`${readableCheckMessage(event.message,'ไม่มีรายละเอียดเพิ่มเติม')} · ระบบพบ ${event.system_occurrence_count} ครั้ง · ผู้ใช้ยืนยัน ${event.user_report_count} ครั้ง · รวม ${event.occurrence_count} ครั้ง`,
+      detail:`${readableCheckMessage(userError(event),'ไม่มีรายละเอียดเพิ่มเติม')} · ระบบพบ ${event.system_occurrence_count} ครั้ง · ผู้ใช้ยืนยัน ${event.user_report_count} ครั้ง · รวม ${event.occurrence_count} ครั้ง`,
       status:event.status==='resolved'||event.status==='dismissed'?'resolved':event.status==='monitoring'?'verification':'pending',
       severity:event.severity==='critical'?'critical':event.severity==='error'?'high':'medium',owner:null,fingerprint:event.fingerprint,
       firstSeen:event.first_seen_at,lastSeen:event.last_seen_at,resolution:event.status==='resolved'||event.status==='dismissed'?`${event.resolution_reason||'ปิดปัญหา'} · ${formatDate(event.resolved_at)}`:null,
     }))
     const incidentRows=incidents.map<ProblemRow>(incident=>({
       id:`incident:${incident.id}`,source:'monitor',sourceId:incident.id,reference:incident.check_key,title:incident.title,
-      detail:readableCheckMessage(incident.message,'ระบบตรวจพบความผิดปกติ'),status:incident.status==='resolved'?'resolved':'pending',
+      detail:readableCheckMessage(userError(incident),'ระบบตรวจพบความผิดปกติ'),status:incident.status==='resolved'?'resolved':'pending',
       severity:incident.severity==='critical'?'critical':'medium',owner:null,fingerprint:`health:${incident.check_key}`,
       firstSeen:incident.started_at,lastSeen:incident.resolved_at||incident.started_at,
       resolution:incident.status==='resolved'?`กลับมาปกติเมื่อ ${formatDate(incident.resolved_at)}`:null,
@@ -390,6 +462,12 @@ export function SystemHealthPage(){
       {system:'Worker / Cron',activity:`${runs.length} รอบตรวจ · ${workItems.filter(item=>item.status==='doing').length} งานกำลังทำ`,errors:runs.filter(run=>run.status!=='completed'||run.critical_count>0).length,latency:null,status:runs.some(run=>run.critical_count>0)?'warning':runs.length?'healthy':'unknown',coverage:'50 รอบล่าสุดและสถานะงานปัจจุบัน'},
     ] as const
   },[checks,communicationEvents,runs,workItems])
+  const performanceSummary=useMemo(()=>{
+    const values=performanceMetrics.map(row=>Number(row.metadata?.value_ms)).filter(value=>Number.isFinite(value))
+    const sorted=[...values].sort((left,right)=>left-right)
+    const p95=sorted.length?sorted[Math.min(sorted.length-1,Math.ceil(sorted.length*.95)-1)]:null
+    return {count:values.length,p95,slow:performanceMetrics.filter(row=>row.severity!=='info').length,last:performanceMetrics[0]??null}
+  },[performanceMetrics])
 
   return <Stack spacing={3}>
     <PageHeader title="สถานะระบบ" description="ภาพรวมการทำงานของเว็บ ฐานข้อมูล ระบบลงเวลา และช่องทางแจ้งเตือน" action={<Stack direction={{xs:'column',sm:'row'}} spacing={1}><Button onClick={()=>void load()} disabled={busy}>รีเฟรช</Button><Button variant="outlined" onClick={()=>void sendTelegramStatus()} disabled={busy||profile?.role!=='admin'}>ส่ง Status เข้า Telegram</Button><Button variant="contained" startIcon={<RefreshOutlinedIcon/>} onClick={()=>void runNow()} disabled={busy}>ตรวจทันที</Button></Stack>}/>
@@ -397,11 +475,12 @@ export function SystemHealthPage(){
     {loaded&&!settings.line_group_id&&<Alert severity="warning">ยังไม่ได้เลือกกลุ่ม LINE สำหรับรับการแจ้งเตือนปัญหาระบบ</Alert>}
 
     <Paper variant="outlined" sx={{overflow:'hidden'}}><Tabs value={mainTab} onChange={(_,value)=>setMainTab(value)} variant="scrollable" scrollButtons="auto">
-      <Tab value="overview" label="ภาพรวม"/><Tab value="usage" label="Connection & Usage"/><Tab value="work" label="งานระบบ"/><Tab value="issues" label="ปัญหาและเหตุการณ์"/><Tab value="logs" label="Log และการสื่อสาร"/><Tab value="settings" label="ตั้งค่าและประวัติ"/>
+      <Tab value="overview" label="ภาพรวมเทคนิค"/><Tab value="usage" label="ประสิทธิภาพและการเชื่อมต่อ"/><Tab value="issues" label="Incident และ Error"/><Tab value="logs" label="Integration และ Audit Log"/><Tab value="work" label="งานปรับปรุงระบบ"/><Tab value="settings" label="Monitoring Settings"/>
     </Tabs></Paper>
 
     <Box sx={{display:mainTab==='usage'?'block':'none'}}><Stack spacing={2}>
-      <Alert severity="info">ตัวเลขช่องทางเป็นกิจกรรมจาก Log สูงสุด 500 รายการล่าสุดของบริษัทนี้ ส่วนรายการที่ผู้ให้บริการยังไม่ส่ง Usage API เข้าระบบจะแสดงว่า “ยังไม่มี Usage Meter” และไม่สร้างตัวเลขประมาณ</Alert>
+      <Alert severity="info">แสดงเฉพาะค่าที่ระบบวัดได้จริง: Log ช่องทางสูงสุด 500 รายการ และ Performance หน้าเว็บสูงสุด 200 ค่า ไม่มีการสร้างตัวเลขประมาณ</Alert>
+      <Paper variant="outlined" sx={{p:2}}><Stack spacing={1.5}><Box><Typography variant="h6">มาตรฐานประสิทธิภาพส่วนกลาง</Typography><Typography variant="body2" color="text.secondary">เกินเกณฑ์จะบันทึกในทะเบียน Error กลาง โดยรวมเหตุซ้ำตามหน้าและชนิดของค่า</Typography></Box><Box sx={{display:'grid',gridTemplateColumns:{xs:'1fr',md:'repeat(3,1fr)'},gap:1}}><Paper variant="outlined" sx={{p:1.25}}><Typography variant="caption" color="text.secondary">API / Page load</Typography><Typography sx={{fontWeight:700}}>เตือน &gt; 2.5 วินาที · วิกฤต &gt; 4 วินาที</Typography></Paper><Paper variant="outlined" sx={{p:1.25}}><Typography variant="caption" color="text.secondary">LCP</Typography><Typography sx={{fontWeight:700}}>เตือน &gt; 2.5 วินาที · วิกฤต &gt; 4 วินาที</Typography></Paper><Paper variant="outlined" sx={{p:1.25}}><Typography variant="caption" color="text.secondary">การตอบสนองผู้ใช้</Typography><Typography sx={{fontWeight:700}}>เตือน &gt; 300 ms · วิกฤต &gt; 800 ms</Typography></Paper></Box><Stack direction={{xs:'column',sm:'row'}} spacing={3}><Typography>วัดได้ {performanceSummary.count} ค่า</Typography><Typography>p95 {performanceSummary.p95===null?'-':`${performanceSummary.p95} ms`}</Typography><Typography color={performanceSummary.slow?'warning.main':'text.secondary'}>เกินเกณฑ์ {performanceSummary.slow} ค่า</Typography><Typography color="text.secondary">ล่าสุด {formatDate(performanceSummary.last?.created_at??null)}</Typography></Stack></Stack></Paper>
       <Box sx={{display:'grid',gridTemplateColumns:{xs:'1fr',md:'repeat(2,1fr)'},gap:1.5}}>{usageRows.map(row=><Paper key={row.system} variant="outlined" sx={{p:2}}><Stack spacing={1}>
         <Stack direction="row" sx={{justifyContent:'space-between',alignItems:'center',gap:1}}><Typography sx={{fontWeight:800}}>{row.system}</Typography><Chip size="small" color={statusColor[row.status]} label={statusLabel[row.status]}/></Stack>
         <Stack direction="row" spacing={3}><Box><Typography variant="caption" color="text.secondary">ปริมาณที่วัดได้</Typography><Typography sx={{fontWeight:700}}>{row.activity}</Typography></Box><Box><Typography variant="caption" color="text.secondary">Error</Typography><Typography sx={{fontWeight:700}} color={row.errors?'error.main':'text.primary'}>{row.errors}</Typography></Box>{row.latency!==null&&row.latency!==undefined&&<Box><Typography variant="caption" color="text.secondary">Latency</Typography><Typography sx={{fontWeight:700}}>{row.latency} ms</Typography></Box>}</Stack>
@@ -428,12 +507,18 @@ export function SystemHealthPage(){
         </Stack>
       </Stack>
     </Paper>
+    <Paper variant="outlined" sx={{p:{xs:2,md:3},display:mainTab==='overview'?'block':'none'}}>
+      <Stack direction={{xs:'column',md:'row'}} spacing={2} sx={{justifyContent:'space-between',alignItems:{md:'center'}}}>
+        <Box><Typography variant="overline" color="text.secondary">Release ที่กำลังใช้งาน</Typography><Typography variant="h6" sx={{fontWeight:800}}>{releaseLabel}</Typography><Typography variant="body2" color="text.secondary">Build เมื่อ {formatDate(releaseInfo.builtAt)} · Deployment {releaseInfo.deploymentId??'local / ไม่ระบุจากผู้ให้บริการ'}</Typography></Box>
+        <Alert severity="success" sx={{py:0}}>หากเลขนี้เปลี่ยน แปลว่าเว็บได้รับเวอร์ชันใหม่แล้ว</Alert>
+      </Stack>
+    </Paper>
     {mainTab==='overview'&&monitoringOverdue&&<Alert severity="warning">ผลตรวจล่าสุดเกินรอบที่กำหนดแล้ว ข้อมูลสุขภาพอาจไม่ใช่สถานะปัจจุบัน กรุณากด “ตรวจทันที” ระหว่างรอซ่อม Scheduled Monitor รายบริษัท</Alert>}
 
     <Stack direction={{xs:'column',lg:'row'}} spacing={2} sx={{alignItems:'stretch',display:mainTab==='overview'?'flex':'none'}}>
       <Paper variant="outlined" sx={{p:2.5,flex:2,minWidth:0}}><Typography variant="h6">เส้นทางการทำงาน</Typography><Typography variant="body2" color="text.secondary">กดแต่ละสถานะเพื่อดูผลตรวจล่าสุดในตารางรายละเอียดด้านล่าง</Typography>
         <Box sx={{display:'grid',gridTemplateColumns:{xs:'1fr',sm:'repeat(2,1fr)',lg:`repeat(${Math.min(Math.max(orderedChecks.length,1),5)},1fr)`},gap:1.5,mt:2}}>
-          {orderedChecks.length?orderedChecks.map((item,index)=><Paper key={item.check_key} role="button" tabIndex={0} onClick={()=>setSelectedCheck(item)} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();setSelectedCheck(item)}}} variant="outlined" sx={{p:1.5,position:'relative',borderColor:`${statusHex[item.status]}55`,bgcolor:`${statusHex[item.status]}0a`,cursor:'pointer','&:hover':{boxShadow:2,transform:'translateY(-1px)'},transition:'box-shadow .15s, transform .15s'}}><Stack direction="row" spacing={1} sx={{alignItems:'center'}}><StatusIcon status={item.status}/><Typography sx={{fontWeight:700}}>{item.name_th}</Typography></Stack><Typography variant="caption" color="text.secondary" sx={{display:'block',mt:1}}>{item.message||statusLabel[item.status]}</Typography><Typography variant="caption">{item.latency_ms??'-'} ms · {formatDate(item.last_checked_at)}</Typography>{index<orderedChecks.length-1&&<Typography sx={{display:{xs:'none',lg:'block'},position:'absolute',right:-13,top:'40%',zIndex:2,color:'text.disabled'}}>›</Typography>}</Paper>):<Alert severity="info">ยังไม่มีผลตรวจ กด “ตรวจทันที” เพื่อเริ่มตรวจระบบ</Alert>}
+          {orderedChecks.length?orderedChecks.map((item,index)=><Paper key={item.check_key} role="button" tabIndex={0} onClick={()=>setSelectedCheck(item)} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();setSelectedCheck(item)}}} variant="outlined" sx={{p:1.5,position:'relative',borderColor:`${statusHex[item.status]}55`,bgcolor:`${statusHex[item.status]}0a`,cursor:'pointer','&:hover':{boxShadow:2,transform:'translateY(-1px)'},transition:'box-shadow .15s, transform .15s'}}><Stack direction="row" spacing={1} sx={{alignItems:'center'}}><StatusIcon status={item.status}/><Typography sx={{fontWeight:700}}>{item.name_th}</Typography></Stack><Typography variant="caption" color="text.secondary" sx={{display:'block',mt:1}}>{userError(item)||statusLabel[item.status]}</Typography><Typography variant="caption">{item.latency_ms??'-'} ms · {formatDate(item.last_checked_at)}</Typography>{index<orderedChecks.length-1&&<Typography sx={{display:{xs:'none',lg:'block'},position:'absolute',right:-13,top:'40%',zIndex:2,color:'text.disabled'}}>›</Typography>}</Paper>):<Alert severity="info">ยังไม่มีผลตรวจ กด “ตรวจทันที” เพื่อเริ่มตรวจระบบ</Alert>}
         </Box>
       </Paper>
       <Paper variant="outlined" sx={{p:2.5,flex:1,minWidth:280}}><Typography variant="h6">แนวโน้ม 24 รอบล่าสุด</Typography><MiniRunChart runs={runs}/><Stack direction="row" spacing={2} sx={{mt:1}}>{(['healthy','warning','critical'] as const).map(status=><Stack key={status} direction="row" spacing={0.5} sx={{alignItems:'center'}}><Box sx={{width:9,height:9,borderRadius:'50%',bgcolor:statusHex[status]}}/><Typography variant="caption">{statusLabel[status]}</Typography></Stack>)}</Stack></Paper>
@@ -441,10 +526,10 @@ export function SystemHealthPage(){
 
     <Stack direction="row" spacing={2} useFlexGap sx={{flexWrap:'wrap',display:mainTab==='overview'?'flex':'none'}}>{(['healthy','warning','critical','unknown'] as const).map(status=><Paper key={status} variant="outlined" sx={{p:2,minWidth:150,flex:'1 1 150px'}}><Typography variant="caption" color="text.secondary">{statusLabel[status]}</Typography><Typography variant="h4" color={statusHex[status]}>{checks.filter(row=>row.status===status).length}</Typography></Paper>)}</Stack>
 
-    <Paper variant="outlined" sx={{p:{xs:2,md:3},display:mainTab==='settings'?'block':'none'}}><Stack spacing={2}><Typography variant="h6">ตั้งค่ารอบตรวจและการแจ้งเตือน</Typography>
+    <Paper variant="outlined" sx={{p:{xs:2,md:3},display:mainTab==='settings'?'block':'none'}}><Stack spacing={2}><Typography variant="h6">Monitoring Settings</Typography>
       <Stack direction={{xs:'column',md:'row'}} spacing={2} sx={{alignItems:{md:'center'}}}><Stack direction="row" sx={{alignItems:'center'}}><Switch checked={settings.enabled} onChange={e=>setSettings({...settings,enabled:e.target.checked})}/><Typography>เปิดตรวจอัตโนมัติ</Typography></Stack><TextField select fullWidth label="กลุ่ม LINE ผู้ดูแล" value={settings.line_group_id??''} onChange={e=>setSettings({...settings,line_group_id:e.target.value||null})}><MenuItem value="">ยังไม่ส่ง LINE</MenuItem>{groups.map(group=><MenuItem key={group.line_group_id} value={group.line_group_id}>{group.display_name||group.line_group_id}</MenuItem>)}</TextField><TextField fullWidth label="ผู้รับผิดชอบหลัก" value={settings.responsible_name??''} onChange={e=>setSettings({...settings,responsible_name:e.target.value})}/><TextField label="เวลาสรุปรายวัน" type="time" value={settings.daily_summary_time} onChange={e=>setSettings({...settings,daily_summary_time:e.target.value})} slotProps={{inputLabel:{shrink:true}}}/></Stack>
       <Stack direction={{xs:'column',md:'row'}} spacing={2}><TextField select fullWidth label="รอบเวลาตรวจ" value={settings.check_interval_minutes} onChange={e=>setSettings({...settings,check_interval_minutes:Number(e.target.value)})}>{[5,15,30,60].map(minutes=><MenuItem key={minutes} value={minutes}>{minutes===60?'1 ชั่วโมง':`${minutes} นาที`}</MenuItem>)}</TextField><TextField fullWidth type="number" label="แจ้งเมื่อผิดพลาดติดต่อกัน (รอบ)" value={settings.alert_after_failures} onChange={e=>setSettings({...settings,alert_after_failures:Number(e.target.value)})}/><TextField fullWidth type="number" label="เตือนซ้ำทุก (นาที)" value={settings.repeat_alert_minutes} onChange={e=>setSettings({...settings,repeat_alert_minutes:Number(e.target.value)})}/><Button variant="contained" startIcon={<SaveOutlinedIcon/>} disabled={busy||profile?.role!=='admin'} onClick={()=>void save()}>บันทึก</Button></Stack>
-      <Alert severity="info">รอบตรวจอัตโนมัติปัจจุบันทำงานเมื่อ Admin เปิดระบบอยู่ การตรวจเบื้องหลังตลอด 24 ชั่วโมงต้องติดตั้ง Scheduled Monitor ที่ยืนยันตัวตนแยกต่างหาก</Alert>
+      <Alert severity="info">กติกากลาง: ผลเสียต่อเนื่อง 2 รอบสร้าง Incident เดียว, แจ้งซ้ำทุก 30 นาทีตามค่าที่กำหนด, และปิดเมื่อผ่านต่อเนื่อง 2 รอบ การวัดหน้าเว็บบันทึกจากผู้ใช้ที่เข้าสู่ระบบ โดยไม่เก็บข้อมูลลับ</Alert>
     </Stack></Paper>
 
     <Box sx={{display:mainTab==='issues'?'block':'none'}}><Stack spacing={3}>
@@ -464,7 +549,7 @@ export function SystemHealthPage(){
     </Stack></Paper>
     <Box sx={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:1.5}}>{imageStorageRows.map(row=><Paper key={row.retention_class} variant="outlined" sx={{p:1.5}}><Typography variant="caption" color="text.secondary">{row.retention_class}</Typography><Typography variant="h6">{Number(row.file_count).toLocaleString('th-TH')} รูป</Typography><Typography variant="body2">{(Number(row.stored_bytes)/1024/1024).toLocaleString('th-TH',{maximumFractionDigits:1})} MB</Typography>{Number(row.reclaimable_duplicate_bytes)>0&&<Typography variant="caption" color="warning.main">ไฟล์ซ้ำที่คืนพื้นที่ได้ {(Number(row.reclaimable_duplicate_bytes)/1024/1024).toLocaleString('th-TH',{maximumFractionDigits:1})} MB</Typography>}</Paper>)}</Box>
     <Typography variant="h6">รายละเอียดระบบ</Typography>
-    <StandardDataTable rows={checks} getRowId={row=>row.check_key} getSearchText={row=>`${row.name_th} ${row.module} ${row.message}`} searchLabel="ค้นหาระบบ" emptyText={busy?'กำลังตรวจ...':'ยังไม่มีผลตรวจ'} exportFileName="health-checks" columns={[{id:'status',label:'สถานะ',render:row=><Chip size="small" color={statusColor[row.status]} label={statusLabel[row.status]}/>},{id:'name',label:'ระบบ',minWidth:210,render:row=>row.name_th},{id:'module',label:'Module',render:row=>row.module},{id:'message',label:'ผลตรวจ',minWidth:300,render:row=>row.message||'-'},{id:'latency',label:'เวลา',render:row=>row.latency_ms===null?'-':`${row.latency_ms} ms`},{id:'checked',label:'ตรวจล่าสุด',minWidth:180,render:row=>formatDate(row.last_checked_at)}]}/>
+    <StandardDataTable rows={checks} getRowId={row=>row.check_key} getSearchText={row=>`${row.name_th} ${row.module} ${userError(row)}`} searchLabel="ค้นหาระบบ" emptyText={busy?'กำลังตรวจ...':'ยังไม่มีผลตรวจ'} exportFileName="health-checks" columns={[{id:'status',label:'สถานะ',render:row=><Chip size="small" color={statusColor[row.status]} label={statusLabel[row.status]}/>},{id:'name',label:'ระบบ',minWidth:210,render:row=>row.name_th},{id:'module',label:'Module',render:row=>row.module},{id:'message',label:'ผลตรวจ',minWidth:300,render:row=>userError(row)||'-'},{id:'latency',label:'เวลา',render:row=>row.latency_ms===null?'-':`${row.latency_ms} ms`},{id:'checked',label:'ตรวจล่าสุด',minWidth:180,render:row=>formatDate(row.last_checked_at)}]}/>
     <Stack direction="row" sx={{justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:1}}><Box><Typography variant="h6">ทะเบียนปัญหา</Typography><Typography variant="body2" color="text.secondary">รวมเหตุที่ Monitor ตรวจพบและงานซ่อมจากคิวกลาง เพื่อแสดงส่วนที่ค้างและแก้ไขแล้วจากข้อมูลจริง</Typography></Box></Stack>
     <Stack direction="row" spacing={1.5} useFlexGap sx={{flexWrap:'wrap'}}>{(['pending','repairing','verification','stuck','resolved'] as const).map(status=><Paper key={status} variant="outlined" sx={{p:1.5,minWidth:150,flex:'1 1 150px'}}><Typography variant="caption" color="text.secondary">{problemStatusLabel[status]}</Typography><Typography variant="h5" color={status==='stuck'?'error.main':status==='resolved'?'success.main':'text.primary'}>{problemRows.filter(row=>row.status===status).length}</Typography></Paper>)}</Stack>
     <StandardDataTable rows={problemRows} getRowId={row=>row.id} getSearchText={row=>`${row.reference} ${row.title} ${row.detail} ${row.status} ${row.owner} ${row.fingerprint}`} searchLabel="ค้นหาเลขอ้างอิง ปัญหา ผู้รับผิดชอบ หรือ Fingerprint" emptyText="ยังไม่มีปัญหาที่บันทึกไว้" exportFileName="system-problem-register" defaultSort={{columnId:'updated',direction:'desc'}} getRowSx={row=>row.status==='stuck'?{bgcolor:'error.lighter'}:{}} columns={[
@@ -482,19 +567,19 @@ export function SystemHealthPage(){
     </Stack></Box>
     <Box sx={{display:mainTab==='logs'?'block':'none'}}><Stack spacing={3}><Typography variant="h6">ประวัติการสื่อสาร</Typography>
     <Stack direction="row" spacing={2} useFlexGap sx={{flexWrap:'wrap'}}>{['line','telegram','web','system'].map(channel=><Paper key={channel} variant="outlined" sx={{p:2,minWidth:150,flex:'1 1 150px'}}><Typography variant="caption" color="text.secondary">{channel.toUpperCase()}</Typography><Typography variant="h5">{communicationEvents.filter(event=>event.channel===channel).length}</Typography></Paper>)}</Stack>
-    <StandardDataTable rows={communicationEvents} getRowId={row=>row.event_id} getSearchText={row=>`${row.channel} ${row.event_type} ${row.status} ${row.destination} ${row.title} ${row.message} ${row.related_work_key}`} searchLabel="ค้นหาช่องทาง ข้อความ งาน หรือสถานะ" emptyText="ยังไม่มีประวัติการสื่อสาร" exportFileName="communication-event-feed" columns={[{id:'time',label:'วันเวลา',minWidth:170,render:row=>formatDate(row.occurred_at)},{id:'channel',label:'ช่องทาง',render:row=><Chip size="small" variant="outlined" label={row.channel.toUpperCase()}/>},{id:'status',label:'สถานะ',render:row=><Chip size="small" color={['sent','processed','done','approved'].includes(row.status)?'success':row.status==='failed'?'error':'default'} label={row.status}/>},{id:'type',label:'ประเภท',minWidth:180,render:row=>row.event_type},{id:'title',label:'หัวข้อ/งาน',minWidth:190,render:row=>row.related_work_key||row.title||'-'},{id:'destination',label:'ปลายทาง',minWidth:170,render:row=>row.destination||'-'},{id:'message',label:'ข้อความ/ผลลัพธ์',minWidth:360,render:row=>row.error_message||row.message||'-'},{id:'responded',label:'ตอบกลับ/ประมวลผล',minWidth:170,render:row=>formatDate(row.responded_at)}]}/></Stack></Box>
+    <StandardDataTable rows={communicationEvents} getRowId={row=>row.event_id} getSearchText={row=>`${row.channel} ${row.event_type} ${row.status} ${row.destination} ${row.title} ${userError(row)} ${row.related_work_key}`} searchLabel="ค้นหาช่องทาง ข้อความ งาน หรือสถานะ" emptyText="ยังไม่มีประวัติการสื่อสาร" exportFileName="communication-event-feed" columns={[{id:'time',label:'วันเวลา',minWidth:170,render:row=>formatDate(row.occurred_at)},{id:'channel',label:'ช่องทาง',render:row=><Chip size="small" variant="outlined" label={row.channel.toUpperCase()}/>},{id:'status',label:'สถานะ',render:row=><Chip size="small" color={['sent','processed','done','approved'].includes(row.status)?'success':row.status==='failed'?'error':'default'} label={row.status}/>},{id:'type',label:'ประเภท',minWidth:180,render:row=>row.event_type},{id:'title',label:'หัวข้อ/งาน',minWidth:190,render:row=>row.related_work_key||row.title||'-'},{id:'destination',label:'ปลายทาง',minWidth:170,render:row=>row.destination||'-'},{id:'message',label:'ข้อความ/ผลลัพธ์',minWidth:360,render:row=>row.error_message||userError(row)||'-'},{id:'responded',label:'ตอบกลับ/ประมวลผล',minWidth:170,render:row=>formatDate(row.responded_at)}]}/></Stack></Box>
 
     <Drawer anchor="right" open={Boolean(selectedCheck)} onClose={()=>setSelectedCheck(null)} slotProps={{paper:{sx:{width:{xs:'100%',sm:480},p:3}}}}>
       {selectedCheck&&<Stack spacing={2}>
         <Stack direction="row" sx={{alignItems:'center',justifyContent:'space-between'}}><Box><Typography variant="overline" color="text.secondary">รายละเอียดผลตรวจ</Typography><Typography variant="h5" sx={{fontWeight:800}}>{selectedCheck.name_th}</Typography></Box><IconButton aria-label="ปิด" onClick={()=>setSelectedCheck(null)}><CloseRoundedIcon/></IconButton></Stack>
         <Divider/><Stack direction="row" spacing={1}><Chip color={statusColor[selectedCheck.status]} label={statusLabel[selectedCheck.status]}/><Chip variant="outlined" label={selectedCheck.module}/></Stack>
-        <Box><Typography variant="caption" color="text.secondary">ผลตรวจล่าสุด</Typography><Typography>{readableCheckMessage(selectedCheck.message,statusLabel[selectedCheck.status])}</Typography></Box>
+        <Box><Typography variant="caption" color="text.secondary">ผลตรวจล่าสุด</Typography><Typography>{readableCheckMessage(userError(selectedCheck),statusLabel[selectedCheck.status])}</Typography></Box>
         {selectedCheck.status!=='healthy'&&<Stack spacing={1.25}>
           <Paper variant="outlined" sx={{p:1.5}}><Typography variant="caption" color="text.secondary">สาเหตุที่วิเคราะห์ได้</Typography><Typography>{checkDiagnosis(selectedCheck).cause}</Typography></Paper>
           <Paper variant="outlined" sx={{p:1.5}}><Typography variant="caption" color="text.secondary">ผลกระทบ</Typography><Typography>{checkDiagnosis(selectedCheck).impact}</Typography></Paper>
           <Paper variant="outlined" sx={{p:1.5}}><Typography variant="caption" color="text.secondary">แนวทางแก้ไข</Typography><Typography>{checkDiagnosis(selectedCheck).resolution}</Typography></Paper>
           <Chip size="small" variant="outlined" label={`ความมั่นใจ: ${checkDiagnosis(selectedCheck).confidence}`} sx={{alignSelf:'flex-start'}}/>
-          <Paper variant="outlined" sx={{p:1.5,bgcolor:'action.hover'}}><Typography variant="caption" color="text.secondary">ข้อมูลเทคนิค</Typography><Typography sx={{wordBreak:'break-word',fontFamily:'monospace',fontSize:13}}>{readableCheckMessage(selectedCheck.message,'ไม่มีข้อมูลเทคนิค')}</Typography></Paper>
+          <Paper variant="outlined" sx={{p:1.5,bgcolor:'action.hover'}}><Typography variant="caption" color="text.secondary">ข้อมูลเทคนิค</Typography><Typography sx={{wordBreak:'break-word',fontFamily:'monospace',fontSize:13}}>{readableCheckMessage(userError(selectedCheck),'ไม่มีข้อมูลเทคนิค')}</Typography></Paper>
           {selectedCheck.check_key==='employee_readiness'&&<Button variant="outlined" href="/workforce-setup">เปิดข้อมูลความพร้อมพนักงาน</Button>}
         </Stack>}
         <Stack direction="row" spacing={3}><Box><Typography variant="caption" color="text.secondary">เวลาตอบสนอง</Typography><Typography>{selectedCheck.latency_ms??'-'} ms</Typography></Box><Box><Typography variant="caption" color="text.secondary">ตรวจเมื่อ</Typography><Typography>{formatDate(selectedCheck.last_checked_at)}</Typography></Box></Stack>
@@ -520,3 +605,4 @@ export function SystemHealthPage(){
     </Dialog>
   </Stack>
 }
+

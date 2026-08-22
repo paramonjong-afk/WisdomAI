@@ -9,6 +9,8 @@ import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { userError } from '../../utils/userError'
+import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 import { PersonalDocumentsPanel } from './PersonalDocumentsPanel'
 
 type Attendance = {
@@ -100,7 +102,7 @@ export function MyProfilePage() {
         .lt('effective_date', end.toISOString().slice(0, 10))
         .order('effective_date', { ascending: false }),
     ])
-    if (attendanceResult.error) setErrorMessage(attendanceResult.error.message)
+    if (attendanceResult.error) setErrorMessage(userError(attendanceResult.error))
     else setAttendance((attendanceResult.data ?? []) as unknown as Attendance[])
     if (!adjustmentResult.error) setAdjustments((adjustmentResult.data ?? []) as PayAdjustment[])
     setLoading(false)
@@ -136,20 +138,33 @@ export function MyProfilePage() {
     if (!correctionSession || !correctionIn || !correctionOut || correctionReason.trim().length < 3) return
     setSaving(true)
     setErrorMessage('')
-    const { error } = await supabase.rpc('request_attendance_correction', {
-      target_session_id: correctionSession.id,
-      requested_in: new Date(correctionIn).toISOString(),
-      requested_out: new Date(correctionOut).toISOString(),
-      request_reason: correctionReason.trim(),
-    })
-    if (error) setErrorMessage(error.message)
-    else {
+    try {
+      await runWithMutationAttempt({
+        module: 'MyProfile',
+        action: 'ส่งคำขอแก้ไขเวลา',
+        actorProfileId: user?.id,
+        companyId: null,
+        request: {
+          target_session_id: correctionSession.id,
+          requested_in: new Date(correctionIn).toISOString(),
+          requested_out: new Date(correctionOut).toISOString(),
+          request_reason: correctionReason.trim(),
+        },
+        operation: async () => await supabase.rpc('request_attendance_correction', {
+          target_session_id: correctionSession.id,
+          requested_in: new Date(correctionIn).toISOString(),
+          requested_out: new Date(correctionOut).toISOString(),
+          request_reason: correctionReason.trim(),
+        }),
+      })
       setMessage('ส่งคำขอแก้ไขเวลาให้ผู้จัดการตรวจสอบแล้ว')
       setCorrectionSession(null)
       setCorrectionIn('')
       setCorrectionOut('')
       setCorrectionReason('')
       await loadAttendance()
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : userError(error))
     }
     setSaving(false)
   }
@@ -171,15 +186,23 @@ export function MyProfilePage() {
     setSaving(true)
     setMessage('')
     setErrorMessage('')
-    const { error } = await supabase.rpc('set_profile_full_name', {
-      target_profile_id: user.id,
-      new_full_name: fullName,
-    })
-    if (error) setErrorMessage(error.message)
-    else {
+    try {
+      await runWithMutationAttempt({
+        module: 'MyProfile',
+        action: 'อัปเดตชื่อพนักงาน',
+        actorProfileId: user.id,
+        companyId: null,
+        request: { target_profile_id: user.id, new_full_name: fullName },
+        operation: async () => await supabase.rpc('set_profile_full_name', {
+          target_profile_id: user.id,
+          new_full_name: fullName,
+        }),
+      })
       window.localStorage.setItem('wisdomai-device-owner', deviceOwnerName.trim())
       await refreshProfile()
       setMessage('บันทึกชื่อพนักงานและเจ้าของมือถือแล้ว ข้อความ LINE ครั้งต่อไปจะแสดงข้อมูลนี้')
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : userError(error))
     }
     setSaving(false)
   }
@@ -197,7 +220,7 @@ export function MyProfilePage() {
     }
     setChangingPassword(true)
     const { error } = await supabase.auth.updateUser({ password: newPassword })
-    if (error) setErrorMessage(error.message)
+    if (error) setErrorMessage(userError(error))
     else {
       setNewPassword('')
       setConfirmPassword('')
@@ -511,3 +534,4 @@ export function MyProfilePage() {
     </Stack>
   )
 }
+

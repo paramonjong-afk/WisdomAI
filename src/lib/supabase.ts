@@ -19,18 +19,46 @@ declare global {
   }
 }
 
-const emitRequestError = (input: RequestInfo | URL, status: number, statusText: string) => {
+const emitRequestError = (input: RequestInfo | URL, status: number, statusText: string, method = 'GET', body?: string) => {
   const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
   try {
     const url = new URL(rawUrl, window.location.origin)
     if (url.pathname.includes('/app_activity_logs') || url.pathname.includes('/rpc/register_client_error_event')) return
     window.dispatchEvent(new CustomEvent('wisdomai-request-error', {
-      detail: { path: url.pathname.slice(0, 240), status, statusText: statusText.slice(0, 160) },
+      detail: {
+        path: url.pathname.slice(0, 240),
+        method: method.toUpperCase(),
+        status,
+        statusText: statusText.slice(0, 160),
+        body: body?.slice(0, 4000),
+      },
     }))
   } catch {
     window.dispatchEvent(new CustomEvent('wisdomai-request-error', {
-      detail: { path: 'unknown-request', status, statusText: statusText.slice(0, 160) },
+      detail: {
+        path: 'unknown-request',
+        method: method.toUpperCase(),
+        status,
+        statusText: statusText.slice(0, 160),
+        body: body?.slice(0, 4000),
+      },
     }))
+  }
+}
+
+const emitRequestMetric = (input: RequestInfo | URL, status: number, method: string, latencyMs: number) => {
+  const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+  try {
+    const url = new URL(rawUrl, window.location.origin)
+    if (url.pathname.includes('/app_activity_logs') || url.pathname.includes('/rpc/register_client_error_event')) return
+    window.dispatchEvent(new CustomEvent('wisdomai-request-complete', {
+      detail: {
+        route: url.pathname.slice(0, 240), method: method.toUpperCase(), status, latency_ms: Math.round(latencyMs),
+        query_length: url.search.length, url_length: url.href.length, result: status >= 200 && status < 400 ? 'success' : 'error',
+      },
+    }))
+  } catch {
+    // Request errors are still captured by emitRequestError; do not expose a raw URL.
   }
 }
 
@@ -62,12 +90,19 @@ const compatibleFetch: typeof fetch = async (input, init) => {
   } else if (init?.headers) {
     Object.entries(init.headers).forEach(([key, value]) => addHeader(key, String(value)))
   }
+  const startedAt = performance.now()
+  const method = init?.method ?? 'GET'
   try {
     const response = await fetch(input, init?.headers ? { ...init, headers } : init)
-    if (!response.ok) emitRequestError(input, response.status, response.statusText || 'HTTP request failed')
+    emitRequestMetric(input, response.status, method, performance.now() - startedAt)
+    if (!response.ok) {
+      const body = await response.clone().text().catch(() => '')
+      emitRequestError(input, response.status, response.statusText || 'HTTP request failed', method, body)
+    }
     return response
   } catch (error) {
-    emitRequestError(input, 0, error instanceof Error ? error.message : 'Network request failed')
+    emitRequestMetric(input, 0, method, performance.now() - startedAt)
+    emitRequestError(input, 0, error instanceof Error ? error.message : 'Network request failed', method)
     throw error
   }
 }

@@ -6,22 +6,26 @@ import { useSearchParams } from 'react-router-dom'
 import { PageHeader } from '../../components/PageHeader'
 import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
+import { isPlatformAdmin as resolvePlatformAdmin } from '../../utils/permissions'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
+import { userError } from '../../utils/userError'
 import { defaultWorkTimeDisplaySettings, type WorkTimeDisplaySettings } from '../../utils/timeDisplay'
 import { calculateEffectiveWorkday, type WorkdayOverrideMode } from '../../utils/wageDay'
 import { calculateHolidayWage } from '../../utils/holidayWage'
 import { RealtimePayrollForecast } from './RealtimePayrollForecast'
 type Site={id:string;name:string;projects:{name:string}|null}
 type Employee={id:string;full_name:string|null;email:string|null}
-type Row={id:string;profile_id:string;clock_in_at:string;clock_out_at:string|null;scheduled_start_at:string|null;scheduled_end_at:string|null;status:string;review_reason:string|null;review_category:string|null;worked_minutes:number|null;normal_minutes:number|null;overtime_minutes:number;late_minutes:number;early_leave_minutes:number;early_arrival_minutes:number;pre_shift_overtime_minutes:number;post_shift_overtime_minutes:number;excluded_minutes:number;clock_in_latitude:number|null;clock_in_longitude:number|null;clock_out_latitude:number|null;clock_out_longitude:number|null;clock_in_accuracy_meters:number|null;clock_out_accuracy_meters:number|null;clock_in_distance_meters:number|null;clock_out_distance_meters:number|null;clock_in_selfie_path:string|null;clock_out_selfie_path:string|null;clock_in_device_info:Record<string,unknown>|null;clock_out_device_info:Record<string,unknown>|null;note:string|null;profiles:{full_name:string|null;email:string|null}|null;project_sites:{id:string;name:string;projects:{name:string}|null}|null}
-type PayrollRow={id:string;profile_id:string;normal_minutes:number;overtime_minutes:number;base_pay:number;overtime_pay:number;additions:number;deductions:number;reimbursements:number;net_pay:number;status:string;profiles:{full_name:string|null;email:string|null}|null;pay_periods:{name:string;starts_on:string;ends_on:string;pay_date:string}|null;employee_payslips:{document_number:string;status:string}[]|null}
+type Row={id:string;profile_id:string;clock_in_at:string;clock_out_at:string|null;scheduled_start_at:string|null;scheduled_end_at:string|null;status:string;calculation_status:string|null;review_reason:string|null;review_category:string|null;worked_minutes:number|null;normal_minutes:number|null;overtime_minutes:number;late_minutes:number;early_leave_minutes:number;early_arrival_minutes:number;pre_shift_overtime_minutes:number;post_shift_overtime_minutes:number;excluded_minutes:number;clock_in_latitude:number|null;clock_in_longitude:number|null;clock_out_latitude:number|null;clock_out_longitude:number|null;clock_in_accuracy_meters:number|null;clock_out_accuracy_meters:number|null;clock_in_distance_meters:number|null;clock_out_distance_meters:number|null;clock_in_selfie_path:string|null;clock_out_selfie_path:string|null;clock_in_device_info:Record<string,unknown>|null;clock_out_device_info:Record<string,unknown>|null;note:string|null;profiles:{full_name:string|null;email:string|null}|null;project_sites:{id:string;name:string;projects:{name:string}|null}|null}
+type PayrollRow={id:string;pay_period_id:string;profile_id:string;normal_minutes:number;overtime_minutes:number;base_pay:number;overtime_pay:number;additions:number;deductions:number;reimbursements:number;net_pay:number;status:string;payment_reference?:string|null;profiles:{full_name:string|null;email:string|null}|null;pay_periods:{name:string;starts_on:string;ends_on:string;pay_date:string}|null;employee_payslips:{document_number:string;status:string}[]|null}
 type PayPeriod={id:string;name:string;starts_on:string;ends_on:string;pay_date:string;status:string}
 type LeaveRow={id:string;profile_id:string;starts_at:string;ends_at:string;requested_minutes:number;reason:string;status:string;profiles:{full_name:string|null;email:string|null}|null;leave_types:{name_th:string;paid_ratio:number}|null}
-type EmployeeSummary={id:string;name:string;employmentType:string;days:number;netDays:number;standardMinutes:number;open:number;worked:number;normal:number;outside:number;outsideDays:number;ot:number;late:number;lateDays:number;early:number;earlyDays:number;estimatedPay:number;paySource:string;status:string}
+type LeaveType={id:string;code:string;name_th:string;paid_ratio:number}
+type EmployeeSummary={id:string;name:string;employmentType:string;days:number;netDays:number;standardMinutes:number;open:number;worked:number;normal:number;outside:number;outsideDays:number;ot:number;late:number;lateDays:number;early:number;earlyDays:number;grossPay:number;advanceDeduction:number;estimatedPay:number;paySource:string;status:string;effectiveLabel:string;employmentStatus:string;resignationStatus:string;lastWorkingOn:string|null;statusEffectiveOn:string|null;payrollEligibleUntil:string|null;terminatedOn:string|null;excludeReason?:string}
 type SiteSummary={id:string;name:string;sessions:number;employees:number;worked:number;normal:number;outside:number;ot:number;open:number}
 type RepairProposal={id:string;session_id:string;issue_code:string;original_clock_out_at:string|null;proposed_clock_out_at:string;explanation:string;status:string;detected_at:string;attendance_sessions:{clock_in_at:string;clock_out_at:string|null;profile_id:string;profiles:{full_name:string|null;email:string|null}|null;project_sites:{name:string}|null}|null}
-type EmploymentPolicy={profile_id:string;attendance_policy:'required'|'record_only'|'exempt';work_policy_id:string|null;employment_type:string;daily_rate:number;monthly_salary:number;overtime_hourly_rate:number}
+type EmploymentPolicy={profile_id:string;attendance_policy:'required'|'record_only'|'exempt';work_policy_id:string|null;employment_type:string;daily_rate:number;monthly_salary:number;overtime_hourly_rate:number;employment_status:string;resignation_status:string;last_working_on:string|null;status_effective_on:string|null;payroll_eligible_until:string|null;terminated_on:string|null}
 type WorkPolicy={id:string;work_weekdays:number[];standard_minutes:number;work_start_time:string;work_end_time:string;break_start_time:string;break_end_time:string;grace_minutes:number}
 type SiteAssignment={profile_id:string;site_id:string;starts_on:string;ends_on:string|null;active:boolean;profiles:{full_name:string|null;email:string|null}|null;project_sites:{id:string;name:string;projects:{name:string}|null}|null}
 type SiteCostAllocation={id:string;profile_id:string;site_id:string;allocation_mode:'percent'|'fixed_amount';allocation_value:number;starts_on:string;ends_on:string|null;active:boolean}
@@ -31,11 +35,13 @@ type HolidayType='weekly_holiday'|'traditional_holiday'|'company_holiday'|'other
 type Holiday={holiday_date:string;name:string;site_id:string|null}
 type HolidayWageOverride={id:string;profile_id:string;work_date:string;holiday_type:HolidayType;wage_multiplier:number;holiday_overtime_minutes:number|null;reason:string;pay_period_id:string|null;updated_by:string;updated_at:string;profiles:{full_name:string|null;email:string|null}|null}
 type ProjectEmployeeSummary={id:string;profileId:string;siteId:string;employee:string;site:string;period:string;employmentType:string;attendancePolicy:string;scheduledDays:number;attendanceDays:number;totalActualDays:number;otherSiteDays:number;leaveDays:number;missingDays:number;workedMinutes:number;verifiedMinutes:number;pendingMinutes:number;standardMinutes:number;employeePay:number;allocationLabel:string;allocatedCost:number;pendingCost:number;unallocatedCost:number;reviewCount:number;status:string;issue:string}
-const reportColumns='id,profile_id,clock_in_at,clock_out_at,scheduled_start_at,scheduled_end_at,status,review_reason,review_category,worked_minutes,normal_minutes,overtime_minutes,late_minutes,early_leave_minutes,early_arrival_minutes,pre_shift_overtime_minutes,post_shift_overtime_minutes,excluded_minutes,clock_in_latitude,clock_in_longitude,clock_out_latitude,clock_out_longitude,clock_in_accuracy_meters,clock_out_accuracy_meters,clock_in_distance_meters,clock_out_distance_meters,clock_in_selfie_path,clock_out_selfie_path,clock_in_device_info,clock_out_device_info,note,profiles!attendance_sessions_profile_id_fkey(full_name,email),project_sites(id,name,projects(name))'
+const reportColumns='id,profile_id,clock_in_at,clock_out_at,scheduled_start_at,scheduled_end_at,status,calculation_status,review_reason,review_category,worked_minutes,normal_minutes,overtime_minutes,late_minutes,early_leave_minutes,early_arrival_minutes,pre_shift_overtime_minutes,post_shift_overtime_minutes,excluded_minutes,clock_in_latitude,clock_in_longitude,clock_out_latitude,clock_out_longitude,clock_in_accuracy_meters,clock_out_accuracy_meters,clock_in_distance_meters,clock_out_distance_meters,clock_in_selfie_path,clock_out_selfie_path,clock_in_device_info,clock_out_device_info,note,profiles!attendance_sessions_profile_id_fkey(full_name,email),project_sites(id,name,projects(name))'
 const PAGE_SIZE=1000
 const emptyAdjustment={sessionId:'',profileId:'',siteId:'',clockIn:'',clockOut:'',clockOutDate:'',reason:''}
+const emptyManualLeave={profileId:'',leaveTypeId:'',date:new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Bangkok'}),dayUnits:1,customMinutes:0,reason:'โทรแจ้ง Admin'}
 const employmentTypeLabel:Record<string,string>={daily:'รายวัน',monthly:'รายเดือน',temporary:'ชั่วคราว',contractor:'ผู้รับเหมา'}
 const attendancePolicyLabel:Record<string,string>={required:'ต้องลงเวลาและมีผลต่อค่าจ้าง',record_only:'ลงเวลาเพื่อติดตามและกระจายต้นทุน',exempt:'ไม่ต้องลงเวลา'}
+const payPeriodStatusLabel:Record<string,string>={open:'เปิดงวด',calculating:'กำลังคำนวณ',review:'รอตรวจ',closed:'ปิดรอบแล้ว',paying:'กำลังจ่าย',paid:'จ่ายแล้ว',cancelled:'ยกเลิก'}
 
 const reviewCategoryLabel:Record<string,string>={gps_outside:'อยู่นอกพื้นที่ไซต์',gps_inaccurate:'ความแม่นยำ GPS ต่ำ',gps_unavailable:'ไม่พบสัญญาณ GPS',shared_device:'ใช้อุปกรณ์ร่วมกัน',missing_clock_out:'ไม่มีเวลาออก',manual_correction:'มีการแก้ไขเวลาด้วยผู้ดูแล',multiple:'พบหลายเงื่อนไขผิดปกติ'}
 const evidenceValue=(value:unknown)=>typeof value==='string'?value:typeof value==='number'?String(value):value&&typeof value==='object'?JSON.stringify(value):'-'
@@ -45,7 +51,7 @@ function bangkokIso(value:string){return new Date(`${value}:00+07:00`).toISOStri
 const duration=(minutes:number|null|undefined)=>{const value=Math.max(0,Math.round(Number(minutes??0))),hours=Math.floor(value/60),remaining=value%60;return hours&&remaining?`${hours} ชม. ${remaining} นาที`:hours?`${hours} ชม.`:`${remaining} นาที`}
 const optionalDuration=(minutes:number|null|undefined)=>Number(minutes??0)>0?duration(minutes):'-'
 const optionalCount=(value:number,unit:string)=>value>0?`${value.toLocaleString('th-TH')} ${unit}`:'-'
-const optionalMoney=(value:number)=>value>0?value.toLocaleString('th-TH',{style:'currency',currency:'THB'}):'-'
+const optionalMoney=(value:number|null|undefined)=>Number(value??0)>0?Number(value).toLocaleString('th-TH',{style:'currency',currency:'THB'}):'-'
 const moneyText=(value:number)=>`${Number(value??0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2})} บาท`
 
 function bangkokMonthRange(month:string){
@@ -59,18 +65,21 @@ export function ReportsPage(){
   usePageTitle('รายงานพนักงาน')
   const {profile,currentCompany}=useAuth(),canManage=profile?.role==='admin'||profile?.role==='manager',companyId=currentCompany?.company_id??''
   const isAdmin=profile?.role==='admin'
-  const isPlatformAdmin=profile?.platform_role==='admin'
+  const isPlatformAdmin=resolvePlatformAdmin(profile)
   const [searchParams,setSearchParams]=useSearchParams()
   const requestedEmployee=searchParams.get('employee')||'all',requestedSession=searchParams.get('session')||''
   const [month,setMonth]=useState(searchParams.get('month')||new Date().toISOString().slice(0,7)),[periodId,setPeriodId]=useState('month'),[siteId,setSiteId]=useState('all'),[employeeId,setEmployeeId]=useState(requestedEmployee)
   const [loading,setLoading]=useState(true),[error,setError]=useState(''),[rows,setRows]=useState<Row[]>([]),[sites,setSites]=useState<Site[]>([])
   const [employees,setEmployees]=useState<Employee[]>([]),[dialogOpen,setDialogOpen]=useState(false),[saving,setSaving]=useState(false)
   const [sheet,setSheet]=useState(0),[payTypeTab,setPayTypeTab]=useState(0),[payrolls,setPayrolls]=useState<PayrollRow[]>([]),[leaves,setLeaves]=useState<LeaveRow[]>([]),[success,setSuccess]=useState('')
+  const [leaveTypes,setLeaveTypes]=useState<LeaveType[]>([]),[manualLeaveOpen,setManualLeaveOpen]=useState(false),[manualLeaveSaving,setManualLeaveSaving]=useState(false)
+  const [manualLeave,setManualLeave]=useState(emptyManualLeave)
   const [adjustment,setAdjustment]=useState(emptyAdjustment)
   const [voidTarget,setVoidTarget]=useState<Row|null>(null),[voidReason,setVoidReason]=useState(''),[voidSaving,setVoidSaving]=useState(false),[restoreMode,setRestoreMode]=useState(false)
   const [repairProposals,setRepairProposals]=useState<RepairProposal[]>([]),[repairTarget,setRepairTarget]=useState<RepairProposal|null>(null),[repairDecision,setRepairDecision]=useState<'apply'|'reject'>('apply'),[repairNote,setRepairNote]=useState(''),[repairSaving,setRepairSaving]=useState(false),[repairScanning,setRepairScanning]=useState(false)
   const [confirmTarget,setConfirmTarget]=useState<Row|null>(null),[confirmReason,setConfirmReason]=useState(''),[confirmSaving,setConfirmSaving]=useState(false)
   const [summaryTarget,setSummaryTarget]=useState<EmployeeSummary|null>(null)
+  const [summaryDailyOpen,setSummaryDailyOpen]=useState(false)
   const [detailTarget,setDetailTarget]=useState<Row|null>(null)
   const [employmentPolicies,setEmploymentPolicies]=useState<EmploymentPolicy[]>([]),[workPolicies,setWorkPolicies]=useState<WorkPolicy[]>([]),[holidays,setHolidays]=useState<Holiday[]>([])
   const [siteAssignments,setSiteAssignments]=useState<SiteAssignment[]>([])
@@ -78,6 +87,7 @@ export function ReportsPage(){
   const [timeDisplaySettings,setTimeDisplaySettings]=useState<WorkTimeDisplaySettings>(defaultWorkTimeDisplaySettings)
   const [attendanceAudits,setAttendanceAudits]=useState<AttendanceAudit[]>([])
   const [payPeriods,setPayPeriods]=useState<PayPeriod[]>([])
+  const [payrollFlowSaving,setPayrollFlowSaving]=useState(false),[payrollCloseReason,setPayrollCloseReason]=useState(''),[payrollPaymentReference,setPayrollPaymentReference]=useState('')
   const payPeriodInitialized=useRef('')
   const [wageDayOverrides,setWageDayOverrides]=useState<WageDayOverride[]>([])
   const [wageOverrideTarget,setWageOverrideTarget]=useState<{date:string;calculatedUnits:number;currentUnits:number;overrideMode?:WorkdayOverrideMode;effectiveStartTime?:string;effectiveEndTime?:string;reason:string}|null>(null)
@@ -85,11 +95,23 @@ export function ReportsPage(){
   const [holidayWageOverrides,setHolidayWageOverrides]=useState<HolidayWageOverride[]>([])
   const [holidayWageTarget,setHolidayWageTarget]=useState<{date:string;holidayType:HolidayType;multiplier:number;holidayOvertimeMinutes:number;reason:string}|null>(null)
   const [holidayWageSaving,setHolidayWageSaving]=useState(false)
+  const runAttempt = <T = { data?: unknown; error?: unknown }>(action: string, request: Record<string, unknown>, operation: () => unknown) =>
+    runWithMutationAttempt({ module: 'reports', action, actorProfileId: profile?.id, companyId: companyId, request, operation }) as Promise<T>
+  const openEmployeeSummary=(target:EmployeeSummary,daily=false)=>{
+    setSummaryDailyOpen(daily)
+    setSummaryTarget(target)
+  }
+
   const openCreate=useCallback((profileId='')=>{
     const now=bangkokLocalInput(new Date().toISOString())
     setAdjustment({...emptyAdjustment,profileId,siteId:siteId==='all'?'':siteId,clockIn:now,clockOutDate:now.slice(0,10)})
     setError('');setDialogOpen(true)
   },[siteId])
+  const openManualLeave=useCallback((profileId='')=>{
+    const defaultType=leaveTypes.find(type=>type.code==='unpaid')??leaveTypes[0]
+    setManualLeave({...emptyManualLeave,profileId:profileId || (employeeId==='all'?'':employeeId),leaveTypeId:defaultType?.id??''})
+    setError('');setSuccess('');setManualLeaveOpen(true);setSheet(2)
+  },[employeeId,leaveTypes])
   const load=useCallback(async()=>{
     if(!canManage)return
     setLoading(true);setError('')
@@ -108,11 +130,12 @@ export function ReportsPage(){
         allRows.push(...page)
         if(page.length<PAGE_SIZE)break
       }
-      const payrollRequest=supabase.from('employee_payrolls').select('id,profile_id,normal_minutes,overtime_minutes,base_pay,overtime_pay,additions,deductions,reimbursements,net_pay,status,profiles!employee_payrolls_profile_id_fkey(full_name,email),pay_periods(name,starts_on,ends_on,pay_date),employee_payslips(document_number,status)').eq('company_id',companyId).order('created_at',{ascending:false}).limit(500)
+      const payrollRequest=supabase.from('employee_payrolls').select('id,pay_period_id,profile_id,normal_minutes,overtime_minutes,base_pay,overtime_pay,additions,deductions,reimbursements,net_pay,status,payment_reference,profiles!employee_payrolls_profile_id_fkey(full_name,email),pay_periods(name,starts_on,ends_on,pay_date),employee_payslips(document_number,status)').eq('company_id',companyId).order('created_at',{ascending:false}).limit(500)
       const payPeriodRequest=supabase.from('pay_periods').select('id,name,starts_on,ends_on,pay_date,status').eq('company_id',companyId).lte('starts_on',range.end.slice(0,10)).gte('ends_on',range.start.slice(0,10)).order('starts_on')
       const leaveRequest=supabase.from('employee_leave_requests').select('id,profile_id,starts_at,ends_at,requested_minutes,reason,status,profiles!employee_leave_requests_profile_id_fkey(full_name,email),leave_types(name_th,paid_ratio)').eq('company_id',companyId).lt('starts_at',range.end).gte('ends_at',range.start).order('starts_at')
+      const leaveTypeRequest=supabase.from('leave_types').select('id,code,name_th,paid_ratio').eq('active',true).order('name_th')
       const repairRequest=supabase.from('attendance_repair_proposals').select('id,session_id,issue_code,original_clock_out_at,proposed_clock_out_at,explanation,status,detected_at,attendance_sessions!attendance_repair_proposals_session_id_fkey(clock_in_at,clock_out_at,profile_id,profiles!attendance_sessions_profile_id_fkey(full_name,email),project_sites(name))').eq('company_id',companyId).eq('status','pending').order('detected_at',{ascending:false})
-      const employmentRequest=supabase.from('employee_employment_records').select('profile_id,attendance_policy,work_policy_id,employment_type,daily_rate,monthly_salary,overtime_hourly_rate').eq('company_id',companyId)
+      const employmentRequest=supabase.from('employee_employment_records').select('profile_id,attendance_policy,work_policy_id,employment_type,daily_rate,monthly_salary,overtime_hourly_rate,employment_status,resignation_status,last_working_on,status_effective_on,payroll_eligible_until,terminated_on').eq('company_id',companyId)
       const workPolicyRequest=supabase.from('work_policies').select('id,work_weekdays,standard_minutes,work_start_time,work_end_time,break_start_time,break_end_time,grace_minutes').eq('company_id',companyId).eq('active',true)
       const holidayRequest=supabase.from('company_holidays').select('holiday_date,name,site_id').eq('company_id',companyId).gte('holiday_date',range.start.slice(0,10)).lt('holiday_date',range.end.slice(0,10))
       const assignmentRequest=supabase.from('employee_site_assignments').select('profile_id,site_id,starts_on,ends_on,active').eq('company_id',companyId).eq('active',true).lte('starts_on',range.end.slice(0,10)).or(`ends_on.is.null,ends_on.gte.${range.start.slice(0,10)}`)
@@ -120,8 +143,8 @@ export function ReportsPage(){
       const displaySettingsRequest=supabase.from('workforce_rule_settings').select('work_time_primary_unit,work_time_day_decimals,work_time_show_secondary_hours,full_day_minutes,half_day_minutes').eq('company_id',companyId).eq('singleton',true).maybeSingle()
       const wageOverrideRequest=supabase.from('employee_wage_day_overrides').select('id,profile_id,work_date,day_units,override_mode,effective_start_time,effective_end_time,reason,updated_by,updated_at,profiles!employee_wage_day_overrides_updated_by_fkey(full_name,email)').eq('company_id',companyId).gte('work_date',range.start.slice(0,10)).lt('work_date',range.end.slice(0,10))
       const holidayWageOverrideRequest=supabase.from('employee_holiday_wage_overrides').select('id,profile_id,work_date,holiday_type,wage_multiplier,holiday_overtime_minutes,reason,pay_period_id,updated_by,updated_at,profiles!employee_holiday_wage_overrides_updated_by_fkey(full_name,email)').eq('company_id',companyId).gte('work_date',range.start.slice(0,10)).lt('work_date',range.end.slice(0,10))
-      const [siteRows,employeeRows,payrollRows,payPeriodRows,leaveRows,repairRows,employmentRows,workPolicyRows,holidayRows,assignmentRows,allocationRows,displaySettingsRows,wageOverrideRows,holidayWageOverrideRows]=await Promise.all([siteRequest,employeeRequest,payrollRequest,payPeriodRequest,leaveRequest,repairRequest,employmentRequest,workPolicyRequest,holidayRequest,assignmentRequest,allocationRequest,displaySettingsRequest,wageOverrideRequest,holidayWageOverrideRequest])
-      if(siteRows.error||employeeRows.error||payrollRows.error||leaveRows.error||repairRows.error||employmentRows.error||workPolicyRows.error||holidayRows.error)throw siteRows.error??employeeRows.error??payrollRows.error??leaveRows.error??repairRows.error??employmentRows.error??workPolicyRows.error??holidayRows.error
+      const [siteRows,employeeRows,payrollRows,payPeriodRows,leaveRows,leaveTypeRows,repairRows,employmentRows,workPolicyRows,holidayRows,assignmentRows,allocationRows,displaySettingsRows,wageOverrideRows,holidayWageOverrideRows]=await Promise.all([siteRequest,employeeRequest,payrollRequest,payPeriodRequest,leaveRequest,leaveTypeRequest,repairRequest,employmentRequest,workPolicyRequest,holidayRequest,assignmentRequest,allocationRequest,displaySettingsRequest,wageOverrideRequest,holidayWageOverrideRequest])
+      if(siteRows.error||employeeRows.error||payrollRows.error||leaveRows.error||leaveTypeRows.error||repairRows.error||employmentRows.error||workPolicyRows.error||holidayRows.error)throw siteRows.error??employeeRows.error??payrollRows.error??leaveRows.error??leaveTypeRows.error??repairRows.error??employmentRows.error??workPolicyRows.error??holidayRows.error
       setRows(allRows);setSites((siteRows.data??[]) as unknown as Site[]);setEmployees((employeeRows.data??[]) as Employee[])
       const requestedRow=requestedSession?allRows.find(row=>row.id===requestedSession):null
       if(requestedRow){const clockIn=bangkokLocalInput(requestedRow.clock_in_at),clockOut=requestedRow.clock_out_at?bangkokLocalInput(requestedRow.clock_out_at):'';setSheet(3);setAdjustment({sessionId:requestedRow.id,profileId:requestedRow.profile_id,siteId:requestedRow.project_sites?.id??'',clockIn,clockOut,clockOutDate:(clockOut||clockIn).slice(0,10),reason:''});setDialogOpen(true);setSearchParams({}, {replace:true})}
@@ -129,6 +152,7 @@ export function ReportsPage(){
       if(payPeriodRows.error)throw payPeriodRows.error
       setPayPeriods((payPeriodRows.data??[]) as PayPeriod[])
       setLeaves((leaveRows.data??[]) as unknown as LeaveRow[])
+      setLeaveTypes((leaveTypeRows.data??[]) as LeaveType[])
       setRepairProposals((repairRows.data??[]) as unknown as RepairProposal[])
       setEmploymentPolicies((employmentRows.data??[]) as unknown as EmploymentPolicy[]);setWorkPolicies((workPolicyRows.data??[]) as WorkPolicy[]);setHolidays((holidayRows.data??[]) as Holiday[])
       setSiteAssignments((((assignmentRows.error?[]:assignmentRows.data)??[]) as Omit<SiteAssignment,'profiles'|'project_sites'>[]).map(item=>({
@@ -194,44 +218,109 @@ export function ReportsPage(){
   const saveAdjustment=async()=>{
     if(!adjustment.profileId||!adjustment.siteId||!adjustment.clockIn||adjustment.reason.trim().length<3)return
     setSaving(true);setError('');setSuccess('')
-    const {error:saveError}=await supabase.rpc('admin_save_attendance',{target_session_id:adjustment.sessionId||null,target_profile_id:adjustment.profileId,target_site_id:adjustment.siteId,target_clock_in_at:bangkokIso(adjustment.clockIn),target_clock_out_at:adjustment.clockOut?bangkokIso(adjustment.clockOut):null,adjustment_reason:adjustment.reason.trim()})
-    if(saveError)setError(saveError.message);else{await load();setSuccess('บันทึกและรีเฟรชข้อมูลล่าสุดแล้ว');setDialogOpen(false)}
+    const {error:saveError}=await runAttempt('save_attendance_adjustment',{
+      target_session_id: adjustment.sessionId || null,
+      target_profile_id: adjustment.profileId,
+      target_site_id: adjustment.siteId,
+      target_clock_in_at: bangkokIso(adjustment.clockIn),
+      target_clock_out_at: adjustment.clockOut ? bangkokIso(adjustment.clockOut) : null,
+      adjustment_reason: adjustment.reason.trim(),
+    }, async () => await supabase.rpc('admin_save_attendance',{
+      target_session_id:adjustment.sessionId||null,
+      target_profile_id:adjustment.profileId,
+      target_site_id:adjustment.siteId,
+      target_clock_in_at:bangkokIso(adjustment.clockIn),
+      target_clock_out_at:adjustment.clockOut?bangkokIso(adjustment.clockOut):null,
+      adjustment_reason:adjustment.reason.trim(),
+    }))
+    if(saveError)setError(userError(saveError));else{await load();setSuccess('บันทึกและรีเฟรชข้อมูลล่าสุดแล้ว');setDialogOpen(false)}
     setSaving(false)
+  }
+  const saveManualLeave=async()=>{
+    const minutes=manualLeave.dayUnits===0?Number(manualLeave.customMinutes||0):Math.round(Number(manualLeave.dayUnits||0)*480)
+    if(!manualLeave.profileId||!manualLeave.leaveTypeId||!manualLeave.date||minutes<=0||manualLeave.reason.trim().length<3)return
+    setManualLeaveSaving(true);setError('');setSuccess('')
+    const startAt=`${manualLeave.date}T08:00:00+07:00`
+    const endAt=`${manualLeave.date}T17:00:00+07:00`
+    const selectedType=leaveTypes.find(type=>type.id===manualLeave.leaveTypeId)
+    const reason=`${manualLeave.reason.trim()} · บันทึก Manual โดย Admin${selectedType?.paid_ratio===0?' · ไม่รับค่าจ้าง':''}`
+    const {error:leaveError}=await runAttempt('admin_manual_leave_record',{
+      target_profile_id:manualLeave.profileId,
+      leave_type_id:manualLeave.leaveTypeId,
+      work_date:manualLeave.date,
+      requested_minutes:minutes,
+      reason,
+    },async()=>await supabase.from('employee_leave_requests').insert({
+      company_id:companyId,
+      profile_id:manualLeave.profileId,
+      leave_type_id:manualLeave.leaveTypeId,
+      starts_at:startAt,
+      ends_at:endAt,
+      requested_minutes:minutes,
+      reason,
+      status:'approved',
+      submitted_at:new Date().toISOString(),
+      reviewed_by:profile?.id,
+      reviewed_at:new Date().toISOString(),
+      review_note:'Admin manual record from phone/direct notice',
+    }))
+    if(leaveError)setError(userError(leaveError));else{setSuccess('บันทึกวันลา/ขาด Manual แล้ว และรีเฟรชรายงานล่าสุด');setManualLeaveOpen(false);await load()}
+    setManualLeaveSaving(false)
   }
   const manageSoftDelete=async()=>{
     if(!voidTarget||voidReason.trim().length<3)return
     setVoidSaving(true);setError('');setSuccess('')
-    const {error:actionError}=restoreMode
+    const actionName=restoreMode?'restore_attendance_session':'soft_delete_attendance_session'
+    const {error:actionError}=await runAttempt(actionName,{target_session_id:voidTarget.id,reason:voidReason.trim()},async ()=>restoreMode
       ?await supabase.rpc('restore_soft_deleted_attendance_session',{target_session_id:voidTarget.id,restore_reason:voidReason.trim()})
-      :await supabase.rpc('soft_delete_attendance_session',{target_session_id:voidTarget.id,delete_reason:voidReason.trim()})
-    if(actionError)setError(actionError.message)
+      :await supabase.rpc('soft_delete_attendance_session',{target_session_id:voidTarget.id,delete_reason:voidReason.trim()}))
+    if(actionError)setError(userError(actionError))
     else{setSuccess(restoreMode?'กู้คืนเคสและส่งกลับไปรอตรวจแล้ว':'ยกเลิกเคสแล้ว ข้อมูลไม่ถูกนำไปคำนวณและยังเก็บใน Audit Log');setVoidTarget(null);setVoidReason('');await load()}
     setVoidSaving(false)
   }
   const scanRepairs=async()=>{
     setRepairScanning(true);setError('');setSuccess('')
-    const {data,error:scanError}=await supabase.rpc('scan_attendance_repair_proposals')
-    if(scanError)setError(scanError.message);else{setSuccess(`ตรวจข้อมูลย้อนหลังแล้ว พบหรืออัปเดตข้อเสนอ ${Number(data??0)} รายการ`);await load()}
+    const {data,error:scanError}=await runAttempt('scan_attendance_repair_proposals',{},async ()=>await supabase.rpc('scan_attendance_repair_proposals'))
+    if(scanError)setError(userError(scanError));else{setSuccess(`ตรวจข้อมูลย้อนหลังแล้ว พบหรืออัปเดตข้อเสนอ ${Number(data??0)} รายการ`);await load()}
     setRepairScanning(false)
   }
   const decideRepair=async()=>{
     if(!repairTarget||repairNote.trim().length<3)return
     setRepairSaving(true);setError('');setSuccess('')
-    const {error:decisionError}=await supabase.rpc('decide_attendance_repair_proposal',{target_proposal_id:repairTarget.id,decision:repairDecision,decision_note:repairNote.trim()})
-    if(decisionError)setError(decisionError.message);else{setSuccess(repairDecision==='apply'?'ใช้เวลาเสนอและคำนวณรายการใหม่แล้ว':'ปฏิเสธข้อเสนอแล้ว โดยไม่เปลี่ยนเวลาต้นฉบับ');setRepairTarget(null);setRepairNote('');await load()}
+    const {error:decisionError}=await runAttempt('decide_attendance_repair_proposal',{
+      target_proposal_id: repairTarget.id,
+      decision: repairDecision,
+      decision_note: repairNote.trim(),
+    },async ()=>await supabase.rpc('decide_attendance_repair_proposal',{
+      target_proposal_id:repairTarget.id,
+      decision:repairDecision,
+      decision_note:repairNote.trim(),
+    }))
+    if(decisionError)setError(userError(decisionError));else{setSuccess(repairDecision==='apply'?'ใช้เวลาเสนอและคำนวณรายการใหม่แล้ว':'ปฏิเสธข้อเสนอแล้ว โดยไม่เปลี่ยนเวลาต้นฉบับ');setRepairTarget(null);setRepairNote('');await load()}
     setRepairSaving(false)
   }
   const confirmTimeIsCorrect=async()=>{
     if(!confirmTarget||confirmReason.trim().length<3)return
     setConfirmSaving(true);setError('');setSuccess('')
-    const {error:confirmError}=await supabase.rpc('confirm_attendance_time_is_correct',{target_session_id:confirmTarget.id,confirmation_reason:confirmReason.trim()})
-    if(confirmError)setError(confirmError.message);else{setSuccess('ยืนยันเวลาถูกต้องแล้ว ระบบคำนวณใหม่และเก็บ Audit Log เรียบร้อย');setConfirmTarget(null);setConfirmReason('');await load()}
+    const {error:confirmError}=await runAttempt('confirm_attendance_time_is_correct',{
+      target_session_id: confirmTarget.id,
+      confirmation_reason: confirmReason.trim(),
+    },async ()=>await supabase.rpc('confirm_attendance_time_is_correct',{target_session_id:confirmTarget.id,confirmation_reason:confirmReason.trim()}))
+    if(confirmError)setError(userError(confirmError));else{setSuccess('ยืนยันเวลาถูกต้องแล้ว ระบบคำนวณใหม่และเก็บ Audit Log เรียบร้อย');setConfirmTarget(null);setConfirmReason('');await load()}
     setConfirmSaving(false)
   }
   const saveWageDayOverride=async()=>{
     if(!summaryTarget||!wageOverrideTarget||wageOverrideTarget.reason.trim().length<3)return
     setWageOverrideSaving(true);setError('');setSuccess('')
-    const {error:overrideError}=await supabase.rpc('admin_set_employee_wage_day_override',{
+    const {error:overrideError}=await runAttempt('set_employee_wage_day_override',{
+      target_profile_id: summaryTarget.id,
+      target_work_date: wageOverrideTarget.date,
+      target_day_units: wageOverrideTarget.currentUnits,
+      target_override_mode: wageOverrideTarget.overrideMode ?? 'auto',
+      target_effective_start_time: wageOverrideTarget.overrideMode === 'custom_period' ? wageOverrideTarget.effectiveStartTime || null : null,
+      target_effective_end_time: wageOverrideTarget.overrideMode === 'custom_period' ? wageOverrideTarget.effectiveEndTime || null : null,
+      override_reason: wageOverrideTarget.reason.trim(),
+    },async ()=>await supabase.rpc('admin_set_employee_wage_day_override',{
       target_profile_id:summaryTarget.id,
       target_work_date:wageOverrideTarget.date,
       target_day_units:wageOverrideTarget.currentUnits,
@@ -239,21 +328,48 @@ export function ReportsPage(){
       target_effective_start_time:wageOverrideTarget.overrideMode==='custom_period'?wageOverrideTarget.effectiveStartTime||null:null,
       target_effective_end_time:wageOverrideTarget.overrideMode==='custom_period'?wageOverrideTarget.effectiveEndTime||null:null,
       override_reason:wageOverrideTarget.reason.trim(),
-    })
-    if(overrideError)setError(overrideError.message)
+    }))
+    if(overrideError)setError(userError(overrideError))
     else{setSuccess('บันทึกผลคิดวันพร้อมผู้แก้ไข เวลา และเหตุผลใน Audit แล้ว');setWageOverrideTarget(null);await load()}
     setWageOverrideSaving(false)
   }
   const saveHolidayWageOverride=async()=>{
     if(!summaryTarget||!holidayWageTarget||holidayWageTarget.reason.trim().length<3)return
     setHolidayWageSaving(true);setError('');setSuccess('')
-    const {error:overrideError}=await supabase.rpc('admin_set_employee_holiday_wage_override',{
+    const {error:overrideError}=await runAttempt('set_employee_holiday_wage_override',{
+      target_profile_id: summaryTarget.id, target_work_date: holidayWageTarget.date, target_multiplier: holidayWageTarget.multiplier,
+      target_holiday_type: holidayWageTarget.holidayType, target_holiday_overtime_minutes: holidayWageTarget.holidayOvertimeMinutes,
+      override_reason: holidayWageTarget.reason.trim(), target_pay_period_id: selectedPayPeriod?.id ?? null,
+    },async ()=>await supabase.rpc('admin_set_employee_holiday_wage_override',{
       target_profile_id:summaryTarget.id,target_work_date:holidayWageTarget.date,target_multiplier:holidayWageTarget.multiplier,
       target_holiday_type:holidayWageTarget.holidayType,target_holiday_overtime_minutes:holidayWageTarget.holidayOvertimeMinutes,override_reason:holidayWageTarget.reason.trim(),target_pay_period_id:selectedPayPeriod?.id??null,
-    })
-    if(overrideError)setError(overrideError.message)
+    }))
+    if(overrideError)setError(userError(overrideError))
     else{setSuccess('บันทึกอัตราค่าทำงานวันหยุดพร้อม Audit แล้ว');setHolidayWageTarget(null);await load()}
     setHolidayWageSaving(false)
+  }
+  const runPayrollPeriodFlow=async(action:'generate'|'close'|'send_to_payment'|'mark_paid'|'reopen')=>{
+    if(!selectedPayPeriod)return
+    if((action==='close'||action==='reopen')&&payrollCloseReason.trim().length<3){setError('กรุณาระบุเหตุผลอย่างน้อย 3 ตัวอักษรก่อนดำเนินการ');return}
+    if(action==='mark_paid'&&payrollPaymentReference.trim().length<3){setError('กรุณาระบุเลขอ้างอิงการจ่ายก่อนยืนยันจ่ายแล้ว');return}
+    setPayrollFlowSaving(true);setError('');setSuccess('')
+    const {error:flowError}=await runAttempt('manage_pay_period_close_flow',{
+      target_pay_period_id:selectedPayPeriod.id,
+      target_action:action,
+      action_reason:payrollCloseReason.trim()||null,
+      target_payment_reference:payrollPaymentReference.trim()||null,
+    },async ()=>await supabase.rpc('manage_pay_period_close_flow',{
+      target_pay_period_id:selectedPayPeriod.id,
+      target_action:action,
+      action_reason:payrollCloseReason.trim()||null,
+      target_payment_reference:payrollPaymentReference.trim()||null,
+    }))
+    if(flowError)setError(userError(flowError))
+    else{
+      const message={generate:'คำนวณค่าแรงงวดนี้แล้ว ส่งเข้าขั้นตอนตรวจยอด',close:'ปิดรอบค่าแรงและล็อกข้อมูลงวดนี้แล้ว',send_to_payment:'ส่งยอดค่าแรงไปรอจ่ายแล้ว',mark_paid:'ยืนยันจ่ายแล้วและออก Payslip แล้ว',reopen:'เปิดรอบกลับมาตรวจใหม่แล้ว'}[action]
+      setSuccess(message);setPayrollCloseReason('');setPayrollPaymentReference('');await load()
+    }
+    setPayrollFlowSaving(false)
   }
   const [reportYear,reportMonthNumber]=month.split('-').map(Number)
   const selectedPayPeriod=payPeriods.find(item=>item.id===periodId)??null
@@ -303,20 +419,49 @@ export function ReportsPage(){
     const estimatedOt=valid.reduce((sum,row)=>sum+Number(row.overtime_minutes??0),0)/60*Number(policy?.overtime_hourly_rate??0)
     const exempt=policy?.attendance_policy==='exempt'
     const employee=employees.find(item=>item.id===id)
-    return {id,name:list[0]?.profiles?.full_name||list[0]?.profiles?.email||employee?.full_name||employee?.email||'-',employmentType:policy?.employment_type??'ไม่ระบุ',days:attendanceDays,netDays:policy?.employment_type==='monthly'?scheduleProgress.elapsedDays:dailyUnits,standardMinutes,open:list.filter(row=>!row.clock_out_at).length,worked,normal,outside:outsideRows.reduce((sum,row)=>sum+postShiftMinutes(row),0),outsideDays:new Set(outsideRows.map(row=>new Date(row.clock_in_at).toLocaleDateString('sv-SE',{timeZone:'Asia/Bangkok'}))).size,ot:valid.reduce((sum,row)=>sum+Number(row.overtime_minutes??0),0),late:lateRows.reduce((sum,row)=>sum+Number(row.late_minutes??0),0),lateDays:new Set(lateRows.map(row=>new Date(row.clock_in_at).toLocaleDateString('sv-SE',{timeZone:'Asia/Bangkok'}))).size,early:earlyRows.reduce((sum,row)=>sum+Number(row.early_leave_minutes??0),0),earlyDays:new Set(earlyRows.map(row=>new Date(row.clock_in_at).toLocaleDateString('sv-SE',{timeZone:'Asia/Bangkok'}))).size,estimatedPay:employeePayrolls.length?payrollPay:estimatedBase+estimatedOt,paySource:employeePayrolls.length?'Payroll':policy?.employment_type==='monthly'?`สะสม ${scheduleProgress.elapsedDays}/${scheduleProgress.scheduledDays} วันตามตาราง`:'ประมาณการจากวันสุทธิ',status:list.some(row=>!row.clock_out_at||['pending','needs_review'].includes(row.status))?'รอตรวจ':exempt?'ไม่บังคับลงเวลา':'พร้อม'} satisfies EmployeeSummary
+    const grossPay=employeePayrolls.length?payrollPay:estimatedBase+estimatedOt
+    const advanceDeduction=0
+    const employmentStatus=policy?.employment_status??'unknown'
+    const resignationStatus=policy?.resignation_status??'none'
+    const lastWorkingOn=policy?.last_working_on??null
+    const statusEffectiveOn=policy?.status_effective_on??null
+    const payrollEligibleUntil=policy?.payroll_eligible_until??null
+    const terminatedOn=policy?.terminated_on??null
+    const isActiveEmployment=['active','probation','preboarding','notice'].includes(employmentStatus)&&['none','cancelled'].includes(resignationStatus)
+    const isResigned=!isActiveEmployment&&(['terminated','archived'].includes(employmentStatus)||['pending','effective'].includes(resignationStatus)||Boolean(terminatedOn))
+    const resignationTouchesPeriod=Boolean((lastWorkingOn&&lastWorkingOn>=reportStartDate&&lastWorkingOn<=reportEndDate)||(payrollEligibleUntil&&payrollEligibleUntil>=reportStartDate&&payrollEligibleUntil<=reportEndDate)||(statusEffectiveOn&&statusEffectiveOn>=reportStartDate&&statusEffectiveOn<=reportEndDate))
+    const hasPeriodImpact=list.length>0||employeePayrolls.length>0||resignationTouchesPeriod
+    const excludeReason=isResigned&&!hasPeriodImpact?'ลาออกแล้วและไม่มีผลกับงวดนี้':undefined
+    const effectiveLabel=isResigned
+      ? resignationTouchesPeriod
+        ? `คาบเกี่ยวลาออก${payrollEligibleUntil?` · คิดถึง ${new Date(`${payrollEligibleUntil}T12:00:00+07:00`).toLocaleDateString('th-TH')}`:''}`
+        : 'ลาออกแล้ว'
+      : 'ทั้งงวด'
+    return {id,name:list[0]?.profiles?.full_name||list[0]?.profiles?.email||employee?.full_name||employee?.email||'-',employmentType:policy?.employment_type??'ไม่ระบุ',days:attendanceDays,netDays:policy?.employment_type==='monthly'?scheduleProgress.elapsedDays:dailyUnits,standardMinutes,open:list.filter(row=>!row.clock_out_at).length,worked,normal,outside:outsideRows.reduce((sum,row)=>sum+postShiftMinutes(row),0),outsideDays:new Set(outsideRows.map(row=>new Date(row.clock_in_at).toLocaleDateString('sv-SE',{timeZone:'Asia/Bangkok'}))).size,ot:valid.reduce((sum,row)=>sum+Number(row.overtime_minutes??0),0),late:lateRows.reduce((sum,row)=>sum+Number(row.late_minutes??0),0),lateDays:new Set(lateRows.map(row=>new Date(row.clock_in_at).toLocaleDateString('sv-SE',{timeZone:'Asia/Bangkok'}))).size,early:earlyRows.reduce((sum,row)=>sum+Number(row.early_leave_minutes??0),0),earlyDays:new Set(earlyRows.map(row=>new Date(row.clock_in_at).toLocaleDateString('sv-SE',{timeZone:'Asia/Bangkok'}))).size,grossPay,advanceDeduction,estimatedPay:grossPay-advanceDeduction,paySource:employeePayrolls.length?'Payroll':policy?.employment_type==='monthly'?`สะสม ${scheduleProgress.elapsedDays}/${scheduleProgress.scheduledDays} วันตามตาราง`:'ประมาณการจากวันสุทธิ',status:list.some(row=>!row.clock_out_at||['pending','needs_review'].includes(row.status))?'รอตรวจ':excludeReason?'ไม่รวมงวดนี้':isResigned&&resignationTouchesPeriod?'คาบเกี่ยวลาออก':exempt?'ไม่บังคับลงเวลา':'พร้อม',effectiveLabel,employmentStatus,resignationStatus,lastWorkingOn,statusEffectiveOn,payrollEligibleUntil,terminatedOn,excludeReason} satisfies EmployeeSummary
   })
+  const payrollSummaryRows=employeeSummaries.filter(row=>!row.excludeReason)
+  const excludedResignedRows=employeeSummaries.filter(row=>row.excludeReason)
   const siteSummaries=sites.filter(site=>siteId==='all'||site.id===siteId).map(site=>{const list=filteredRows.filter(row=>row.project_sites?.id===site.id),worked=list.reduce((sum,row)=>sum+Number(row.worked_minutes??0),0),normal=list.reduce((sum,row)=>sum+Number(row.normal_minutes??0),0);return{id:site.id,name:`${site.projects?.name??''} · ${site.name}`,sessions:list.length,employees:new Set(list.map(row=>row.profile_id)).size,worked,normal,outside:Math.max(0,worked-normal),ot:list.reduce((sum,row)=>sum+Number(row.overtime_minutes??0),0),open:list.filter(row=>!row.clock_out_at).length} satisfies SiteSummary})
-  const reviewRows=filteredRows.filter(row=>!row.clock_out_at||['pending','needs_review'].includes(row.status))
-  const totalOt=filteredRows.reduce((sum,row)=>sum+Number(row.overtime_minutes??0),0)
-  const totalNetDays=employeeSummaries.reduce((sum,row)=>sum+row.netDays,0)
-  const totalLateDays=employeeSummaries.reduce((sum,row)=>sum+row.lateDays,0),totalLateMinutes=employeeSummaries.reduce((sum,row)=>sum+row.late,0)
-  const totalEarlyDays=employeeSummaries.reduce((sum,row)=>sum+row.earlyDays,0),totalEarlyMinutes=employeeSummaries.reduce((sum,row)=>sum+row.early,0)
-  const totalOutsideDays=employeeSummaries.reduce((sum,row)=>sum+row.outsideDays,0),totalOutsideMinutes=employeeSummaries.reduce((sum,row)=>sum+row.outside,0)
-  const totalEstimatedPay=employeeSummaries.reduce((sum,row)=>sum+row.estimatedPay,0)
+  const reviewRows=filteredRows.filter(row=>!['rejected','duplicate','voided'].includes(row.status)&&row.calculation_status!=='excluded'&&(!row.clock_out_at||['pending','needs_review'].includes(row.status)||row.calculation_status==='needs_review'))
+  const selectedPeriodPayrolls=selectedPayPeriod?payrolls.filter(row=>row.pay_period_id===selectedPayPeriod.id):[]
+  const payrollRowsNeedingReview=selectedPeriodPayrolls.filter(row=>row.status==='needs_review')
+  const payrollCloseIssues=[
+    !selectedPayPeriod&&'กรุณาเลือกรอบจ่าย ไม่ใช่มุมมองทั้งเดือน',
+    reviewRows.length>0&&`มีรายการเวลารอตรวจ ${reviewRows.length} รายการ`,
+    repairProposals.length>0&&`มีข้อเสนอซ่อมย้อนหลัง ${repairProposals.length} รายการ`,
+    selectedPayPeriod&&selectedPeriodPayrolls.length===0&&'ยังไม่ได้คำนวณค่าแรงงวดนี้',
+    payrollRowsNeedingReview.length>0&&`มี payroll รอตรวจ ${payrollRowsNeedingReview.length} คน`,
+  ].filter(Boolean) as string[]
+  const payrollStatusCounts=selectedPeriodPayrolls.reduce<Record<string,number>>((counts,row)=>({...counts,[row.status]:(counts[row.status]??0)+1}),{})
+  const selectedPeriodNetPay=selectedPeriodPayrolls.reduce((sum,row)=>sum+Number(row.net_pay??0),0)
+  const totalGrossPay=payrollSummaryRows.reduce((sum,row)=>sum+row.grossPay,0)
+  const totalAdvanceDeduction=payrollSummaryRows.reduce((sum,row)=>sum+row.advanceDeduction,0)
+  const totalEstimatedPay=payrollSummaryRows.reduce((sum,row)=>sum+row.estimatedPay,0)
   const summaryPolicy=employmentPolicies.find(item=>item.profile_id===summaryTarget?.id),summaryWorkPolicy=workPolicies.find(item=>item.id===summaryPolicy?.work_policy_id)??workPolicies[0]
   const summaryPayrolls=payrolls.filter(item=>item.profile_id===summaryTarget?.id)
   const summaryHasPayroll=summaryPayrolls.length>0
   const summaryStandardMinutes=Math.max(1,Number(summaryWorkPolicy?.standard_minutes??480))
+  const showDailyTableInSummary=summaryDailyOpen||searchParams.get('__dailySummary')==='1'
   const monthDays=(()=>{
     if(!summaryTarget)return[]
     const [year,monthNumber]=month.split('-').map(Number),last=new Date(year,monthNumber,0).getDate(),today=new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Bangkok'})
@@ -426,11 +571,11 @@ export function ReportsPage(){
     const escape=(value:unknown)=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]??char))
     const printClass=(state:string)=>state==='ทำงานเต็มวัน'?'full':state==='ทำงานครึ่งวัน'?'half':state==='หยุด'?'stop':state.startsWith('วันหยุด')?'holiday':state.startsWith('ลาได้รับ')?'paid-leave':state.startsWith('ลาไม่รับ')||state==='ไม่ถึงครึ่งวัน'?'unpaid':state==='ข้อมูลไม่ครบ'||state==='ยังไม่ลงเวลา'?'review':state==='ยังไม่ถึงวัน'?'future':''
     const rowsHtml=monthDays.map(row=>`<tr class="${printClass(row.state)}"><td>${escape(new Date(`${row.date}T12:00:00+07:00`).toLocaleDateString('th-TH'))}</td><td>${escape(row.siteLabel)}${row.sessions.length>1?`<br><small>${row.sessions.length} ช่วง / หลายไซต์</small>`:''}</td><td>${escape(row.firstClockIn?`${new Date(row.firstClockIn).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})}–${row.lastClockOut?new Date(row.lastClockOut).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'}):'-'}`:'-')}</td><td>${escape(optionalCount(row.lateMinutes,'นาที'))}</td><td>${escape(optionalCount(row.earlyLeaveMinutes,'นาที'))}</td><td>${escape(optionalDuration(row.postShiftMinutes))}</td><td>${escape(row.dayUnits>0?`${row.dayUnits} วัน`:'-')}</td><td>${escape(optionalMoney(row.basePay))}</td><td>${escape(optionalMoney(row.overtimePay))}</td><td>${escape(optionalMoney(row.netPay))}</td><td>${escape(row.dataSource)}${row.sourceReason?`<br><small>${escape(row.sourceReason)}</small>`:''}</td><td>${escape(row.state)}</td></tr>`).join('')
+    const printHtml=`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>รายงานค่าแรง-${escape(summaryTarget.name)}-${escape(month)}</title><style>@page{size:A4 landscape;margin:10mm}html,body{min-height:100%;background:#fff}body{font-family:Tahoma,"Noto Sans Thai",Arial,sans-serif;color:#333;font-size:10px;margin:0}h1{font-size:18px;margin:4px 0}.employee{font-size:15px;font-weight:700;margin:6px 0}.meta{margin:8px 0;color:#555}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0}.card{border:1px solid #bbb;padding:7px}.card b{display:block;font-size:13px}table{width:100%;border-collapse:collapse;page-break-inside:auto}thead{display:table-header-group}tbody{display:table-row-group}th,td{border:1px solid #aaa;padding:4px;vertical-align:top}th{background:#f4e8e3}tr{break-inside:avoid;page-break-inside:avoid}.full{background:#edf7ef}.half{background:#fff8df}.stop{background:#f2f2f2;color:#666}.holiday{background:#f1effa}.paid-leave{background:#eaf5fb}.unpaid{background:#fdeeee}.review{background:#fff2e5}.future{background:#fafafa;color:#aaa}.print-root{padding:0}.print-ready{position:fixed;right:8px;bottom:8px;color:#999;font-size:9px}@media print{.print-ready{display:none}}</style></head><body><main class="print-root"><div>${escape(currentCompany?.company_name??'WisdomAI')}</div><h1>รายงานเวลาและค่าแรงรายบุคคล</h1><div class="employee">ชื่อพนักงาน: ${escape(summaryTarget.name)}</div><div class="meta">รหัสพนักงาน: ${escape(summaryTarget.id)} · ${escape(reportPeriodLabel)} · สร้างเมื่อ ${escape(new Date().toLocaleString('th-TH'))} · โดย ${escape(profile?.full_name??profile?.email??'-')}</div><div class="cards"><div class="card">วันค่าแรงสุทธิ<b>${escape(monthDayTotals.units?`${monthDayTotals.units.toLocaleString('th-TH',{maximumFractionDigits:2})} วัน`:'-')}</b></div><div class="card">ค่าแรงปกติ<b>${escape(optionalMoney(monthDayTotals.base))}</b></div><div class="card">เงิน OT<b>${escape(optionalMoney(monthDayTotals.overtime))}</b></div><div class="card">รวมเงินที่ได้<b>${escape(optionalMoney(monthDayTotals.net))}</b></div></div><table><thead><tr><th>วันที่</th><th>ไซต์</th><th>เข้า–ออก</th><th>สาย</th><th>ออกก่อน</th><th>ออกเกินกะ</th><th>ผลคิดวัน</th><th>ค่าแรงปกติ</th><th>OT อนุมัติ</th><th>สุทธิ</th><th>ที่มาข้อมูล</th><th>สถานะ/เหตุผล</th></tr></thead><tbody>${rowsHtml||'<tr><td colspan="12">ไม่มีรายละเอียดในงวดนี้</td></tr>'}</tbody></table><div class="print-ready">เตรียมข้อมูลสำหรับพิมพ์แล้ว</div></main><script>const waitFrame=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));window.addEventListener('DOMContentLoaded',async()=>{try{if(document.fonts&&document.fonts.ready)await document.fonts.ready;await waitFrame();await new Promise(resolve=>setTimeout(resolve,250));window.focus();window.print()}catch(error){document.body.insertAdjacentHTML('beforeend','<p>ไม่สามารถเปิดหน้าพิมพ์อัตโนมัติ กรุณากด Ctrl+P</p>')}});window.addEventListener('afterprint',()=>{try{URL.revokeObjectURL(window.location.href)}catch(error){}})</script></body></html>`
+    const printUrl=URL.createObjectURL(new Blob([printHtml],{type:'text/html;charset=utf-8'}))
     const reportWindow=window.open('','_blank')
-    if(!reportWindow){setError('Browser บล็อกหน้าต่างพิมพ์ กรุณาอนุญาต Pop-up แล้วลองใหม่');return}
-    try{reportWindow.history.replaceState(null,'',`/print/employee-attendance-${encodeURIComponent(summaryTarget.id)}-${encodeURIComponent(month)}`)}catch{/* printable window remains available */}
-    reportWindow.document.write(`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>รายงานค่าแรง-${escape(summaryTarget.name)}-${escape(month)}</title><style>@page{size:A4 landscape;margin:10mm}body{font-family:Tahoma,"Noto Sans Thai",Arial,sans-serif;color:#333;font-size:10px}h1{font-size:18px;margin:4px 0}.employee{font-size:15px;font-weight:700;margin:6px 0}.meta{margin:8px 0;color:#555}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0}.card{border:1px solid #bbb;padding:7px}.card b{display:block;font-size:13px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #aaa;padding:4px;vertical-align:top}th{background:#f4e8e3}tr{break-inside:avoid}.full{background:#edf7ef}.half{background:#fff8df}.stop{background:#f2f2f2;color:#666}.holiday{background:#f1effa}.paid-leave{background:#eaf5fb}.unpaid{background:#fdeeee}.review{background:#fff2e5}.future{background:#fafafa;color:#aaa}</style></head><body><div>${escape(currentCompany?.company_name??'WisdomAI')}</div><h1>รายงานเวลาและค่าแรงรายบุคคล</h1><div class="employee">ชื่อพนักงาน: ${escape(summaryTarget.name)}</div><div class="meta">รหัสพนักงาน: ${escape(summaryTarget.id)} · ${escape(reportPeriodLabel)} · สร้างเมื่อ ${escape(new Date().toLocaleString('th-TH'))} · โดย ${escape(profile?.full_name??profile?.email??'-')}</div><div class="cards"><div class="card">วันค่าแรงสุทธิ<b>${escape(monthDayTotals.units?`${monthDayTotals.units.toLocaleString('th-TH',{maximumFractionDigits:2})} วัน`:'-')}</b></div><div class="card">ค่าแรงปกติ<b>${escape(optionalMoney(monthDayTotals.base))}</b></div><div class="card">เงิน OT<b>${escape(optionalMoney(monthDayTotals.overtime))}</b></div><div class="card">รวมเงินที่ได้<b>${escape(optionalMoney(monthDayTotals.net))}</b></div></div><table><thead><tr><th>วันที่</th><th>ไซต์</th><th>เข้า–ออก</th><th>สาย</th><th>ออกก่อน</th><th>ออกเกินกะ</th><th>ผลคิดวัน</th><th>ค่าแรงปกติ</th><th>OT อนุมัติ</th><th>สุทธิ</th><th>ที่มาข้อมูล</th><th>สถานะ/เหตุผล</th></tr></thead><tbody>${rowsHtml}</tbody></table><script>window.addEventListener('load',async()=>{if(document.fonts&&document.fonts.ready)await document.fonts.ready;window.print()})</script></body></html>`)
-    reportWindow.document.close()
+    if(!reportWindow){URL.revokeObjectURL(printUrl);setError('Browser บล็อกหน้าต่างพิมพ์ กรุณาอนุญาต Pop-up แล้วลองใหม่');return}
+    reportWindow.location.href=printUrl
   }
   const projectEmployeeRows=siteAssignments.filter(item=>(siteId==='all'||item.site_id===siteId)&&(employeeId==='all'||item.profile_id===employeeId)).map(item=>{
     const assignmentSessions=activeRows.filter(row=>row.profile_id===item.profile_id&&row.project_sites?.id===item.site_id)
@@ -477,29 +622,42 @@ export function ReportsPage(){
   const monthlyPilotAllocated=monthlyPilotRows.reduce((sum,row)=>sum+row.allocatedCost,0)
   const monthlyPilotPending=monthlyPilotRows.reduce((sum,row)=>sum+row.pendingCost,0)
   const monthlyPilotUnallocated=Math.max(0,monthlyPilotPay-monthlyPilotAllocated-monthlyPilotPending)
-  return <Stack spacing={3}>
-    <PageHeader title="รายงานเวลาทำงาน" description="รายคน · รายไซต์ · ขาด ลา มาสาย · ชั่วโมงปกติและ OT" action={<Stack direction="row" spacing={1}><Button onClick={()=>window.print()}>พิมพ์ / บันทึก PDF</Button>{isAdmin&&<Button variant="contained" startIcon={<AddOutlinedIcon/>} onClick={()=>openCreate()}>เพิ่มเวลาพนักงาน</Button>}</Stack>}/>
+  return <Stack spacing={1.5}>
+    <PageHeader title="รายงานค่าแรงงวด" description="สรุปยอดจ่ายรายคนของงวดที่เลือก · รายวันแยกอยู่ใน Tap เวลารายวัน" action={<Stack direction="row" spacing={1}><Button onClick={()=>window.print()}>พิมพ์ / PDF</Button>{isAdmin&&<Button variant="outlined" startIcon={<AddOutlinedIcon/>} onClick={()=>openManualLeave()}>บันทึกลา/ขาด</Button>}{isAdmin&&<Button variant="contained" startIcon={<AddOutlinedIcon/>} onClick={()=>openCreate()}>เพิ่มเวลา</Button>}</Stack>}/>
     {error&&<Alert severity="error">{error}</Alert>}{success&&<Alert severity="success">{success}</Alert>}
-    <Paper variant="outlined" sx={{p:2}}><Stack direction={{xs:'column',md:'row'}} spacing={2}>
+    <Paper variant="outlined" sx={{p:1.25}}><Stack direction={{xs:'column',md:'row'}} spacing={1.25}>
       <TextField type="month" label="เดือน" value={month} onChange={(e)=>{setMonth(e.target.value);setPeriodId('month')}} slotProps={{inputLabel:{shrink:true}}}/>
       <TextField select label="รอบรายงาน / รอบจ่าย" value={periodId} onChange={(e)=>setPeriodId(e.target.value)} sx={{minWidth:280}}><MenuItem value="month">ทั้งเดือน (มุมมองบริหาร)</MenuItem>{payPeriods.map(period=><MenuItem key={period.id} value={period.id}>{period.name} · {new Date(`${period.starts_on}T12:00:00+07:00`).toLocaleDateString('th-TH')}–{new Date(`${period.ends_on}T12:00:00+07:00`).toLocaleDateString('th-TH')}</MenuItem>)}</TextField>
       <TextField select label="ไซต์" value={siteId} onChange={(e)=>setSiteId(e.target.value)} sx={{minWidth:260}}><MenuItem value="all">ทุกไซต์</MenuItem>{sites.map((site)=><MenuItem key={site.id} value={site.id}>{site.projects?.name} · {site.name}</MenuItem>)}</TextField>
       <TextField select label="พนักงาน" value={employeeId} onChange={(e)=>setEmployeeId(e.target.value)} sx={{minWidth:260}}><MenuItem value="all">พนักงานทุกคน</MenuItem>{employees.map(employee=><MenuItem key={employee.id} value={employee.id}>{employee.full_name||employee.email}</MenuItem>)}</TextField>
-      <Typography sx={{alignSelf:'center'}}>ช่วง: {reportPeriodLabel} · {filteredRows.length} รายการ</Typography>
+      <Typography variant="body2" sx={{alignSelf:'center'}}>งวดนี้: {reportPeriodLabel} · {filteredRows.length} รายการเวลา</Typography>
     </Stack></Paper>
     <Paper variant="outlined" sx={{position:'sticky',top:64,zIndex:4,overflow:'hidden'}}><Tabs value={sheet} onChange={(_event,value)=>setSheet(value)} variant="scrollable" scrollButtons="auto" sx={{minHeight:44,'& .MuiTab-root':{minHeight:44,textTransform:'none'}}}>
-      <Tab label="สรุปภาพรวม"/><Tab label="เวลารายวัน"/><Tab label="ขาด–ลา–สาย"/><Tab label={`รอตรวจ (${reviewRows.length})`}/><Tab label="รายไซต์"/><Tab label="ค่าจ้าง / Payslip"/><Tab label={`ซ่อมย้อนหลัง (${repairProposals.length})`}/>{isPlatformAdmin&&<Tab label={`ยกเลิกแล้ว (${voidedRows.length})`}/>} 
+      <Tab label="สรุปภาพรวม"/><Tab label="เวลารายวัน"/><Tab label="ขาด–ลา–สาย"/><Tab label={`รอตรวจ (${reviewRows.length})`}/><Tab label="รายไซต์"/><Tab label="ปิดรอบ / Payslip"/><Tab label={`ซ่อมย้อนหลัง (${repairProposals.length})`}/>{isPlatformAdmin&&<Tab label={`ยกเลิกแล้ว (${voidedRows.length})`}/>} 
       <Tab label={`พนักงานประจำโครงการ (${projectEmployeeRows.length})`}/>
     </Tabs></Paper>
     {sheet===0&&<>
-      <Box sx={{display:'grid',gridTemplateColumns:{xs:'repeat(2,1fr)',md:'repeat(4,1fr)'},gap:1.25}}>{[
-        ['พนักงาน',optionalCount(employeeSummaries.length,'คน')],['รอตรวจ',optionalCount(reviewRows.length,'รายการ')],['วันสุทธิ',totalNetDays>0?`${totalNetDays.toLocaleString('th-TH',{maximumFractionDigits:2})} วัน`:'-'],['รอบรายงาน',selectedPayPeriod?.name??'ทั้งเดือน'],
-        ['สาย',totalLateDays>0?`${totalLateDays} วัน · ${totalLateMinutes} นาที`:'-'],['ออกก่อน',totalEarlyDays>0?`${totalEarlyDays} วัน · ${totalEarlyMinutes} นาที`:'-'],['ออกเกิน',totalOutsideDays>0?`${totalOutsideDays} วัน · ${duration(totalOutsideMinutes)}`:'-'],['OT อนุมัติ',optionalDuration(totalOt)],
-        ['ค่าแรง/เงินเดือนประมาณการ',optionalMoney(totalEstimatedPay)],
-      ].map(([label,value])=><Paper key={String(label)} variant="outlined" sx={{p:1.5}}><Typography variant="caption" color="text.secondary">{label}</Typography><Typography variant="h6" sx={{fontWeight:800}}>{value}</Typography></Paper>)}</Box>
-      <StandardDataTable rows={employeeSummaries} getRowId={row=>row.id} getSearchText={row=>`${row.name} ${row.status}`} searchLabel="ค้นหาพนักงาน" emptyText="ไม่มีข้อมูล" exportFileName={`employee-summary-${month}`} exportTitle="สรุปเวลาและค่าจ้างพนักงาน" exportSubtitle={reportPeriodLabel} exportMeta={[{label:'ไซต์',value:siteId==='all'?'ทุกไซต์':sites.find(item=>item.id===siteId)?.name??'-'},{label:'พนักงาน',value:employeeId==='all'?'ทุกคน':employees.find(item=>item.id===employeeId)?.full_name??'-'}]} exportSummary={[{label:'พนักงาน',value:optionalCount(employeeSummaries.length,'คน')},{label:'วันสุทธิ',value:totalNetDays?`${totalNetDays.toLocaleString('th-TH',{maximumFractionDigits:2})} วัน`:'-'},{label:'ประมาณการค่าจ้าง',value:optionalMoney(totalEstimatedPay)}]} columns={[
-        {id:'employee',label:'พนักงาน',render:r=><Button onClick={()=>setSummaryTarget(r)}>{r.name}</Button>,exportValue:r=>r.name},{id:'type',label:'ประเภท',render:r=>employmentTypeLabel[r.employmentType]??r.employmentType},{id:'days',label:'มาทำงาน',render:r=><Button onClick={()=>setSummaryTarget(r)}>{r.days>0?`${r.days} วัน`:'-'}</Button>,exportValue:r=>r.days?`${r.days} วัน`:'-'},{id:'netDays',label:'วันสุทธิ',render:r=><Button onClick={()=>setSummaryTarget(r)}><b>{r.netDays>0?`${r.netDays.toLocaleString('th-TH',{maximumFractionDigits:2})} วัน`:'-'}</b></Button>,exportValue:r=>r.netDays?`${r.netDays} วัน`:'-'},{id:'late',label:'สาย',render:r=><Button onClick={()=>setSummaryTarget(r)}>{r.lateDays>0?`${r.lateDays} วัน · ${r.late} นาที`:'-'}</Button>,exportValue:r=>r.lateDays?`${r.lateDays} วัน · ${r.late} นาที`:'-'},{id:'early',label:'ออกก่อน',render:r=><Button onClick={()=>setSummaryTarget(r)}>{r.earlyDays>0?`${r.earlyDays} วัน · ${r.early} นาที`:'-'}</Button>,exportValue:r=>r.earlyDays?`${r.earlyDays} วัน · ${r.early} นาที`:'-'},{id:'outside',label:'ออกเกิน',render:r=><Button onClick={()=>setSummaryTarget(r)}>{r.outsideDays>0?`${r.outsideDays} วัน · ${duration(r.outside)}`:'-'}</Button>,exportValue:r=>r.outsideDays?`${r.outsideDays} วัน · ${duration(r.outside)}`:'-'},{id:'ot',label:'OT อนุมัติ',render:r=><Button onClick={()=>setSummaryTarget(r)}>{optionalDuration(r.ot)}</Button>,exportValue:r=>optionalDuration(r.ot)},{id:'pay',label:'ค่าแรง / เงินเดือน',render:r=><Button onClick={()=>setSummaryTarget(r)} sx={{display:'block',textAlign:'left'}}><b>{optionalMoney(r.estimatedPay)}</b><Typography variant="caption" color="text.secondary" sx={{display:'block'}}>{r.paySource}</Typography></Button>,exportValue:r=>`${optionalMoney(r.estimatedPay)} · ${r.paySource}`},{id:'status',label:'สถานะ',render:r=><Chip size="small" color={r.status==='พร้อม'?'success':r.status==='รอตรวจ'?'warning':'default'} label={r.status}/>,exportValue:r=>r.status},
+      {excludedResignedRows.length>0&&<Alert severity="info">ซ่อนพนักงานลาออกที่ไม่มีผลกับงวดนี้ {excludedResignedRows.length} คนออกจากตารางหลัก เพื่อไม่ให้จำนวนและยอดรวมเพี้ยน</Alert>}
+      <StandardDataTable rows={payrollSummaryRows} getRowId={row=>row.id} getSearchText={row=>`${row.name} ${row.status} ${row.effectiveLabel}`} searchLabel="ค้นหาพนักงาน / รหัส / สถานะ" emptyText="ไม่มีพนักงานที่มีผลกับงวดนี้" exportFileName={`payroll-period-summary-${month}`} exportTitle="สรุปยอดค่าแรงงวด" exportSubtitle={reportPeriodLabel} exportMeta={[{label:'ไซต์',value:siteId==='all'?'ทุกไซต์':sites.find(item=>item.id===siteId)?.name??'-'},{label:'พนักงาน',value:employeeId==='all'?'ทุกคน':employees.find(item=>item.id===employeeId)?.full_name??'-'}]} exportSummary={[{label:'พนักงานในงวด',value:optionalCount(payrollSummaryRows.length,'คน')},{label:'รายได้รวม',value:optionalMoney(totalGrossPay)},{label:'เบิก/หักรวม',value:optionalMoney(totalAdvanceDeduction)},{label:'สุทธิจ่ายรวม',value:optionalMoney(totalEstimatedPay)}]} columns={[
+        {id:'employee',label:'พนักงาน',render:r=><Button onClick={()=>setSummaryTarget(r)} sx={{justifyContent:'flex-start',textAlign:'left'}}>{r.name}</Button>,exportValue:r=>r.name},
+        {id:'type',label:'ประเภท',render:r=>employmentTypeLabel[r.employmentType]??r.employmentType},
+        {id:'effective',label:'ช่วงมีผล',render:r=><Stack spacing={.25}><Typography variant="body2">{r.effectiveLabel}</Typography>{r.lastWorkingOn&&<Typography variant="caption" color="text.secondary">วันสุดท้าย {new Date(`${r.lastWorkingOn}T12:00:00+07:00`).toLocaleDateString('th-TH')}</Typography>}</Stack>,exportValue:r=>r.effectiveLabel},
+        {id:'netDays',label:'วันสุทธิ',render:r=><Button onClick={()=>openEmployeeSummary(r,true)}><b>{r.netDays>0?`${r.netDays.toLocaleString('th-TH',{maximumFractionDigits:2})} วัน`:'-'}</b></Button>,exportValue:r=>r.netDays?`${r.netDays} วัน`:'-'},
+        {id:'review',label:'รอตรวจ',render:r=>r.open>0?<Chip size="small" color="warning" label={`${r.open} รายการ`}/>:r.status==='รอตรวจ'?<Chip size="small" color="warning" label="รอตรวจ"/>:'-',exportValue:r=>r.open>0?`${r.open} รายการ`:r.status==='รอตรวจ'?'รอตรวจ':'-'},
+        {id:'gross',label:'รายได้รวม',render:r=><Typography sx={{fontWeight:700}}>{optionalMoney(r.grossPay)}</Typography>,exportValue:r=>optionalMoney(r.grossPay)},
+        {id:'deduct',label:'เบิก/หัก',render:r=>optionalMoney(r.advanceDeduction),exportValue:r=>optionalMoney(r.advanceDeduction)},
+        {id:'net',label:'สุทธิจ่าย',render:r=><Button onClick={()=>openEmployeeSummary(r,false)} sx={{display:'block',textAlign:'left'}}><b>{optionalMoney(r.estimatedPay)}</b><Typography variant="caption" color="text.secondary" sx={{display:'block'}}>{r.paySource}</Typography></Button>,exportValue:r=>`${optionalMoney(r.estimatedPay)} · ${r.paySource}`},
+        {id:'status',label:'สถานะ / รายละเอียด',render:r=><Stack direction="row" spacing={.75} sx={{alignItems:'center'}}><Chip size="small" color={r.status==='พร้อม'?'success':r.status==='รอตรวจ'||r.status==='คาบเกี่ยวลาออก'?'warning':'default'} label={r.status}/><Button size="small" onClick={()=>setSummaryTarget(r)}>ดู</Button></Stack>,exportValue:r=>r.status},
       ]}/>
+      <Box sx={{display:'grid',gridTemplateColumns:{xs:'repeat(2,1fr)',md:'repeat(6,1fr)'},gap:1,mt:1}}>{[
+        ['พนักงานในงวด',optionalCount(payrollSummaryRows.length,'คน')],
+        ['รายได้รวม',optionalMoney(totalGrossPay)],
+        ['เบิก/หักรวม',optionalMoney(totalAdvanceDeduction)],
+        ['สุทธิจ่ายรวม',optionalMoney(totalEstimatedPay)],
+        ['รอตรวจ',optionalCount(reviewRows.length,'รายการ')],
+        ['สถานะปิดงวด',reviewRows.length?'ยังปิดไม่ได้':'พร้อมปิดงวด'],
+      ].map(([label,value])=><Paper key={String(label)} variant="outlined" sx={{px:1.25,py:1}}><Typography variant="caption" color="text.secondary">{label}</Typography><Typography variant="body1" sx={{fontWeight:800,overflowWrap:'anywhere'}}>{value}</Typography></Paper>)}</Box>
+      <Alert severity="info">ยอดเบิก/หักเตรียมคอลัมน์ไว้แล้ว ตอนนี้ยังเป็น 0 จนกว่าจะเชื่อมกับห้องเบิกเงิน/Advance หรือรายการหักจากระบบกลาง</Alert>
     </>}
     {sheet===1&&<StandardDataTable rows={filteredRows} getRowId={(row)=>row.id} getSearchText={(row)=>`${row.profiles?.full_name} ${row.profiles?.email} ${row.project_sites?.name} ${row.status}`} searchLabel="ค้นหาพนักงาน ไซต์ หรือสถานะ" emptyText="ไม่มีข้อมูลในช่วงที่เลือก" exportFileName={`attendance-${month}`} columns={[
       {id:'date',label:'วันที่',render:(r)=>new Date(r.clock_in_at).toLocaleDateString('th-TH'),exportValue:(r)=>new Date(r.clock_in_at).toLocaleDateString('th-TH')},
@@ -513,16 +671,59 @@ export function ReportsPage(){
       {id:'status',label:'สถานะ',render:(r)=>r.status},
       {id:'action',label:'จัดการ',render:(r)=>isAdmin?<Stack direction="row" spacing={.5}><Button size="small" startIcon={<EditOutlinedIcon/>} onClick={()=>openEdit(r)}>{r.clock_out_at?'แก้เวลา':'เติมเวลาออก'}</Button>{isPlatformAdmin&&<Button size="small" color="error" onClick={()=>{setRestoreMode(false);setVoidTarget(r);setVoidReason('')}}>ยกเลิกเคส</Button>}</Stack>:'-'},
     ]}/>} 
-    {sheet===2&&<StandardDataTable rows={leaves.filter(row=>employeeId==='all'||row.profile_id===employeeId)} getRowId={row=>row.id} getSearchText={row=>`${row.profiles?.full_name} ${row.leave_types?.name_th} ${row.status}`} searchLabel="ค้นหาการลา" emptyText="ไม่มีรายการลาในเดือนนี้" exportFileName={`leave-${month}`} columns={[
-      {id:'employee',label:'พนักงาน',render:r=>r.profiles?.full_name||r.profiles?.email||'-'},{id:'type',label:'ประเภท',render:r=>r.leave_types?.name_th||'-'},{id:'start',label:'เริ่ม',render:r=>new Date(r.starts_at).toLocaleString('th-TH')},{id:'end',label:'สิ้นสุด',render:r=>new Date(r.ends_at).toLocaleString('th-TH')},{id:'duration',label:'ระยะเวลา',render:r=>duration(r.requested_minutes)},{id:'paid',label:'ค่าจ้าง',render:r=>Number(r.leave_types?.paid_ratio??0)>0?'ได้รับค่าจ้าง':'ไม่รับค่าจ้าง'},{id:'status',label:'สถานะ',render:r=>r.status},{id:'reason',label:'เหตุผล',render:r=>r.reason},
-    ]}/>} 
+    {sheet===2&&<Stack spacing={1.25}>
+      <Paper variant="outlined" sx={{p:1.5}}>
+        <Stack direction={{xs:'column',md:'row'}} spacing={1} sx={{alignItems:{md:'center'},justifyContent:'space-between'}}>
+          <Box>
+            <Typography sx={{fontWeight:900}}>ขาด–ลา–สาย</Typography>
+            <Typography variant="body2" color="text.secondary">ใช้บันทึกกรณีพนักงาน/ช่างโทรแจ้ง Admin แล้วไม่ได้ส่งคำขอผ่านระบบ ห้ามบันทึกเป็นเวลาเข้างานปลอม</Typography>
+          </Box>
+          {isAdmin&&<Button variant="contained" startIcon={<AddOutlinedIcon/>} onClick={()=>openManualLeave()}>บันทึกลา/ขาด Manual</Button>}
+        </Stack>
+      </Paper>
+      <StandardDataTable rows={leaves.filter(row=>employeeId==='all'||row.profile_id===employeeId)} getRowId={row=>row.id} getSearchText={row=>`${row.profiles?.full_name} ${row.leave_types?.name_th} ${row.status}`} searchLabel="ค้นหาการลา" emptyText="ไม่มีรายการลาในเดือนนี้" exportFileName={`leave-${month}`} columns={[
+        {id:'employee',label:'พนักงาน',render:r=>r.profiles?.full_name||r.profiles?.email||'-'},{id:'type',label:'ประเภท',render:r=>r.leave_types?.name_th||'-'},{id:'start',label:'เริ่ม',render:r=>new Date(r.starts_at).toLocaleString('th-TH')},{id:'end',label:'สิ้นสุด',render:r=>new Date(r.ends_at).toLocaleString('th-TH')},{id:'duration',label:'ระยะเวลา',render:r=>duration(r.requested_minutes)},{id:'paid',label:'ค่าจ้าง',render:r=>Number(r.leave_types?.paid_ratio??0)>0?'ได้รับค่าจ้าง':'ไม่รับค่าจ้าง'},{id:'status',label:'สถานะ',render:r=>r.status},{id:'reason',label:'เหตุผล',render:r=>r.reason},
+      ]}/>
+    </Stack>} 
     {sheet===3&&<StandardDataTable rows={reviewRows} getRowId={row=>row.id} onRowClick={setDetailTarget} getSearchText={row=>`${row.profiles?.full_name} ${row.project_sites?.name} ${row.review_reason??''} ${row.review_category??''}`} searchLabel="ค้นหารายการรอตรวจ" emptyText="ไม่มีรายการรอตรวจ" exportFileName={`attendance-review-${month}`} columns={[
       {id:'date',label:'วันที่',render:r=>new Date(r.clock_in_at).toLocaleDateString('th-TH')},{id:'employee',label:'พนักงาน',render:r=>r.profiles?.full_name||r.profiles?.email||'-'},{id:'site',label:'ไซต์',render:r=>r.project_sites?.name||'-'},{id:'time',label:'เข้า–ออก',render:r=>`${new Date(r.clock_in_at).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})} – ${r.clock_out_at?new Date(r.clock_out_at).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'}):'ยังไม่ลงออก'}`},{id:'status',label:'ปัญหา',render:r=><Stack spacing={.25}><Typography variant="body2">{r.review_reason||(!r.clock_out_at?'ลืมลงเวลาออก':r.status)}</Typography>{r.review_category&&<Typography variant="caption" color="warning.main">{reviewCategoryLabel[r.review_category]||r.review_category}</Typography>}</Stack>},{id:'action',label:'จัดการ',render:r=><Stack direction="row" spacing={.5}><Button size="small" color="inherit" onClick={()=>setDetailTarget(r)}>ดูรายละเอียด</Button>{r.clock_out_at&&<Button size="small" color="success" onClick={()=>{setConfirmTarget(r);setConfirmReason('')}}>ยืนยันว่าถูกต้อง</Button>}<Button size="small" onClick={()=>openEdit(r)}>ตรวจ/แก้เวลา</Button>{isPlatformAdmin&&<Button size="small" color="error" onClick={()=>{setRestoreMode(false);setVoidTarget(r);setVoidReason('')}}>ยกเลิกเคส</Button>}</Stack>},
     ]}/>} 
     {sheet===4&&<StandardDataTable rows={siteSummaries} getRowId={row=>row.id} getSearchText={row=>row.name} searchLabel="ค้นหาไซต์" emptyText="ไม่มีข้อมูลไซต์" exportFileName={`site-workforce-${month}`} columns={[
       {id:'site',label:'ไซต์/โครงการ',render:r=>r.name},{id:'employees',label:'พนักงาน',render:r=>r.employees},{id:'sessions',label:'รายการ',render:r=>r.sessions},{id:'actual',label:'ทำงานจริง',render:r=>duration(r.worked)},{id:'normal',label:'ปกติ',render:r=>duration(r.normal)},{id:'outside',label:'นอกตาราง',render:r=>duration(r.outside)},{id:'ot',label:'OT',render:r=>duration(r.ot)},{id:'open',label:'รอตรวจ',render:r=>r.open},
     ]}/>} 
-    {sheet===5&&<><Paper variant="outlined" sx={{mb:2}}><Tabs value={payTypeTab} onChange={(_,value)=>setPayTypeTab(value)} variant="scrollable" scrollButtons="auto" aria-label="แยกค่าจ้างตามประเภท"><Tab label="ภาพรวม"/><Tab label="รายวัน"/><Tab label="รายเดือน"/><Tab label="ชั่วคราว / ผู้รับเหมา"/><Tab label="อนุมัติ / จ่ายแล้ว"/></Tabs></Paper>
+    {sheet===5&&<><Paper variant="outlined" sx={{p:1.5}}>
+      <Stack spacing={1.25}>
+        <Stack direction={{xs:'column',md:'row'}} spacing={1.25} sx={{alignItems:{md:'center'},justifyContent:'space-between'}}>
+          <Box>
+            <Typography sx={{fontWeight:900}}>ปิดรอบค่าแรง</Typography>
+            <Typography variant="body2" color="text.secondary">{selectedPayPeriod?`${selectedPayPeriod.name} · ${new Date(`${selectedPayPeriod.starts_on}T12:00:00+07:00`).toLocaleDateString('th-TH')}–${new Date(`${selectedPayPeriod.ends_on}T12:00:00+07:00`).toLocaleDateString('th-TH')} · จ่าย ${new Date(`${selectedPayPeriod.pay_date}T12:00:00+07:00`).toLocaleDateString('th-TH')}`:'เลือก “รอบรายงาน / รอบจ่าย” ด้านบนก่อนปิดรอบ'}</Typography>
+          </Box>
+          <Chip color={selectedPayPeriod?.status==='paid'?'success':selectedPayPeriod?.status==='closed'||selectedPayPeriod?.status==='paying'?'warning':'default'} label={selectedPayPeriod?payPeriodStatusLabel[selectedPayPeriod.status]??selectedPayPeriod.status:'ยังไม่เลือกรอบ'}/>
+        </Stack>
+        <Box sx={{display:'grid',gridTemplateColumns:{xs:'repeat(2,1fr)',md:'repeat(5,1fr)'},gap:1}}>{[
+          ['Payroll ในรอบ',optionalCount(selectedPeriodPayrolls.length,'คน')],
+          ['สุทธิจ่าย',optionalMoney(selectedPeriodNetPay)],
+          ['รอตรวจเวลา',optionalCount(reviewRows.length,'รายการ')],
+          ['รอตรวจ Payroll',optionalCount(payrollRowsNeedingReview.length,'คน')],
+          ['สถานะ',selectedPayPeriod?payPeriodStatusLabel[selectedPayPeriod.status]??selectedPayPeriod.status:'-'],
+        ].map(([label,value])=><Paper key={String(label)} variant="outlined" sx={{px:1.25,py:1}}><Typography variant="caption" color="text.secondary">{label}</Typography><Typography sx={{fontWeight:800}}>{value}</Typography></Paper>)}</Box>
+        {payrollCloseIssues.length>0?<Alert severity="warning">ยังปิดรอบไม่ได้: {payrollCloseIssues.join(' · ')}</Alert>:<Alert severity="success">Checklist ผ่านแล้ว สามารถปิดรอบได้ เมื่อปิดแล้วระบบจะล็อกการแก้เวลาในงวดนี้ ต้องแก้ย้อนหลังด้วย Adjustment เท่านั้น</Alert>}
+        {Object.keys(payrollStatusCounts).length>0&&<Typography variant="body2" color="text.secondary">สถานะ Payroll: {Object.entries(payrollStatusCounts).map(([status,count])=>`${status} ${count}`).join(' · ')}</Typography>}
+        <TextField size="small" label="เหตุผล / หมายเหตุปิดรอบหรือเปิดแก้" value={payrollCloseReason} onChange={event=>setPayrollCloseReason(event.target.value)} placeholder="เช่น ตรวจเวลาครบแล้ว ปิดงวด 16-31/08/2026"/>
+        <Stack direction={{xs:'column',md:'row'}} spacing={1}>
+          <Button variant="outlined" disabled={!selectedPayPeriod||payrollFlowSaving||['closed','paying','paid','cancelled'].includes(selectedPayPeriod.status)} onClick={()=>void runPayrollPeriodFlow('generate')}>คำนวณ/รีคำนวณงวด</Button>
+          <Button variant="contained" disabled={!selectedPayPeriod||payrollFlowSaving||payrollCloseIssues.length>0||['closed','paying','paid','cancelled'].includes(selectedPayPeriod.status)} onClick={()=>void runPayrollPeriodFlow('close')}>อนุมัติปิดรอบ</Button>
+          <Button color="warning" variant="outlined" disabled={!selectedPayPeriod||payrollFlowSaving||!['closed','paying'].includes(selectedPayPeriod.status)} onClick={()=>void runPayrollPeriodFlow('send_to_payment')}>ส่งรอจ่าย</Button>
+          <Button color="inherit" disabled={!selectedPayPeriod||payrollFlowSaving||!['closed','paying'].includes(selectedPayPeriod.status)} onClick={()=>void runPayrollPeriodFlow('reopen')}>เปิดกลับมาตรวจ</Button>
+        </Stack>
+        <Stack direction={{xs:'column',md:'row'}} spacing={1}>
+          <TextField size="small" fullWidth label="เลขอ้างอิงการจ่าย" value={payrollPaymentReference} onChange={event=>setPayrollPaymentReference(event.target.value)} placeholder="เช่น โอน SCB 2026-08-31"/>
+          <Button color="success" variant="contained" disabled={!selectedPayPeriod||payrollFlowSaving||!['closed','paying'].includes(selectedPayPeriod.status)||payrollPaymentReference.trim().length<3} onClick={()=>void runPayrollPeriodFlow('mark_paid')}>ยืนยันจ่ายแล้ว / ออก Payslip</Button>
+        </Stack>
+        <Alert severity="info">หลักการ: คำนวณก่อน → ตรวจรายการรอตรวจให้หมด → ปิดรอบเพื่อล็อกข้อมูล → ส่งรอจ่าย → ยืนยันจ่ายแล้ว หากพบผิดหลังจ่ายให้ทำ Adjustment ในงวดถัดไป</Alert>
+      </Stack>
+    </Paper>
+    <Paper variant="outlined" sx={{mb:2}}><Tabs value={payTypeTab} onChange={(_,value)=>setPayTypeTab(value)} variant="scrollable" scrollButtons="auto" aria-label="แยกค่าจ้างตามประเภท"><Tab label="ภาพรวม"/><Tab label="รายวัน"/><Tab label="รายเดือน"/><Tab label="ชั่วคราว / ผู้รับเหมา"/><Tab label="อนุมัติ / จ่ายแล้ว"/></Tabs></Paper>
     {payTypeTab<4&&<RealtimePayrollForecast month={month} employeeId={employeeId} employmentTypes={payTypeTab===1?['daily']:payTypeTab===2?['monthly']:payTypeTab===3?['temporary','contractor']:undefined}/>} 
     {payTypeTab===4&&<Alert severity="info" sx={{mb:2}}>แสดงเฉพาะงวดที่อนุมัติ ปิดงวด รอจ่าย หรือจ่ายแล้ว ยอดในส่วนนี้เป็นหลักฐานงวดจริง ไม่ใช่ประมาณการ</Alert>}
     <StandardDataTable rows={payrolls.filter(row=>{
@@ -600,8 +801,8 @@ export function ReportsPage(){
       </Stack></DialogContent>
       <DialogActions><Button onClick={()=>setDetailTarget(null)}>ปิด</Button>{detailTarget&&<Button onClick={()=>{openEdit(detailTarget);setDetailTarget(null)}}>แก้ไขเวลา</Button>}{detailTarget?.clock_out_at&&<Button color="success" variant="contained" onClick={()=>{setConfirmTarget(detailTarget);setConfirmReason('');setDetailTarget(null)}}>ยืนยันว่าถูกต้อง</Button>}{detailTarget&&isPlatformAdmin&&<Button color="error" onClick={()=>{setRestoreMode(false);setVoidTarget(detailTarget);setVoidReason('');setDetailTarget(null)}}>ยกเลิกเคส</Button>}</DialogActions>
     </Dialog>
-    <Dialog open={Boolean(summaryTarget)} onClose={()=>setSummaryTarget(null)} fullWidth maxWidth="xl" slotProps={{paper:{sx:{height:{md:'calc(100vh - 48px)'},maxHeight:'calc(100vh - 32px)'}}}}>
-      <DialogTitle sx={{py:1.25}}>รายละเอียดที่มาของยอด · {summaryTarget?.name}</DialogTitle>
+    <Dialog open={Boolean(summaryTarget)} onClose={()=>{setSummaryTarget(null);setSummaryDailyOpen(false)}} fullWidth maxWidth={showDailyTableInSummary?'xl':'md'}>
+      <DialogTitle sx={{py:1.25}}>{showDailyTableInSummary?'รายงานรายละเอียดรายวัน':'รายละเอียดที่มาของยอด'} · {summaryTarget?.name}</DialogTitle>
       <DialogContent dividers sx={{px:{xs:1,md:1.5},py:1,'& .MuiTableCell-root':{px:.75,py:.65,fontSize:12},'& .MuiTableCell-head':{fontWeight:800,whiteSpace:'nowrap'}}}><Stack spacing={1}>
         {summaryTarget&&<Alert severity={summaryTarget.status==='พร้อม'?'success':'warning'}>มาทำงาน {summaryTarget.days} วัน · วันค่าแรงสุทธิ {summaryTarget.netDays.toLocaleString('th-TH',{maximumFractionDigits:2})} วัน · {summaryTarget.status} · {reportPeriodLabel}</Alert>}
         <Alert severity="info" icon={false} sx={{py:.25}}>รูปแบบที่ใช้: แสดงผลคิดวันเป็นข้อมูลหลัก · เวลาสุทธิเก็บอยู่ในหลักฐานเวลาเข้า–ออก · เกณฑ์เต็มวัน {timeDisplaySettings.full_day_minutes} นาที · เงินปัด 2 ตำแหน่ง</Alert>
@@ -615,17 +816,22 @@ export function ReportsPage(){
           ['เงิน OT',moneyText(monthDayTotals.overtime)],
           ['OT วันหยุด',moneyText(monthDayTotals.holidayOvertime)],
           ['รวมเงินที่ได้',moneyText(monthDayTotals.net)],
+          ['เบิก/หัก',optionalMoney(Number(summaryTarget?.advanceDeduction??0))],
+          ['สุทธิจ่าย',optionalMoney(Number(summaryTarget?.estimatedPay??0))],
           ['สาย',monthDayTotals.lateDays?`${monthDayTotals.lateDays} วัน · ${monthDayTotals.late} นาที`:'-'],
           ['ออกก่อน',monthDayTotals.earlyDays?`${monthDayTotals.earlyDays} วัน · ${monthDayTotals.early} นาที`:'-'],
           ['ออกเกินกะ',optionalDuration(monthDayTotals.outside)],
           ['รอบรายงาน',reportPeriodLabel],
         ].map(([label,value])=><Paper key={label} variant="outlined" sx={{px:1,py:.65,minWidth:0}}><Typography variant="caption" color="text.secondary">{label}</Typography><Typography variant="body2" sx={{fontWeight:800,overflowWrap:'anywhere'}}>{value}</Typography></Paper>)}</Box>
         {!summaryHasPayroll&&<Alert severity="info">ยอดนี้เป็นประมาณการ: {summaryPolicy?.employment_type==='monthly'?'เงินเดือนเฉลี่ยตามวันทำงานในตาราง สะสมถึงวันปัจจุบัน':`วันสุทธิ × ${Number(summaryPolicy?.daily_rate??0).toLocaleString('th-TH',{minimumFractionDigits:2})} บาท/วัน`} + OT ที่อนุมัติ × {Number(summaryPolicy?.overtime_hourly_rate??0).toLocaleString('th-TH',{minimumFractionDigits:2})} บาท/ชั่วโมง ยอดเต็มเดือนแสดงแยกในประมาณการสิ้นเดือน และยังไม่ใช่ Payslip</Alert>}
-        <StandardDataTable rows={monthDays} getRowId={row=>row.id} getRowSx={monthDayRowSx} getExportRowTone={row=>row.state==='ทำงานเต็มวัน'||row.state.startsWith('ทำงานวันหยุด')&&!row.needsHolidayReview?'success':row.state==='ทำงานครึ่งวัน'||row.needsHolidayReview?'warning':row.state.startsWith('วันหยุด')?'holiday':row.state==='หยุด'?'muted':row.state==='ข้อมูลไม่ครบ'||row.state==='ไม่ถึงครึ่งวัน'?'danger':undefined} getSearchText={row=>`${row.siteLabel} ${row.state}`} searchLabel="ค้นหาวัน ไซต์ หรือสถานะ" emptyText="ไม่มีรายละเอียด" exportFileName={`employee-attendance-detail-${month}`} exportTitle={`รายงานเวลาและค่าแรงรายบุคคล · ${summaryTarget?.name??''}`} exportSubtitle={reportPeriodLabel} exportMeta={[{label:'รหัสพนักงาน',value:summaryTarget?.id??'-'},{label:'ประเภท',value:summaryTarget?employmentTypeLabel[summaryTarget.employmentType]??summaryTarget.employmentType:'-'},{label:'อัตราค่าจ้าง',value:summaryPolicy?.employment_type==='monthly'?`${moneyText(Number(summaryPolicy.monthly_salary??0))}/เดือน`:`${moneyText(Number(summaryPolicy?.daily_rate??0))}/วัน`}]} exportSummary={[{label:'วันค่าแรงสุทธิ',value:monthDayTotals.units?`${monthDayTotals.units} วัน`:'-'},{label:'วันทำงานวันหยุด',value:monthDayTotals.holidayDays?`${monthDayTotals.holidayDays} วัน`:'-'},{label:'สาย',value:monthDayTotals.lateDays?`${monthDayTotals.lateDays} วัน · ${monthDayTotals.late} นาที`:'-'},{label:'ออกก่อน',value:monthDayTotals.earlyDays?`${monthDayTotals.earlyDays} วัน · ${monthDayTotals.early} นาที`:'-'},{label:'ออกเกินกะ',value:optionalDuration(monthDayTotals.outside)},{label:'ค่าแรงปกติ',value:optionalMoney(monthDayTotals.base)},{label:'ค่าทำงานวันหยุด',value:optionalMoney(monthDayTotals.holiday)},{label:'เงิน OT',value:optionalMoney(monthDayTotals.overtime)},{label:'OT วันหยุด',value:optionalMoney(monthDayTotals.holidayOvertime)},{label:'ยอดสุทธิสะสม',value:optionalMoney(monthDayTotals.net)}]} columns={[
+        {!showDailyTableInSummary&&<Alert severity="info">รายละเอียดรายวันแยกอยู่ใน Tap “เวลารายวัน” เพื่อให้หน้าสรุปยอดรายคนกระชับ กดปุ่มด้านล่างเพื่อเปิดรายวันของคนนี้พร้อม filter อัตโนมัติ</Alert>}
+        {summaryTarget&&showDailyTableInSummary&&(
+        <StandardDataTable rows={monthDays} getRowId={row=>row.id} getRowSx={monthDayRowSx} getExportRowTone={row=>row.state==='ทำงานเต็มวัน'||row.state.startsWith('ทำงานวันหยุด')&&!row.needsHolidayReview?'success':row.state==='ทำงานครึ่งวัน'||row.needsHolidayReview?'warning':row.state.startsWith('วันหยุด')?'holiday':row.state==='หยุด'?'muted':row.state==='ข้อมูลไม่ครบ'||row.state==='ไม่ถึงครึ่งวัน'?'danger':undefined} getSearchText={row=>`${row.siteLabel} ${row.state}`} searchLabel="ค้นหาวัน ไซต์ หรือสถานะ" emptyText="ไม่มีรายละเอียด" exportFileName={`employee-attendance-detail-${month}`} exportTitle={`รายงานเวลาและค่าแรงรายบุคคล · ${summaryTarget.name}`} exportSubtitle={reportPeriodLabel} exportMeta={[{label:'รหัสพนักงาน',value:summaryTarget.id},{label:'ประเภท',value:employmentTypeLabel[summaryTarget.employmentType]??summaryTarget.employmentType},{label:'อัตราค่าจ้าง',value:summaryPolicy?.employment_type==='monthly'?`${moneyText(Number(summaryPolicy?.monthly_salary??0))}/เดือน`:`${moneyText(Number(summaryPolicy?.daily_rate??0))}/วัน`}]} exportSummary={[{label:'วันค่าแรงสุทธิ',value:monthDayTotals.units?`${monthDayTotals.units} วัน`:'-'},{label:'วันทำงานวันหยุด',value:monthDayTotals.holidayDays?`${monthDayTotals.holidayDays} วัน`:'-'},{label:'สาย',value:monthDayTotals.lateDays?`${monthDayTotals.lateDays} วัน · ${monthDayTotals.late} นาที`:'-'},{label:'ออกก่อน',value:monthDayTotals.earlyDays?`${monthDayTotals.earlyDays} วัน · ${monthDayTotals.early} นาที`:'-'},{label:'ออกเกินกะ',value:optionalDuration(monthDayTotals.outside)},{label:'ค่าแรงปกติ',value:optionalMoney(monthDayTotals.base)},{label:'ค่าทำงานวันหยุด',value:optionalMoney(monthDayTotals.holiday)},{label:'เงิน OT',value:optionalMoney(monthDayTotals.overtime)},{label:'OT วันหยุด',value:optionalMoney(monthDayTotals.holidayOvertime)},{label:'ยอดสุทธิสะสม',value:optionalMoney(monthDayTotals.net)}]} columns={[
           {id:'date',label:'วันที่',render:r=>new Date(`${r.date}T12:00:00+07:00`).toLocaleDateString('th-TH'),exportValue:r=>new Date(`${r.date}T12:00:00+07:00`).toLocaleDateString('th-TH')},{id:'site',label:'ไซต์',render:r=><Stack><span>{r.siteLabel}</span>{r.sessions.length>1&&<Typography variant="caption" color="info.main">{r.sessions.length} ช่วง / หลายไซต์</Typography>}</Stack>,exportValue:r=>r.sessions.length>1?`${r.siteLabel} (${r.sessions.length} ช่วง)`:r.siteLabel},{id:'actual',label:'เข้า–ออกจริง',render:r=>r.firstClockIn?`${new Date(r.firstClockIn).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})} – ${r.lastClockOut?new Date(r.lastClockOut).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'}):'ยังไม่ลงออก'}`:'-',exportValue:r=>r.firstClockIn?`${new Date(r.firstClockIn).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})} – ${r.lastClockOut?new Date(r.lastClockOut).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'}):'ยังไม่ลงออก'}`:'-'},{id:'late',label:'สาย',render:r=>optionalCount(r.lateMinutes,'นาที'),exportValue:r=>optionalCount(r.lateMinutes,'นาที')},{id:'earlyLeave',label:'ออกก่อน',render:r=>optionalCount(r.earlyLeaveMinutes,'นาที'),exportValue:r=>optionalCount(r.earlyLeaveMinutes,'นาที')},{id:'outside',label:'ออกเกินกะ',render:r=>optionalDuration(r.postShiftMinutes),exportValue:r=>optionalDuration(r.postShiftMinutes)},{id:'dayUnits',label:'ผลคิดวัน',render:r=><Stack spacing={.25}><b>{r.review?'รอตรวจ':r.dayUnits>0?`${r.dayUnits} วัน`:'-'}</b>{r.wageOverride&&<Typography variant="caption" color="warning.main">ระบบเดิม {r.calculatedDayUnits} วัน</Typography>}</Stack>,exportValue:r=>r.review?'รอตรวจ':r.dayUnits?`${r.dayUnits} วัน`:'-'},{id:'basePay',label:'ค่าแรงปกติ',render:r=>optionalMoney(r.basePay),exportValue:r=>optionalMoney(r.basePay)},{id:'holidayPay',label:'ค่าทำงานวันหยุด',render:r=>r.holidayPay>0?<Stack spacing={.25}><b>{optionalMoney(r.holidayPay)}</b><Typography variant="caption">{r.holidayMultiplier} เท่า</Typography></Stack>:'-',exportValue:r=>r.holidayPay>0?`${optionalMoney(r.holidayPay)} · ${r.holidayMultiplier} เท่า`:'-'},{id:'otPay',label:'OT อนุมัติ',render:r=>optionalMoney(r.overtimePay),exportValue:r=>optionalMoney(r.overtimePay)},{id:'holidayOtPay',label:'OT วันหยุด',render:r=>optionalMoney(r.holidayOvertimePay),exportValue:r=>optionalMoney(r.holidayOvertimePay)},{id:'netPay',label:'สุทธิวันนี้',render:r=><b>{optionalMoney(r.netPay)}</b>,exportValue:r=>optionalMoney(r.netPay)},{id:'source',label:'ที่มาข้อมูล',render:r=><Stack spacing={.25}><Chip size="small" color={r.dataSource==='ระบบ'?'default':'warning'} label={r.dataSource}/>{r.sourceReason&&<Typography variant="caption" color="text.secondary">{r.sourceReason}</Typography>}</Stack>,exportValue:r=>`${r.dataSource}${r.sourceReason?` · ${r.sourceReason}`:''}`},{id:'status',label:'สถานะ/เหตุผล',render:r=><Chip size="small" color={r.state==='ทำงานเต็มวัน'||r.state.startsWith('ทำงานวันหยุด')&&!r.needsHolidayReview?'success':r.needsHolidayReview||r.state==='ข้อมูลไม่ครบ'||r.state==='ยังไม่ลงเวลา'?'warning':'default'} label={r.state}/>,exportValue:r=>r.state},{id:'manage',label:'จัดการ',exportable:false,render:r=>isAdmin&&r.session?<Stack direction="row" spacing={.5}><Button size="small" startIcon={<EditOutlinedIcon/>} onClick={()=>setWageOverrideTarget({date:r.date,calculatedUnits:r.calculatedDayUnits,currentUnits:r.dayUnits,reason:''})}>ปรับผลคิดวัน</Button>{r.isHoliday&&<Button size="small" color="warning" onClick={()=>setHolidayWageTarget({date:r.date,holidayType:r.holidayType,multiplier:r.holidayMultiplier,holidayOvertimeMinutes:r.overtimeMinutes,reason:''})}>อัตราวันหยุด</Button>}</Stack>:'-'},
         ]}/>
+        )}
       </Stack></DialogContent>
-      <DialogActions sx={{py:.75}}><Button onClick={()=>setSummaryTarget(null)}>ปิด</Button><Button onClick={printEmployeeDetail}>พิมพ์ / บันทึก PDF รายบุคคล</Button><Button variant="contained" onClick={()=>{if(summaryTarget)setEmployeeId(summaryTarget.id);setSheet(1);setSummaryTarget(null)}}>เปิดรายละเอียดรายวัน</Button></DialogActions>
+      <DialogActions sx={{py:.75}}><Button onClick={()=>{setSummaryTarget(null);setSummaryDailyOpen(false)}}>ปิด</Button><Button onClick={printEmployeeDetail}>พิมพ์ / บันทึก PDF รายบุคคล</Button>{showDailyTableInSummary?<Button onClick={()=>setSummaryDailyOpen(false)}>ดูแบบสรุป</Button>:<Button variant="contained" onClick={()=>setSummaryDailyOpen(true)}>เปิดรายละเอียดรายวัน</Button>}<Button variant={showDailyTableInSummary?'contained':'outlined'} onClick={()=>{if(summaryTarget)setEmployeeId(summaryTarget.id);setSheet(1);setSummaryTarget(null);setSummaryDailyOpen(false)}}>ไป Tap เวลารายวัน</Button></DialogActions>
     </Dialog>
     <Dialog open={Boolean(wageOverrideTarget)} onClose={()=>!wageOverrideSaving&&setWageOverrideTarget(null)} fullWidth maxWidth="sm">
       <DialogTitle>ปรับผลคิดวันค่าแรง</DialogTitle>
@@ -663,6 +869,27 @@ export function ReportsPage(){
         <TextField required multiline minRows={3} label="เหตุผลที่ยืนยัน/ปรับอัตรา" value={holidayWageTarget?.reason??''} onChange={event=>holidayWageTarget&&setHolidayWageTarget({...holidayWageTarget,reason:event.target.value})} helperText="อย่างน้อย 3 ตัวอักษร เช่น ยืนยันค่าแรงปกติ หรือ อนุมัติวันหยุด 2 เท่า"/>
       </Stack></DialogContent>
       <DialogActions><Button disabled={holidayWageSaving} onClick={()=>setHolidayWageTarget(null)}>ยกเลิก</Button><Button variant="contained" disabled={holidayWageSaving||!holidayWageTarget||holidayWageTarget.reason.trim().length<3||Boolean(selectedPayPeriod&&!['draft','open'].includes(selectedPayPeriod.status))} onClick={()=>void saveHolidayWageOverride()}>{holidayWageSaving?'กำลังบันทึก...':'ยืนยันพร้อม Audit'}</Button></DialogActions>
+    </Dialog>
+    <Dialog open={manualLeaveOpen} onClose={()=>!manualLeaveSaving&&setManualLeaveOpen(false)} fullWidth maxWidth="sm">
+      <DialogTitle>บันทึกลา/ขาด Manual</DialogTitle>
+      <DialogContent><Stack spacing={2} sx={{pt:1}}>
+        <Alert severity="info">ใช้กรณีช่างโทรแจ้งหรือ Admin รับเรื่องแทน ระบบจะบันทึกเป็นรายการลา/ขาดที่อนุมัติแล้ว พร้อม Audit กลาง และไม่สร้างเวลาเข้างานปลอม</Alert>
+        <TextField select fullWidth label="พนักงาน" value={manualLeave.profileId} onChange={event=>setManualLeave({...manualLeave,profileId:event.target.value})}>
+          {employees.map(employee=><MenuItem key={employee.id} value={employee.id}>{employee.full_name||employee.email}</MenuItem>)}
+        </TextField>
+        <TextField select fullWidth label="ประเภท" value={manualLeave.leaveTypeId} onChange={event=>setManualLeave({...manualLeave,leaveTypeId:event.target.value})} helperText="ถ้าเป็นขาดงาน/ไม่คิดเงิน ให้เลือกลาไม่รับค่าจ้าง">
+          {leaveTypes.map(type=><MenuItem key={type.id} value={type.id}>{type.name_th} · {Number(type.paid_ratio)>0?'ได้รับค่าจ้าง':'ไม่รับค่าจ้าง'}</MenuItem>)}
+        </TextField>
+        <TextField type="date" fullWidth label="วันที่" value={manualLeave.date} onChange={event=>setManualLeave({...manualLeave,date:event.target.value})} slotProps={{inputLabel:{shrink:true}}}/>
+        <TextField select fullWidth label="จำนวนวัน/ระยะเวลา" value={String(manualLeave.dayUnits)} onChange={event=>setManualLeave({...manualLeave,dayUnits:Number(event.target.value),customMinutes:0})}>
+          <MenuItem value="1">เต็มวัน</MenuItem>
+          <MenuItem value="0.5">ครึ่งวัน</MenuItem>
+          <MenuItem value="0">กำหนดนาทีเอง</MenuItem>
+        </TextField>
+        {manualLeave.dayUnits===0&&<TextField type="number" fullWidth label="จำนวนนาที" value={manualLeave.customMinutes} onChange={event=>setManualLeave({...manualLeave,customMinutes:Number(event.target.value)})} helperText="เช่น 240 = ครึ่งวัน, 480 = เต็มวัน"/>}
+        <TextField required multiline minRows={3} label="เหตุผล / ช่องทางรับแจ้ง" value={manualLeave.reason} onChange={event=>setManualLeave({...manualLeave,reason:event.target.value})} helperText="ตัวอย่าง: โทรแจ้งหัวหน้างานว่าป่วย / ไม่มาทำงาน"/>
+      </Stack></DialogContent>
+      <DialogActions><Button disabled={manualLeaveSaving} onClick={()=>setManualLeaveOpen(false)}>ยกเลิก</Button><Button variant="contained" disabled={manualLeaveSaving||!manualLeave.profileId||!manualLeave.leaveTypeId||!manualLeave.date||manualLeave.reason.trim().length<3||(manualLeave.dayUnits===0&&Number(manualLeave.customMinutes||0)<=0)} onClick={()=>void saveManualLeave()}>{manualLeaveSaving?'กำลังบันทึก...':'บันทึก Manual'}</Button></DialogActions>
     </Dialog>
     <Dialog open={dialogOpen} onClose={()=>!saving&&setDialogOpen(false)} fullWidth maxWidth="md">
       <DialogTitle>{adjustment.sessionId?'แก้ไขเวลาพนักงาน':'เพิ่มเวลาพนักงานย้อนหลัง'}</DialogTitle>
@@ -706,3 +933,4 @@ export function ReportsPage(){
     </Dialog>
   </Stack>
 }
+

@@ -7,8 +7,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
 import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
+import { isPlatformAdmin as resolvePlatformAdmin } from '../../utils/permissions'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { userError } from '../../utils/userError'
 import { PlatformLineGroupManager } from './PlatformLineGroupManager'
 
 type PipelineStatus = 'received' | 'processing' | 'processed' | 'failed' | 'skipped'
@@ -120,7 +122,7 @@ export function LineMonitorPage() {
   usePageTitle('ตรวจสอบ LINE และ Telegram')
   const { profile } = useAuth()
   const canManage = profile?.role === 'admin' || profile?.role === 'manager'
-  const isPlatformAdmin=profile?.platform_role==='admin'
+  const isPlatformAdmin=resolvePlatformAdmin(profile)
   const [events, setEvents] = useState<IngestionEvent[]>([])
   const [storedRows, setStoredRows] = useState<StoredMessageRow[]>([])
   const [groupHealthRows, setGroupHealthRows] = useState<LineGroupHealthRow[]>([])
@@ -153,20 +155,20 @@ export function LineMonitorPage() {
         .order('created_at', { ascending: false }).limit(500),
     ])
 
-    if (eventResult.error && eventResult.error.code !== '42P01') setError(eventResult.error.message)
+    if (eventResult.error && eventResult.error.code !== '42P01') setError(userError(eventResult.error))
     else setEvents((eventResult.data ?? []) as IngestionEvent[])
     if (messagesResult.error) {
-      setError((current) => [current, messagesResult.error.message].filter(Boolean).join(' · '))
+      setError((current) => [current, userError(messagesResult.error)].filter(Boolean).join(' · '))
       setLoading(false)
       return
     }
 
-    if (groupsResult.error) setError((current) => [current, groupsResult.error.message].filter(Boolean).join(' · '))
+    if (groupsResult.error) setError((current) => [current, userError(groupsResult.error)].filter(Boolean).join(' · '))
     if (notificationsResult.error && notificationsResult.error.code !== '42P01') {
-      setError((current) => [current, notificationsResult.error.message].filter(Boolean).join(' · '))
+      setError((current) => [current, userError(notificationsResult.error)].filter(Boolean).join(' · '))
     }
     if (telegramResult.error && telegramResult.error.code !== '42P01') {
-      setError((current) => [current, `Telegram: ${telegramResult.error.message}`].filter(Boolean).join(' · '))
+      setError((current) => [current, `Telegram: ${userError(telegramResult.error)}`].filter(Boolean).join(' · '))
     } else {
       setTelegramEvents((telegramResult.data ?? []) as TelegramAdminEvent[])
     }
@@ -215,7 +217,7 @@ export function LineMonitorPage() {
       const transaction = financialByMessage.get(message.id)
       const attachment = attachmentIds.has(message.id)
       let diagnostic = 'บันทึกข้อความแล้ว'
-      if (['image', 'video', 'audio', 'file'].includes(message.message_type) && !attachment) {
+      if (['image', 'video', 'audio', 'file'].includes(message.message_type ?? '') && !attachment) {
         diagnostic = 'รับข้อความแล้ว แต่ไม่พบไฟล์ใน Storage'
       } else if (message.message_type === 'image' && !summary) {
         diagnostic = 'เก็บรูปแล้ว แต่ไม่พบผลวิเคราะห์'
@@ -414,7 +416,7 @@ export function LineMonitorPage() {
           rows={visibleEvents}
           getRowId={(row) => row.id}
           getSearchText={(row) => [
-            row.line_message_id, row.line_group_id, row.message_type, row.processing_stage,
+            row.line_message_id, row.line_group_id, row.event_type, row.processing_stage,
             row.error_message, row.output_type,
           ].filter(Boolean).join(' ')}
           searchLabel="ค้นหา Message ID, กลุ่ม, ขั้นตอน หรือ Error"
@@ -429,7 +431,7 @@ export function LineMonitorPage() {
           </Select>}
           columns={[
             { id: 'time', label: 'เวลาจาก LINE', minWidth: 170, render: (row) => new Date(row.occurred_at).toLocaleString('th-TH'), exportValue: (row) => row.occurred_at },
-            { id: 'type', label: 'ชนิด', minWidth: 100, render: (row) => row.message_type ?? row.event_type, exportValue: (row) => row.message_type },
+            { id: 'type', label: 'ชนิด', minWidth: 100, render: (row) => row.event_type, exportValue: (row) => row.event_type },
             { id: 'status', label: 'สถานะ', minWidth: 140, render: (row) => <Chip size="small" color={row.processing_status === 'failed' ? 'error' : row.processing_status === 'processed' ? 'success' : 'default'} label={statusLabels[row.processing_status]} />, exportValue: (row) => statusLabels[row.processing_status] },
             { id: 'stage', label: 'ขั้นตอนล่าสุด', minWidth: 190, render: (row) => stageLabels[row.processing_stage] ?? row.processing_stage, exportValue: (row) => row.processing_stage },
             { id: 'attachment', label: 'ไฟล์', minWidth: 110, render: (row) => row.attachment_status, exportValue: (row) => row.attachment_status },
@@ -467,3 +469,4 @@ export function LineMonitorPage() {
     </Stack>
   )
 }
+

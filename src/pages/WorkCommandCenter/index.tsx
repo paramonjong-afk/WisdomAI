@@ -24,6 +24,8 @@ import { StandardDataTable } from "../../components/StandardDataTable";
 import { useAuth } from "../../hooks/useAuth";
 import { usePageTitle } from "../../hooks/usePageTitle";
 import { supabase } from "../../lib/supabase";
+import { userError } from "../../utils/userError";
+import { runWithMutationAttempt } from "../../utils/mutationAttemptRunner";
 
 type WorkStatus = "ready" | "doing" | "review" | "blocked" | "done";
 type Item = {
@@ -112,7 +114,7 @@ const hasExpiredLease = (item: Item) =>
 
 export function WorkCommandCenterPage() {
   usePageTitle("ศูนย์สั่งงาน");
-  const { currentCompany } = useAuth();
+  const { currentCompany, profile, user } = useAuth();
   const [rows, setRows] = useState<Item[]>([]),
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState("");
@@ -154,7 +156,7 @@ export function WorkCommandCenterPage() {
           : null,
       );
     }
-    setNotice(error?.message ?? "");
+    setNotice(userError(error))
     if (!silent) setBusy(false);
   }, []);
   useEffect(() => {
@@ -210,7 +212,7 @@ export function WorkCommandCenterPage() {
       .order("created_at", { ascending: false })
       .limit(100);
     if (data) setEvents(data as Event[]);
-    if (error) setNotice(error.message);
+    if (error) setNotice(userError(error));
   };
   const create = async () => {
     if (title.trim().length < 3) {
@@ -223,21 +225,36 @@ export function WorkCommandCenterPage() {
     }
     setBusy(true);
     setNotice("");
-    const { data, error } = await supabase.rpc("create_system_work_item", {
-      target_title: title.trim(),
-      target_detail: detail.trim() || null,
-      target_category: category,
-      target_risk: risk,
-      target_company_id: currentCompany.company_id,
-    });
-    if (error) setNotice(error.message);
-    else {
+    try {
+      const data = await runWithMutationAttempt({
+        module: "WorkCommandCenter",
+        action: "สร้างงานใหม่จากศูนย์สั่งงาน",
+        actorProfileId: user?.id || profile?.id,
+        companyId: currentCompany.company_id,
+        request: {
+          target_title: title.trim(),
+          target_detail: detail.trim() || null,
+          target_category: category,
+          target_risk: risk,
+          target_company_id: currentCompany.company_id,
+        },
+        operation: async () =>
+          await supabase.rpc("create_system_work_item", {
+            target_title: title.trim(),
+            target_detail: detail.trim() || null,
+            target_category: category,
+            target_risk: risk,
+            target_company_id: currentCompany.company_id,
+          }),
+      })
       const item = Array.isArray(data) ? data[0] : data;
       setNotice(`สร้างงาน ${item?.work_key ?? ""} เรียบร้อยแล้ว`);
       setTitle("");
       setDetail("");
       setCreateOpen(false);
       await load();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : userError(error));
     }
     setBusy(false);
   };
@@ -264,22 +281,31 @@ export function WorkCommandCenterPage() {
           current_step: "ไม่ผ่านการอนุมัติ",
           production_status: "rejected_by_admin",
         };
-    const { data, error } = await supabase
-      .from("system_work_items")
-      .update(changes)
-      .eq("work_key", selected.work_key)
-      .eq("status", "review")
-      .select(
-        "work_key,title,category,status,progress,risk,detail,production_status,owner,evidence,current_step,heartbeat_at,lease_expires_at,created_at,updated_at",
-      )
-      .single();
-    if (error) setNotice(error.message);
-    else {
+    try {
+      const data = await runWithMutationAttempt({
+        module: "WorkCommandCenter",
+        action: `${approved ? "อนุมัติ" : "ไม่อนุมัติ"}งานจากศูนย์สั่งงาน`,
+        actorProfileId: user?.id || profile?.id,
+        companyId: currentCompany?.company_id ?? null,
+        request: { work_key: selected.work_key, approved, reason },
+        operation: async () =>
+          await supabase
+            .from("system_work_items")
+            .update(changes)
+            .eq("work_key", selected.work_key)
+            .eq("status", "review")
+            .select(
+              "work_key,title,category,status,progress,risk,detail,production_status,owner,evidence,current_step,heartbeat_at,lease_expires_at,created_at,updated_at",
+            )
+            .single(),
+      }) as Item | null;
       setNotice(
         `${approved ? "อนุมัติ" : "ไม่อนุมัติ"} ${selected.work_key} และบันทึก Audit แล้ว`,
       );
       await load();
       await openDetail(data as Item);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : userError(error));
     }
     setBusy(false);
   };
@@ -700,3 +726,4 @@ export function WorkCommandCenterPage() {
     </Stack>
   );
 }
+
