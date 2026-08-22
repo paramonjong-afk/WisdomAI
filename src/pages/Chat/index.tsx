@@ -5,6 +5,7 @@ import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined'
 import CallEndOutlinedIcon from '@mui/icons-material/CallEndOutlined'
 import CallOutlinedIcon from '@mui/icons-material/CallOutlined'
 import CameraAltOutlinedIcon from '@mui/icons-material/CameraAltOutlined'
+import CloseOutlinedIcon from '@mui/icons-material/CloseOutlined'
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord'
 import GroupAddOutlinedIcon from '@mui/icons-material/GroupAddOutlined'
 import KeyboardVoiceOutlinedIcon from '@mui/icons-material/KeyboardVoiceOutlined'
@@ -310,6 +311,7 @@ export function ChatPage() {
   const [attendanceCameraReady, setAttendanceCameraReady] = useState(false)
   const [attendanceBusy, setAttendanceBusy] = useState(false)
   const [voiceListening, setVoiceListening] = useState(false)
+  const [pendingAttachment, setPendingAttachment] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const messageBottomRef = useRef<HTMLDivElement | null>(null)
   const attendanceVideoRef = useRef<HTMLVideoElement | null>(null)
@@ -1505,18 +1507,37 @@ export function ChatPage() {
     if (!file) return
     if (!selectedRoom || !currentCompany?.company_id || !activeProfileId) {
       setToast('ยังไม่พร้อมส่งไฟล์ กรุณาเลือกห้องและเข้าสู่ระบบใหม่อีกครั้ง')
+      setPendingAttachment(file)
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
     if (file.size > maxChatAttachmentBytes) {
       setToast('ไฟล์ใหญ่เกิน 50 MB กรุณาเลือกรูปหรือไฟล์ที่เล็กลง')
+      setPendingAttachment(null)
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
     const contentType = getChatAttachmentContentType(file)
     if (!supportedChatAttachmentTypes.has(contentType)) {
       setToast('ไฟล์ชนิดนี้ยังไม่รองรับ กรุณาใช้รูป JPG, PNG, WebP, HEIC หรือ PDF')
+      setPendingAttachment(null)
       if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+    let session = sessionData.session
+    const sessionExpiresSoon = typeof session?.expires_at === 'number'
+      && session.expires_at <= Math.floor(Date.now() / 1000) + 30
+    let refreshError = sessionError
+    if (!session?.access_token || sessionExpiresSoon) {
+      const { data: refreshedSession, error: nextRefreshError } = await supabase.auth.refreshSession()
+      session = refreshedSession.session
+      refreshError = nextRefreshError
+    }
+    if (refreshError || !session?.access_token) {
+      setToast('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ก่อนแนบไฟล์')
+      setPendingAttachment(file)
+      setBusy(false)
       return
     }
     selectRoom(selectedRoom.id)
@@ -1524,26 +1545,51 @@ export function ChatPage() {
     setToast('กำลังส่งไฟล์…')
     const sanitized = file.name.replace(/[^a-zA-Z0-9._-]+/g, '-')
     const objectPath = `${currentCompany.company_id}/${selectedRoom.id}/${Date.now()}-${createChatAttachmentId()}-${sanitized}`
+    // Some mobile browsers report a generic or stale MIME on File objects.
+    // Re-wrap the body so Storage receives the same content type used by the
+    // bucket allow-list while retaining the original bytes and filename.
+    const uploadBody = file.type.trim().toLowerCase() === contentType || typeof File === 'undefined'
+      ? file
+      : new File([file], sanitized || 'attachment', { type: contentType, lastModified: file.lastModified })
 
     try {
-      const { error: uploadError } = await supabase.storage.from('chat-attachments').upload(objectPath, file, {
+      const upload = () => supabase.storage.from('chat-attachments').upload(objectPath, uploadBody, {
         cacheControl: '3600',
         upsert: false,
         contentType,
       })
+      let { error: uploadError } = await upload()
+      if (uploadError && /401|jwt|token|session|expired|row-level|permission|unauthorized/i.test(uploadError.message)) {
+        const { data: refreshedSession, error: uploadRefreshError } = await supabase.auth.refreshSession()
+        if (uploadRefreshError || !refreshedSession.session?.access_token) {
+          setToast('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ก่อนแนบไฟล์')
+          setPendingAttachment(file)
+          setBusy(false)
+          return
+        }
+        ({ error: uploadError } = await upload())
+      }
       if (uploadError) {
         const lowerMessage = uploadError.message.toLowerCase()
         const message = lowerMessage.includes('mime') || lowerMessage.includes('content type')
           ? 'รูปแบบรูปนี้ยังไม่รองรับบน Storage กรุณาลอง JPG/PNG หรืออัปเดตแอปก่อน'
-          : lowerMessage.includes('row-level') || lowerMessage.includes('permission') || lowerMessage.includes('unauthorized')
+          : lowerMessage.includes('401') || lowerMessage.includes('jwt') || lowerMessage.includes('token')
+            || lowerMessage.includes('session') || lowerMessage.includes('expired')
+            ? 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ก่อนแนบไฟล์'
+            : lowerMessage.includes('403') || lowerMessage.includes('42501') || lowerMessage.includes('row-level')
+              || lowerMessage.includes('permission') || lowerMessage.includes('unauthorized') || lowerMessage.includes('forbidden')
             ? 'คุณไม่มีสิทธิ์แนบไฟล์ในห้องนี้ กรุณาตรวจว่ายังเป็นสมาชิกห้องอยู่'
-            : userError(uploadError, 'อัปโหลดไฟล์ไม่สำเร็จ กรุณาตรวจอินเทอร์เน็ตแล้วลองใหม่')
+            : lowerMessage.includes('invalid input syntax for type uuid') || lowerMessage.includes('invalid uuid')
+              ? 'ข้อมูลห้องไม่ถูกต้อง กรุณารีเฟรชหน้าแล้วเลือกห้องใหม่'
+              : userError(uploadError, 'อัปโหลดไฟล์ไม่สำเร็จ กรุณาตรวจอินเทอร์เน็ตแล้วลองใหม่')
         setToast(message)
+        setPendingAttachment(file)
         setBusy(false)
         return
       }
     } catch (error) {
       setToast(userError(error))
+      setPendingAttachment(file)
       setBusy(false)
       return
     }
@@ -1574,6 +1620,7 @@ export function ChatPage() {
       })
       setBusy(false)
       setMessageText('')
+      setPendingAttachment(null)
       await loadMessages(selectedRoom.id)
       setToast('ส่งไฟล์เรียบร้อยแล้ว', true)
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -1584,6 +1631,37 @@ export function ChatPage() {
       return
     }
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const handleAttachmentSelected = (file: File | null) => {
+    if (!file) return
+    if (!canSend) {
+      setToast('กรุณาเลือกห้องและรอการเชื่อมต่อก่อนแนบไฟล์')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+    if (file.size > maxChatAttachmentBytes) {
+      setToast('ไฟล์ใหญ่เกิน 50 MB กรุณาเลือกรูปหรือไฟล์ที่เล็กลง')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+    const contentType = getChatAttachmentContentType(file)
+    if (!supportedChatAttachmentTypes.has(contentType)) {
+      setToast('ไฟล์ชนิดนี้ยังไม่รองรับ กรุณาใช้รูป JPG, PNG, WebP, HEIC หรือ PDF')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+    setPendingAttachment(file)
+    setToast(`เลือกไฟล์ ${file.name} แล้ว กดปุ่มส่งเพื่อแนบในห้องนี้`)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const sendCurrentMessage = () => {
+    if (pendingAttachment) {
+      void sendFileMessage(pendingAttachment)
+      return
+    }
+    void sendTextMessage()
   }
 
   const addMember = async () => {
@@ -2122,6 +2200,30 @@ export function ChatPage() {
 
               <Divider />
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1, alignItems: { xs: 'stretch', sm: 'center' }, minWidth: 0 }}>
+                {pendingAttachment && (
+                  <Card variant="outlined" sx={{ mb: 0.75, bgcolor: 'action.hover' }}>
+                    <CardContent sx={{ py: 0.75, px: 1, '&:last-child': { pb: 0.75 } }}>
+                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
+                        <AttachFileOutlinedIcon color="primary" fontSize="small" />
+                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                          <Typography variant="body2" noWrap sx={{ fontWeight: 700 }}>
+                            {pendingAttachment.name}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            พร้อมส่ง · {Math.ceil(pendingAttachment.size / 1024).toLocaleString('th-TH')} KB
+                          </Typography>
+                        </Box>
+                        <IconButton
+                          size="small"
+                          onClick={() => setPendingAttachment(null)}
+                          aria-label="ยกเลิกไฟล์ที่เลือก"
+                        >
+                          <CloseOutlinedIcon fontSize="small" />
+                        </IconButton>
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                )}
                 <TextField
                   fullWidth
                   multiline
@@ -2157,21 +2259,22 @@ export function ChatPage() {
                     size="medium"
                     variant="contained"
                     endIcon={<SendOutlinedIcon />}
-                    onClick={() => void sendTextMessage()}
-                    disabled={!messageText.trim() || !canSend}
+                    onClick={sendCurrentMessage}
+                    disabled={(!messageText.trim() && !pendingAttachment) || !canSend}
                     sx={{ minHeight: 44, minWidth: { xs: 92, sm: 84 } }}
                   >
-                    ส่ง
+                    {pendingAttachment ? 'ส่งไฟล์' : 'ส่ง'}
                   </Button>
                 </Stack>
                 <input
                   type="file"
-                  hidden
                   ref={fileInputRef}
+                  aria-label="เลือกไฟล์แนบ"
+                  style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', border: 0 }}
                   accept="image/*,.heic,.heif,.avif,.tif,.tiff,application/pdf,text/plain,.doc,.docx,.xls,.xlsx"
                   onChange={(event) => {
                     const file = event.target.files?.[0] ?? null
-                    void sendFileMessage(file)
+                    handleAttachmentSelected(file)
                   }}
                 />
               </Stack>

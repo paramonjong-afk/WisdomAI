@@ -3,10 +3,12 @@ import TimerOutlinedIcon from '@mui/icons-material/TimerOutlined'
 import { Alert, Avatar, Badge, Box, ButtonBase, CircularProgress, Paper, Stack, Typography } from '@mui/material'
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { AuthLoadingScreen } from '../../components/AuthLoadingScreen'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
 import { fetchChatUnreadCount } from '../../services/chatUnread'
+import { getPostLoginDestination } from '../../utils/authRouting'
 
 export function AppLauncherPage() {
   usePageTitle('เลือกเมนู')
@@ -14,6 +16,7 @@ export function AppLauncherPage() {
   const { user, profile, currentCompany } = useAuth()
   const companyId = currentCompany?.company_id ?? ''
   const profileId = user?.id ?? profile?.id ?? ''
+  const entryDestination = profile ? getPostLoginDestination(profile.role) : '/'
   const [unreadCount, setUnreadCount] = useState(0)
   const [loadingUnread, setLoadingUnread] = useState(true)
   const [unreadError, setUnreadError] = useState('')
@@ -58,6 +61,13 @@ export function AppLauncherPage() {
       void supabase.removeChannel(channel)
     }
   }, [companyId, loadUnreadCount, profileId])
+
+  useEffect(() => {
+    if (!profile || entryDestination === '/') return
+    navigate(entryDestination, { replace: true })
+  }, [entryDestination, navigate, profile])
+
+  if (profile && entryDestination !== '/') return <AuthLoadingScreen />
 
   return (
     <Stack spacing={2} sx={{ width: '100%', minWidth: 0, maxWidth: 900, mx: 'auto' }}>

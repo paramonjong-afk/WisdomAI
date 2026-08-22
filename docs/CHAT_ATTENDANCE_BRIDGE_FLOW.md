@@ -3,11 +3,15 @@
 ```mermaid
 flowchart TD
   M0[ติดตั้ง/เปิดไอคอน WisdomAI เดียวบนมือถือ] --> L0[Login สำเร็จ]
-  L0 --> L1[Application Launcher]
-  L1 --> L2[ไอคอน Web Chat + badge ข้อความค้าง]
-  L1 --> L3[ไอคอนลงเวลา]
-  L2 --> U[ผู้ใช้เข้า Web Chat]
-  L3 --> L4[หน้า Time Tracking]
+  L0 --> L1{ตรวจอุปกรณ์และบทบาท}
+  L1 -->|มือถือ| L2[หน้า Time Tracking เดิม]
+  L1 -->|คอม + admin/manager| L3[Dashboard รวม]
+  L1 -->|คอม + employee| L4[My Profile]
+  L2 --> L5[ทางลัด Web Chat]
+  L3 --> L6[Sidebar Web Chat]
+  L4 --> L6
+  L5 --> U[ผู้ใช้เข้า Web Chat]
+  L6 --> U
   A[HR/ผู้จัดการตั้งห้อง HR ใน Web Chat] --> B[chat_room_integrations key=attendance enabled]
   C1[รายการแจ้งเวลา: ลงเวลา/ขอแก้เวลา] --> D[HR event publisher กลาง]
   C2[รายการแจ้งออก: ลงเวลาออก/แจ้งลาออก] --> D
@@ -39,7 +43,7 @@ flowchart TD
   AA -->|ไม่ใช่| AC[แสดงรายการห้องแบบย่อด้านซ้าย]
 ```
 
-กราฟนี้สรุปภาพรวมใหม่ของห้อง HR: ผู้ใช้มือถือสามารถเปิดระบบจากไอคอน WisdomAI เดียวที่ติดตั้งเป็น PWA แล้วเข้าสู่ Application Launcher ซึ่งมีไอคอน Web Chat พร้อม badge จำนวนข้อความค้าง และไอคอนลงเวลา จากนั้นทุก event ที่เป็นงาน HR จะถูกส่งผ่าน publisher กลางไปยังห้องเดียวกัน โดยใช้ delivery ledger กันข้อความซ้ำและเก็บ error/retry แยกจากข้อมูลต้นทาง ขณะเดียวกัน Web Chat จะเปิด Presence ของผู้ใช้ แสดงสถานะออนไลน์ เปิด private call channel ตามบริษัท/ห้องสำหรับโทรเสียง 1 ต่อ 1 ผ่าน WebRTC และใช้พื้นที่สนทนาแบบ compact เพื่อให้ข้อความเป็นศูนย์กลาง โดยเฉพาะบนมือถือจะซ่อนรายการห้องไว้ในเมนูเลือกห้อง
+กราฟนี้สรุปภาพรวมใหม่ของห้อง HR: ผู้ใช้มือถือเปิดจากไอคอน WisdomAI เดียวแล้วเข้า Time Tracking เดิม ส่วนคอมพิวเตอร์จะไป Dashboard รวมเมื่อเป็น admin/manager หรือไป My Profile เมื่อเป็น employee จากนั้นผู้ใช้เปิด Web Chat ผ่านทางลัดหรือ Sidebar และทุก event ที่เป็นงาน HR จะถูกส่งผ่าน publisher กลางไปยังห้องเดียวกัน โดยใช้ delivery ledger กันข้อความซ้ำและเก็บ error/retry แยกจากข้อมูลต้นทาง ขณะเดียวกัน Web Chat จะเปิด Presence ของผู้ใช้ แสดงสถานะออนไลน์ เปิด private call channel ตามบริษัท/ห้องสำหรับโทรเสียง 1 ต่อ 1 ผ่าน WebRTC และใช้พื้นที่สนทนาแบบ compact เพื่อให้ข้อความเป็นศูนย์กลาง โดยเฉพาะบนมือถือจะซ่อนรายการห้องไว้ในเมนูเลือกห้อง
 
 ## วัตถุประสงค์
 
@@ -214,17 +218,19 @@ flowchart LR
   G[เลือกไฟล์รูป/เอกสาร] --> H[ตรวจขนาดและ normalize MIME]
   H --> I{ชนิดไฟล์อยู่ใน allow-list หรือไม่}
   I -->|ไม่| J[หยุดและแจ้งชนิดไฟล์ที่รองรับ]
-  I -->|ใช่| N[สร้าง object path ด้วย UUID หรือ fallback id]
+  I -->|ใช่| S[ตรวจ Auth session และ expires_at]
+  S -->|หมดอายุ/refresh ไม่สำเร็จ| T[คงไฟล์ค้างและแจ้งให้เข้าสู่ระบบใหม่]
+  S -->|พร้อม| N[สร้าง object path ด้วย UUID หรือ fallback id]
   N --> K[อัปโหลด chat-attachments ตาม company/room policy]
   K --> L[insert chat_messages แบบ file]
 ```
 
 - **Input:** `company_id`, `profile_id`, ห้องที่ RLS ให้เห็น, `chat_room_read_states`, `chat_messages.created_at`, ไฟล์จาก `<input type=file>` และ MIME/นามสกุลไฟล์
 - **Output:** launcher icon สองรายการ, badge จำนวนข้อความค้าง, หรือ `chat_messages` แบบ file พร้อม signed URL สำหรับสมาชิกห้อง
-- **States:** `loading → ready|unread_error`; ไฟล์ `selected → validated → uploaded → message_recorded|failed`; HEIC/HEIF/AVIF/TIFF ถูก normalize ก่อนตรวจ allow-list
-- **Roles / Permission:** launcher ใช้ Auth session; unread query จำกัดบริษัท/ห้องตาม RLS; upload ต้องเป็นสมาชิกบริษัทและสมาชิกห้องตาม `storage.objects` policy; bucket ยังคง private
+- **States:** `loading → ready|unread_error`; ไฟล์ `selected → validated → session_checked → uploaded → message_recorded|failed`; ถ้า session หมดอายุและ refresh ไม่สำเร็จจะคงไฟล์ไว้เพื่อ retry หลัง login ใหม่; HEIC/HEIF/AVIF/TIFF ถูก normalize ก่อนตรวจ allow-list
+- **Roles / Permission:** launcher ใช้ Auth session; unread query จำกัดบริษัท/ห้องตาม RLS; upload ใช้ `storage.objects` policy โดยสมาชิกบริษัทต้องเป็นสมาชิกห้อง และ company manager ใช้สิทธิ์ผู้จัดการตาม policy ที่มีอยู่; bucket ยังคง private
 - **Integrations:** `/` Application Launcher, `src/services/chatUnread.ts`, Supabase PostgREST/Realtime, Storage bucket `chat-attachments`, `chat_messages` และ signed URL
-- **Failure / Retry:** unread อ่านไม่ได้ให้คงไอคอนไว้และ retry ทุก 30 วินาที/เมื่อมี Realtime insert; MIME/ขนาดไม่ผ่านหยุดก่อน upload; Storage หรือ insert ล้มเหลวลบ object ค้างและแจ้งผู้ใช้
+- **Failure / Retry:** unread อ่านไม่ได้ให้คงไอคอนไว้และ retry ทุก 30 วินาที/เมื่อมี Realtime insert; MIME/ขนาดไม่ผ่านหยุดก่อน upload; ตรวจ `expires_at` และ refresh session ก่อน upload; ถ้า Storage ตอบ 401/RLS จะ refresh แล้วลอง upload ซ้ำหนึ่งครั้ง หาก refresh ไม่สำเร็จให้คงไฟล์ไว้และให้ login ใหม่; Storage หรือ insert ล้มเหลวลบ object ค้างและแจ้งผู้ใช้ โดยแยก session หมดอายุออกจากสิทธิ์ห้อง
 - **Audit events:** การเปลี่ยน route เป็น navigation event; การส่งไฟล์อยู่ใน `chat_messages` และ mutation attempt `send-file-message`; ไม่บันทึกไฟล์ซ้ำเมื่อ insert ล้มเหลว
 - **Owner:** ผู้ใช้เป็น owner ของการเลือก module/แนบไฟล์; ทีมระบบเป็น owner ของ unread service, Storage allow-list, RLS และ cleanup path
 
@@ -279,6 +285,60 @@ flowchart LR
 - **Failure / Retry:** ไม่มี token จะไม่เปิด channel และแสดง offline; storage ถูกบล็อกยังใช้ in-memory selection; room หายจาก RLS จึง fallback ตามรายการที่เข้าถึงได้
 - **Audit events:** ไม่บันทึกเนื้อหาใน storage key; request/error telemetry เดิมยังบันทึก websocket/API failure
 - **Owner:** ทีมระบบเป็น owner ของ auth hand-off และ selection persistence; Supabase เป็น owner ของ JWT/RLS authorization
+
+## Explicit mobile attachment send state (v1.12)
+
+```mermaid
+flowchart LR
+  A[กดไอคอนแนบไฟล์] --> B[เลือกไฟล์จากเครื่อง]
+  B --> C[ตรวจ MIME และขนาดทันที]
+  C -->|ไม่ผ่าน| D[แจ้งเหตุผลและไม่เก็บไฟล์]
+  C -->|ผ่าน| E[เก็บไฟล์ค้างในหน้าห้อง]
+  E --> F[แสดงชื่อ/ขนาดและปุ่มส่งไฟล์]
+  F --> G{มี session ห้อง และบริษัทพร้อมหรือไม่}
+  G -->|ไม่| H[แจ้งให้ login/เลือกห้อง และเก็บไฟล์ไว้ให้ลองใหม่]
+  G -->|ใช่| I[ตรวจ session แล้วอัปโหลด Storage]
+  I --> J{สำเร็จหรือไม่}
+  J -->|ไม่| K[แสดง MIME/สิทธิ์/เครือข่าย และเก็บไฟล์ไว้ retry]
+  J -->|ใช่| L[insert chat_messages แบบ file]
+  L -->|ผิดพลาด| M[ลบ object ค้างและเก็บไฟล์ไว้ retry]
+  L -->|สำเร็จ| N[ล้างไฟล์ค้างและแสดง signed URL]
+```
+
+- **เหตุผล:** flow เดิมเริ่มอัปโหลดทันทีใน `onChange` ของ file input ทำให้ผู้ใช้มือถือไม่เห็นว่าไฟล์ถูกเลือกแล้ว และเมื่อ session/ห้องยังไม่พร้อมอาจดูเหมือนเลือกไฟล์แล้วหายไป
+- **ผลกระทบ:** `src/pages/Chat/index.tsx` เปลี่ยนเป็น `selected → pending → sending → uploaded → message_recorded|failed`; ผู้ใช้เห็นชื่อ/ขนาดไฟล์และกด `ส่งไฟล์` เอง; input ใช้ visually-hidden style แทน `hidden` เพื่อให้ file picker บน mobile ทำงานสม่ำเสมอ
+- **Input / Output:** File API + session/ห้อง/บริษัท → pending attachment card; เมื่อสำเร็จได้ object ใน `chat-attachments`, `chat_messages` แบบ `file` และ signed URL
+- **Roles / Permission:** ยังใช้ Auth session, company membership, room membership และ Storage/RLS เดิม; company manager ใช้ policy ที่มีอยู่; UI ไม่มีการเพิ่มสิทธิ์
+- **Integrations:** browser File API, Supabase Auth/Storage/PostgREST, `chat_messages`, `runWithMutationAttempt`
+- **Failure / Retry:** MIME/ขนาดหยุดก่อนเก็บไฟล์; session หมดอายุ/Storage 403/network แสดงข้อความและคงไฟล์ไว้ให้กดส่งซ้ำ; insert ล้มเหลวลบ object แล้วคงไฟล์ไว้
+- **Audit events:** ส่งสำเร็จ/ล้มเหลวใช้ mutation attempt `send-file-message`; object จะถูกลบเมื่อบันทึกข้อความไม่สำเร็จ
+- **Owner:** ผู้ส่งเป็น owner ของการกดส่ง/ยกเลิก; ทีมระบบเป็น owner ของ validation, error mapping และ cleanup
+
+## LINE attendance command path (v1.2)
+
+```mermaid
+flowchart LR
+  A[ข้อความจาก LINE] --> B[normalize ช่องว่าง/ตัวพิมพ์]
+  B --> C{มีทิศทางเข้า/ออกชัดเจนหรือไม่}
+  C -->|ไม่ชัด เช่น ลงเวลา| D[ไม่สร้างคำขอลงเวลา เก็บเป็นข้อความ/วิเคราะห์ปกติ]
+  C -->|ลงเวลาเข้า/ลงเวลาออก| E[ตรวจกลุ่ม บริษัท ผู้ใช้ และสิทธิ์]
+  E -->|ไม่ผ่าน| F[ตอบเหตุผลและไม่สร้าง attendance request]
+  E -->|ผ่าน| G[สร้าง line_attendance_requests]
+  G --> H[เลือกไซต์/GPS/Selfie/ยืนยันตาม flow เดิม]
+  H -->|ยกเลิก/หมดอายุ| I[สถานะ cancelled/expired]
+  H -->|ยืนยัน| J[attendance_sessions source of truth]
+```
+
+ข้อความ LINE ที่มีเพียงคำกำกวม `ลงเวลา`, `ลงเวลาทำงาน`, `บันทึกเวลา` หรือ `บันทึกเวลาทำงาน` จะไม่เปิดปุ่มเลือกเข้า/ออกและไม่สร้าง `line_attendance_requests` อีกต่อไป ผู้ใช้ต้องระบุทิศทาง เช่น `ลงเวลาเข้า` หรือ `ลงเวลาออก`; คำสั่งที่มีทิศทางชัดเจนยังใช้ flow ตรวจสิทธิ์และยืนยันเดิมต่อได้
+
+- **Input:** LINE text message จากกลุ่ม/ผู้ใช้ที่ผูกบริษัท หรือข้อความที่มีคำสั่งทิศทางเข้า/ออกชัดเจน
+- **Output:** กรณีกำกวมเป็นข้อความปกติ/งานวิเคราะห์เดิม; กรณีชัดเจนเป็น `line_attendance_requests` และผลลงเวลาใน `attendance_sessions`
+- **States:** `received → normal_text|attendance_request → awaiting_employee_confirmation → pending_approval → approved|rejected|cancelled|expired`; คำกำกวมจบที่ `normal_text` โดยไม่มี side effect ด้าน attendance
+- **Roles / Permission:** ต้องเป็นกลุ่ม LINE ที่ผูกบริษัท, ผู้ส่งต้องผูกโปรไฟล์ และ backend ตรวจสมาชิก/บทบาท/ไซต์ก่อนสร้างคำขอ; การเปลี่ยน parser ไม่เพิ่มสิทธิ์
+- **Integrations:** `supabase/functions/line-webhook`, `line_attendance_requests`, `line_attendance_events`, `attendance-clock`/attendance RPC และ trigger ส่ง Log เข้า HR Chat
+- **Failure / Retry:** parser ไม่ชัดเจนไม่ retry เป็น attendance; กลุ่ม/โปรไฟล์/ไซต์ไม่ผ่านตอบเหตุผลและไม่เขียนคำขอ; LINE redelivery ใช้ webhook idempotency เดิม; คำขอค้างเดิมไม่ถูกลบหรือเปลี่ยนสถานะโดยอัตโนมัติ
+- **Audit events:** `line_ingestion_events` เก็บ `text_analysis` หรือ `line_attendance_request` ตามผล parser; คำขอที่สร้างใช้ `line_attendance_events` เดิม; ไม่มี event attendance ใหม่สำหรับคำว่า `ลงเวลา` แบบกำกวม
+- **Owner:** ทีมระบบเป็น owner ของ parser/Edge Function; HR/ผู้จัดการเป็น owner ของการอนุมัติคำขอที่สร้างแล้ว; ผู้ใช้เป็น owner ของการยืนยันข้อมูลตนเอง
 
 ## Change Record
 
@@ -378,6 +438,30 @@ flowchart LR
 - Verification: `npm run test:chat-launcher-attachment`, targeted ESLint, `npm run lint`, `npm run build`; API logs ก่อนแก้พบ websocket `401` และไม่มี request ไป `chat-attachments`, หลัง deploy ต้องตรวจซ้ำและลองแนบไฟล์ในห้อง Error จริง
 - Rollback: ยกเลิก gate/persistence ได้โดยไม่ลบห้อง ข้อความ หรือไฟล์
 
+### v1.12 — 23/8/2569
+
+- **เหตุผล:** ผู้ใช้มือถือเลือกไฟล์แล้วไม่เห็นสถานะ/ปุ่มส่งที่ชัดเจน เพราะระบบเริ่ม upload ทันทีจาก file input; เมื่อบริบท auth/ห้องยังไม่พร้อมจึงเหมือนแนบไม่สำเร็จ
+- **ผลกระทบ:** เพิ่ม pending attachment card, ปุ่ม `ส่งไฟล์`, session preflight, MIME-normalized upload body และคงไฟล์ไว้ retry; ไม่เปลี่ยน bucket, policy, schema หรือสิทธิ์
+- **Migration:** ไม่มี
+- **Verification:** `npm run test:chat-launcher-attachment`, targeted ESLint, `npm run lint`, `npm run build` และทดสอบหน้า `/chat` ด้วยบัญชีสมาชิกห้องจริง
+- **Rollback:** revert pending state/explicit send/session preflight ใน `src/pages/Chat/index.tsx`; ไม่ลบห้อง ข้อความ หรือไฟล์ที่ส่งสำเร็จ
+
+### v1.13 — 23/8/2569
+
+- **เหตุผล:** Production log พบ `auth refresh 400` ตามด้วย Storage RLS error ทำให้ session หมดอายุถูกแปลเป็น “ไม่มีสิทธิ์แนบไฟล์” ทั้งที่ผู้ใช้ยังเป็นสมาชิกห้อง
+- **ผลกระทบ:** `src/pages/Chat/index.tsx` ตรวจ `session.expires_at` ก่อน upload, refresh token ที่ใกล้หมดอายุ, retry 401/RLS ด้วย token ใหม่หนึ่งครั้ง และแยกข้อความ session/สิทธิ์ห้อง/UUID ผิด; ไฟล์ที่เลือกยังคงค้างเพื่อส่งซ้ำหลัง login ใหม่; ใช้ Storage policy ผู้จัดการที่มีอยู่จาก `20260822194037_chat_attachment_manager_storage_policy.sql` โดยไม่ขยายสิทธิ์เพิ่มใน v1.13
+- **Migration:** ไม่มี migration ใหม่; policy ผู้จัดการจาก `20260822194037_chat_attachment_manager_storage_policy.sql` ถูก deploy อยู่แล้ว
+- **Verification:** `npm run test:chat-launcher-attachment`, targeted ESLint, `npm run lint`, `npm run build`, ตรวจ Supabase API/Postgres log และทดสอบ upload จริงด้วย session ที่ยังใช้งานได้/หมดอายุ
+- **Rollback:** revert session freshness/error mapping ใน `src/pages/Chat/index.tsx`; ไม่ลบห้อง ข้อความ หรือไฟล์ที่ส่งสำเร็จ
+
+### v1.14 — 23/8/2569
+
+- เหตุผล: ผู้ใช้บางเครือข่ายเข้า `wisdomai.pages.dev` ซึ่งเป็น Cloudflare fallback แต่รุ่นแก้ไข attachment ถูกปล่อยเฉพาะ Vercel ทำให้ยังใช้ flow upload เก่าและแสดง RLS/session error เดิม
+- ผลกระทบ: Vercel Production ใช้ frontend artifact รุ่นแก้ไขแล้ว; Cloudflare fallback ยังอยู่รุ่นเก่าจนกว่าจะอนุมัติการ sync source ไป repository ที่เชื่อมอยู่; ไม่เปลี่ยน schema, bucket, policy หรือข้อมูลห้อง/ข้อความ
+- Migration: ไม่มี; ต้องตรวจ release parity ของทั้งสอง host ก่อน authenticated UAT
+- Verification: `npm run test:chat-launcher-attachment`, `npm run lint`, `npm run build`, Vercel deployment `dpl_GQfXKkqeun7kXqSL2RSgpMQTEd4q` READY/ไม่มี error log; Cloudflare parity และเส้นทาง `เลือกไฟล์ → pending → ส่งไฟล์ → chat_messages → signed URL` ยังเป็น blocker
+- Rollback: Vercel rollback ได้ทันที; หลัง Cloudflare sync แล้วให้ rollback artifact ของทั้งสอง host ไป release ก่อนหน้าได้; ไม่ลบ object, message หรือ audit ที่ส่งสำเร็จ
+
 ### v2.0 — 22/8/2569
 
 - เหตุผล: ให้ห้อง HR รับข้อความงานที่ต้องทำทั้งหมด ไม่ใช่เฉพาะลงเวลาเข้า/ออก ได้แก่ รายการแจ้งเวลา, รายการแจ้งออก และงาน HR อื่น ๆ
@@ -393,3 +477,19 @@ flowchart LR
 - Migration: ไม่มี schema หรือข้อมูลธุรกิจใหม่; เป็น static asset/manifest change
 - Verification: ตรวจขนาดและภาพจริงของ PNG, ตรวจ manifest/HTML links, `npm run lint`, `npm run build` และตรวจ route `/` หลังเปิดจาก PWA
 - Rollback: คืน `start_url` เป็น `/time-tracking`, ถอด icon links และซ่อน avatar บน Launcher ได้; ไม่กระทบข้อความ ห้อง สมาชิก ลงเวลา หรือ delivery audit
+
+### v2.2 — 23/8/2569
+
+- เหตุผล: ให้จุดเข้าโปรแกรมเลือกหน้าแรกตามอุปกรณ์และบทบาท ลดการให้ผู้ใช้ทุกคนผ่าน Launcher ก่อน
+- ผลกระทบ: `authRouting`, `Login`, `ProtectedRoute`, `AppLauncher` และเอกสาร Navigation/Time Tracking; mobile ไป Time Tracking, desktop manager/admin ไป Dashboard, desktop employee ไป My Profile
+- Migration: ไม่มี schema/data migration
+- Verification: auth-routing test, lint, build, route guard และตรวจทางเข้า Web Chat จาก Sidebar/ทางลัด
+- Rollback: คืนการเปิด Launcher เป็นค่าเริ่มต้นได้ โดยไม่ลบข้อความ ห้อง Presence voice call หรือ attendance/HR delivery
+
+### v2.3 — 23/8/2569
+
+- เหตุผล: ยกเลิกการตรวจจับคำกำกวมจาก LINE ที่มีเพียง `ลงเวลา` เพื่อไม่ให้ระบบเปิดคำขอหรือเลือกเข้า/ออกโดยไม่ได้ระบุทิศทาง
+- ผลกระทบ: `supabase/functions/line-webhook/attendance-command.ts`, `supabase/functions/line-webhook/index.ts`, parser regression test และ Flow Registry; `ลงเวลาเข้า`/`ลงเวลาออก` และคำที่มีทิศทางชัดเจนยังทำงานเหมือนเดิม
+- Migration: ไม่มี schema/data migration; ตรวจ Production แล้วไม่พบ `line_attendance_requests` หรือ `line_task_commands` ที่มาจากข้อความ generic เหล่านี้ จึงไม่มีรายการค้างให้ลบ/ยกเลิก
+- Verification: parser test สำหรับ generic/directional commands, targeted lint, build, Edge Function deploy และ query ตรวจรายการค้าง/สถานะบน Production
+- Rollback: คืน parser เดิมและ deploy `line-webhook` รุ่นก่อนหน้าได้; ข้อมูลคำขอ/attendance ที่มีอยู่ก่อนการเปลี่ยนไม่ถูกลบหรือแก้ย้อนหลัง

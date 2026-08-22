@@ -36,7 +36,7 @@ export function ProtectedRoute() {
     // This module-scoped flag is intentionally consumed once per page load.
     // eslint-disable-next-line react-hooks/globals
     employeeEntryRedirectPending = false
-    if (!['/', '/time-tracking', '/line-link'].includes(location.pathname)) {
+    if (!['/', '/time-tracking', '/my-profile', '/line-link'].includes(location.pathname)) {
       return <Navigate to={getPostLoginDestination(profile.role)} replace />
     }
   }

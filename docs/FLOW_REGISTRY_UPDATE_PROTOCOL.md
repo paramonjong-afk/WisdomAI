@@ -1,5 +1,45 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Web Chat Attachment Host Parity v1.14 — 23/8/2569
+
+- **เหตุผล:** ผู้ใช้บางเครือข่ายเข้า `wisdomai.pages.dev` ซึ่งเป็น Cloudflare fallback แต่รุ่นแก้ไข attachment อยู่เฉพาะ Vercel จึงยังเห็น flow upload เก่าและข้อความ RLS/session เดิม
+- **ผลกระทบ:** Vercel Production ใช้ artifact รุ่นแก้ไขแล้ว; Cloudflare fallback ยังต้อง sync source จาก repository ก่อนจึงจะใช้ behavior เดียวกัน; ไม่เปลี่ยน schema, policy หรือข้อมูลเดิม
+- **Migration:** ไม่มี; release parity ของทั้งสอง host ยังเป็นเงื่อนไขก่อน authenticated UAT
+- **การตรวจสอบ:** attachment regression, lint, build, Vercel deployment `dpl_GQfXKkqeun7kXqSL2RSgpMQTEd4q` READY/ไม่มี error log; Cloudflare deployment และ real-page UAT ยังรอสิทธิ์ sync source
+- **Rollback:** Vercel rollback ได้; หลัง sync แล้ว rollback artifact ของทั้งสอง host ไป release ก่อนหน้าได้โดยไม่ลบไฟล์/ข้อความ
+
+## ล่าสุด: Web Chat Attachment Session Recovery v1.13 — 23/8/2569
+
+- **เหตุผล:** Production log พบ `auth refresh 400` ตามด้วย Storage RLS error ทำให้ session หมดอายุถูกแปลเป็น “ไม่มีสิทธิ์แนบไฟล์” ทั้งที่ผู้ใช้ยังเป็นสมาชิกห้อง
+- **ผลกระทบ:** `src/pages/Chat/index.tsx`, `scripts/chat-launcher-attachment.test.ts`, `docs/CHAT_ATTENDANCE_BRIDGE_FLOW.md` และ Flow Registry card; ตรวจ `session.expires_at`, refresh ก่อน upload, retry 401/RLS ด้วย token ใหม่หนึ่งครั้ง และแยก error session/สิทธิ์ห้อง/UUID โดยคง pending file ไว้เมื่อ login ใหม่; ใช้ policy ผู้จัดการที่มีอยู่จาก `20260822194037_chat_attachment_manager_storage_policy.sql`
+- **Migration:** ไม่มี migration ใหม่; policy ผู้จัดการเดิมถูก deploy อยู่แล้ว ไม่ขยายสิทธิ์เพิ่มใน v1.13
+- **การตรวจสอบ:** targeted attachment test, ESLint, full lint/build, ตรวจ Supabase API/Postgres/Storage log และทดสอบ upload จริงด้วย session ที่ใช้งานได้/หมดอายุ
+- **Rollback:** revert session freshness/error mapping ใน Chat; ไม่ลบข้อความหรือไฟล์เดิม
+
+## ล่าสุด: Web Chat Explicit Mobile Attachment Send v1.12 — 23/8/2569
+
+- **เหตุผล:** file input เดิมเริ่ม upload ทันที ทำให้บนมือถือไม่เห็นไฟล์ค้าง/ปุ่มส่ง และ session หรือห้องไม่พร้อมแล้วดูเหมือนแนบไม่สำเร็จ
+- **ผลกระทบ:** `src/pages/Chat/index.tsx`, `scripts/chat-launcher-attachment.test.ts`, `docs/CHAT_ATTENDANCE_BRIDGE_FLOW.md` และ Flow Registry card; เพิ่ม pending attachment card, explicit `ส่งไฟล์`, session preflight และ retry โดยไม่เปลี่ยน Storage/RLS
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** targeted attachment test, ESLint, full lint/build และทดสอบเส้นทางหน้า `/chat` ด้วยบัญชีสมาชิกห้องจริง
+- **Rollback:** คืน flow upload อัตโนมัติได้โดยไม่ลบข้อความหรือไฟล์เดิม
+
+## ล่าสุด: LINE Attendance Generic Command Disable v1.0 — 23/8/2569
+
+- **เหตุผล:** ยกเลิกการตรวจจับข้อความกำกวมจาก LINE ที่มีเพียง `ลงเวลา`/`บันทึกเวลา` เพื่อไม่ให้ระบบสร้างคำขอลงเวลาโดยผู้ส่งไม่ได้ระบุเข้า/ออก
+- **ผลกระทบ:** `supabase/functions/line-webhook/attendance-command.ts`, `supabase/functions/line-webhook/index.ts`, `scripts/line-attendance-command.test.ts`, `docs/CHAT_ATTENDANCE_BRIDGE_FLOW.md` และ Flow Registry card; คำสั่งทิศทางชัดเจนยังใช้ flow เดิม
+- **Migration:** ไม่มี schema/data migration; Production query ไม่พบคำขอ `line_attendance_requests` หรือ `line_task_commands` ที่มาจากคำ generic จึงไม่ลบหรือเปลี่ยนรายการเดิม
+- **การตรวจสอบ:** parser regression, lint, build, Edge Function deploy และตรวจสถานะ/รายการค้างบน Production
+- **Rollback:** deploy `line-webhook` รุ่นก่อนหน้าและคืน parser เดิมได้ โดยไม่ลบ `attendance_sessions`, คำขอ, ข้อความ LINE หรือ audit
+
+## ล่าสุด: Device and Role Entry Routing v1.0 — 23/8/2569
+
+- **เหตุผล:** ลดความสับสนหลัง Login โดยให้มือถือเข้า Time Tracking เดิม และให้คอมพิวเตอร์ไปหน้าที่เหมาะกับบทบาท
+- **ผลกระทบ:** `src/utils/authRouting.ts`, `src/pages/AppLauncher/index.tsx`, `src/pages/Login/index.tsx`, `src/router/ProtectedRoute.tsx`, `docs/NAVIGATION_FLOW.md`, `docs/TIME_TRACKING_FLOW.md`, `docs/CHAT_ATTENDANCE_BRIDGE_FLOW.md` และ Flow Registry card; mobile → `/time-tracking`, desktop admin/manager → `/dashboard`, desktop employee → `/my-profile`
+- **Migration:** ไม่มี schema/data migration; เปลี่ยนเฉพาะ client routing และ fallback
+- **การตรวจสอบ:** auth-routing test, targeted/full lint, build, route guard, ตรวจ manifest/route จริง และตรวจทางเข้า Web Chat จาก Sidebar/ทางลัด
+- **Rollback:** คืน `getPostLoginDestination` เป็น `/`, ยกเลิก AppLauncher redirect และคืน Login post-auth fallback เป็น `/`; ข้อมูลลงเวลา ห้องแชต และ audit ไม่ถูกลบ
+
 ## ล่าสุด: WisdomAI PWA App Icon v1.0 — 22/8/2569
 
 - **เหตุผล:** ให้ผู้ใช้มือถือมีไอคอนโปรแกรม WisdomAI เพียงตัวเดียว และเปิดเข้าสู่ Application Launcher ก่อนเลือก Web Chat หรือ ลงเวลา

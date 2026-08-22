@@ -2,6 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 import { ImageMagick, initializeImageMagick, MagickFormat } from 'npm:@imagemagick/magick-wasm@^0'
 import { sendLinePush, type LinePriority } from '../_shared/line-quota.ts'
 import { describeLineWebhookEvent, safeWebhookEventList } from '../_shared/line-webhook-intake.ts'
+import { parseLineAttendanceCommand } from './attendance-command.ts'
 
 type LineEvent = {
   type: string
@@ -1074,19 +1075,6 @@ function thaiDateTime(value: string | number | Date) {
 const bangkokBusinessDate = (value: string | number | Date) =>
   new Date(value).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
 
-function attendanceCommand(text: string | undefined): 'clock_in' | 'clock_out' | 'choose_action' | null {
-  const normalized = (text ?? '').trim().replace(/\s+/g, '')
-  if (['ลงเวลาเข้า', 'ลงเวลาเข้างาน', 'เข้างาน', 'เช็คอิน', 'clockin'].includes(normalized.toLowerCase())) return 'clock_in'
-  if (['ลงเวลาออก', 'ลงเวลาออกงาน', 'เลิกงาน', 'เช็คเอาท์', 'clockout'].includes(normalized.toLowerCase())) return 'clock_out'
-  if (['ลงเวลา', 'ลงเวลาทำงาน', 'บันทึกเวลา', 'บันทึกเวลาทำงาน'].includes(normalized)) return 'choose_action'
-  if(normalized.includes('ลงเวลา')||normalized.includes('บันทึกเวลา')){
-    if(normalized.includes('เข้า'))return 'clock_in'
-    if(normalized.includes('ออก')||normalized.includes('เลิก'))return 'clock_out'
-    return 'choose_action'
-  }
-  return null
-}
-
 function accountLinkCommand(text:string|undefined){
   const normalized=(text??'').trim().replace(/\s+/g,'')
   return ['ผูกบัญชี','เชื่อมบัญชี','ผูกไลน์','เชื่อมไลน์'].some(command=>normalized.includes(command))
@@ -1137,19 +1125,6 @@ async function createLineAccountLink(event:LineEvent){
   catch(replyError){
     console.error('LINE account-link reply failed; using group push',replyError)
     await pushLine(groupId,[linkMessage])
-  }
-}
-
-function chooseAttendanceActionMessage() {
-  return {
-    type: 'template', altText: 'กรุณาเลือกลงเวลาเข้าหรือออก',
-    template: {
-      type: 'buttons', title: 'ลงเวลาทำงาน', text: 'ระบบพบคำขอลงเวลา กรุณาเลือกรายการที่ต้องการ',
-      actions: [
-        { type: 'postback', label: 'ลงเวลาเข้า', data: 'attendance|start|clock_in', displayText: 'ลงเวลาเข้า' },
-        { type: 'postback', label: 'ลงเวลาออก', data: 'attendance|start|clock_out', displayText: 'ลงเวลาออก' },
-      ],
-    },
   }
 }
 
@@ -1786,11 +1761,10 @@ async function processMessage(event: LineEvent, companyId: string): Promise<'pro
       })
       return 'processed'
     }
-    const command = attendanceCommand(message.text)
+    const command = parseLineAttendanceCommand(message.text)
     if (command) {
       await updateIngestion(event.webhookEventId, { processing_stage: 'line_attendance_request' })
-      if(command==='choose_action')await replyLine(event.replyToken,[chooseAttendanceActionMessage()])
-      else await requestLineAttendance(event, command)
+      await requestLineAttendance(event, command)
       await updateIngestion(event.webhookEventId, {
         analysis_status: 'not_required', output_type: 'line_attendance_request',
         processing_stage: 'line_attendance_request_saved',

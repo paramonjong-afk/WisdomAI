@@ -16,7 +16,6 @@ import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
 import { userError } from '../../utils/userError'
 import { getPasswordResetRedirectUrl } from '../../utils/authRedirect'
-import { getPostLoginDestination } from '../../utils/authRouting'
 import { registerAuthSecurityEvent } from '../../utils/authSecurityEvent'
 
 export function LoginPage() {
@@ -34,7 +33,7 @@ export function LoginPage() {
     setLoading(true)
     setErrorMessage('')
 
-    const { data: signInData, error } = await supabase.auth.signInWithPassword({
+    const { error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password,
     })
@@ -57,17 +56,11 @@ export function LoginPage() {
       target_outcome: 'success',
       target_user_agent: navigator.userAgent,
     })
-    let signedInRole: 'admin' | 'manager' | 'employee' | null = null
-    if (signInData.user) {
-      const { data: signedInProfile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', signInData.user.id)
-        .maybeSingle()
-      signedInRole = signedInProfile?.role ?? null
-    }
     const requested=(location.state as {from?:string}|null)?.from
-    const safeDestination=requested?.startsWith('/')&&!requested.startsWith('//')?requested:getPostLoginDestination(signedInRole)
+    // Let ProtectedRoute/AppLauncher resolve the effective company role after
+    // AuthContext finishes loading. The profile role read here is platform-level
+    // and may not match the active company role.
+    const safeDestination=requested?.startsWith('/')&&!requested.startsWith('//')?requested:'/'
     navigate(safeDestination, { replace: true })
   }
 

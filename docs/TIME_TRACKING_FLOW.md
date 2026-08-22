@@ -2,17 +2,22 @@
 
 ```mermaid
 flowchart LR
-  A[Login สำเร็จ] --> B[Application Launcher]
-  B --> C[กดไอคอนลงเวลา]
-  B --> D[กดไอคอน Web Chat]
-  C --> E[ตรวจ GPS + Selfie + ยืนยัน]
-  E --> F[attendance-clock]
-  F --> G[attendance_sessions]
-  D --> H[/chat ภายใน Auth session เดิม]
-  G --> I[HR Chat Bridge เมื่อเปิด integration]
+  A[Login สำเร็จ] --> B{ตรวจอุปกรณ์และบทบาท}
+  B -->|มือถือ| C[เปิด /time-tracking เดิม]
+  B -->|คอม + admin/manager| D[เปิด /dashboard รวม]
+  B -->|คอม + employee| E[เปิด /my-profile]
+  C --> F[ตรวจ GPS + Selfie + ยืนยัน]
+  F --> G[attendance-clock]
+  G --> H[attendance_sessions]
+  C --> I[กด Web Chat จากทางลัด]
+  D --> J[เปิด Web Chat จาก Sidebar]
+  E --> J
+  I --> K[/chat ภายใน Auth session เดิม]
+  J --> K
+  H --> L[HR Chat Bridge เมื่อเปิด integration]
 ```
 
-กราฟนี้แสดงจุดเข้าหลักหลัง Login: ผู้ใช้เลือกไอคอนลงเวลาหรือ Web Chat จากหน้า Application Launcher โดยการเลือก Web Chat ไม่เปลี่ยนข้อมูล GPS/Selfie และการลงเวลายังคงตรวจสอบผ่าน `attendance-clock` ก่อนเขียน `attendance_sessions`
+กราฟนี้แสดงจุดเข้าหลักหลัง Login: ระบบตรวจอุปกรณ์และบทบาทก่อนเลือกหน้าเริ่มต้น โดยมือถือยังเข้า `/time-tracking` เดิม, คอมพิวเตอร์ที่เป็นผู้ดูแล/ผู้จัดการเข้า Dashboard รวม และพนักงานเข้า `/my-profile`; การลงเวลายังคงตรวจสอบผ่าน `attendance-clock` ก่อนเขียน `attendance_sessions` และ Web Chat เปิดได้จากทางลัดหรือ Sidebar ตามอุปกรณ์
 
 ## วัตถุประสงค์
 
@@ -22,8 +27,8 @@ flowchart LR
 
 - **Input:** บริษัทปัจจุบัน, ผู้ใช้ที่ Login แล้ว, ไซต์ที่ได้รับมอบหมาย, GPS, Selfie และ action `clock_in|clock_out`
 - **Output:** `attendance_sessions`, สถานะ `normal|needs_review|failed`, ประวัติลงเวลา และข้อความระบบในห้อง HR เมื่อเปิด bridge
-- **Navigation input:** ผู้ใช้กดไอคอน `ลงเวลา` หรือ `Web Chat` จาก Application Launcher หรือกดไอคอน Web Chat จากหน้า `/time-tracking`
-- **Navigation output:** ไป `/time-tracking` หรือ `/chat` ภายใน session เดิม โดยไม่ส่งข้อมูล GPS/Selfie ผ่าน URL
+- **Navigation input:** device signals (`userAgent`, viewport, touch/coarse pointer), effective profile role, requested path และทางลัด Web Chat
+- **Navigation output:** มือถือไป `/time-tracking`; คอม `admin/manager` ไป `/dashboard`; คอม `employee` ไป `/my-profile`; Web Chat ไป `/chat` ภายใน session เดิม โดยไม่ส่งข้อมูล GPS/Selfie ผ่าน URL
 
 ## States
 
@@ -74,3 +79,11 @@ flowchart LR
 - Migration: ไม่มี
 - Verification: targeted ESLint, Vite build, route check และตรวจว่า launcher ใช้ Auth session เดิม
 - Rollback: เปลี่ยน index route กลับไป post-login destination เดิมและคืนปุ่มข้อความได้ โดยไม่กระทบ attendance data
+
+### v1.3 — 23/8/2569
+
+- เหตุผล: ลดขั้นตอนหน้าเลือกเมนู โดยให้ระบบเลือกหน้าเริ่มต้นจากอุปกรณ์และบทบาทที่ตรวจได้
+- ผลกระทบ: `authRouting`, `ProtectedRoute`, `Login`, `AppLauncher` และเส้นทางเข้า `/dashboard`, `/my-profile`, `/time-tracking`; ไม่เปลี่ยน GPS, Selfie, `attendance-clock` หรือ `attendance_sessions`
+- Migration: ไม่มี
+- Verification: auth-routing test, lint, build และตรวจ route guard บนมือถือ/คอม
+- Rollback: คืน `getPostLoginDestination` ให้ส่ง `/` และยกเลิก effect redirect ใน AppLauncher; attendance data ไม่ได้รับผลกระทบ
