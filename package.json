@@ -94,6 +94,7 @@
     "test:chat-launcher-attachment": "node --experimental-strip-types scripts/chat-launcher-attachment.test.ts",
     "test:hr-chat-work-event-stream": "node --experimental-strip-types scripts/hr-chat-work-event-stream.test.ts",
     "test:omni-channel-intake": "node --experimental-strip-types scripts/omni-channel-intake-outtake.test.ts",
+    "test:cheque-payment-intake": "node --experimental-strip-types scripts/cheque-payment-intake.test.ts",
     "test:attendance-channel-identity": "node --experimental-strip-types scripts/attendance-channel-identity.test.ts",
     "test:telegram-attendance-fallback": "node --experimental-strip-types scripts/telegram-attendance-fallback.test.ts",
     "test:telegram-attendance-approval": "node --experimental-strip-types scripts/telegram-attendance-approval.test.ts",

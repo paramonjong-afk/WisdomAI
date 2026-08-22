@@ -83,6 +83,7 @@ type WorkPackageTreeNode = WorkPackageOption & { children: WorkPackageTreeNode[]
 
 const typeLabels: Record<string, string> = {
   transfer_slip: 'สลิปโอนเงิน',
+  cheque_payment: 'เช็คสั่งจ่าย',
   quotation: 'ใบเสนอราคา', purchase_order: 'ใบสั่งซื้อ', goods_receipt: 'ใบรับสินค้า',
   delivery_note: 'ใบส่งสินค้า', billing_note: 'ใบวางบิล', invoice: 'ใบแจ้งหนี้',
   receipt: 'ใบเสร็จรับเงิน', cash_receipt: 'บิลเงินสด', tax_invoice_full: 'ใบกำกับภาษีเต็มรูป',
@@ -90,6 +91,7 @@ const typeLabels: Record<string, string> = {
 }
 const typeOrder = [
   'transfer_slip',
+  'cheque_payment',
   'quotation',
   'purchase_order',
   'goods_receipt',

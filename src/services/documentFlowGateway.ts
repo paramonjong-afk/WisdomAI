@@ -18,6 +18,20 @@ export type TransferSlipParties = {
   payment_party_confidence: number | null
 }
 
+export type ChequePaymentEvidence = {
+  source_message_id: string
+  cheque_number: string | null
+  cheque_issued_on: string | null
+  cheque_drawer_name: string | null
+  cheque_payee_name: string | null
+  cheque_bank_name: string | null
+  cheque_account_last4: string | null
+  amount_total: number | null
+  cheque_extraction_confidence: number | null
+  cheque_match_status: 'unmatched' | 'matched' | 'needs_review' | 'duplicate'
+  cheque_matched_entity_type: string | null
+}
+
 export type DocumentFlowScope = {
   channel?: 'all' | 'line' | 'telegram' | 'web_chat' | 'unknown'
   date?: string
@@ -202,6 +216,20 @@ export const documentFlowGateway = {
       .in('source_message_id', ids)))
     return {
       data: results.flatMap((result) => result.data ?? []) as TransferSlipParties[],
+      error: results.find((result) => result.error)?.error ?? null,
+    }
+  },
+
+  async loadChequePaymentEvidence(sourceMessageIds: string[]) {
+    const validIds = Array.from(new Set(sourceMessageIds.filter((id) => uuidPattern.test(id))))
+    if (validIds.length === 0) return { data: [] as ChequePaymentEvidence[], error: null }
+    const results = await Promise.all(chunk(validIds).map((ids) => supabase
+      .from('financial_transactions')
+      .select('source_message_id,cheque_number,cheque_issued_on,cheque_drawer_name,cheque_payee_name,cheque_bank_name,cheque_account_last4,amount_total,cheque_extraction_confidence,cheque_match_status,cheque_matched_entity_type')
+      .eq('payment_evidence_type', 'cheque_payment')
+      .in('source_message_id', ids)))
+    return {
+      data: results.flatMap((result) => result.data ?? []) as ChequePaymentEvidence[],
       error: results.find((result) => result.error)?.error ?? null,
     }
   },

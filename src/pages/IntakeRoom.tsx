@@ -9,7 +9,7 @@ import { usePageTitle } from '../hooks/usePageTitle'
 import { userError } from '../utils/userError'
 import { toFriendlyError } from '../utils/error-center'
 import { runWithMutationAttempt } from '../utils/mutationAttemptRunner'
-import { documentFlowGateway, type DocumentFlowScope, type TransferSlipParties } from '../services/documentFlowGateway'
+import { documentFlowGateway, type ChequePaymentEvidence, type DocumentFlowScope, type TransferSlipParties } from '../services/documentFlowGateway'
 import { supabase } from '../lib/supabase'
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined'
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
@@ -42,6 +42,7 @@ type IntakeFlowItem = {
   data_review_status?: 'complete' | 'incomplete' | 'recheck_required' | 'rechecked'
   data_review_note?: string | null
   transfer_parties?: TransferSlipParties | null
+  cheque_evidence?: ChequePaymentEvidence | null
 }
 
 type RawProjects = { name: string } | { name: string }[] | null
@@ -121,7 +122,7 @@ const documentTypeLabels: Record<string, string> = {
   transfer_slip: 'สลิปโอนเงิน', quotation: 'ใบเสนอราคา', purchase_order: 'ใบสั่งซื้อ',
   goods_receipt: 'ใบรับสินค้า', delivery_note: 'ใบส่งสินค้า', billing_note: 'ใบวางบิล',
   invoice: 'ใบแจ้งหนี้', receipt: 'ใบเสร็จรับเงิน', cash_receipt: 'บิลเงินสด', tax_invoice_full: 'ใบกำกับภาษี',
-  payroll: 'เอกสารเงินเดือน', unreadable: 'อ่านไม่ได้', other: 'เอกสารอื่น',
+  payroll: 'เอกสารเงินเดือน', cheque_payment: 'เช็คสั่งจ่าย', unreadable: 'อ่านไม่ได้', other: 'เอกสารอื่น',
 }
 
 const stateLabels: Record<string, string> = {
@@ -346,6 +347,7 @@ export function IntakeRoomPanel({
     const sourceMessageIds = Array.from(new Set((response.data ?? []).map((row) => (row as RawDocumentFlowRow).source_message_id)))
     const sourceMessageMap = new Map<string, RawLineMessage | null>()
     const transferPartyMap = new Map<string, TransferSlipParties>()
+    const chequeEvidenceMap = new Map<string, ChequePaymentEvidence>()
     const senderNameMap = new Map<string, string | null>()
     const groupNameMap = new Map<string, string | null>()
     if (sourceMessageIds.length > 0) {
@@ -376,6 +378,9 @@ export function IntakeRoomPanel({
       const transferPartyResponse = await documentFlowGateway.loadTransferSlipParties(sourceMessageIds)
       if (transferPartyResponse.error) console.warn('Intake transfer-slip party lookup failed', transferPartyResponse.error)
       else for (const parties of transferPartyResponse.data ?? []) transferPartyMap.set(parties.source_message_id, parties)
+      const chequeResponse = await documentFlowGateway.loadChequePaymentEvidence(sourceMessageIds)
+      if (chequeResponse.error) console.warn('Intake cheque evidence lookup failed', chequeResponse.error)
+      else for (const evidence of chequeResponse.data ?? []) chequeEvidenceMap.set(evidence.source_message_id, evidence)
     }
 
     const documentFlowItems: IntakeFlowItem[] = (response.data ?? []).map((row) => {
@@ -416,6 +421,7 @@ export function IntakeRoomPanel({
         data_review_status: typedRow.data_review_status,
         data_review_note: typedRow.data_review_note,
         transfer_parties: transferPartyMap.get(typedRow.source_message_id) ?? null,
+        cheque_evidence: chequeEvidenceMap.get(typedRow.source_message_id) ?? null,
       }
     })
 
@@ -897,6 +903,7 @@ export function IntakeRoomPanel({
           <Divider />
           <Stack spacing={1}><Typography variant="caption" color="text.secondary">เส้นทางและผู้ส่ง</Typography><Typography>{selectedItem.source_entry_point}</Typography><Typography variant="caption" color="text.secondary">เวลารับเข้า</Typography><Typography>{selectedItem.source_received_at ? new Date(selectedItem.source_received_at).toLocaleString('th-TH') : 'ไม่ระบุ'}</Typography><Typography variant="caption" color="text.secondary">ผลคุณภาพ / Issue</Typography><Stack direction="row" spacing={.5} useFlexGap sx={{ flexWrap: 'wrap' }}>{issueInfo(selectedItem.issue_codes).length ? issueInfo(selectedItem.issue_codes).map((issue) => <Chip key={issue.label} size="small" color={issue.level} label={issue.label} />) : <Chip size="small" color="success" label="ผ่านการตรวจเบื้องต้น" />}</Stack></Stack>
           {selectedItem.document_type === 'transfer_slip' && <Stack spacing={.75}><Divider /><Typography variant="subtitle2" sx={{ fontWeight: 800 }}>ข้อมูลธุรกรรมสลิป</Typography><Typography variant="caption" color="text.secondary">ผู้โอน / ธนาคารต้นทาง / บัญชีต้นทาง</Typography><Typography>{[selectedItem.transfer_parties?.sender_name, selectedItem.transfer_parties?.sender_bank_name, selectedItem.transfer_parties?.sender_account_last4 ? `•••• ${selectedItem.transfer_parties.sender_account_last4}` : null].filter(Boolean).join(' · ') || 'ยังอ่านไม่ได้'}</Typography><Typography variant="caption" color="text.secondary">ผู้รับ / ธนาคารปลายทาง / บัญชีปลายทาง</Typography><Typography>{[selectedItem.transfer_parties?.recipient_name, selectedItem.transfer_parties?.recipient_bank_name, selectedItem.transfer_parties?.recipient_account_last4 ? `•••• ${selectedItem.transfer_parties.recipient_account_last4}` : null].filter(Boolean).join(' · ') || 'ยังอ่านไม่ได้'}</Typography><Typography variant="caption" color="text.secondary">วันเวลาโอน / เลขอ้างอิง / ความมั่นใจคู่โอน</Typography><Typography>{selectedItem.transfer_parties?.transfer_at ? new Date(selectedItem.transfer_parties.transfer_at).toLocaleString('th-TH') : 'ไม่ระบุ'} · {selectedItem.transfer_parties?.bank_reference ?? 'ไม่ระบุ'} · {selectedItem.transfer_parties?.payment_party_confidence == null ? '-' : `${(selectedItem.transfer_parties.payment_party_confidence * 100).toFixed(0)}%`}</Typography></Stack>}
+          {selectedItem.document_type === 'cheque_payment' && <Stack spacing={.75}><Divider /><Typography variant="subtitle2" sx={{ fontWeight: 800 }}>ข้อมูลเช็คสั่งจ่าย</Typography><Typography variant="caption" color="text.secondary">ผู้สั่งจ่าย / ผู้รับเงิน</Typography><Typography>{[selectedItem.cheque_evidence?.cheque_drawer_name, selectedItem.cheque_evidence?.cheque_payee_name].filter(Boolean).join(' → ') || 'ยังอ่านผู้สั่งจ่ายหรือผู้รับเงินไม่ได้'}</Typography><Typography variant="caption" color="text.secondary">ธนาคาร / บัญชี / เลขที่เช็ค</Typography><Typography>{[selectedItem.cheque_evidence?.cheque_bank_name, selectedItem.cheque_evidence?.cheque_account_last4 ? `•••• ${selectedItem.cheque_evidence.cheque_account_last4}` : null, selectedItem.cheque_evidence?.cheque_number ? `เลขที่ ${selectedItem.cheque_evidence.cheque_number}` : null].filter(Boolean).join(' · ') || 'ยังอ่านข้อมูลเช็คไม่ได้'}</Typography><Typography variant="caption" color="text.secondary">วันที่ / ยอด / การจับคู่ / ความมั่นใจ</Typography><Typography>{selectedItem.cheque_evidence?.cheque_issued_on ? new Date(`${selectedItem.cheque_evidence.cheque_issued_on}T00:00:00`).toLocaleDateString('th-TH') : 'ไม่ระบุ'} · {selectedItem.cheque_evidence?.amount_total == null ? 'ไม่ระบุยอด' : `฿${selectedItem.cheque_evidence.amount_total.toLocaleString('th-TH')}`} · {selectedItem.cheque_evidence?.cheque_match_status === 'matched' ? `จับคู่แล้ว (${selectedItem.cheque_evidence.cheque_matched_entity_type ?? 'ทะเบียนกลาง'})` : selectedItem.cheque_evidence?.cheque_match_status === 'duplicate' ? 'รายการซ้ำ' : 'รอตรวจจับคู่'} · {selectedItem.cheque_evidence?.cheque_extraction_confidence == null ? '-' : `${(selectedItem.cheque_evidence.cheque_extraction_confidence * 100).toFixed(0)}%`}</Typography><Alert severity={selectedItem.cheque_evidence?.cheque_match_status === 'matched' ? 'success' : 'warning'}>{selectedItem.cheque_evidence?.cheque_match_status === 'duplicate' ? 'ระบบประทับรายการซ้ำแล้ว รายการนี้จะไม่ถูกส่งต่อ' : 'ตรวจชื่อผู้รับเงินกับทะเบียนกลางก่อนยืนยันผ่าน Intake'}</Alert></Stack>}
           <Button variant="outlined" onClick={() => void openSourcePreview(selectedItem)}>เปิดรูป/เอกสารต้นฉบับ</Button>
           {previewMessage && <Alert severity="info">{previewMessage}</Alert>}
           {previewFiles.length > 1 && <Stack direction="row" spacing={.5} useFlexGap sx={{ flexWrap: 'wrap' }}>{previewFiles.map((file, index) => <Button key={file.url} size="small" variant={index === previewIndex ? 'contained' : 'outlined'} onClick={() => setPreviewIndex(index)}>{file.label}</Button>)}</Stack>}

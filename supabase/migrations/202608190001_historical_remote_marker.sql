@@ -1,0 +1,2 @@
+-- Historical remote migration marker. The schema was already applied remotely;
+-- this file restores the source-control version chain without rerunning it.
