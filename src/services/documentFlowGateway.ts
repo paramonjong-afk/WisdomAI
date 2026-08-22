@@ -71,6 +71,35 @@ export type OmniFilterTaskRow = {
   } | null
 }
 
+export type OmniIntakeSourceRow = {
+  id: string
+  source_channel: 'line' | 'web_chat' | 'upload' | 'manual'
+  source_kind: 'message' | 'file' | 'system_event' | 'manual'
+  line_message_id: string | null
+  chat_message_id: string | null
+  source_room_id: string | null
+  source_room_name: string | null
+  source_sender_name: string | null
+  occurred_at: string
+  text_content: string | null
+  attachment_count: number
+  conversation_type: string
+  intent: string | null
+  ai_summary: string | null
+  confidence: number
+  confidence_band: string
+  filter_status: string
+  review_decision: 'pending' | 'approved' | 'rejected'
+  review_note: string | null
+}
+
+export type IntakeContextMessage = {
+  id: string
+  occurred_at: string
+  text_content: string | null
+  attachment?: { bucket: string; path: string; contentType: string | null; label: string } | null
+}
+
 const dateRange = (date?: string) => date
   ? { from: new Date(`${date}T00:00:00`).toISOString(), to: new Date(`${date}T23:59:59.999`).toISOString() }
   : { from: null, to: null }
@@ -166,6 +195,65 @@ export const documentFlowGateway = {
       else query = query.gt('omni_intake_sources.attachment_count', 0)
     }
     return query
+  },
+
+  async loadOmniIntakeSources(filters: DocumentFlowScope = {}) {
+    const { from: start, to: end } = dateRange(filters.date)
+    let query = supabase.from('omni_intake_sources').select(
+      'id,source_channel,source_kind,line_message_id,chat_message_id,source_room_id,source_room_name,source_sender_name,occurred_at,text_content,attachment_count,conversation_type,intent,ai_summary,confidence,confidence_band,filter_status,review_decision,review_note',
+      { count: 'exact' },
+    ).order('occurred_at', { ascending: false }).limit(500)
+    if (filters.channel && filters.channel !== 'all' && filters.channel !== 'telegram' && filters.channel !== 'unknown') query = query.eq('source_channel', filters.channel)
+    if (filters.channel === 'telegram' || filters.channel === 'unknown') query = query.limit(0)
+    if (start && end) query = query.gte('occurred_at', start).lte('occurred_at', end)
+    if (filters.room?.trim()) query = query.ilike('source_room_name', `%${filters.room.trim()}%`)
+    if (filters.sender?.trim()) query = query.ilike('source_sender_name', `%${filters.sender.trim()}%`)
+    if (filters.fileKind === 'unknown') query = query.eq('attachment_count', 0)
+    if (filters.fileKind && filters.fileKind !== 'all' && filters.fileKind !== 'unknown') query = query.gt('attachment_count', 0)
+    return query
+  },
+
+  async reviewOmniIntakeSource(sourceId: string, decision: 'approved' | 'rejected', note: string) {
+    return supabase.rpc('review_omni_intake_source', {
+      target_source_id: sourceId,
+      target_decision: decision,
+      target_note: note || null,
+    })
+  },
+
+  async loadOmniConversationContext(source: Pick<OmniIntakeSourceRow, 'source_channel' | 'source_room_id' | 'occurred_at'>) {
+    const center = new Date(source.occurred_at).getTime()
+    const from = new Date(center - 2 * 60 * 60 * 1000).toISOString()
+    const to = new Date(center + 2 * 60 * 60 * 1000).toISOString()
+    if (source.source_channel === 'line' && source.source_room_id) {
+      const messages = await supabase.from('line_messages')
+        .select('id,occurred_at,text_content,file_name,message_type')
+        .eq('line_group_id', source.source_room_id).gte('occurred_at', from).lte('occurred_at', to)
+        .order('occurred_at', { ascending: true }).limit(50)
+      if (messages.error) return { data: [] as IntakeContextMessage[], error: messages.error }
+      const ids = (messages.data ?? []).map((message) => message.id)
+      const attachments = ids.length ? await supabase.from('line_attachments')
+        .select('message_id,storage_bucket,storage_path,content_type').in('message_id', ids) : { data: [], error: null }
+      if (attachments.error) return { data: [] as IntakeContextMessage[], error: attachments.error }
+      const attachmentByMessage = new Map((attachments.data ?? []).map((file) => [file.message_id, file]))
+      return { data: (messages.data ?? []).map((message) => {
+        const file = attachmentByMessage.get(message.id)
+        return { id: message.id, occurred_at: message.occurred_at, text_content: message.text_content ?? message.file_name ?? null,
+          attachment: file ? { bucket: file.storage_bucket, path: file.storage_path, contentType: file.content_type, label: message.file_name ?? 'ไฟล์แนบ' } : null }
+      }), error: null }
+    }
+    if (source.source_channel === 'web_chat' && source.source_room_id) {
+      const messages = await supabase.from('chat_messages')
+        .select('id,created_at,text_content,attachment_bucket,attachment_path,attachment_name,attachment_content_type')
+        .eq('room_id', source.source_room_id).is('deleted_at', null).gte('created_at', from).lte('created_at', to)
+        .order('created_at', { ascending: true }).limit(50)
+      if (messages.error) return { data: [] as IntakeContextMessage[], error: messages.error }
+      return { data: (messages.data ?? []).map((message) => ({
+        id: message.id, occurred_at: message.created_at, text_content: message.text_content ?? message.attachment_name ?? null,
+        attachment: message.attachment_path && message.attachment_bucket ? { bucket: message.attachment_bucket, path: message.attachment_path, contentType: message.attachment_content_type, label: message.attachment_name ?? 'ไฟล์แนบ' } : null,
+      })), error: null }
+    }
+    return { data: [] as IntakeContextMessage[], error: null }
   },
 
   async loadSourceMessages(sourceMessageIds: string[]) {

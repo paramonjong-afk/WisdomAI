@@ -41,6 +41,7 @@ flowchart TD
 - Filter: `queued`, `confirmed`, `needs_review`, `returned`, `duplicate`, `dismissed`
 - OutTake: `not_ready`, `ready`, `sent`, `failed`, `suppressed`
 - Confidence: `auto` (≥ 90%), `review` (70–89%), `needs_review` (< 70%)
+- Intake review: `pending`, `approved`, `rejected`
 
 ## Roles / Permissions
 
@@ -93,3 +94,12 @@ flowchart TD
 - Migration: ไม่มี schema ใหม่เพิ่มเติมจาก `202608220002_omni_channel_intake_outtake.sql`
 - Verification: migration contract test, lint, build และตรวจหน้า `/document-flows`
 - Rollback: ซ่อนแท็บ `Omni Filter`; backend registry ยังทำงานต่อและไม่กระทบ document flow เดิม
+
+### v1.2 — 23/8/2569
+
+- เหตุผล: ให้ Admin เห็นข้อความ LINE/Web Chat ในขา Intake โดยไม่ทำให้ข้อความสนทนาทุกข้อความกลายเป็นเอกสาร และตรวจบริบทพร้อมรูป/ไฟล์ได้จากจุดเดียว
+- ผลกระทบ: Intake Room เพิ่มแท็บ `ข้อความและบริบท`; Drawer แสดงข้อความในห้องเดียวกันช่วงก่อน–หลัง 2 ชั่วโมง, ลิงก์เปิดรูป/ไฟล์แบบ signed URL และคำสั่ง `Approve`/`Reject`
+- การบันทึก: `review_omni_intake_source` เปลี่ยน `filter_status` อย่างมีสิทธิ์, ปรับ Filter task ที่เกี่ยวข้อง และเขียน immutable audit ที่ `omni_intake_review_events`
+- Migration: `20260822192231_omni_intake_review_actions.sql`
+- Verification: ทดสอบ migration/TypeScript/lint/build, ตรวจ RLS และตรวจหน้า `/document-flows`
+- Rollback: ซ่อนแท็บข้อความและ Drawer ได้โดยไม่ลบ `omni_intake_sources`, ข้อความ LINE/Web Chat หรือประวัติ audit

@@ -4,6 +4,8 @@ const migration = readFileSync('supabase/migrations/202608220002_omni_channel_in
 const flow = readFileSync('docs/OMNI_CHANNEL_INTAKE_OUTTAKE_FLOW.md', 'utf8')
 const intakeFlow = readFileSync('docs/INTAKE_CASE_FLOW.md', 'utf8')
 const registry = readFileSync('src/pages/FlowRegistry/index.tsx', 'utf8')
+const reviewMigration = readFileSync('supabase/migrations/20260822192231_omni_intake_review_actions.sql', 'utf8')
+const intakeRoom = readFileSync('src/pages/IntakeRoom.tsx', 'utf8')
 
 const requiredSql = [
   'create table if not exists public.omni_channel_routes',
@@ -32,5 +34,11 @@ for (const needle of ['LINE Intake', 'Web Chat Intake', 'Conversation Analyzer',
 if (!intakeFlow.includes('Omni Intake Source Registry')) throw new Error('Intake flow must include Omni registry')
 if (!registry.includes('Omni Channel Intake / OutTake')) throw new Error('Flow Registry must list Omni Channel flow')
 if (!migration.includes("dedupe_status in ('primary','duplicate','possible_duplicate','context')")) throw new Error('dedupe states not enforced')
+for (const needle of ['review_decision', 'omni_intake_review_events', 'review_omni_intake_source', 'omni_intake_review_permission_denied']) {
+  if (!reviewMigration.includes(needle)) throw new Error(`missing omni review contract: ${needle}`)
+}
+for (const needle of ['ข้อความและบริบท', 'loadOmniConversationContext', "reviewOmniSource('approved')", "reviewOmniSource('rejected')"]) {
+  if (!intakeRoom.includes(needle)) throw new Error(`missing Intake message context UI: ${needle}`)
+}
 
 console.log('omni channel intake/outtake contract checks passed')
