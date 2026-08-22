@@ -139,6 +139,7 @@ const roomLabel = (room: string) => room.replaceAll('_', ' ')
 const routeTargetLabel = (routeTarget: string | null) => routeTarget ? routeTarget.replaceAll('_', ' ') : '-'
 const maskedAccount = (last4: string | null) => last4 ? `•••• ${last4}` : 'ยังไม่ระบุ'
 const dateTime = (value: string | null) => value ? new Date(value).toLocaleString('th-TH') : 'ยังไม่ระบุ'
+const bangkokToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date())
 
 const workPackageSaveMessage = (reason: unknown, action: 'create' | 'assign') => {
   const raw = userError(reason).toLowerCase()
@@ -190,7 +191,9 @@ export function DocumentFlowsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [globalScope, setGlobalScope] = useState<DocumentFlowScope>(() => ({
     channel: (searchParams.get('channel') as DocumentFlowScope['channel']) || 'all',
-    date: searchParams.get('received_date') || '',
+    // Intake is the entry point and can grow continuously.  Start with the
+    // Bangkok business day unless a shared URL explicitly defines a date.
+    date: searchParams.get('received_date') || bangkokToday(),
     room: searchParams.get('source_room') || '',
     sender: searchParams.get('source_sender') || '',
     fileKind: (searchParams.get('file_kind') as DocumentFlowScope['fileKind']) || 'all',
@@ -231,6 +234,8 @@ export function DocumentFlowsPage() {
   const [globalFilterOpen, setGlobalFilterOpen] = useState(false)
   const intakeTableToolsRef = useRef<IntakeRoomTableTools | null>(null)
   const flowTableToolsRef = useRef<StandardDataTableTools | null>(null)
+  const today = bangkokToday()
+  const isDefaultTodayScope = globalScope.date === today
 
   const updateGlobalScope = useCallback((updates: Partial<DocumentFlowScope>) => {
     setGlobalScope((current) => ({ ...current, ...updates }))
@@ -240,9 +245,13 @@ export function DocumentFlowsPage() {
     setGlobalScope({ channel: 'all', date: '', room: '', sender: '', fileKind: 'all', project: '' })
   }, [])
 
+  const selectTodayScope = useCallback(() => {
+    setGlobalScope((current) => ({ ...current, date: bangkokToday() }))
+  }, [])
+
   const activeGlobalFilterCount = useMemo(() => [
-    globalScope.channel !== 'all', Boolean(globalScope.date), Boolean(globalScope.room), Boolean(globalScope.sender), globalScope.fileKind !== 'all', Boolean(globalScope.project),
-  ].filter(Boolean).length, [globalScope])
+    globalScope.channel !== 'all', Boolean(globalScope.date) && !isDefaultTodayScope, Boolean(globalScope.room), Boolean(globalScope.sender), globalScope.fileKind !== 'all', Boolean(globalScope.project),
+  ].filter(Boolean).length, [globalScope, isDefaultTodayScope])
   const setVisibleIntakeCount = useCallback((count: number) => setCounts((current) => current.intake === count ? current : { ...current, intake: count }), [])
 
   useEffect(() => {
@@ -634,7 +643,12 @@ export function DocumentFlowsPage() {
   }, [])
 
   return <Stack spacing={2.5}>
-    <Box sx={{ display: 'flex', justifyContent: 'flex-end', minHeight: 28 }}>
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, flexWrap: 'wrap', minHeight: 28 }}>
+      <Stack direction="row" spacing={.5} sx={{ alignItems: 'center' }}>
+        <Button size="small" variant={isDefaultTodayScope ? 'contained' : 'outlined'} onClick={selectTodayScope}>วันนี้</Button>
+        <Button size="small" variant={!globalScope.date ? 'contained' : 'outlined'} onClick={() => updateGlobalScope({ date: '' })}>ทั้งหมด</Button>
+        <Typography variant="caption" color="text.secondary">{globalScope.date ? `รับเข้าวันที่ ${new Date(`${globalScope.date}T00:00:00`).toLocaleDateString('th-TH')}` : 'ทุกช่วงเวลา'}</Typography>
+      </Stack>
       <Stack direction="row" spacing={0.5}>
         <Tooltip title="ตัวกรองกลาง"><IconButton size="small" color={activeGlobalFilterCount ? 'primary' : 'default'} onClick={() => setGlobalFilterOpen(true)}><Badge color="primary" badgeContent={activeGlobalFilterCount} invisible={activeGlobalFilterCount === 0}><FilterAltOutlinedIcon fontSize="small" /></Badge></IconButton></Tooltip>
         <Tooltip title="รีเฟรช"><span><IconButton size="small" color="primary" disabled={loading} onClick={() => { void load(); if (flow === 'intake_room') void intakeTableToolsRef.current?.refresh() }}><RefreshOutlinedIcon fontSize="small" /></IconButton></span></Tooltip>
@@ -662,14 +676,6 @@ export function DocumentFlowsPage() {
       </Tabs>
     </Paper>}
     {activeGlobalFilterCount > 0 && <Stack direction="row" spacing={1} sx={{ alignItems: 'center', px: .5 }}><Chip size="small" color="primary" label={`ตัวกรอง ${activeGlobalFilterCount} รายการ`} onClick={() => setGlobalFilterOpen(true)} /><Typography variant="caption" color="text.secondary">ใช้กับทุก Tap</Typography><Button size="small" onClick={clearGlobalScope}>ล้าง</Button></Stack>}
-    <Drawer anchor="right" open={globalFilterOpen && flow === 'intake_room'} onClose={() => setGlobalFilterOpen(false)} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 420 }, p: 3 } } }}><Stack spacing={2}>
-      <Box><Typography variant="h6" sx={{ fontWeight: 800 }}>ตัวกรองข้อมูลกลาง</Typography><Typography variant="body2" color="text.secondary">ค่าชุดเดียวกันใช้กับทุก Tap</Typography></Box>
-      <FormControl size="small" fullWidth><InputLabel>ช่องทาง</InputLabel><Select label="ช่องทาง" value={globalScope.channel ?? 'all'} onChange={(event) => updateGlobalScope({ channel: event.target.value as DocumentFlowScope['channel'] })}><MenuItem value="all">ทุกช่องทาง</MenuItem><MenuItem value="line">LINE</MenuItem><MenuItem value="telegram">Telegram</MenuItem><MenuItem value="web_chat">Web Chat</MenuItem><MenuItem value="unknown">ไม่ทราบต้นทาง</MenuItem></Select></FormControl>
-      <TextField size="small" type="date" label="วันที่รับเข้า" value={globalScope.date ?? ''} onChange={(event) => updateGlobalScope({ date: event.target.value })} slotProps={{ inputLabel: { shrink: true } }} fullWidth />
-      <TextField size="small" label="ห้องต้นทาง" value={globalScope.room ?? ''} onChange={(event) => updateGlobalScope({ room: event.target.value })} fullWidth /><TextField size="small" label="ผู้ส่ง" value={globalScope.sender ?? ''} onChange={(event) => updateGlobalScope({ sender: event.target.value })} fullWidth />
-      <FormControl size="small" fullWidth><InputLabel>ประเภทไฟล์</InputLabel><Select label="ประเภทไฟล์" value={globalScope.fileKind ?? 'all'} onChange={(event) => updateGlobalScope({ fileKind: event.target.value as DocumentFlowScope['fileKind'] })}><MenuItem value="all">ทุกประเภทไฟล์</MenuItem><MenuItem value="image_or_scan">รูป/สแกน</MenuItem><MenuItem value="pdf">PDF</MenuItem><MenuItem value="document">เอกสาร</MenuItem><MenuItem value="unknown">ไม่ระบุชนิด</MenuItem></Select></FormControl><TextField size="small" label="โครงการ" value={globalScope.project ?? ''} onChange={(event) => updateGlobalScope({ project: event.target.value })} fullWidth />
-      <Stack direction="row" spacing={1}><Button fullWidth variant="outlined" onClick={() => updateGlobalScope({ date: new Date().toLocaleDateString('en-CA') })}>วันนี้</Button><Button fullWidth onClick={clearGlobalScope}>ล้างทั้งหมด</Button></Stack><Button variant="contained" onClick={() => setGlobalFilterOpen(false)}>ใช้ตัวกรอง</Button>
-    </Stack></Drawer>
     {flow === 'intake_room' && <IntakeRoomPanel tableToolsRef={intakeTableToolsRef} globalScope={globalScope} onVisibleCountChange={setVisibleIntakeCount} />}
     {flow === 'omni_filter' && (
       <StandardDataTable
@@ -788,7 +794,7 @@ export function DocumentFlowsPage() {
         <TextField size="small" label="ผู้ส่ง" value={globalScope.sender ?? ''} onChange={(event) => updateGlobalScope({ sender: event.target.value })} fullWidth />
         <FormControl size="small" fullWidth><InputLabel>ประเภทไฟล์</InputLabel><Select label="ประเภทไฟล์" value={globalScope.fileKind ?? 'all'} onChange={(event) => updateGlobalScope({ fileKind: event.target.value as DocumentFlowScope['fileKind'] })}><MenuItem value="all">ทุกประเภทไฟล์</MenuItem><MenuItem value="image_or_scan">รูป/สแกน</MenuItem><MenuItem value="pdf">PDF</MenuItem><MenuItem value="document">เอกสาร</MenuItem><MenuItem value="unknown">ไม่ระบุชนิด</MenuItem></Select></FormControl>
         <TextField size="small" label="โครงการ" value={globalScope.project ?? ''} onChange={(event) => updateGlobalScope({ project: event.target.value })} fullWidth />
-        <Stack direction="row" spacing={1}><Button fullWidth variant="outlined" onClick={() => updateGlobalScope({ date: new Date().toLocaleDateString('en-CA') })}>วันนี้</Button><Button fullWidth onClick={clearGlobalScope}>ล้างทั้งหมด</Button></Stack>
+        <Stack direction="row" spacing={1}><Button fullWidth variant="outlined" onClick={selectTodayScope}>วันนี้</Button><Button fullWidth onClick={clearGlobalScope}>ล้างทั้งหมด</Button></Stack>
         <Button variant="contained" onClick={() => setGlobalFilterOpen(false)}>ใช้ตัวกรอง</Button>
       </Stack>
     </Drawer>
