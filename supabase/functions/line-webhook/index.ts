@@ -61,6 +61,7 @@ type WorkAnalysis = {
 
 type FinancialDocument = {
   is_transfer_slip: boolean
+  is_cheque_payment: boolean
   sender_name: string | null
   sender_bank_name: string | null
   sender_account_last4: string | null
@@ -76,6 +77,13 @@ type FinancialDocument = {
   notes: string | null
   payment_party_confidence: number
   confidence: number
+  cheque_number: string | null
+  cheque_issued_on: string | null
+  cheque_drawer_name: string | null
+  cheque_payee_name: string | null
+  cheque_bank_name: string | null
+  cheque_account_last4: string | null
+  cheque_extraction_confidence: number
 }
 
 type AccountingDocumentLine = {
@@ -92,7 +100,7 @@ type AccountingDocumentLine = {
 type AccountingDocumentExtraction = {
   is_accounting_document: boolean
   document_type:
-    | 'transfer_slip' | 'receipt' | 'tax_invoice_full' | 'tax_invoice_abbreviated'
+    | 'transfer_slip' | 'cheque_payment' | 'receipt' | 'tax_invoice_full' | 'tax_invoice_abbreviated'
     | 'receipt_tax_invoice' | 'invoice_tax_invoice' | 'receipt_tax_invoice_abbreviated'
     | 'quotation' | 'purchase_order' | 'invoice' | 'billing_note' | 'delivery_note'
     | 'goods_receipt' | 'withholding_tax_certificate' | 'payroll' | 'other' | 'unreadable'
@@ -481,7 +489,7 @@ async function analyzeImageWithGemini(
             'Summarize the visible work, progress indicators, defects, safety risks, and recommended follow-up.',
             'Do not identify a person, infer identity, or perform face recognition.',
             'Do not invent project, location, date, quantity, completion percentage, or assignee.',
-            'When the image is a transfer slip, extract payment facts into financial_document.',
+            'When the image is a transfer slip or cheque payment, extract payment facts into financial_document.',
             'An employee recipient can receive labor, materials/equipment, mixed, or advance payments.',
             'Never classify a payment as labor from the recipient name alone.',
             'Use labor only with evidence such as wages, salary, overtime, allowance, or hired labor.',
@@ -503,9 +511,9 @@ async function analyzeImageWithGemini(
             'Return exactly one JSON object and no markdown.',
             'Required top-level keys: category, summary_text, assignee_text, urgency, confidence, project_codes, financial_document, accounting_document, system_error.',
             'Set system_error to null unless this is evidence of a software/program error. Otherwise it must contain is_system_error, error_code, visible_message, affected_module, confidence.',
-            'Set financial_document to null unless the image is a transfer slip.',
-            'A financial_document must contain is_transfer_slip, sender_name, sender_bank_name, sender_account_last4, recipient_name, recipient_bank_name, recipient_account_last4, amount_total, labor_amount, materials_amount, expense_type, transfer_at, bank_reference, notes, payment_party_confidence, confidence.',
-            'Read payer and recipient only when visibly stated on the slip. Never treat the LINE uploader as the payer. Return only the final 4 digits of each account, digits only; return null when unreadable.',
+            'Set financial_document to null unless the image is a transfer slip or cheque payment.',
+            'A financial_document must contain is_transfer_slip, is_cheque_payment, sender_name, sender_bank_name, sender_account_last4, recipient_name, recipient_bank_name, recipient_account_last4, amount_total, labor_amount, materials_amount, expense_type, transfer_at, bank_reference, notes, payment_party_confidence, confidence, cheque_number, cheque_issued_on, cheque_drawer_name, cheque_payee_name, cheque_bank_name, cheque_account_last4, cheque_extraction_confidence.',
+            'For a cheque payment set is_cheque_payment true and is_transfer_slip false. Extract cheque number, issue date, drawer, payee, bank and final 4 account digits only when visible. Never treat the LINE uploader as drawer or payee. Return null when unreadable.',
             'Set accounting_document to null unless the image is an accounting document.',
             'Classify every accounting document across independent dimensions: money flow, lifecycle, counterparty, project/cost, expense, tax, payment, matching, and risk.',
             'Never infer paid status from an invoice alone. Quotations and purchase orders are commitment, not expense payment.',
@@ -604,6 +612,18 @@ async function analyzeImageWithGemini(
     party.recipient_bank_name = nullableText(party.recipient_bank_name, 120)
     party.recipient_account_last4 = accountLast4(party.recipient_account_last4)
     party.payment_party_confidence = Math.max(0, Math.min(1, Number(party.payment_party_confidence) || 0))
+    party.is_transfer_slip = party.is_transfer_slip === true
+    party.is_cheque_payment = party.is_cheque_payment === true
+    if (party.is_cheque_payment) party.is_transfer_slip = false
+    party.cheque_number = nullableText(party.cheque_number, 120)
+    party.cheque_issued_on = typeof party.cheque_issued_on === 'string' && !Number.isNaN(Date.parse(party.cheque_issued_on))
+      ? new Date(party.cheque_issued_on).toISOString().slice(0, 10)
+      : null
+    party.cheque_drawer_name = nullableText(party.cheque_drawer_name, 240)
+    party.cheque_payee_name = nullableText(party.cheque_payee_name, 240)
+    party.cheque_bank_name = nullableText(party.cheque_bank_name, 120)
+    party.cheque_account_last4 = accountLast4(party.cheque_account_last4)
+    party.cheque_extraction_confidence = Math.max(0, Math.min(1, Number(party.cheque_extraction_confidence) || 0))
   }
   if (parsed.accounting_document) {
     const documentTypeAliases: Record<string, AccountingDocumentExtraction['document_type']> = {
@@ -614,12 +634,14 @@ async function analyzeImageWithGemini(
       cash_receipt: 'receipt',
       bank_slip: 'transfer_slip',
       payment_slip: 'transfer_slip',
+      cheque: 'cheque_payment',
+      check: 'cheque_payment',
       quote: 'quotation',
       po: 'purchase_order',
       unknown: 'other',
     }
     const allowedDocumentTypes: AccountingDocumentExtraction['document_type'][] = [
-      'transfer_slip', 'receipt', 'tax_invoice_full', 'tax_invoice_abbreviated',
+      'transfer_slip', 'cheque_payment', 'receipt', 'tax_invoice_full', 'tax_invoice_abbreviated',
       'receipt_tax_invoice', 'invoice_tax_invoice', 'receipt_tax_invoice_abbreviated',
       'quotation', 'purchase_order', 'invoice', 'billing_note', 'delivery_note',
       'goods_receipt', 'withholding_tax_certificate', 'payroll', 'other', 'unreadable',
@@ -674,12 +696,22 @@ async function saveFinancialTransaction(
   model: string | null,
   analysisError: string | null,
 ) {
-  if (!financial.is_transfer_slip) return
+  const isChequePayment = financial.is_cheque_payment === true
+  const isTransferSlip = financial.is_transfer_slip === true && !isChequePayment
+  if (!isTransferSlip && !isChequePayment) return
 
   const normalizedReference = financial.bank_reference
     ? normalizeReference(financial.bank_reference)
     : ''
-  const dedupeKey = normalizedReference
+  const chequeIdentity = [
+    financial.cheque_bank_name,
+    financial.cheque_number,
+    financial.cheque_issued_on,
+    financial.amount_total,
+  ].filter((value) => value != null && value !== '').join(':')
+  const dedupeKey = isChequePayment && chequeIdentity
+    ? `cheque:${chequeIdentity.toLowerCase()}`
+    : normalizedReference
     ? `reference:${normalizedReference}:${financial.amount_total ?? 'unknown'}`
     : `image:${imageHash}`
   const splitTotal = (financial.labor_amount ?? 0) + (financial.materials_amount ?? 0)
@@ -731,6 +763,14 @@ async function saveFinancialTransaction(
     review_status: isDuplicate ? 'duplicate' : 'pending',
     notes,
     payment_party_confidence: financial.payment_party_confidence,
+    payment_evidence_type: isChequePayment ? 'cheque_payment' : 'transfer_slip',
+    cheque_number: isChequePayment ? financial.cheque_number : null,
+    cheque_issued_on: isChequePayment ? financial.cheque_issued_on : null,
+    cheque_drawer_name: isChequePayment ? financial.cheque_drawer_name : null,
+    cheque_payee_name: isChequePayment ? financial.cheque_payee_name : null,
+    cheque_bank_name: isChequePayment ? financial.cheque_bank_name : null,
+    cheque_account_last4: isChequePayment ? financial.cheque_account_last4 : null,
+    cheque_extraction_confidence: isChequePayment ? financial.cheque_extraction_confidence : null,
     analysis_provider: provider,
     analysis_model: model,
     analysis_confidence: financial.confidence,
@@ -1985,14 +2025,16 @@ async function processMessage(event: LineEvent, companyId: string): Promise<'pro
         ? 'progress_report'
         : ['issue', 'risk', 'safety'].includes(result.analysis.category)
           ? 'issue_report'
-          : result.analysis.financial_document?.is_transfer_slip
+          : result.analysis.financial_document?.is_transfer_slip || result.analysis.financial_document?.is_cheque_payment
             || result.analysis.accounting_document?.is_accounting_document
             ? 'financial_document'
             : 'other'
       const proposedDocumentType = result.analysis.accounting_document?.is_accounting_document
         ? result.analysis.accounting_document.document_type
-        : result.analysis.financial_document?.is_transfer_slip
-          ? 'transfer_slip'
+        : result.analysis.financial_document?.is_cheque_payment
+          ? 'cheque_payment'
+          : result.analysis.financial_document?.is_transfer_slip
+            ? 'transfer_slip'
           : null
       const retentionClass = proposedPurpose === 'system_error'
         ? 'system_error'
@@ -2128,7 +2170,7 @@ async function processMessage(event: LineEvent, companyId: string): Promise<'pro
 
       const imageHash = contentHash
 
-      if (result.analysis.financial_document?.is_transfer_slip) {
+      if (result.analysis.financial_document?.is_transfer_slip || result.analysis.financial_document?.is_cheque_payment) {
         await saveFinancialTransaction(
           companyId,
           saved.id,
