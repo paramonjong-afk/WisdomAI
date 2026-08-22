@@ -290,27 +290,29 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  A[กดไอคอนแนบไฟล์] --> B[เลือกไฟล์จากเครื่อง]
-  B --> C[ตรวจ MIME และขนาดทันที]
-  C -->|ไม่ผ่าน| D[แจ้งเหตุผลและไม่เก็บไฟล์]
-  C -->|ผ่าน| E[เก็บไฟล์ค้างในหน้าห้อง]
-  E --> F[แสดงชื่อ/ขนาดและปุ่มส่งไฟล์]
-  F --> G{มี session ห้อง และบริษัทพร้อมหรือไม่}
-  G -->|ไม่| H[แจ้งให้ login/เลือกห้อง และเก็บไฟล์ไว้ให้ลองใหม่]
-  G -->|ใช่| I[ตรวจ session แล้วอัปโหลด Storage]
-  I --> J{สำเร็จหรือไม่}
-  J -->|ไม่| K[แสดง MIME/สิทธิ์/เครือข่าย และเก็บไฟล์ไว้ retry]
-  J -->|ใช่| L[insert chat_messages แบบ file]
-  L -->|ผิดพลาด| M[ลบ object ค้างและเก็บไฟล์ไว้ retry]
-  L -->|สำเร็จ| N[ล้างไฟล์ค้างและแสดง signed URL]
+  A{เลือกไฟล์จากเครื่องหรือวางไฟล์ในพื้นที่แชต} -->|ไอคอนแนบไฟล์| B[เปิด file picker]
+  A -->|ลากแล้ววาง| C[รับไฟล์จาก dataTransfer]
+  B --> D[ตรวจ MIME และขนาดทันที]
+  C --> D
+  D -->|ไม่ผ่าน| E[แจ้งเหตุผลและไม่เก็บไฟล์]
+  D -->|ผ่าน| F[เก็บไฟล์ค้างในหน้าห้อง]
+  F --> G[แสดงชื่อ/ขนาดและปุ่มส่งไฟล์]
+  G --> H{มี session ห้อง และบริษัทพร้อมหรือไม่}
+  H -->|ไม่| I[แจ้งให้ login/เลือกห้อง และเก็บไฟล์ไว้ให้ลองใหม่]
+  H -->|ใช่| J[ตรวจ session แล้วอัปโหลด Storage]
+  J --> K{สำเร็จหรือไม่}
+  K -->|ไม่| L[แสดง MIME/สิทธิ์/เครือข่าย และเก็บไฟล์ไว้ retry]
+  K -->|ใช่| M[insert chat_messages แบบ file]
+  M -->|ผิดพลาด| N[ลบ object ค้างและเก็บไฟล์ไว้ retry]
+  M -->|สำเร็จ| O[ล้างไฟล์ค้างและแสดง signed URL]
 ```
 
 - **เหตุผล:** flow เดิมเริ่มอัปโหลดทันทีใน `onChange` ของ file input ทำให้ผู้ใช้มือถือไม่เห็นว่าไฟล์ถูกเลือกแล้ว และเมื่อ session/ห้องยังไม่พร้อมอาจดูเหมือนเลือกไฟล์แล้วหายไป
-- **ผลกระทบ:** `src/pages/Chat/index.tsx` เปลี่ยนเป็น `selected → pending → sending → uploaded → message_recorded|failed`; ผู้ใช้เห็นชื่อ/ขนาดไฟล์และกด `ส่งไฟล์` เอง; input ใช้ visually-hidden style แทน `hidden` เพื่อให้ file picker บน mobile ทำงานสม่ำเสมอ
-- **Input / Output:** File API + session/ห้อง/บริษัท → pending attachment card; เมื่อสำเร็จได้ object ใน `chat-attachments`, `chat_messages` แบบ `file` และ signed URL
+- **ผลกระทบ:** `src/pages/Chat/index.tsx` รองรับทั้ง file picker และลากไฟล์มาวางในพื้นที่แชต; เปลี่ยนเป็น `selected → pending → sending → uploaded → message_recorded|failed`; ผู้ใช้เห็นชื่อ/ขนาดไฟล์และกด `ส่งไฟล์` เอง; input ใช้ visually-hidden style แทน `hidden` เพื่อให้ file picker บน mobile ทำงานสม่ำเสมอ
+- **Input / Output:** File picker หรือ `dataTransfer.files` + session/ห้อง/บริษัท → pending attachment card; เมื่อสำเร็จได้ object ใน `chat-attachments`, `chat_messages` แบบ `file` และ signed URL
 - **Roles / Permission:** ยังใช้ Auth session, company membership, room membership และ Storage/RLS เดิม; company manager ใช้ policy ที่มีอยู่; UI ไม่มีการเพิ่มสิทธิ์
 - **Integrations:** browser File API, Supabase Auth/Storage/PostgREST, `chat_messages`, `runWithMutationAttempt`
-- **Failure / Retry:** MIME/ขนาดหยุดก่อนเก็บไฟล์; session หมดอายุ/Storage 403/network แสดงข้อความและคงไฟล์ไว้ให้กดส่งซ้ำ; insert ล้มเหลวลบ object แล้วคงไฟล์ไว้
+- **Failure / Retry:** drop ที่ไม่มีไฟล์หรือไม่มีห้องจะไม่ upload; MIME/ขนาดหยุดก่อนเก็บไฟล์; session หมดอายุ/Storage 403/network แสดงข้อความและคงไฟล์ไว้ให้กดส่งซ้ำ; insert ล้มเหลวลบ object แล้วคงไฟล์ไว้
 - **Audit events:** ส่งสำเร็จ/ล้มเหลวใช้ mutation attempt `send-file-message`; object จะถูกลบเมื่อบันทึกข้อความไม่สำเร็จ
 - **Owner:** ผู้ส่งเป็น owner ของการกดส่ง/ยกเลิก; ทีมระบบเป็น owner ของ validation, error mapping และ cleanup
 

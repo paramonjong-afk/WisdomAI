@@ -40,7 +40,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
@@ -312,7 +312,9 @@ export function ChatPage() {
   const [attendanceBusy, setAttendanceBusy] = useState(false)
   const [voiceListening, setVoiceListening] = useState(false)
   const [pendingAttachment, setPendingAttachment] = useState<File | null>(null)
+  const [isDragActive, setIsDragActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const dragDepthRef = useRef(0)
   const messageBottomRef = useRef<HTMLDivElement | null>(null)
   const attendanceVideoRef = useRef<HTMLVideoElement | null>(null)
   const attendanceStreamRef = useRef<MediaStream | null>(null)
@@ -1656,6 +1658,49 @@ export function ChatPage() {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
+  const resetDragState = () => {
+    dragDepthRef.current = 0
+    setIsDragActive(false)
+  }
+
+  const hasDraggedFiles = (event: DragEvent<HTMLDivElement>) => event.dataTransfer.types.includes('Files')
+
+  const handleChatDragEnter = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasDraggedFiles(event)) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (!selectedRoom || !canSend) return
+    dragDepthRef.current += 1
+    setIsDragActive(true)
+  }
+
+  const handleChatDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasDraggedFiles(event)) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = canSend ? 'copy' : 'none'
+    if (selectedRoom && canSend) setIsDragActive(true)
+  }
+
+  const handleChatDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasDraggedFiles(event)) return
+    event.preventDefault()
+    event.stopPropagation()
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+    if (dragDepthRef.current === 0) setIsDragActive(false)
+  }
+
+  const handleChatDrop = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasDraggedFiles(event)) return
+    event.preventDefault()
+    event.stopPropagation()
+    resetDragState()
+    const file = event.dataTransfer.files?.[0] ?? null
+    if (!file) return
+    if ((event.dataTransfer.files?.length ?? 0) > 1) setToast('แนบได้ครั้งละ 1 ไฟล์ ระบบจะใช้ไฟล์แรกที่เลือก')
+    handleAttachmentSelected(file)
+  }
+
   const sendCurrentMessage = () => {
     if (pendingAttachment) {
       void sendFileMessage(pendingAttachment)
@@ -2028,7 +2073,38 @@ export function ChatPage() {
           </Stack>
         </Paper>
 
-        <Paper variant="outlined" sx={{ height: '100%', minHeight: 0, p: { xs: 0.8, sm: 1 }, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
+        <Paper
+          variant="outlined"
+          onDragEnter={handleChatDragEnter}
+          onDragOver={handleChatDragOver}
+          onDragLeave={handleChatDragLeave}
+          onDrop={handleChatDrop}
+          aria-label="พื้นที่วางไฟล์แนบในห้องแชต"
+          sx={{ height: '100%', minHeight: 0, p: { xs: 0.8, sm: 1 }, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden', position: 'relative' }}
+        >
+          {isDragActive && (
+            <Box
+              aria-hidden="true"
+              sx={{
+                position: 'absolute',
+                inset: 4,
+                zIndex: 3,
+                display: 'grid',
+                placeItems: 'center',
+                border: '2px dashed',
+                borderColor: 'primary.main',
+                borderRadius: 2,
+                bgcolor: 'rgba(25, 118, 210, 0.10)',
+                pointerEvents: 'none',
+              }}
+            >
+              <Stack spacing={0.5} sx={{ alignItems: 'center', textAlign: 'center', px: 2 }}>
+                <AttachFileOutlinedIcon color="primary" sx={{ fontSize: 42 }} />
+                <Typography variant="h6" color="primary" sx={{ fontWeight: 800 }}>วางไฟล์ที่นี่</Typography>
+                <Typography variant="body2" color="text.secondary">ระบบจะตรวจชนิดไฟล์และขนาดก่อนให้กดส่ง</Typography>
+              </Stack>
+            </Box>
+          )}
           {!selectedRoom ? (
             <Box sx={{ p: 4, display: 'grid', placeItems: 'center', minHeight: 420 }}>
               <Alert severity="info" sx={{ maxWidth: 420 }}>
@@ -2252,9 +2328,13 @@ export function ChatPage() {
                   >
                     <KeyboardVoiceOutlinedIcon />
                   </IconButton>
-                  <IconButton color="primary" onClick={() => fileInputRef.current?.click()} disabled={!canSend} sx={{ minWidth: 44, minHeight: 44 }}>
-                    <AttachFileOutlinedIcon />
-                  </IconButton>
+                  <Tooltip title="เลือกไฟล์ หรือ ลากไฟล์มาวางในพื้นที่แชต">
+                    <span>
+                      <IconButton color="primary" onClick={() => fileInputRef.current?.click()} disabled={!canSend} aria-label="เลือกไฟล์ หรือ ลากไฟล์มาวางในพื้นที่แชต" sx={{ minWidth: 44, minHeight: 44 }}>
+                        <AttachFileOutlinedIcon />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
                   <Button
                     size="medium"
                     variant="contained"

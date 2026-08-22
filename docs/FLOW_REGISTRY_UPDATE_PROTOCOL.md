@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Web Chat Drag-and-Drop Attachment v1.16 — 23/8/2569
+
+- **เหตุผล:** ผู้ใช้คอมพิวเตอร์ต้องการลากไฟล์จากเครื่องมาวางในห้องแชตโดยไม่ต้องเปิด file picker
+- **ผลกระทบ:** `src/pages/Chat/index.tsx` รับ `dataTransfer.files`, แสดง drop overlay และนำไฟล์เข้า pending/send flow เดิม; validation, session, RLS, Storage และ `chat_messages` ไม่เปลี่ยน
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** attachment regression, targeted ESLint, lint/build และ real-page drag/drop UAT; ตรวจ MIME/ขนาด, pending card, ส่งไฟล์, Storage object และ chat message
+- **Rollback:** ถอด drag/drop handlers และ overlay ได้โดยไม่ลบไฟล์/ข้อความที่ส่งสำเร็จ
+
 ## ล่าสุด: Release Parity Gate v1.15 — 23/8/2569
 
 - **เหตุผล:** Cloudflare fallback อาจตอบเร็วกว่าแต่เป็น frontend คนละ revision กับ Vercel ทำให้ผู้ใช้เห็นหน้าหรือ flow เก่าโดยไม่รู้ตัว
