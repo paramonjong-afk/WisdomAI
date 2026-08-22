@@ -6,6 +6,8 @@ const intakeFlow = readFileSync('docs/INTAKE_CASE_FLOW.md', 'utf8')
 const registry = readFileSync('src/pages/FlowRegistry/index.tsx', 'utf8')
 const reviewMigration = readFileSync('supabase/migrations/20260822192231_omni_intake_review_actions.sql', 'utf8')
 const intakeRoom = readFileSync('src/pages/IntakeRoom.tsx', 'utf8')
+const senderlessWebChatMigration = readFileSync('supabase/migrations/20260822193341_web_chat_omni_intake_senderless_messages.sql', 'utf8')
+const chatAttachmentPolicyMigration = readFileSync('supabase/migrations/20260822194037_chat_attachment_manager_storage_policy.sql', 'utf8')
 
 const requiredSql = [
   'create table if not exists public.omni_channel_routes',
@@ -39,6 +41,13 @@ for (const needle of ['review_decision', 'omni_intake_review_events', 'review_om
 }
 for (const needle of ['ข้อความและบริบท', 'loadOmniConversationContext', "reviewOmniSource('approved')", "reviewOmniSource('rejected')"]) {
   if (!intakeRoom.includes(needle)) throw new Error(`missing Intake message context UI: ${needle}`)
+}
+if (senderlessWebChatMigration.includes('new.sender_profile_id is null or')) throw new Error('Web Chat Intake must not skip senderless messages')
+for (const needle of ['omni_register_chat_message_trigger', "coalesce(sender_row.display_name, 'ไม่ระบุผู้ส่ง')", 'for chat_row in select * from public.chat_messages where deleted_at is null']) {
+  if (!senderlessWebChatMigration.includes(needle)) throw new Error(`missing senderless Web Chat contract: ${needle}`)
+}
+for (const needle of ['Members and managers can view chat files', 'Members and managers can upload chat files', "bucket_id = 'chat-attachments'", 'public.is_company_manager']) {
+  if (!chatAttachmentPolicyMigration.includes(needle)) throw new Error(`missing chat attachment manager policy: ${needle}`)
 }
 
 console.log('omni channel intake/outtake contract checks passed')
