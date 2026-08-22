@@ -15,12 +15,13 @@
       .target strong { display: block; }
       .target span { color: #806b63; font-size: .9rem; text-align: right; }
       .target[data-state="ready"] { border-color: #6da77a; background: #f4fbf5; }
-      .target[data-state="failed"] { border-color: #d99090; background: #fff7f7; }
+      .target[data-state="failed"], .target[data-state="stale"] { border-color: #d99090; background: #fff7f7; }
       .status { min-height: 48px; margin: 20px 0 8px; padding: 12px; border-radius: 10px; background: #f4ece8; line-height: 1.45; }
       button, a { min-height: 44px; border-radius: 10px; font: inherit; font-weight: 700; }
       button { width: 100%; border: 0; background: #b35b3f; color: #fff; cursor: pointer; }
       .manual { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
       .manual a { display: grid; place-items: center; border: 1px solid #cfae9f; color: #8c432d; text-decoration: none; }
+      .manual a[aria-disabled="true"] { opacity: .55; cursor: not-allowed; text-decoration: line-through; }
       small { display: block; margin-top: 16px; color: #806b63; text-align: center; }
     </style>
   </head>
@@ -28,13 +29,13 @@
     <main>
       <h1>WisdomAI Smart Entry</h1>
       <p class="lead">ระบบกำลังเลือกเส้นทางที่เชื่อมต่อได้และตอบสนองเร็วที่สุด รองรับทั้งมือถือและคอมพิวเตอร์</p>
-      <section class="target" data-target="vercel" data-state="checking"><strong>ระบบหลัก</strong><span data-status>กำลังตรวจ…</span></section>
-      <section class="target" data-target="cloudflare" data-state="checking"><strong>ระบบสำรอง</strong><span data-status>กำลังตรวจ…</span></section>
+      <section class="target" data-target="vercel" data-state="checking"><strong>ระบบหลัก (Vercel)</strong><span data-status>กำลังตรวจ…</span></section>
+      <section class="target" data-target="cloudflare" data-state="checking"><strong>ระบบสำรอง (Cloudflare)</strong><span data-status>กำลังตรวจ…</span></section>
       <div class="status" role="status" aria-live="polite" data-main-status>กำลังเริ่มตรวจสอบ…</div>
       <button type="button" data-retry hidden>ลองตรวจใหม่</button>
       <div class="manual">
-        <a href="https://wisdomai-react.vercel.app/login">เข้าระบบหลัก</a>
-        <a href="https://wisdomai.pages.dev/login">เข้าระบบสำรอง</a>
+        <a data-manual-target="vercel" data-href="https://wisdomai-react.vercel.app/login" href="https://wisdomai-react.vercel.app/login">เข้าระบบหลัก</a>
+        <a data-manual-target="cloudflare" data-href="https://wisdomai.pages.dev/login" href="https://wisdomai.pages.dev/login">เข้าระบบสำรอง</a>
       </div>
       <small>ไม่ส่งข้อมูลบัญชีหรือข้อมูลพนักงานระหว่างการตรวจเส้นทาง</small>
     </main>

@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Release Parity Gate v1.15 — 23/8/2569
+
+- **เหตุผล:** Cloudflare fallback อาจตอบเร็วกว่าแต่เป็น frontend คนละ revision กับ Vercel ทำให้ผู้ใช้เห็นหน้าหรือ flow เก่าโดยไม่รู้ตัว
+- **ผลกระทบ:** build สร้าง `release.json`/`release.js`; Smart Entry เลือก Cloudflare ได้เฉพาะเมื่อ revision ตรง Vercel, ปิดลิงก์ fallback ที่รุ่นไม่ตรง และ Top Bar แสดง host + revision; ไม่เปลี่ยนสิทธิ์, schema หรือข้อมูลธุรกิจ
+- **Migration:** ไม่มี; ต้อง deploy Cloudflare จาก commit เดียวกับ Vercel เพื่อให้ fallback กลับมาใช้งานได้
+- **การตรวจสอบ:** `scripts/release-indicator.test.ts`, `scripts/smart-entry-routing.test.ts`, lint/build, ตรวจ `release.json` ของทั้งสอง host และ deployment status หลัง deploy
+- **Rollback:** rollback Vercel และ Cloudflare ไป revision เดียวกันเป็นทางเลือกหลัก; revert parity gate ได้ชั่วคราวแต่ไม่ควรเปิด fallback คนละรุ่น
+
 ## ล่าสุด: Web Chat Attachment Host Parity v1.14 — 23/8/2569
 
 - **เหตุผล:** ผู้ใช้บางเครือข่ายเข้า `wisdomai.pages.dev` ซึ่งเป็น Cloudflare fallback แต่รุ่นแก้ไข attachment อยู่เฉพาะ Vercel จึงยังเห็น flow upload เก่าและข้อความ RLS/session เดิม

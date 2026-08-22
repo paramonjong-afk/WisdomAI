@@ -45,10 +45,10 @@ const workforceFlows = [
 const systemFlows = [
   {
     title: 'Smart Entry / Auto Route',
-    version: 'Routing v1.0 · 22/8/2569',
+    version: 'Routing v1.1 · 23/8/2569',
     icon: <AppsOutlinedIcon color="primary" />,
-    summary: 'ลิงก์กลางสำหรับมือถือและคอม ตรวจ Vercel กับ Cloudflare 3 รอบ แล้วเข้าปลายทางที่ตอบได้เร็วกว่าโดยไม่วน Redirect',
-    bullets: ['อ่านจาก docs/SMART_ENTRY_ROUTING_FLOW.md', 'ถ้าปลายทางหนึ่งถูกบล็อกจะเลือกอีกปลายทางอัตโนมัติ', 'ถ้าทั้งคู่ล้มเหลวจะแสดงปุ่มลองใหม่และให้เลือกเองโดยไม่ส่งข้อมูลบัญชี'],
+    summary: 'ลิงก์กลางสำหรับมือถือและคอม ตรวจ health และ revision ของ Vercel/Cloudflare ก่อนเลือกปลายทางที่เร็วที่สุดโดยไม่พาไปหน้าเก่า',
+    bullets: ['อ่านจาก docs/SMART_ENTRY_ROUTING_FLOW.md และ docs/RELEASE_PARITY_FLOW.md', 'Cloudflare ใช้ได้เฉพาะเมื่อ revision ตรง Vercel; ถ้าไม่ตรงจะปิด fallback ให้ชัดเจน', 'ถ้าไม่มีปลายทางที่ผ่านเงื่อนไข จะแสดงปุ่มลองใหม่โดยไม่ส่งข้อมูลบัญชี'],
     path: '/start.html',
     action: 'ทดสอบ Smart Entry',
   },

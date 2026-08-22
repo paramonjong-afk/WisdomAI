@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { logAppEvent, updateAppStatus } from '../lib/telemetry'
-import { releaseInfo, releaseLabel } from '../lib/releaseInfo'
+import { releaseHostLabel, releaseInfo, releaseLabel } from '../lib/releaseInfo'
 import { navigationItems } from '../utils/navigation'
 import { isPlatformAdmin as resolvePlatformAdmin } from '../utils/permissions'
 
@@ -143,11 +143,11 @@ export function TopBar() {
           {isPlatformAdmin&&<Divider/>}
           {companies.map(company=><MenuItem key={company.company_id} value={company.company_id}>{company.company_name}</MenuItem>)}
         </TextField>}
-        <Tooltip title={`เวอร์ชันที่กำลังใช้งาน: ${releaseLabel} · สร้าง ${new Date(releaseInfo.builtAt).toLocaleString('th-TH')} · กดเพื่อดูรายละเอียด`}>
+        <Tooltip title={`รุ่นที่กำลังใช้งาน: ${releaseHostLabel} · ${releaseLabel} · สร้าง ${new Date(releaseInfo.builtAt).toLocaleString('th-TH')} · กดเพื่อดูรายละเอียด`}>
           <Chip
             size="small"
             variant="outlined"
-            label={releaseLabel}
+            label={`${releaseHostLabel} · ${releaseLabel}`}
             onClick={() => navigate('/system-health')}
             sx={{ mr: 1, cursor: 'pointer', display: { xs: 'none', md: 'inline-flex' }, fontVariantNumeric: 'tabular-nums' }}
           />

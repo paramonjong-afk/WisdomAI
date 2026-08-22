@@ -3,6 +3,8 @@ export const SMART_ENTRY_TARGETS = [
   { id: 'cloudflare', label: 'ระบบสำรอง', origin: 'https://wisdomai.pages.dev' },
 ]
 
+const releaseScriptTimeoutMs = 1800
+
 export const sanitizeNextPath = (value) => {
   if (!value || typeof value !== 'string') return '/login'
   if (!value.startsWith('/') || value.startsWith('//')) return '/login'
@@ -21,6 +23,35 @@ export const selectBestTarget = (results) => {
   const available = results.filter((item) => item.available && Number.isFinite(item.latency))
   return available.sort((a, b) => a.latency - b.latency)[0] ?? null
 }
+
+export const isMatchingRelease = (primary, candidate) => Boolean(
+  primary?.release?.revision
+  && candidate?.release?.revision
+  && primary.release.revision === candidate.release.revision,
+)
+
+const loadRelease = (target, timeoutMs = releaseScriptTimeoutMs) => new Promise((resolve) => {
+  if (typeof document === 'undefined' || typeof window === 'undefined') { resolve(null); return }
+  const script = document.createElement('script')
+  const timer = window.setTimeout(() => finish(null), timeoutMs)
+  let settled = false
+  const finish = (release) => {
+    if (settled) return
+    settled = true
+    window.clearTimeout(timer)
+    script.remove()
+    resolve(release && typeof release.revision === 'string' ? release : null)
+  }
+  script.async = true
+  script.onload = () => {
+    const release = window.__WISDOMAI_RELEASE_MANIFEST__
+    delete window.__WISDOMAI_RELEASE_MANIFEST__
+    finish(release)
+  }
+  script.onerror = () => finish(null)
+  script.src = `${target.origin}/release.js?probe=${Date.now()}-${Math.random()}`
+  document.head.append(script)
+})
 
 const probeOnce = (target, timeoutMs) => new Promise((resolve) => {
   const startedAt = performance.now()
@@ -45,14 +76,34 @@ export const probeTarget = async (target, { attempts = 3, timeoutMs = 2500 } = {
     Array.from({ length: attempts }, () => probeOnce(target, timeoutMs)),
   )
   const samples = attemptsResult.filter((result) => result.available).map((result) => result.latency)
-  return { ...target, available: samples.length > 0, latency: median(samples), samples }
+  const release = await loadRelease(target)
+  return { ...target, available: samples.length > 0, latency: median(samples), samples, release }
 }
 
 const renderResult = (element, result) => {
-  element.dataset.state = result.available ? 'ready' : 'failed'
-  element.querySelector('[data-status]').textContent = result.available
-    ? `พร้อมใช้งาน · ${result.latency} ms`
-    : 'เชื่อมต่อไม่ได้'
+  const releaseLabel = result.release ? ` · ${result.release.revision}` : ''
+  const isStale = result.releaseState === 'stale'
+  element.dataset.state = isStale ? 'stale' : result.available ? 'ready' : 'failed'
+  element.querySelector('[data-status]').textContent = isStale
+    ? `รุ่นไม่ตรงกับระบบหลัก (${result.release?.revision ?? 'ไม่พบ revision'})`
+    : result.available
+      ? `พร้อมใช้งาน · ${result.latency} ms${releaseLabel}`
+      : result.releaseState === 'unknown' ? 'ไม่พบ Release ID · ไม่นำไปใช้' : 'เชื่อมต่อไม่ได้'
+}
+
+const renderManualTarget = (result) => {
+  const link = document.querySelector(`[data-manual-target="${result.id}"]`)
+  if (!link) return
+  const unusable = !result.available || result.releaseState === 'stale' || result.releaseState === 'unknown'
+  if (unusable) {
+    link.removeAttribute('href')
+    link.setAttribute('aria-disabled', 'true')
+    link.textContent = `${result.label} (ใช้ไม่ได้: รุ่นไม่ตรง/ไม่พบ Release ID)`
+    return
+  }
+  link.href = link.dataset.href ?? ''
+  link.removeAttribute('aria-disabled')
+  link.textContent = result.id === 'vercel' ? 'เข้าระบบหลัก' : 'เข้าระบบสำรอง'
 }
 
 export const runSmartEntry = async () => {
@@ -62,15 +113,23 @@ export const runSmartEntry = async () => {
   retry.hidden = true
   status.textContent = 'กำลังทดสอบระบบหลักและระบบสำรอง…'
 
-  const results = await Promise.all(SMART_ENTRY_TARGETS.map(async (target) => {
-    const result = await probeTarget(target)
-    renderResult(document.querySelector(`[data-target="${target.id}"]`), result)
-    return result
-  }))
-  const best = selectBestTarget(results)
+  const results = await Promise.all(SMART_ENTRY_TARGETS.map((target) => probeTarget(target)))
+  const primary = results.find((result) => result.id === 'vercel') ?? null
+  const scopedResults = results.map((result) => {
+    if (!result.release) return { ...result, available: false, releaseState: 'unknown' }
+    if (result.id === 'vercel') return { ...result, releaseState: 'current' }
+    return isMatchingRelease(primary, result)
+      ? { ...result, releaseState: 'current' }
+      : { ...result, available: false, releaseState: 'stale' }
+  })
+  scopedResults.forEach((result) => {
+    renderResult(document.querySelector(`[data-target="${result.id}"]`), result)
+    renderManualTarget(result)
+  })
+  const best = selectBestTarget(scopedResults)
   sessionStorage.setItem('wisdomai.smart-entry.last-result', JSON.stringify({
     checkedAt: new Date().toISOString(),
-    results: results.map(({ id, available, latency }) => ({ id, available, latency })),
+    results: scopedResults.map(({ id, available, latency, release, releaseState }) => ({ id, available, latency, revision: release?.revision ?? null, releaseState })),
     selected: best?.id ?? null,
   }))
 

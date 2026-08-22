@@ -2,9 +2,12 @@
 
 ```mermaid
 flowchart LR
-  S[Mobile/Desktop opens Smart Entry] --> T[Test Vercel + Cloudflare]
-  T --> U[Select available fastest origin]
-  U --> P[เปิดจากไอคอน WisdomAI เดียวบนมือถือ/PWA]
+  S[Mobile/Desktop opens Smart Entry] --> T[Test Vercel + Cloudflare health + release revision]
+  T --> U{Cloudflare revision matches Vercel?}
+  U -->|Yes| V[Select available fastest origin]
+  U -->|No/unknown| W[Use Vercel only; mark Cloudflare stale]
+  V --> P[เปิดจากไอคอน WisdomAI เดียวบนมือถือ/PWA]
+  W --> P
   P --> A[Authenticated user]
   A --> B[Resolve profile + company role]
   B --> C{ตรวจอุปกรณ์}
@@ -30,7 +33,7 @@ flowchart LR
 
 ## Inputs, output, permission, failure and audit
 
-- **Inputs:** Smart Entry target health/latency, PWA install/open request, the single WisdomAI app icon assets, device signals (`userAgent`, viewport, touch/coarse pointer), effective company role, requested path, allowed roles, platform-admin flag, and unread Web Chat count for the active company/profile.
+- **Inputs:** Smart Entry target health/latency and release revision parity, PWA install/open request, the single WisdomAI app icon assets, device signals (`userAgent`, viewport, touch/coarse pointer), effective company role, requested path, allowed roles, platform-admin flag, and unread Web Chat count for the active company/profile.
 - **Output:** Mobile defaults to `/time-tracking`; desktop `admin/manager` defaults to `/dashboard`; desktop `employee` defaults to `/my-profile`. Web Chat remains available through the permitted Sidebar/mobile entry. The `/` launcher is a safe fallback while profile data is unavailable.
 - **Permissions:** Sidebar filters by role for usability; the route itself also enforces the permission boundary. No financial, document, or HR data is loaded by navigation.
 - **Failure/retry:** if device detection is uncertain, the system uses the desktop branch; if profile data is unavailable, it stays at `/` and retries through the existing AuthContext refresh. An unavailable or denied destination follows its Router guard. If an installed icon is stale, reinstalling the PWA/refreshing its cache picks up the versioned PNG without changing route access.
@@ -45,3 +48,4 @@ flowchart LR
 | v1.2 | 22/8/2569 | Add pre-login Smart Entry for mobile/desktop to select the available fastest Vercel or Cloudflare origin | smart-entry test, lint, build and browser redirect check | Stop distributing `/start.html`; direct origins remain available |
 | v1.3 | 22/8/2569 | Add one branded WisdomAI PWA icon (192/512 PNG) and make the installed icon open the outer launcher at `/` | manifest/icon asset checks, lint, build and browser/PWA route check | Restore `start_url` to `/time-tracking` and remove the branded icon links; routes/data remain |
 | v1.4 | 23/8/2569 | Route the first authenticated page by device and effective role: mobile → Time Tracking, desktop manager/admin → Dashboard, desktop employee → My Profile | auth-routing tests, lint, build, route guard check and mobile/desktop browser verification | Restore `/` as the default post-login destination; keep the existing launcher and module routes intact |
+| v1.5 | 23/8/2569 | Require Cloudflare fallback release revision to match Vercel before Smart Entry selects it | smart-entry/release tests, lint, build and both-host manifest check after deploy | Revert parity gate only after both hosts are rolled back to the same revision |
