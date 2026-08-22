@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 
 const migration=readFileSync('supabase/migrations/202608110030_employee_multichannel_intake.sql','utf8')
+const approvedExitMigration=readFileSync('supabase/migrations/20260822005245_employee_intake_approved_exit_to_onboarding.sql','utf8')
 const telegram=readFileSync('supabase/functions/telegram-admin/index.ts','utf8')
 
 assert.match(migration,/create table if not exists public\.employee_intakes/)
@@ -58,5 +59,8 @@ assert.match(telegram,/repairEmployeeIntakeEncoding/)
 assert.match(telegram,/authorization'\)!==`Bearer \$\{serviceKey\}`/)
 assert.match(telegram,/source_channel:'line'/)
 assert.doesNotMatch(migration,/national_id\s+(text|varchar|character)/i)
+assert.match(approvedExitMigration,/e\.status not in \('approved','cancelled'\)/)
+assert.match(approvedExitMigration,/employee_people\.employee_status = preboarding/)
+assert.match(approvedExitMigration,/update public\.employee_intakes intake/)
 
 console.log('employee multichannel intake checks passed')

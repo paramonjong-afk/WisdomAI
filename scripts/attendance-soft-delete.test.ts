@@ -10,7 +10,7 @@ assert.match(sql,/status='rejected',calculation_status='excluded'/,'soft delete 
 assert.match(sql,/platform_admin_soft_delete/,'soft delete must create an audit event')
 assert.match(sql,/payroll_period_closed/,'closed payroll must block soft delete')
 assert.match(sql,/active_session_exists_for_date/,'restore must prevent duplicate active attendance')
-assert.match(report,/profile\?\.platform_role==='admin'/,'frontend must distinguish platform admin')
+assert.match(report,/isPlatformAdmin as resolvePlatformAdmin/,'frontend must distinguish platform admin through the shared permission guard')
 assert.match(report,/soft_delete_attendance_session/,'frontend must call the guarded RPC')
 assert.match(report,/ยืนยันยกเลิกเคส/,'destructive action must require explicit confirmation')
 

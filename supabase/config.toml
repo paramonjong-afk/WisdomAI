@@ -1,6 +1,9 @@
 [functions.line-webhook]
 verify_jwt = false
 
+[functions.reprocess-transfer-slips]
+verify_jwt = false
+
 [functions.create-employee]
 verify_jwt = false
 

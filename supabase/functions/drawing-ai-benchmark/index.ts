@@ -606,10 +606,12 @@ Deno.serve(async (request) => {
       companyId = fallbackMembership?.company_id ?? null
     }
     if (!companyId) return Response.json({ error: 'No active company' }, { status: 403, headers: corsHeaders })
+    const { data: actorProfile } = await supabase.from('profiles').select('role').eq('id', auth.user.id).maybeSingle()
+    const isPlatformAdmin = actorProfile?.role === 'admin'
     const { data: membership } = await supabase.from('company_members')
       .select('company_role,active,ends_on').eq('company_id', companyId).eq('profile_id', auth.user.id).maybeSingle()
     const membershipExpired = membership?.ends_on && membership.ends_on < new Date().toISOString().slice(0, 10)
-    if (!membership?.active || membershipExpired || !['company_admin', 'executive', 'manager'].includes(membership.company_role)) {
+    if (!isPlatformAdmin && (!membership?.active || membershipExpired || !['company_admin', 'executive', 'manager'].includes(membership.company_role))) {
       return Response.json({ error: 'Forbidden' }, { status: 403, headers: corsHeaders })
     }
 

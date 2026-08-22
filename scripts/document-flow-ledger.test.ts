@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 const migration = readFileSync('supabase/migrations/202608160027_document_flow_ledger.sql', 'utf8')
 const page = readFileSync('src/pages/DocumentFlows/index.tsx', 'utf8')
+const gateway = readFileSync('src/services/documentFlowGateway.ts', 'utf8')
 
 for (const token of [
   'create table if not exists public.document_flow_items',
@@ -21,12 +22,17 @@ assert.ok(!migration.includes('insert into public.inventory_movements'), 'ledger
 assert.ok(!migration.includes('insert into public.accounting_draft_entries'), 'ledger must not post accounting')
 
 for (const token of [
-  "from('document_flow_items')",
-  "from('document_flow_events')",
-  "rpc('transition_document_flow_item'",
   'Timeline',
   'Version',
   'อนุมัติแล้ว—รอ Gateway',
 ]) assert.ok(page.includes(token), `missing control tower feature: ${token}`)
+
+for (const token of [
+  "from('document_flow_items')",
+  "from('document_flow_events')",
+  "rpc('transition_document_flow_item'",
+  'target_expected_version',
+  'target_event_key',
+]) assert.ok(gateway.includes(token), `missing central gateway feature: ${token}`)
 
 console.log('document flow ledger contract: ok')

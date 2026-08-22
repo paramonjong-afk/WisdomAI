@@ -17,7 +17,7 @@ for (const assertion of [
   if (!migration.includes(assertion)) throw new Error(`missing platform-company guard: ${assertion}`)
 }
 
-if (!settings.includes("profile?.platform_role==='admin'")) {
+if (!settings.includes('isPlatformAdmin')) {
   throw new Error('Settings must distinguish Platform Admin from company-level administrators')
 }
 

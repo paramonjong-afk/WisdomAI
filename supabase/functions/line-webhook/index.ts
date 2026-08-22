@@ -61,7 +61,12 @@ type WorkAnalysis = {
 
 type FinancialDocument = {
   is_transfer_slip: boolean
+  sender_name: string | null
+  sender_bank_name: string | null
+  sender_account_last4: string | null
   recipient_name: string | null
+  recipient_bank_name: string | null
+  recipient_account_last4: string | null
   amount_total: number | null
   labor_amount: number | null
   materials_amount: number | null
@@ -69,6 +74,7 @@ type FinancialDocument = {
   transfer_at: string | null
   bank_reference: string | null
   notes: string | null
+  payment_party_confidence: number
   confidence: number
 }
 
@@ -498,7 +504,8 @@ async function analyzeImageWithGemini(
             'Required top-level keys: category, summary_text, assignee_text, urgency, confidence, project_codes, financial_document, accounting_document, system_error.',
             'Set system_error to null unless this is evidence of a software/program error. Otherwise it must contain is_system_error, error_code, visible_message, affected_module, confidence.',
             'Set financial_document to null unless the image is a transfer slip.',
-            'A financial_document must contain is_transfer_slip, recipient_name, amount_total, labor_amount, materials_amount, expense_type, transfer_at, bank_reference, notes, confidence.',
+            'A financial_document must contain is_transfer_slip, sender_name, sender_bank_name, sender_account_last4, recipient_name, recipient_bank_name, recipient_account_last4, amount_total, labor_amount, materials_amount, expense_type, transfer_at, bank_reference, notes, payment_party_confidence, confidence.',
+            'Read payer and recipient only when visibly stated on the slip. Never treat the LINE uploader as the payer. Return only the final 4 digits of each account, digits only; return null when unreadable.',
             'Set accounting_document to null unless the image is an accounting document.',
             'Classify every accounting document across independent dimensions: money flow, lifecycle, counterparty, project/cost, expense, tax, payment, matching, and risk.',
             'Never infer paid status from an invoice alone. Quotations and purchase orders are commitment, not expense payment.',
@@ -584,6 +591,19 @@ async function analyzeImageWithGemini(
       0,
       Math.min(1, Number(parsed.financial_document.confidence) || 0),
     )
+    const party = parsed.financial_document
+    const nullableText = (value: unknown, maxLength: number) => typeof value === 'string' ? value.trim().slice(0, maxLength) || null : null
+    const accountLast4 = (value: unknown) => {
+      const digits = typeof value === 'string' ? value.replace(/\D/g, '') : ''
+      return digits.length >= 4 ? digits.slice(-4) : null
+    }
+    party.sender_name = nullableText(party.sender_name, 240)
+    party.sender_bank_name = nullableText(party.sender_bank_name, 120)
+    party.sender_account_last4 = accountLast4(party.sender_account_last4)
+    party.recipient_name = nullableText(party.recipient_name, 240)
+    party.recipient_bank_name = nullableText(party.recipient_bank_name, 120)
+    party.recipient_account_last4 = accountLast4(party.recipient_account_last4)
+    party.payment_party_confidence = Math.max(0, Math.min(1, Number(party.payment_party_confidence) || 0))
   }
   if (parsed.accounting_document) {
     const documentTypeAliases: Record<string, AccountingDocumentExtraction['document_type']> = {
@@ -693,7 +713,12 @@ async function saveFinancialTransaction(
     company_id: companyId,
     source_message_id: sourceMessageId,
     project_id: projectIds.length === 1 ? projectIds[0] : null,
+    sender_name: financial.sender_name,
+    sender_bank_name: financial.sender_bank_name,
+    sender_account_last4: financial.sender_account_last4,
     recipient_name: financial.recipient_name,
+    recipient_bank_name: financial.recipient_bank_name,
+    recipient_account_last4: financial.recipient_account_last4,
     amount_total: financial.amount_total,
     labor_amount: financial.labor_amount,
     materials_amount: financial.materials_amount,
@@ -705,6 +730,7 @@ async function saveFinancialTransaction(
     duplicate_of: duplicate?.id ?? null,
     review_status: isDuplicate ? 'duplicate' : 'pending',
     notes,
+    payment_party_confidence: financial.payment_party_confidence,
     analysis_provider: provider,
     analysis_model: model,
     analysis_confidence: financial.confidence,

@@ -62,8 +62,8 @@ async function resolveAdmin(telegramUserId:string){
 async function resolvePlatformAdmin(telegramUserId:string){
   const {data:account}=await admin.from('telegram_admin_accounts').select('profile_id,active').eq('telegram_user_id',telegramUserId).eq('active',true).maybeSingle()
   if(!account)return null
-  const {data:profile}=await admin.from('profiles').select('id,platform_role').eq('id',account.profile_id).maybeSingle()
-  return profile?.platform_role==='admin'?{profile_id:profile.id}:null
+  const {data:profile}=await admin.from('profiles').select('id,role').eq('id',account.profile_id).maybeSingle()
+  return profile?.role==='admin'?{profile_id:profile.id}:null
 }
 
 async function sendLineGroupAssignmentRequest(requestId:string){
@@ -82,7 +82,7 @@ async function sendLineGroupAssignmentRequest(requestId:string){
 
   const [{data:options,error:optionError},{data:platformProfiles,error:profileError}]=await Promise.all([
     admin.from('line_group_assignment_options').select('id,company_id,expires_at,companies(name)').eq('request_id',requestId).gt('expires_at',new Date().toISOString()),
-    admin.from('profiles').select('id').eq('platform_role','admin'),
+    admin.from('profiles').select('id').eq('role','admin'),
   ])
   if(optionError||profileError)throw optionError??profileError
   const profileIds=(platformProfiles??[]).map(row=>row.id)

@@ -35,5 +35,10 @@ WisdomAI-React-multi-project-v2
 WisdomAI-React-multi-project-v2.zip
 *.traineddata
 
+# Local tooling, diagnostic output, and deployment state
 .vercel
 .env*
+!.env.example
+.tmp/
+audit.txt
+supabase/.temp/

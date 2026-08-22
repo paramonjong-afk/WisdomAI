@@ -5,6 +5,7 @@ type CreateEmployeeBody = {
   password?: string
   fullName?: string
   role?: 'employee' | 'manager'
+  dryRun?: boolean
 }
 
 const cors = {
@@ -17,6 +18,7 @@ type ErrorResponse = {
   error: string
   error_code: string
   action: string
+  request_id?: string
 }
 
 const makeError = (error: string, error_code: string, action: string): ErrorResponse => ({
@@ -28,12 +30,68 @@ const makeError = (error: string, error_code: string, action: string): ErrorResp
 const sendError = (error: ErrorResponse, status = 400) =>
   Response.json(error, { status, headers: { ...cors, 'content-type': 'application/json' } })
 
+type AnyObject = { [key: string]: unknown }
+
+const normalizeMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message
+  if (!error || typeof error !== 'object') return 'ไม่สามารถเพิ่มพนักงานได้'
+  const payload = error as AnyObject
+  if (typeof payload.message === 'string' && payload.message.trim()) return payload.message
+  if (typeof payload.error === 'string' && payload.error.trim()) return payload.error
+  return 'ไม่สามารถเพิ่มพนักงานได้'
+}
+
+const deriveUnhandledCode = (error: unknown): string => {
+  const message = normalizeMessage(error).toLowerCase()
+  if (message.includes('duplicate') || message.includes('already')) return 'DUPLICATE_RECORD'
+  if (message.includes('null value')) return 'MISSING_REQUIRED_FIELD'
+  if (message.includes('violates')) return 'CONSTRAINT_VIOLATION'
+  if (message.includes('permission') || message.includes('forbidden') || message.includes('denied')) return 'PERMISSION_DENIED'
+  return 'UNHANDLED'
+}
+
+const mapDatabaseError = (error: unknown): { errorCode: string; action: string; friendly: string; status?: number } => {
+  const message = normalizeMessage(error).toLowerCase()
+  if (/company member management permission denied/.test(message) || /permission denied/.test(message)) {
+    return {
+      errorCode: 'PERMISSION_DENIED',
+      friendly: 'กำหนดสมาชิกบริษัท: Company member management permission denied',
+      action: 'ตรวจสิทธิ์บริษัทให้แน่ใจว่าเป็น Admin/Executive/Manager และบริษัทที่ Active ถูกเลือกถูกต้อง',
+      status: 403,
+    }
+  }
+  if (/new row violates row-level security policy/.test(message) && message.includes('user_company_preferences')) {
+    return {
+      errorCode: 'CONSTRAINT_VIOLATION',
+      friendly: 'บันทึก preference บริษัทล้มเหลว: new row violates row-level security policy for table "user_company_preferences"',
+      action: 'อัปเดตสิทธิ์ที่ตาราง user_company_preferences ให้สมบูรณ์ (ใช้ service role หรือให้ระบบสร้างค่า preference ใหม่ให้พนักงานใหม่)',
+    }
+  }
+  if (/cross-company/.test(message) || /cross-company profile/.test(message)) {
+    return {
+      errorCode: 'CONSTRAINT_VIOLATION',
+      friendly: 'ข้อมูลข้ามบริษัทไม่ตรงกับขอบเขตระบบ',
+      action: 'ตรวจสอบว่า company_id ของการเพิ่มพนักงานตรงกับบริษัทที่ Login อยู่',
+    }
+  }
+  return { errorCode: deriveUnhandledCode(error), friendly: normalizeMessage(error), action: 'ตรวจข้อมูลที่กรอกอีกครั้ง แล้วลองส่งใหม่' }
+}
+
 Deno.serve(async (request) => {
+  const requestId = crypto.randomUUID()
+  const sendRequestError = (error: ErrorResponse, status = 400) =>
+    sendError({ ...error, request_id: requestId }, status)
   if (request.method === 'OPTIONS') return new Response('ok', { headers: cors })
   if (request.method !== 'POST') {
-    return Response.json({ error: 'Method not allowed' }, { status: 405, headers: cors })
+    return Response.json({
+      error: 'Method not allowed',
+      error_code: 'UNHANDLED',
+      action: 'ใช้ method POST เท่านั้น',
+      request_id: requestId,
+    }, { status: 405, headers: cors })
   }
 
+  let stage = 'เริ่มทำงาน'
   try {
     const authorization = request.headers.get('Authorization') ?? ''
     const url = Deno.env.get('SUPABASE_URL')!
@@ -43,15 +101,22 @@ Deno.serve(async (request) => {
       global: { headers: { Authorization: authorization } },
     })
     const admin = createClient(url, serviceKey)
+    const actorClient = createClient(url, anonKey, {
+      global: { headers: { Authorization: authorization } },
+    })
+    stage = 'ยืนยันตัวตน'
     const { data: authData, error: authError } = await userClient.auth.getUser()
     if (authError || !authData.user) {
-      return sendError(makeError(
+      return sendRequestError(makeError(
         'กรุณาเข้าสู่ระบบใหม่',
         'AUTH_REQUIRED',
         'ออกจากระบบแล้วเข้าสู่ระบบใหม่อีกครั้งเพื่อขอ token ใหม่',
       ), 401)
     }
+    const { data: actorProfile } = await admin.from('profiles').select('role').eq('id', authData.user.id).maybeSingle()
+    const isPlatformAdmin = actorProfile?.role === 'admin'
 
+    stage = 'ตรวจสิทธิ์บริษัท'
     const { data: preference } = await admin.from('user_company_preferences')
       .select('active_company_id').eq('profile_id', authData.user.id).maybeSingle()
     let companyId = preference?.active_company_id ?? null
@@ -66,8 +131,8 @@ Deno.serve(async (request) => {
         .eq('company_id', companyId).eq('profile_id', authData.user.id).maybeSingle()
       : { data: null }
     const expired = actorMembership?.ends_on && actorMembership.ends_on < new Date().toISOString().slice(0, 10)
-    if (!companyId || !actorMembership?.active || expired || !['company_admin', 'executive', 'manager'].includes(actorMembership.company_role)) {
-      return sendError(makeError(
+    if (!companyId || (!isPlatformAdmin && (!actorMembership?.active || expired || !['company_admin', 'executive', 'manager'].includes(actorMembership.company_role)))) {
+      return sendRequestError(makeError(
         'เฉพาะ Admin เท่านั้นที่เพิ่มพนักงานได้',
         'PERMISSION_DENIED',
         actorMembership?.active === false || expired
@@ -76,6 +141,7 @@ Deno.serve(async (request) => {
       ), 403)
     }
 
+    stage = 'ตรวจข้อมูล input'
     const body = await request.json() as CreateEmployeeBody
     const email = body.email?.trim().toLowerCase() ?? ''
     const password = body.password ?? ''
@@ -83,27 +149,55 @@ Deno.serve(async (request) => {
     const role = body.role === 'manager' ? 'manager' : 'employee'
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return sendError(makeError(
+      return sendRequestError(makeError(
         'รูปแบบอีเมลไม่ถูกต้อง',
         'INVALID_EMAIL',
         'กรุณาใส่อีเมลให้ครบ เช่น name@domain.com',
-      ))
+      ), 400)
     }
     if (fullName.length < 2 || fullName.length > 120) {
-      return sendError(makeError(
+      return sendRequestError(makeError(
         'กรุณาระบุชื่อพนักงาน 2-120 ตัวอักษร',
         'INVALID_NAME',
         'กรุณาแก้ชื่อพนักงานให้ยาวอย่างน้อย 2 ตัวอักษรไม่เกิน 120 ตัวอักษร',
-      ))
+      ), 400)
     }
     if (password.length < 10) {
-      return sendError(makeError(
+      return sendRequestError(makeError(
         'รหัสผ่านชั่วคราวต้องมีอย่างน้อย 10 ตัวอักษร',
         'INVALID_PASSWORD',
         'เพิ่มความยาวรหัสผ่านชั่วคราวเป็น 10 ตัวขึ้นไป',
-      ))
+      ), 400)
     }
 
+    const plan = {
+      actor_id: authData.user.id,
+      input_email: email,
+      input_full_name: fullName,
+      input_role: role,
+      company_id: companyId,
+      membership_role: role === 'manager' ? 'manager' : 'employee',
+      employment_defaults: {
+        employment_type: 'daily',
+        employment_status: 'preboarding',
+        daily_rate: 0,
+        monthly_salary: 0,
+        overtime_hourly_rate: 0,
+      },
+      will_write: !body.dryRun,
+      preview_note: 'จำลองการสร้างพนักงาน (dry run) แล้ว ไม่ได้บันทึกข้อมูลลง DB',
+    }
+
+    if (body.dryRun) {
+      return Response.json({
+        ok: true,
+        dry_run: true,
+        plan,
+        request_id: requestId,
+      }, { headers: { ...cors } })
+    }
+
+    stage = 'สร้างบัญชี Auth'
     const { data: created, error: createError } = await admin.auth.admin.createUser({
       email,
       password,
@@ -113,13 +207,13 @@ Deno.serve(async (request) => {
     if (createError) {
       const duplicate = /already|registered|exists/i.test(createError.message)
       if (duplicate) {
-        return sendError(makeError(
+        return sendRequestError(makeError(
           'อีเมลนี้มีบัญชีอยู่แล้ว',
           'EMAIL_ALREADY_EXISTS',
           'เปลี่ยนอีเมลใหม่ หรือให้ทีม IT ปิดบัญชีเดิมก่อนลองใหม่อีกครั้ง',
         ), 409)
       }
-      return sendError(makeError(
+      return sendRequestError(makeError(
         createError.message,
         'AUTH_CREATE_FAILED',
         'ตรวจสอบสิทธิ์การสร้างบัญชีในระบบ Auth และลองใหม่อีกครั้ง',
@@ -127,6 +221,7 @@ Deno.serve(async (request) => {
     }
     if (!created.user) throw new Error('ไม่สามารถสร้างบัญชีพนักงานได้')
 
+    stage = 'บันทึก profiles'
     const { error: profileError } = await admin.from('profiles').upsert({
       id: created.user.id,
       full_name: fullName,
@@ -141,16 +236,23 @@ Deno.serve(async (request) => {
     }
 
     const companyRole = role === 'manager' ? 'manager' : 'employee'
-    const { error: membershipError } = await admin.from('company_members').upsert({
+    stage = 'กำหนดสมาชิกบริษัท'
+    const { error: membershipError } = await actorClient.from('company_members').upsert({
       company_id: companyId, profile_id: created.user.id, company_role: companyRole,
       active: true, starts_on: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString(),
     }, { onConflict: 'company_id,profile_id' })
     if (membershipError) {
+      const mapped = mapDatabaseError(membershipError)
       await admin.from('profiles').delete().eq('id', created.user.id)
       await admin.auth.admin.deleteUser(created.user.id)
-      throw membershipError
+      return sendRequestError({
+        error: `${stage}: ${mapped.friendly}`,
+        error_code: mapped.errorCode,
+        action: mapped.action,
+      }, mapped.status ?? 400)
     }
 
+    stage = 'บันทึกค่า preference'
     const { error: preferenceError } = await admin.from('user_company_preferences').upsert({
       profile_id: created.user.id, active_company_id: companyId, updated_at: new Date().toISOString(),
     }, { onConflict: 'profile_id' })
@@ -158,10 +260,16 @@ Deno.serve(async (request) => {
       await admin.from('company_members').delete().eq('company_id', companyId).eq('profile_id', created.user.id)
       await admin.from('profiles').delete().eq('id', created.user.id)
       await admin.auth.admin.deleteUser(created.user.id)
-      throw preferenceError
+      const mapped = mapDatabaseError(preferenceError)
+      return sendRequestError({
+        error: `${stage}: ${mapped.friendly}`,
+        error_code: mapped.errorCode,
+        action: mapped.action,
+      }, mapped.status ?? 400)
     }
 
-      const { error: employmentError } = await admin.from('employee_employment_records').upsert({
+    stage = 'สร้างข้อมูลพนักงาน'
+    const { error: employmentError } = await actorClient.from('employee_employment_records').upsert({
       company_id: companyId, profile_id: created.user.id,
       employee_code: `EMP-${created.user.id.replaceAll('-', '').slice(0, 8).toUpperCase()}`,
       employment_type: 'daily', employment_status: 'preboarding',
@@ -177,14 +285,18 @@ Deno.serve(async (request) => {
 
     return Response.json({
       ok: true,
+      dry_run: false,
+      plan,
+      request_id: requestId,
       employee: { id: created.user.id, email, full_name: fullName, role, company_id: companyId },
     }, { headers: cors })
   } catch (error) {
     console.error(error)
-    const message = error instanceof Error ? error.message : 'ไม่สามารถเพิ่มพนักงานได้'
-    return sendError({
-      error: message,
-      error_code: 'UNHANDLED',
+    const message = normalizeMessage(error)
+    const errorCode = deriveUnhandledCode(error)
+    return sendRequestError({
+      error: `${stage}: ${message}`,
+      error_code: errorCode,
       action: message.includes('ยัง') && message.includes('ข้อมูล')
         ? 'ลองกลับไปเพิ่มพนักงานอีกครั้ง หากยังคงเกิดซ้ำให้แจ้งแอดมินระบบตรวจ migration และสิทธิ์ตารางฐานข้อมูล'
         : 'ตรวจข้อมูลที่กรอกอีกครั้ง แล้วลองส่งใหม่',

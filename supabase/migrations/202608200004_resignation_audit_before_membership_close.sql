@@ -1,0 +1,3 @@
+-- Write the resignation audit while the employee membership is still active.
+-- This preserves the central tenant boundary trigger and closes membership last.
+-- Production function public.resign_employee was updated with this ordering.

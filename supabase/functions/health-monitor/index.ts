@@ -19,6 +19,11 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
   status, headers: { ...corsHeaders, 'content-type': 'application/json; charset=utf-8' },
 })
 const since = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
+const p95 = (values: number[]) => {
+  const sorted = values.filter(Number.isFinite).sort((left, right) => left - right)
+  return sorted.length ? sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)] : null
+}
+const numericMetric = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : null
 const describeError = (error: unknown) => {
   if (error instanceof Error) return error.message.slice(0, 500)
   if (error && typeof error === 'object') {
@@ -162,7 +167,7 @@ Deno.serve(async (request) => {
     actorCompanyId = preference?.active_company_id ?? null
     if (!actorCompanyId) return json({ error: 'Active company required' }, 400)
     const { data: membership } = await admin.from('company_members').select('company_role').eq('company_id',actorCompanyId).eq('profile_id',authData.user.id).eq('active',true).maybeSingle()
-    if (!membership || !['company_admin','executive','manager'].includes(membership.company_role)) return json({ error: 'Company manager permission required' }, 403)
+    if (caller?.role !== 'admin' && (!membership || !['company_admin','executive','manager'].includes(membership.company_role))) return json({ error: 'Company manager permission required' }, 403)
   } else if (body.source === 'pg_cron') {
     const requestedCompanyId = typeof body.company_id === 'string' ? body.company_id.trim() : ''
     if (!monitorAuthorized) return json({ error: 'Unauthorized monitor request' }, 401)
@@ -173,6 +178,7 @@ Deno.serve(async (request) => {
   } else {
     return json({ error: 'Monitor secret is restricted to scheduled runs' }, 403)
   }
+
   let settingsQuery=admin.from('health_monitor_settings').select('*').eq('singleton', true)
   settingsQuery=actorCompanyId?settingsQuery.eq('company_id',actorCompanyId):settingsQuery.is('company_id',null)
   const { data: settings, error: settingsError } = await settingsQuery.maybeSingle()
@@ -349,11 +355,32 @@ Deno.serve(async (request) => {
         }
       }),
       check('line_pipeline', 'รับและวิเคราะห์ LINE', 'LINE', async () => {
-        let query=admin.from('line_ingestion_events').select('webhook_event_id', { count: 'exact', head: true }).eq('processing_status','failed').gte('received_at',since(15))
+        let failedQuery=admin.from('line_ingestion_events').select('webhook_event_id', { count: 'exact', head: true }).eq('processing_status','failed').gte('received_at',since(15))
+        let stalledQuery=admin.from('line_ingestion_events').select('webhook_event_id', { count: 'exact', head: true }).in('processing_status',['received','processing']).lt('received_at',since(15))
+        if(actorCompanyId){failedQuery=failedQuery.eq('company_id',actorCompanyId);stalledQuery=stalledQuery.eq('company_id',actorCompanyId)}
+        const [{ count: failed, error }, { count: stalled, error: stalledError }] = await Promise.all([failedQuery, stalledQuery])
+        if (error || stalledError) throw error ?? stalledError
+        const status: Status = (stalled ?? 0) >= 10 ? 'critical' : (failed ?? 0) || (stalled ?? 0) ? 'warning' : 'healthy'
+        return { status, message: failed || stalled ? `คิวล้มเหลว ${failed ?? 0} · เกิน SLA 15 นาที ${stalled ?? 0}` : 'ไม่พบคิวเกิน SLA', metadata: { failed_15m: failed ?? 0, stalled_over_15m: stalled ?? 0, queue_sla_minutes: 15 } }
+      }),
+      check('client_performance', 'ประสิทธิภาพ API และหน้าเว็บ', 'Web/API', async () => {
+        let query=admin.from('app_activity_logs').select('event_type,severity,metadata,created_at').gte('created_at',since(15)).order('created_at',{ascending:false}).limit(200)
         if(actorCompanyId)query=query.eq('company_id',actorCompanyId)
-        const { count, error } = await query
+        const { data, error } = await query
         if (error) throw error
-        return { status: count ? 'warning' : 'healthy', message: count ? `พบรายการล้มเหลว ${count} รายการใน 15 นาที` : 'ไม่พบรายการล้มเหลว', metadata: { failed_15m: count } }
+        const rows=data??[]
+        const api=rows.filter(row => row.metadata?.performance_kind === 'api')
+        const vitals=rows.filter(row => row.event_type === 'performance_metric')
+        const tables=rows.filter(row => row.metadata?.performance_kind === 'table')
+        const apiP95=p95(api.map(row=>numericMetric(row.metadata?.latency_ms)).filter((value): value is number => value !== null))
+        const lcpP95=p95(vitals.filter(row=>row.metadata?.metric === 'largest_contentful_paint').map(row=>numericMetric(row.metadata?.value_ms)).filter((value): value is number => value !== null))
+        const interactionP95=p95(vitals.filter(row=>row.metadata?.metric === 'interaction_delay').map(row=>numericMetric(row.metadata?.value_ms)).filter((value): value is number => value !== null))
+        const errorRate=api.length ? api.filter(row=>row.metadata?.result !== 'success').length / api.length : 0
+        const maxQuery=Math.max(0,...api.map(row=>numericMetric(row.metadata?.url_length)??0))
+        const maxPage=Math.max(0,...tables.map(row=>numericMetric(row.metadata?.row_count)??0))
+        const critical=(apiP95??0)>3000 || (lcpP95??0)>4000 || (interactionP95??0)>800 || errorRate>0.05 || api.some(row=>row.metadata?.result !== 'success' && (numericMetric(row.metadata?.url_length)??0)>6000)
+        const warning=!critical && ((apiP95??0)>1000 || (lcpP95??0)>2500 || (interactionP95??0)>300 || errorRate>0.01 || maxQuery>6000 || maxPage>100)
+        return { status: critical ? 'critical' : warning ? 'warning' : 'healthy', message: `API p95 ${apiP95 ?? 'n/a'}ms · LCP p95 ${lcpP95 ?? 'n/a'}ms · interaction p95 ${interactionP95 ?? 'n/a'}ms · error ${(errorRate * 100).toFixed(1)}%`, metadata: { sample_window_minutes:15, api_samples:api.length, api_p95_ms:apiP95, lcp_p95_ms:lcpP95, interaction_p95_ms:interactionP95, error_rate:errorRate, max_url_length:maxQuery, max_page_size:maxPage, route_action:'app_activity_logs performance metadata' } }
       }),
       check('client_errors', 'ข้อผิดพลาดจากอุปกรณ์ผู้ใช้', 'Client', async () => {
         let query=admin.from('app_activity_logs').select('id', { count: 'exact', head: true }).in('severity',['warning','error']).gte('created_at',since(15))
@@ -366,6 +393,23 @@ Deno.serve(async (request) => {
         if(latestError)throw latestError
         const status: Status = (count ?? 0) >= 10 ? 'critical' : count ? 'warning' : 'healthy'
         return { status, message: count ? `พบ ${count} เหตุการณ์ใน 15 นาที` : 'ไม่พบ error ใหม่', metadata: { errors_15m: count, latest_error_id:latest?.id??null, latest_error_at:latest?.created_at??null } }
+      }),
+      check('auth_recovery_alerts', 'ปัญหา Login / Reset Password', 'Auth', async () => {
+        const { data, error } = await admin.from('auth_login_attempts')
+          .select('id,reason,created_at')
+          .eq('outcome','failure')
+          .gte('created_at',since(15))
+          .or('reason.ilike.%auth_critical:%,reason.ilike.%over_email_send_rate_limit%,reason.ilike.%rate limit%,reason.ilike.%User is banned%,reason.ilike.%otp_expired%,reason.ilike.%access_denied%')
+          .order('created_at',{ascending:false})
+          .limit(10)
+        if (error) throw error
+        const rows=data??[]
+        const critical=rows.some(row=>/auth_critical|over_email_send_rate_limit|rate limit|user is banned|banned|access_denied/i.test(String(row.reason ?? '')))
+        return {
+          status: rows.length ? (critical ? 'critical' : 'warning') : 'healthy',
+          message: rows.length ? `พบปัญหา Auth/Reset Password ${rows.length} ครั้งใน 15 นาทีล่าสุด: ${rows.map(row=>String(row.reason ?? 'unknown')).join(' | ')}` : 'ไม่พบปัญหา Login/Reset Password ใหม่',
+          metadata: { auth_alerts_15m: rows.length, latest_auth_alert_id: rows[0]?.id ?? null, latest_auth_alert_at: rows[0]?.created_at ?? null },
+        }
       }),
       check('employee_readiness', 'ความพร้อมพนักงานก่อนลงเวลา', 'Workforce', async () => {
         let query=admin.from('employee_onboarding_readiness')
@@ -412,28 +456,29 @@ Deno.serve(async (request) => {
     for (const result of results) {
       const old = previous.get(result.key)
       const failureCount = result.status === 'healthy' ? 0 : Number(old?.failure_count ?? 0) + 1
+      const recoveryCount = result.status === 'healthy' ? Number(old?.metadata?.recovery_count ?? 0) + 1 : 0
       const {data:checkRow,error:checkError}=await admin.from('health_monitor_checks').upsert({
         company_id:actorCompanyId,scope_key:actorCompanyId??'global',
         check_key: result.key, name_th: result.name, module: result.module, status: result.status,
         failure_count: failureCount, message: result.message, latency_ms: result.latency,
-        metadata: result.metadata ?? {}, last_checked_at: now,
+        metadata: { ...(result.metadata ?? {}), recovery_count: recoveryCount }, last_checked_at: now,
         last_success_at: result.status === 'healthy' ? now : old?.last_success_at ?? null, updated_at: now,
       },{onConflict:'scope_key,check_key'}).select('id').single()
       if(checkError)throw checkError
 
       const { data: openIncident } = await admin.from('health_monitor_incidents').select('*').eq('check_id',checkRow.id).eq('status', 'open').maybeSingle()
-      if (result.status === 'healthy' && openIncident) {
+      if (result.status === 'healthy' && openIncident && recoveryCount >= 2) {
         await admin.from('health_monitor_incidents').update({ status: 'resolved', resolved_at: now }).eq('id', openIncident.id)
         await recordAdminNotification('recovery', openIncident.id,
           `🟢 WisdomAI กลับมาปกติ\nระบบ: ${result.name}\nรายละเอียด: ${result.message}\nเวลา: ${new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}`,actorCompanyId)
-      } else if (result.status !== 'healthy' && failureCount >= settings.alert_after_failures) {
+      } else if (result.status !== 'healthy' && failureCount >= (result.key === 'auth_recovery_alerts' ? 1 : Math.max(2, settings.alert_after_failures))) {
         if (!openIncident) {
           const { data: incident } = await admin.from('health_monitor_incidents').insert({
             company_id:actorCompanyId,check_id:checkRow.id,check_key: result.key, severity: result.status, title: result.name, message: result.message, last_alerted_at: now,
           }).select('id').single()
           await recordAdminNotification('incident', incident?.id ?? null,
             `${result.status === 'critical' ? '🔴' : '🟠'} WisdomAI มีปัญหา\nระบบ: ${result.name}\nผู้รับผิดชอบ: ${settings.responsible_name || 'ยังไม่กำหนด'}\nปัญหา: ${result.message}\nพบต่อเนื่อง: ${failureCount} ครั้ง`,actorCompanyId)
-        } else if (!openIncident.last_alerted_at || Date.now() - new Date(openIncident.last_alerted_at).getTime() >= settings.repeat_alert_minutes * 60_000) {
+        } else if (!openIncident.last_alerted_at || Date.now() - new Date(openIncident.last_alerted_at).getTime() >= Math.max(30, settings.repeat_alert_minutes) * 60_000) {
           await admin.from('health_monitor_incidents').update({ message: result.message, last_alerted_at: now }).eq('id', openIncident.id)
           await recordAdminNotification('repeat', openIncident.id,
             `🟠 WisdomAI ปัญหายังไม่จบ\nระบบ: ${result.name}\nรายละเอียด: ${result.message}\nกรุณาตรวจสอบ`,actorCompanyId)

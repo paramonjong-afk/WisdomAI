@@ -59,8 +59,10 @@ Deno.serve(async(request)=>{
     const {data:preference}=await admin.from('user_company_preferences').select('active_company_id').eq('profile_id',authData.user.id).maybeSingle()
     targetCompanyId=preference?.active_company_id??null
     if(!targetCompanyId)return json({error:'กรุณาเลือกบริษัทก่อนตรวจรายการ'},403)
+    const {data:actor}=await admin.from('profiles').select('role').eq('id',authData.user.id).maybeSingle()
+    const isPlatformAdmin=actor?.role==='admin'
     const {data:membership}=await admin.from('company_members').select('company_role').eq('company_id',targetCompanyId).eq('profile_id',authData.user.id).eq('active',true).maybeSingle()
-    if(!membership||!['company_admin','executive','manager'].includes(membership.company_role))return json({error:'ไม่มีสิทธิ์ตรวจรายการแจ้งเตือน'},403)
+    if(!isPlatformAdmin&&(!membership||!['company_admin','executive','manager'].includes(membership.company_role)))return json({error:'ไม่มีสิทธิ์ตรวจรายการแจ้งเตือน'},403)
   }
   const {data:settingsRows,error:settingsError}=await admin.from('workforce_rule_settings').select('*').eq('singleton',true)
   if(settingsError)return json({error:settingsError.message},500)
