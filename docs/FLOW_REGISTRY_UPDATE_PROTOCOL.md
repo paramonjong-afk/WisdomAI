@@ -3,10 +3,10 @@
 ## ล่าสุด: Web Chat Attachment Host Parity v1.14 — 23/8/2569
 
 - **เหตุผล:** ผู้ใช้บางเครือข่ายเข้า `wisdomai.pages.dev` ซึ่งเป็น Cloudflare fallback แต่รุ่นแก้ไข attachment อยู่เฉพาะ Vercel จึงยังเห็น flow upload เก่าและข้อความ RLS/session เดิม
-- **ผลกระทบ:** Vercel Production ใช้ artifact รุ่นแก้ไขแล้ว; Cloudflare fallback ยังต้อง sync source จาก repository ก่อนจึงจะใช้ behavior เดียวกัน; ไม่เปลี่ยน schema, policy หรือข้อมูลเดิม
-- **Migration:** ไม่มี; release parity ของทั้งสอง host ยังเป็นเงื่อนไขก่อน authenticated UAT
-- **การตรวจสอบ:** attachment regression, lint, build, Vercel deployment `dpl_GQfXKkqeun7kXqSL2RSgpMQTEd4q` READY/ไม่มี error log; Cloudflare deployment และ real-page UAT ยังรอสิทธิ์ sync source
-- **Rollback:** Vercel rollback ได้; หลัง sync แล้ว rollback artifact ของทั้งสอง host ไป release ก่อนหน้าได้โดยไม่ลบไฟล์/ข้อความ
+- **ผลกระทบ:** Vercel และ Cloudflare fallback ใช้ frontend artifact จาก commit `a722ea3` รุ่นเดียวกัน; ไม่เปลี่ยน schema, policy หรือข้อมูลเดิม
+- **Migration:** ไม่มี; release parity ผ่านแล้ว เหลือ authenticated UAT upload จริง
+- **การตรวจสอบ:** attachment regression, lint, build, Vercel deployment `dpl_GQfXKkqeun7kXqSL2RSgpMQTEd4q` READY/ไม่มี error log; Cloudflare `index-C9ZXTxHX.js`/`Chat-CboekurR.js` มี marker ของ attachment flow; UAT upload จริงยังต้องตรวจโดยผู้ใช้
+- **Rollback:** rollback artifact ของทั้งสอง host ไป release ก่อนหน้าได้โดยไม่ลบไฟล์/ข้อความ
 
 ## ล่าสุด: Web Chat Attachment Session Recovery v1.13 — 23/8/2569
 

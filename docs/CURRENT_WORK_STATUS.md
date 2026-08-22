@@ -10,18 +10,18 @@
 
 ### CHAT-ATTACHMENT-002 — ซิงก์ Web Chat attachment ไปยัง fallback host (23/8/2569)
 
-- สถานะ: `Vercel Production READY; Cloudflare source sync blocked; รอ explicit approval และ authenticated UAT`
+- สถานะ: `Vercel และ Cloudflare ใช้ release เดียวกันแล้ว; รอ authenticated UAT upload จริง`
 - Root cause ที่ตรวจพบ: Auth/หน้าใช้งานจริงของผู้ใช้มาจาก `https://wisdomai.pages.dev` แต่ Cloudflare ยังเสิร์ฟ bundle รุ่น `bcabf07` ที่เริ่ม upload ทันทีและไม่มี session recovery; Supabase log จึงไม่เห็น upload ใหม่หลังการเข้าสู่ระบบรอบล่าสุด และยังมีหลักฐานเดิมของ `auth refresh 400` + Storage RLS
-- ขอบเขต: Vercel ใช้ artifact ปัจจุบันที่มี pending attachment, ปุ่ม `ส่งไฟล์`, session refresh/retry, MIME normalization และ error mapping แล้ว; Cloudflare ยังไม่ถูกเปลี่ยนเพราะการ sync source ไป repository ต้องการ explicit approval; ไม่เปลี่ยน schema, bucket, policy หรือข้อมูลเดิม
-- Verification gate: `npm run test:chat-launcher-attachment`, targeted/full lint, build, Vercel deployment `dpl_GQfXKkqeun7kXqSL2RSgpMQTEd4q` READY และไม่มี error log ผ่าน; release parity, Cloudflare deployment และ authenticated UAT ต้องยืนยัน `เลือกไฟล์ → pending → ส่งไฟล์ → storage.objects → chat_messages → signed URL`
-- Rollback: Vercel rollback ได้ทันที; หลัง Cloudflare sync แล้ว rollback artifact ของทั้งสอง host ไป release ก่อนหน้า; object/message ที่สำเร็จแล้วไม่ถูกลบ
+- ขอบเขต: Vercel และ Cloudflare ใช้ artifact commit `a722ea3` ที่มี pending attachment, ปุ่ม `ส่งไฟล์`, session refresh/retry, MIME normalization และ error mapping; ไม่เปลี่ยน schema, bucket, policy หรือข้อมูลเดิม
+- Verification gate: `npm run test:chat-launcher-attachment`, targeted/full lint, build, Vercel deployment `dpl_GQfXKkqeun7kXqSL2RSgpMQTEd4q` READY/ไม่มี error log และ Cloudflare bundle parity ผ่าน; เหลือ authenticated UAT ยืนยัน `เลือกไฟล์ → pending → ส่งไฟล์ → storage.objects → chat_messages → signed URL`
+- Rollback: rollback artifact ของทั้งสอง host ไป release ก่อนหน้า; object/message ที่สำเร็จแล้วไม่ถูกลบ
 
 ### PROD-20260823-01 — Production readiness deployment (23/8/2569)
 
 - สถานะ: `พร้อมใช้งาน` | Deploy ล่าสุด `dpl_DhfpusL8kHA6to6mMgYJCC8Xu2GZ` ขึ้น Vercel Production สำเร็จและ alias เป็น `https://wisdomai-react.vercel.app`; Supabase `line-webhook` version 63 เป็น `ACTIVE`
 - ขอบเขต: รวมโค้ดปัจจุบันทั้งหมด โดยเฉพาะ Application Launcher/การแยกทางเข้า mobile–desktop ตาม role, Web Chat/ลงเวลา, attachment intake, Flow Registry และการปิดคำ generic LINE “ลงเวลา”; ไม่มีการเปลี่ยน Migration หรือข้อมูล Production ในรอบนี้
 - หลักฐาน: `npm run lint`, `npm run build`, `test:auth-routing`, `test:smart-entry`, `test:chat-launcher-attachment`, `test:cheque-payment-intake`, `test:system-error-intake` และ `test:line-attendance-command` ผ่าน; local preview ที่พอร์ต 4173 เปิด `/`, `/login`, `/dashboard`, `/my-profile`, `/time-tracking`, `/chat` ได้โดย route ที่ต้อง login redirect ไป `/login`; manifest และไอคอน 192/512 ตอบ HTTP 200; Vercel inspect เป็น `READY`, ไม่พบ error logs ใน 1 ชั่วโมงล่าสุด, Supabase function list ยืนยัน version 63 ACTIVE และ Production query ไม่พบ generic attendance requests
-- ผลกระทบ/การกู้คืน: ผู้ใช้ได้รับ artifact ล่าสุดโดยไม่เปลี่ยนสิทธิ์หรือ schema; หากต้องย้อนกลับให้ใช้ Vercel `rollback` หรือ Promote deployment ก่อนหน้า. ระบบสำรอง `wisdomai.pages.dev` ไม่ได้เปลี่ยนในรอบนี้เพราะไม่มี Cloudflare deploy config ใน repository
+- ผลกระทบ/การกู้คืน: ผู้ใช้ได้รับ artifact ล่าสุดทั้งสอง host โดยไม่เปลี่ยนสิทธิ์หรือ schema; หากต้องย้อนกลับให้ใช้ Vercel rollback/Promote และ rollback Cloudflare release เดียวกัน
 
 ### LINE-ATTENDANCE-COMMAND-001 — ปิดการตีความคำกำกวม “ลงเวลา” (23/8/2569)
 

@@ -457,10 +457,10 @@ flowchart LR
 ### v1.14 — 23/8/2569
 
 - เหตุผล: ผู้ใช้บางเครือข่ายเข้า `wisdomai.pages.dev` ซึ่งเป็น Cloudflare fallback แต่รุ่นแก้ไข attachment ถูกปล่อยเฉพาะ Vercel ทำให้ยังใช้ flow upload เก่าและแสดง RLS/session error เดิม
-- ผลกระทบ: Vercel Production ใช้ frontend artifact รุ่นแก้ไขแล้ว; Cloudflare fallback ยังอยู่รุ่นเก่าจนกว่าจะอนุมัติการ sync source ไป repository ที่เชื่อมอยู่; ไม่เปลี่ยน schema, bucket, policy หรือข้อมูลห้อง/ข้อความ
-- Migration: ไม่มี; ต้องตรวจ release parity ของทั้งสอง host ก่อน authenticated UAT
-- Verification: `npm run test:chat-launcher-attachment`, `npm run lint`, `npm run build`, Vercel deployment `dpl_GQfXKkqeun7kXqSL2RSgpMQTEd4q` READY/ไม่มี error log; Cloudflare parity และเส้นทาง `เลือกไฟล์ → pending → ส่งไฟล์ → chat_messages → signed URL` ยังเป็น blocker
-- Rollback: Vercel rollback ได้ทันที; หลัง Cloudflare sync แล้วให้ rollback artifact ของทั้งสอง host ไป release ก่อนหน้าได้; ไม่ลบ object, message หรือ audit ที่ส่งสำเร็จ
+- ผลกระทบ: Vercel และ Cloudflare ใช้ frontend artifact จาก commit `a722ea3` แล้ว; ไม่เปลี่ยน schema, bucket, policy หรือข้อมูลห้อง/ข้อความ
+- Migration: ไม่มี; release parity ของทั้งสอง host ผ่านก่อน authenticated UAT
+- Verification: `npm run test:chat-launcher-attachment`, `npm run lint`, `npm run build`, Vercel deployment `dpl_GQfXKkqeun7kXqSL2RSgpMQTEd4q` READY/ไม่มี error log; Cloudflare HTML `index-C9ZXTxHX.js` และ Chat bundle `Chat-CboekurR.js` พบ `ส่งไฟล์`, `refreshSession` และ `chat-attachments`; ต้องยืนยัน upload จริงในห้องด้วยบัญชีผู้ใช้
+- Rollback: rollback artifact ของทั้งสอง host ไป release ก่อนหน้าได้; ไม่ลบ object, message หรือ audit ที่ส่งสำเร็จ
 
 ### v2.0 — 22/8/2569
 
