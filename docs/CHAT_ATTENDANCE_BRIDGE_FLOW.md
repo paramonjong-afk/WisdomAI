@@ -304,7 +304,10 @@ flowchart LR
   K -->|ไม่| L[แสดง MIME/สิทธิ์/เครือข่าย และเก็บไฟล์ไว้ retry]
   K -->|ใช่| M[insert chat_messages แบบ file]
   M -->|ผิดพลาด| N[ลบ object ค้างและเก็บไฟล์ไว้ retry]
-  M -->|สำเร็จ| O[ล้างไฟล์ค้างและแสดง signed URL]
+  M -->|สำเร็จ| O[ล้างไฟล์ค้างและสร้าง signed URL]
+  O --> P{เป็นรูปที่แนบหรือไม่}
+  P -->|ใช่| Q[แสดงภาพตัวอย่างในข้อความ และกดเปิดรูปเต็มได้]
+  P -->|ไม่ใช่| R[แสดงการ์ดไฟล์และปุ่มเปิดไฟล์]
 ```
 
 - **เหตุผล:** flow เดิมเริ่มอัปโหลดทันทีใน `onChange` ของ file input ทำให้ผู้ใช้มือถือไม่เห็นว่าไฟล์ถูกเลือกแล้ว และเมื่อ session/ห้องยังไม่พร้อมอาจดูเหมือนเลือกไฟล์แล้วหายไป
@@ -315,6 +318,31 @@ flowchart LR
 - **Failure / Retry:** drop ที่ไม่มีไฟล์หรือไม่มีห้องจะไม่ upload; MIME/ขนาดหยุดก่อนเก็บไฟล์; session หมดอายุ/Storage 403/network แสดงข้อความและคงไฟล์ไว้ให้กดส่งซ้ำ; insert ล้มเหลวลบ object แล้วคงไฟล์ไว้
 - **Audit events:** ส่งสำเร็จ/ล้มเหลวใช้ mutation attempt `send-file-message`; object จะถูกลบเมื่อบันทึกข้อความไม่สำเร็จ
 - **Owner:** ผู้ส่งเป็น owner ของการกดส่ง/ยกเลิก; ทีมระบบเป็น owner ของ validation, error mapping และ cleanup
+
+## Inline image preview in Chat (v1.17)
+
+```mermaid
+flowchart LR
+  A[chat_messages แบบ file] --> B[ตรวจ attachment_content_type]
+  B -->|image/*| C[สร้าง signed URL จาก bucket private]
+  C --> D{โหลดภาพใน browser สำเร็จหรือไม่}
+  D -->|สำเร็จ| E[แสดงภาพตัวอย่างใน bubble พร้อมชื่อไฟล์]
+  E --> F[กดภาพหรือ “เปิดรูปเต็ม” เพื่อเปิดแท็บใหม่]
+  D -->|ล้มเหลว/format ไม่รองรับ| G[กลับไปแสดงปุ่ม “เปิดไฟล์”]
+  B -->|เอกสาร/ไฟล์อื่น| H[แสดงการ์ดไฟล์และปุ่ม “เปิดไฟล์”]
+  C --> I{สร้าง signed URL สำเร็จหรือไม่}
+  I -->|ไม่| J[แสดงสถานะกำลังเตรียมลิงก์/แจ้งให้ลองใหม่]
+```
+
+- **เหตุผล:** ผู้ใช้ต้องการเห็นรูปที่ส่งในห้อง Chat ทันที ไม่ต้องเปิดลิงก์ทีละไฟล์ ขณะที่เอกสารและไฟล์ที่ browser แสดงไม่ได้ยังต้องดาวน์โหลดได้ตามเดิม
+- **ผลกระทบ:** `src/pages/Chat/index.tsx` ใช้ signed URL เดิมของไฟล์ private แล้วแสดง `image/*` เป็นภาพตัวอย่างแบบ responsive ใน message bubble; คลิกภาพหรือปุ่ม `เปิดรูปเต็ม` เพื่อเปิดแท็บใหม่; ถ้า browser โหลดภาพไม่ได้จะ fallback เป็นปุ่ม `เปิดไฟล์`; PDF/Word/Excel/text ไม่เปลี่ยนรูปแบบ
+- **Input / Output:** `chat_messages.attachment_content_type`, bucket/path และ signed URL → inline image preview หรือ file card/link; ไม่มีการเปิด bucket เป็น public และไม่มีการคัดลอกไฟล์ใหม่
+- **States:** `message_recorded → signed_url_pending → preview_visible|file_link|preview_failed`; signed URL หมดอายุยังใช้ flow เปิดไฟล์/สร้างลิงก์ใหม่เดิม
+- **Roles / Permission:** ใช้สิทธิ์อ่าน Storage/RLS เดิมของสมาชิกห้องหรือผู้จัดการเท่านั้น; preview ไม่เพิ่มสิทธิ์และไม่ทำให้ URL ถาวร
+- **Integrations:** Supabase Storage `createSignedUrl`, browser `<img>`, `chat_messages` และ Chat Realtime/message loader
+- **Failure / Retry:** signed URL error แสดงสถานะเตรียมลิงก์; image decode/network error ซ่อน preview ที่เสียและ fallback เป็น file link; ผู้ใช้เปิดไฟล์เต็มเพื่อ retry ตามสิทธิ์เดิม
+- **Audit events:** ไม่มีการสร้างข้อความหรือ object เพิ่ม; การเปิด signed URL เป็น request ของ Storage ตาม access log เดิม และการส่งไฟล์ยัง audit ผ่าน `send-file-message`
+- **Owner:** ทีมระบบเป็น owner ของ signed URL/preview fallback และ responsive UI; สมาชิกห้องเป็น owner ของการเข้าถึงไฟล์ตามสิทธิ์ห้อง
 
 ## LINE attendance command path (v1.2)
 

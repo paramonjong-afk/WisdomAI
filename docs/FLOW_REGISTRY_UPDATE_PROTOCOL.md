@@ -1,5 +1,21 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Intake Room Compact View and Drawer Isolation v1.18 — 23/8/2569
+
+- **เหตุผล:** ลดข้อมูลซ้ำบนหน้า Intake และป้องกัน Drawer แสดงรูป/ข้อมูลจากรายการก่อนหน้าเมื่อผู้ใช้คลิกรายการใหม่เร็ว ๆ
+- **ผลกระทบ:** ย้าย Source/วันที่ที่ซ้ำไป Filter Drawer, เหลือ Subtab มุมมองกับตาราง, ใช้ไอคอนสำหรับคำสั่งย้อนหลัง และเพิ่ม request guard/clear state ใน Drawer; ไม่เปลี่ยน Flow, state transition, destination, schema หรือสิทธิ์
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** lint, TypeScript/Vite build, Intake/Document Flow targeted tests และ real-page check ของการสลับแถว/Filter Drawer; ตรวจว่า request เก่าถูกละทิ้ง
+- **Rollback:** คืน UI แถวเดิมหรือถอด request guard ได้โดยไม่แก้ข้อมูล, Audit หรือเส้นทางงาน
+
+## ล่าสุด: Web Chat Inline Image Preview v1.17 — 23/8/2569
+
+- **เหตุผล:** ผู้ใช้ต้องการเห็นรูปที่ส่งในห้อง Chat แบบ inline โดยไม่ต้องเปิดลิงก์ทุกครั้ง
+- **ผลกระทบ:** `src/pages/Chat/index.tsx`, `scripts/chat-launcher-attachment.test.ts`, `docs/CHAT_ATTENDANCE_BRIDGE_FLOW.md` และ Flow Registry card; ไฟล์ `image/*` แสดงภาพตัวอย่าง responsive และกดเปิดรูปเต็มได้, เอกสาร/ไฟล์อื่นยังใช้ปุ่มเปิดไฟล์, signed URL และสิทธิ์ Storage เดิมไม่เปลี่ยน
+- **Migration:** ไม่มี schema/data migration และไม่มีการเปลี่ยน bucket จาก private เป็น public
+- **การตรวจสอบ:** attachment regression, targeted ESLint, full lint/build, ตรวจ bundle ของ host ที่ deploy และ UAT ด้วยรูป JPG/PNG กับไฟล์ PDF/เอกสารเพื่อยืนยัน preview/fallback/สิทธิ์
+- **Rollback:** revert เงื่อนไข inline preview และกลับไปแสดงปุ่ม `เปิดไฟล์` ได้โดยไม่ลบ `chat_messages`, Storage objects หรือ signed URL policy
+
 ## ล่าสุด: Web Chat Drag-and-Drop Attachment v1.16 — 23/8/2569
 
 - **เหตุผล:** ผู้ใช้คอมพิวเตอร์ต้องการลากไฟล์จากเครื่องมาวางในห้องแชตโดยไม่ต้องเปิด file picker

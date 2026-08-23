@@ -258,6 +258,10 @@ const createChatAttachmentId = () => {
 const supportedChatAttachmentTypes = new Set(Object.values(chatAttachmentMimeByExtension))
 const maxChatAttachmentBytes = 50 * 1024 * 1024
 
+const isChatImageAttachment = (contentType: string | null | undefined) => {
+  return Boolean(contentType?.trim().toLowerCase().startsWith('image/'))
+}
+
 const labelFromProfile = (profile: RoomMemberProfile | null | undefined, fallbackId = '-') => {
   return profile?.full_name?.trim() || profile?.email?.trim() || fallbackId
 }
@@ -288,6 +292,7 @@ export function ChatPage() {
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [note, setNote] = useState('')
   const [attachmentUrls, setAttachmentUrls] = useState<MessageAttachmentUrlMap>({})
+  const [failedAttachmentPreviews, setFailedAttachmentPreviews] = useState<Record<string, boolean>>({})
   const [unreadCounts, setUnreadCounts] = useState<UnreadCountMap>({})
   const [onlineProfileMap, setOnlineProfileMap] = useState<OnlineProfileMap>({})
   const [presenceConnection, setPresenceConnection] = useState<PresenceConnectionState>('offline')
@@ -2240,7 +2245,45 @@ export function ChatPage() {
                                         {message.attachment_content_type}
                                       </Typography>
                                     )}
-                                    {attachmentUrls[message.id] ? (
+                                    {attachmentUrls[message.id] && isChatImageAttachment(message.attachment_content_type) && !failedAttachmentPreviews[message.id] ? (
+                                      <Stack spacing={0.5} sx={{ mt: 0.75, alignItems: 'flex-start' }}>
+                                        <Box
+                                          component="a"
+                                          href={attachmentUrls[message.id]}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          aria-label={`เปิดรูป ${message.attachment_name || 'ไฟล์แนบ'}`}
+                                          sx={{
+                                            display: 'block',
+                                            width: 'min(100%, 320px)',
+                                            border: '1px solid',
+                                            borderColor: 'divider',
+                                            borderRadius: 1.5,
+                                            overflow: 'hidden',
+                                            bgcolor: 'action.hover',
+                                          }}
+                                        >
+                                          <Box
+                                            component="img"
+                                            src={attachmentUrls[message.id]}
+                                            alt={message.attachment_name || 'รูปภาพแนบ'}
+                                            loading="lazy"
+                                            onError={() => setFailedAttachmentPreviews((current) => ({ ...current, [message.id]: true }))}
+                                            sx={{ display: 'block', width: '100%', maxHeight: 260, objectFit: 'contain' }}
+                                          />
+                                        </Box>
+                                        <Button
+                                          size="small"
+                                          startIcon={<AttachFileOutlinedIcon />}
+                                          href={attachmentUrls[message.id]}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          sx={{ minHeight: 30, px: 0.5 }}
+                                        >
+                                          เปิดรูปเต็ม
+                                        </Button>
+                                      </Stack>
+                                    ) : attachmentUrls[message.id] ? (
                                       <Button
                                         size="small"
                                         startIcon={<AttachFileOutlinedIcon />}

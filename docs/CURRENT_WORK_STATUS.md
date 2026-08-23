@@ -1,5 +1,13 @@
 # WisdomAI — สถานะงานและรายการตรวจรับ
 
+### CHAT-ATTACHMENT-004 — แสดงรูปแนบในข้อความ Web Chat (23/8/2569)
+
+- สถานะ: `แก้ไขโค้ดและเอกสารแล้ว; รอ deploy/UAT รูปจริง`
+- ขอบเขต: ไฟล์ `image/*` ที่มี signed URL จะแสดงภาพตัวอย่างแบบ responsive ใน message bubble และกดภาพหรือ `เปิดรูปเต็ม` เพื่อเปิดแท็บใหม่; PDF/Office/text และรูปที่ browser decode ไม่ได้ยัง fallback เป็นปุ่ม `เปิดไฟล์`; bucket ยังคง private และใช้ RLS/signed URL เดิม
+- Verification gate: targeted attachment regression, ESLint, full lint/build, ตรวจ artifact ของ Vercel/Cloudflare หลัง deploy และ UAT ด้วย JPG/PNG + PDF/เอกสาร โดยตรวจ `storage.objects`, `chat_messages` และ signed URL ตามสิทธิ์สมาชิกห้อง
+- Migration/legacy: ไม่มี schema/data migration; ตรวจ legacy file messages เดิมแล้วไม่ต้องแปลงข้อมูล
+- Rollback: revert inline preview ให้กลับเป็น file card/link ได้โดยไม่ลบข้อความ ไฟล์ หรือ policy
+
 ### CHAT-ATTACHMENT-001 — Web Chat แนบไฟล์และกู้คืน session (23/8/2569)
 
 - สถานะ: `ขึ้น Production แล้ว รอ authenticated UAT` | Vercel deployment `dpl_2c1TjsMGotYsh5JSTYZsuhdJ52tW` `READY`, alias `https://wisdomai-react.vercel.app`
