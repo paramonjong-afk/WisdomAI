@@ -6,6 +6,7 @@ const chat = fs.readFileSync('src/pages/Chat/index.tsx', 'utf8')
 const checks: Array<[string, boolean]> = [
   ['normal path has explicit approval then real write', migration.includes("status='approved'") && migration.includes("insert into public.attendance_sessions") && migration.includes("status='recorded'")],
   ['idempotency uses company and request code', migration.includes('unique(company_id, request_code)') && migration.includes('request_code=trim(target_request_code)')],
+  ['client retries recover the existing job instead of deleting its selfie', chat.includes('พบรหัสรายการเดิม ระบบไม่สร้าง Job ซ้ำ') && chat.includes('บันทึก Job สำเร็จแล้วจากรหัสรายการเดิม')],
   ['duplicate stays open for more information', migration.includes("'duplicate_detected'") && migration.includes("status='needs_more_info'")],
   ['employee name mismatch is blocked', migration.includes("raise exception 'employee_name_mismatch'")],
   ['clock out resolves and validates the open session site', migration.includes('resolved_site_id uuid := target_site_id') && migration.includes("missing_fields,'open_attendance_session'")],

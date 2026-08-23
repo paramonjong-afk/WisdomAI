@@ -1405,6 +1405,7 @@ export function ChatPage() {
     }
     const action = attendanceAction
     const roomId = selectedRoom.id
+    const requestCode = attendanceRequestCode || createChatAttachmentId()
     let selfiePath = ''
     let cleanupSelfie = false
     setAttendanceBusy(true)
@@ -1417,8 +1418,20 @@ export function ChatPage() {
         request: { room_id: roomId, action, site_id: attendanceSiteId || null, gps_error_code: attendanceLocation.gpsErrorCode ?? null },
         operation: async () => {
           const extension = attendanceSelfie.name.split('.').pop()?.toLowerCase() || 'jpg'
-          const requestCode = attendanceRequestCode || createChatAttachmentId()
           const path = `${activeProfileId}/${requestCode}-${action === 'clock_in' ? 'in' : 'out'}-chat.${extension}`
+          const { data: existingJob } = await supabase
+            .from('chat_attendance_approval_jobs')
+            .select('status,selfie_path')
+            .eq('company_id', companyId)
+            .eq('request_code', requestCode)
+            .maybeSingle()
+          if (existingJob) {
+            return {
+              message: 'พบรหัสรายการเดิม ระบบไม่สร้าง Job ซ้ำ',
+              status: existingJob.status as string,
+              selfiePath: existingJob.selfie_path as string,
+            }
+          }
           const { error: uploadError } = await supabase.storage.from('attendance-selfies').upload(path, attendanceSelfie, {
             contentType: attendanceSelfie.type, upsert: false,
           })
@@ -1438,6 +1451,19 @@ export function ChatPage() {
           })
           if (error) {
             const detail = userError(error)
+            const { data: recoveredJob } = await supabase
+              .from('chat_attendance_approval_jobs')
+              .select('status')
+              .eq('company_id', companyId)
+              .eq('request_code', requestCode)
+              .maybeSingle()
+            if (recoveredJob) {
+              return {
+                message: 'บันทึก Job สำเร็จแล้วจากรหัสรายการเดิม',
+                status: recoveredJob.status as string,
+                selfiePath: path,
+              }
+            }
             cleanupSelfie = true
             throw new Error(detail)
           }
