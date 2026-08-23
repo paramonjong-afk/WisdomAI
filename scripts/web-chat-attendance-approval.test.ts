@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 
-const migration = fs.readFileSync('supabase/migrations/20260823025922_web_chat_attendance_approval_jobs.sql', 'utf8')
+const migration = fs.readFileSync('supabase/migrations/20260823031549_web_chat_attendance_approval_jobs.sql', 'utf8')
 const chat = fs.readFileSync('src/pages/Chat/index.tsx', 'utf8')
 
 const checks: Array<[string, boolean]> = [

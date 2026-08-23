@@ -367,7 +367,7 @@ flowchart TD
 
 - เหตุผล: ห้าม Web Chat เขียนเวลาจริงทันทีโดยไม่มีผู้รับผิดชอบอนุมัติ และนิยามปิด Job ให้ตรวจครบ 100%
 - ผลกระทบ: หน้า Chat, ตาราง Job/Audit, RPC create/review/close และ Flow Registry
-- Migration: `20260823025922_web_chat_attendance_approval_jobs.sql`; ไม่มีการแก้รายการเดิมย้อนหลัง
+- Migration baseline ที่ตรงกับ Production: `20260823031549_web_chat_attendance_approval_jobs.sql`; ไม่มีการแก้รายการเดิมย้อนหลัง
 - Verification: contract scenarios ปกติ/ซ้ำ/ชื่อไม่ตรง/ข้อมูลไม่ครบ/Reject/request-more/no-response, lint, build และหน้า `/chat`
 - Rollback: ปิด UI approval, คืน submit ไป `attendance-clock`, แล้ว drop RPC/table ใหม่ได้; ไม่ลบ `attendance_sessions` ที่บันทึกสำเร็จแล้ว
 
