@@ -2,8 +2,13 @@
 
 ```mermaid
 flowchart TD
-  A[เอกสารผ่าน Intake / Filter] --> B[ผู้มีสิทธิ์เปิดตรวจเอกสาร]
-  B --> C[ตรวจชนิดและวัตถุประสงค์]
+  A[เอกสารผ่าน Intake / Filter] --> B{ประเภทข้อมูล}
+  B -->|สลิปโอนเงิน| Q[Accounting Pending Queue]
+  Q --> B1[ผู้มีสิทธิ์เปิดตรวจสลิป]
+  B1 --> C1[ตรวจผู้โอน ผู้รับ ยอด และหลักฐาน]
+  C1 -->|ไม่ชัด/ซ้ำ| Q1[ค้างตรวจพร้อมเหตุผลและ Audit]
+  C1 -->|ผ่าน| C[ตรวจชนิดและวัตถุประสงค์]
+  B -->|เอกสารบัญชีอื่น| C
   C --> D[บันทึกประเภทเอกสาร]
   D -->|ไม่ผ่าน| D1[แจ้ง Error: ขั้นตอนบันทึกประเภท]
   D -->|ผ่าน| E[บันทึกโครงการ ไซต์ หมวดต้นทุน บัญชี และรายการ]
@@ -34,3 +39,4 @@ flowchart TD
 | Version | Date | Rationale | Impact | Migration | Verification | Rollback |
 | --- | --- | --- | --- | --- | --- | --- |
 | v1.0 | 23/8/2569 | ลงทะเบียน flow จริงและคืน error ที่ระบุขั้นตอน หลัง regression ทำให้เหลือข้อความรวม | AccountingDocuments error feedback และ regression contract | ไม่มี | focused test, lint, build และ dialog feedback | คืนข้อความรวมได้โดยไม่เปลี่ยนข้อมูลหรือ RPC |
+| v1.1 | 23/8/2569 | ผู้ใช้ไม่เห็นสลิปที่ส่งบัญชี เพราะสลิปยังเป็นงานรอตรวจใน destination task ไม่ใช่ `accounting_documents` | เพิ่ม Accounting Pending Queue แบบอ่านอย่างเดียวจาก `document_flow_destination_tasks` + `document_flow_items` + `financial_transactions`; ไม่รวม/เขียนทับเอกสารที่ยืนยันแล้ว | ตรวจ count จาก Production, typecheck/lint/build และ smoke หน้าเอกสารบัญชี | ถอนส่วนคิวใหม่ได้โดยไม่แตะ raw/task/audit; เอกสารบัญชีเดิมยังใช้ query เดิม |

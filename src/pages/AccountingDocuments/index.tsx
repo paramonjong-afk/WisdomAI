@@ -33,6 +33,20 @@ type AccountingDocument = {
   projects: { name: string } | null
   line_messages: { line_senders: { display_name: string | null } | null; line_groups: { display_name: string | null } | null } | null
 }
+type AccountingPendingSlip = {
+  taskId: string
+  itemId: string
+  intakeId: string | null
+  sourceMessageId: string | null
+  createdAt: string
+  taskStatus: string
+  senderName: string | null
+  recipientName: string | null
+  amount: number | null
+  transferAt: string | null
+  reviewStatus: string | null
+  route: string | null
+}
 type DocumentSetMember = { id: string; source_message_id: string; document_type: string; status: DocumentStatus; page_number: number | null; created_at: string }
 type SetMatchGap = { documentType: string; documentLabel: string; isRequired: boolean }
 type DocumentSetMatchSummary = {
@@ -126,6 +140,7 @@ export function AccountingDocumentsPage() {
     })
   const [tab, setTab] = useState(0)
   const [documents, setDocuments] = useState<AccountingDocument[]>([])
+  const [pendingSlips, setPendingSlips] = useState<AccountingPendingSlip[]>([])
   const [inventory, setInventory] = useState<InventoryBalance[]>([])
   const [projectInventory, setProjectInventory] = useState<ProjectInventoryBalance[]>([])
   const [productPrices, setProductPrices] = useState<ProductPriceReference[]>([])
@@ -195,6 +210,43 @@ export function AccountingDocumentsPage() {
     ])
     const firstError = [documentResult.error, inventoryResult.error, projectInventoryResult.error, productPriceResult.error, actualPriceResult.error, projectResult.error, siteResult.error, categoryResult.error, vendorResult.error].find(Boolean)
     if (firstError) setError(userError(firstError))
+    // Transfer slips are intentionally not accounting_documents until reviewed. Read the
+    // accounting destination queue separately so pending work is visible without duplicating
+    // or mutating the raw Intake record.
+    const { data: taskRows, error: taskError } = await supabase
+      .from('document_flow_destination_tasks')
+      .select('id,item_id,status,created_at')
+      .eq('department', 'accounting')
+      .in('status', ['queued', 'claimed'])
+      .order('created_at', { ascending: false })
+      .limit(1000)
+    if (taskError) setError(current => current ?? userError(taskError))
+    const taskList = (taskRows ?? []) as Array<{ id: string; item_id: string; status: string; created_at: string }>
+    const itemIds = [...new Set(taskList.map(row => row.item_id).filter(Boolean))]
+    let pending: AccountingPendingSlip[] = []
+    if (itemIds.length) {
+      const { data: itemRows, error: itemError } = await supabase
+        .from('document_flow_items')
+        .select('id,intake_id,source_message_id,document_type,current_room,route_target,updated_at')
+        .in('id', itemIds)
+        .eq('document_type', 'transfer_slip')
+      if (itemError) setError(current => current ?? userError(itemError))
+      const items = (itemRows ?? []) as Array<{ id: string; intake_id: string | null; source_message_id: string | null; current_room: string | null; route_target: string | null; updated_at: string }>
+      const sourceIds = [...new Set(items.map(item => item.source_message_id).filter((id): id is string => Boolean(id)))]
+      const { data: txRows, error: txError } = sourceIds.length
+        ? await supabase.from('financial_transactions').select('source_message_id,sender_name,recipient_name,amount_total,transfer_at,review_status').in('source_message_id', sourceIds).neq('review_status', 'dismissed')
+        : { data: [], error: null }
+      if (txError) setError(current => current ?? userError(txError))
+      const txBySource = new Map(((txRows ?? []) as Array<{ source_message_id: string; sender_name: string | null; recipient_name: string | null; amount_total: number | null; transfer_at: string | null; review_status: string | null }>).map(row => [row.source_message_id, row]))
+      const itemById = new Map(items.map(item => [item.id, item]))
+      pending = taskList.flatMap(task => {
+        const item = itemById.get(task.item_id)
+        if (!item) return []
+        const tx = item.source_message_id ? txBySource.get(item.source_message_id) : undefined
+        return [{ taskId: task.id, itemId: item.id, intakeId: item.intake_id, sourceMessageId: item.source_message_id, createdAt: task.created_at, taskStatus: task.status, senderName: tx?.sender_name ?? null, recipientName: tx?.recipient_name ?? null, amount: tx?.amount_total == null ? null : Number(tx.amount_total), transferAt: tx?.transfer_at ?? null, reviewStatus: tx?.review_status ?? null, route: item.route_target ?? item.current_room }]
+      })
+    }
+    setPendingSlips(pending)
     setDocuments((documentResult.data ?? []) as unknown as AccountingDocument[])
     setInventory((inventoryResult.data ?? []) as InventoryBalance[])
     setProjectInventory((projectInventoryResult.data ?? []) as unknown as ProjectInventoryBalance[])
@@ -1016,27 +1068,53 @@ export function AccountingDocumentsPage() {
 
     if (tab === 0) {
       return (
-        <StandardDataTable
-          rows={visibleDocuments}
-          getRowId={row => row.id}
-          getSearchText={row => [row.vendor_name, row.document_number, documentLabels[row.document_type], row.projects?.name].filter(Boolean).join(' ')}
-          searchLabel="ค้นหาผู้ขาย เลขที่เอกสาร หรือโครงการ"
-          emptyText="ยังไม่พบเอกสารบัญชีจาก LINE"
-          exportFileName="wisdomai-accounting-documents"
-          minWidth={1100}
-          toolbar={<Select size="small" displayEmpty value={statusFilter} onChange={event => setStatusFilter(event.target.value)} sx={{ minWidth: 210 }}><MenuItem value="active">รายการใช้งาน (ไม่รวมรายการซ้ำ)</MenuItem><MenuItem value="">ทุกสถานะ (รวมประวัติ)</MenuItem>{(Object.entries(statusLabels) as [DocumentStatus, string][]).map(([value, label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}</Select>}
-          columns={[
-            { id: 'date', label: 'วันที่', minWidth: 110, render: row => row.document_date ?? new Date(row.created_at).toLocaleDateString('th-TH') },
-            { id: 'type', label: 'ประเภทเอกสาร', minWidth: 230, render: row => <Box><div>{documentLabels[row.document_type] ?? row.document_type}</div><Typography variant="caption" color="text.secondary">{purposeLabels[row.document_purpose ?? 'other']}</Typography></Box> },
-            { id: 'pages', label: 'ชุดภาพ', minWidth: 90, render: row => row.document_set_id ? <Chip size="small" variant="outlined" label={`หน้า ${row.page_number ?? 1}`} /> : '1 หน้า' },
-            { id: 'number', label: 'เลขที่', minWidth: 130, render: row => row.document_number ?? '-' },
-            { id: 'vendor', label: 'ผู้ขาย/ผู้รับเงิน', minWidth: 220, render: row => row.vendor_name ?? 'อ่านชื่อไม่ได้' },
-            { id: 'total', label: 'ยอดรวม', minWidth: 120, align: 'right', render: row => money(row.total_amount) },
-            { id: 'project', label: 'โครงการ', minWidth: 180, render: row => row.projects?.name ?? 'รอระบุ' },
-            { id: 'status', label: 'สถานะ', minWidth: 170, render: row => <Chip size="small" color={row.status === 'confirmed' ? 'success' : row.status === 'duplicate' ? 'error' : row.status === 'needs_correction' ? 'warning' : 'default'} label={documentStatusLabel(row)} /> },
-            { id: 'action', label: 'ตรวจสอบ', minWidth: 120, render: row => <Button size="small" variant="outlined" onClick={() => void openDocument(row)}>เปิดเอกสาร</Button> },
-          ]}
-        />
+        <Stack spacing={2}>
+          <Paper variant="outlined" sx={{ p: 1.5, borderTop: 3, borderTopColor: 'info.main' }}>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between' }}>
+              <Box><Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Accounting Pending Queue · สลิปโอนเงิน</Typography><Typography variant="body2" color="text.secondary">สลิปที่ Intake ส่งมารอทีมบัญชีตรวจสอบ ยังไม่ใช่เอกสารบัญชีที่ยืนยันแล้ว</Typography></Box>
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}><Chip color={pendingSlips.length ? 'warning' : 'default'} label={`${pendingSlips.length} รายการ`} /><Button size="small" href="/document-flows?document_view=task_types">เปิดศูนย์เส้นทาง</Button></Stack>
+            </Stack>
+          </Paper>
+          <StandardDataTable
+            rows={pendingSlips}
+            getRowId={row => row.taskId}
+            getSearchText={row => [row.intakeId, row.sourceMessageId, row.senderName, row.recipientName, row.route].filter(Boolean).join(' ')}
+            searchLabel="ค้นหา Intake ID ผู้โอน ผู้รับ หรือเส้นทาง"
+            emptyText="ไม่มีสลิปค้างในคิวบัญชี"
+            exportFileName="wisdomai-accounting-pending-slips"
+            minWidth={1100}
+            columns={[
+              { id: 'date', label: 'รับเข้า', minWidth: 140, render: row => new Date(row.transferAt ?? row.createdAt).toLocaleString('th-TH') },
+              { id: 'intake', label: 'Intake/Document ID', minWidth: 190, render: row => <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{(row.intakeId ?? row.itemId).slice(0, 12)}…</Typography> },
+              { id: 'parties', label: 'ผู้โอน → ผู้รับ', minWidth: 260, render: row => `${row.senderName ?? 'ไม่ระบุ'} → ${row.recipientName ?? 'ไม่ระบุ'}` },
+              { id: 'amount', label: 'ยอด', minWidth: 120, align: 'right', render: row => money(row.amount) },
+              { id: 'route', label: 'เส้นทาง', minWidth: 180, render: row => row.route ?? 'accounting' },
+              { id: 'status', label: 'สถานะรับงาน', minWidth: 150, render: row => <Chip size="small" color={row.taskStatus === 'claimed' ? 'info' : 'warning'} label={row.taskStatus === 'claimed' ? 'บัญชีรับงานแล้ว' : 'รอตรวจสอบ'} /> },
+            ]}
+          />
+          <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>เอกสารบัญชีที่ยืนยัน/รอตรวจ</Typography>
+          <StandardDataTable
+            rows={visibleDocuments}
+            getRowId={row => row.id}
+            getSearchText={row => [row.vendor_name, row.document_number, documentLabels[row.document_type], row.projects?.name].filter(Boolean).join(' ')}
+            searchLabel="ค้นหาผู้ขาย เลขที่เอกสาร หรือโครงการ"
+            emptyText="ยังไม่พบเอกสารบัญชีจาก LINE"
+            exportFileName="wisdomai-accounting-documents"
+            minWidth={1100}
+            toolbar={<Select size="small" displayEmpty value={statusFilter} onChange={event => setStatusFilter(event.target.value)} sx={{ minWidth: 210 }}><MenuItem value="active">รายการใช้งาน (ไม่รวมรายการซ้ำ)</MenuItem><MenuItem value="">ทุกสถานะ (รวมประวัติ)</MenuItem>{(Object.entries(statusLabels) as [DocumentStatus, string][]).map(([value, label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}</Select>}
+            columns={[
+              { id: 'date', label: 'วันที่', minWidth: 110, render: row => row.document_date ?? new Date(row.created_at).toLocaleDateString('th-TH') },
+              { id: 'type', label: 'ประเภทเอกสาร', minWidth: 230, render: row => <Box><div>{documentLabels[row.document_type] ?? row.document_type}</div><Typography variant="caption" color="text.secondary">{purposeLabels[row.document_purpose ?? 'other']}</Typography></Box> },
+              { id: 'pages', label: 'ชุดภาพ', minWidth: 90, render: row => row.document_set_id ? <Chip size="small" variant="outlined" label={`หน้า ${row.page_number ?? 1}`} /> : '1 หน้า' },
+              { id: 'number', label: 'เลขที่', minWidth: 130, render: row => row.document_number ?? '-' },
+              { id: 'vendor', label: 'ผู้ขาย/ผู้รับเงิน', minWidth: 220, render: row => row.vendor_name ?? 'อ่านชื่อไม่ได้' },
+              { id: 'total', label: 'ยอดรวม', minWidth: 120, align: 'right', render: row => money(row.total_amount) },
+              { id: 'project', label: 'โครงการ', minWidth: 180, render: row => row.projects?.name ?? 'รอระบุ' },
+              { id: 'status', label: 'สถานะ', minWidth: 170, render: row => <Chip size="small" color={row.status === 'confirmed' ? 'success' : row.status === 'duplicate' ? 'error' : row.status === 'needs_correction' ? 'warning' : 'default'} label={documentStatusLabel(row)} /> },
+              { id: 'action', label: 'ตรวจสอบ', minWidth: 120, render: row => <Button size="small" variant="outlined" onClick={() => void openDocument(row)}>เปิดเอกสาร</Button> },
+            ]}
+          />
+        </Stack>
       )
     }
 
