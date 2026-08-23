@@ -194,7 +194,7 @@ flowchart LR
 
 ## Transfer Slip Historical Reprocessing — v2.8 (21/8/2569)
 
-- Admin เรียก “แยกสลิปย้อนหลัง” จาก Intake ได้ ระบบอ่านไฟล์สลิปเดิมครั้งละไม่เกิน 10 รายการ เพื่อลด timeout และไม่กระทบการรับเอกสารใหม่
+- เดิมมี UI สำหรับ “แยกสลิปย้อนหลัง” จาก Intake แต่ใน Flow ใหม่ได้ถอดปุ่มออกจากหน้าใช้งานแล้ว; หากต้องอ้างอิงย้อนหลังให้ทำผ่านเส้นทาง backend/งานดูแลระบบที่ถูกกำหนด ไม่ใช่จาก Document Flow screen
 - เลือกเฉพาะ `financial_transactions` ที่ยังไม่มีข้อมูลคู่โอนและยังไม่เคยถูก backfill; จึงไม่เขียนทับข้อมูลที่ AI/ผู้ใช้บันทึกไว้แล้ว
 - ดึงไฟล์จาก `line_attachments` ผ่าน Storage ส่วนกลาง, วิเคราะห์ด้วย Gemini Vision แล้วบันทึกเฉพาะข้อมูลคู่โอน/วันเวลาโอน/เลขอ้างอิง พร้อมปกปิดเลขบัญชีเป็น 4 ตัวท้าย
 - ถ้าไม่มีไฟล์ เปิดไฟล์ไม่ได้ หรือ AI อ่านไม่ได้ จะบันทึกผลเป็น skipped/failed และไม่สร้าง Intake, Document Flow หรือเส้นทางงานใหม่
@@ -220,6 +220,28 @@ flowchart LR
 - แสดงผู้โอน/ผู้รับ, ธนาคารต้นทาง/ปลายทาง, เลขบัญชีเฉพาะ 4 ตัวท้าย, เวลาโอน, เลขอ้างอิง และคะแนนความมั่นใจ เพื่อให้บัญชีตรวจงานได้โดยไม่ต้องย้อนกลับ Intake
 - ถ้ายังไม่มีผลอ่านหรือไม่พบรหัสต้นทาง Drawer แจ้งสถานะที่ตรวจสอบได้; การเปิดดูไม่มีการสร้างหรือแก้ข้อมูล
 - การเข้าถึงอาศัยสิทธิ์อ่านรายการ Flow และ RLS ของทะเบียนธุรกรรมเดิม; เลขบัญชีเต็มไม่ถูกเก็บหรือแสดง
+
+## Intake AI Reprocess and Classification Audit — v3.8 (23/8/2569)
+
+```mermaid
+flowchart LR
+  A[คิว Intake: awaiting_classification / other] --> B[สร้าง Reprocess Batch]
+  B --> C[อ่านไฟล์ต้นฉบับจากทะเบียนกลาง]
+  C --> D[AI Classification + confidence]
+  D -->|confidence >= 90%| E[บันทึก classification history]
+  D -->|ต่ำ/ข้อมูลไม่ครบ| F[ค้าง Intake Admin]
+  E -->|transfer_slip| G[Filter payment verification]
+  G --> H[บัญชีเป็นปลายทางแรก]
+  E -->|ชนิดอื่น| I[Filter ตามประเภท]
+  C -->|อ่านไม่ได้/ผิดพลาด| J[failed + retry ได้]
+  E --> K[Audit: ai_reclassified / route_corrected / reprocess_batch]
+```
+
+- Reprocess ใช้ `document_flow_items.id`/`source_message_id` เดิมเป็น idempotency key; ไม่สร้าง Intake หรือไฟล์ซ้ำ
+- Raw source และ classification เดิมไม่ถูกลบหรือเขียนทับ; ผลใหม่เก็บใน `document_flow_classification_history` พร้อม batch/rule/model/confidence/เวลา
+- สลิปที่ confidence ตั้งแต่ 90% จะเข้าคิว Filter ตรวจการโอนและถูกส่งบัญชีตาม trigger กลางเดิม; confidence ต่ำหรือไม่ครบค้าง `intake_manual_review`
+- ทุก batch เก็บจำนวน processed/classified/routed/held/failed ใน `document_flow_reprocess_batches` และ Timeline ใช้ `reprocess_batch` พร้อมรายละเอียดผล
+- หากไฟล์อ่านไม่ได้หรือ AI ล้มเหลว รายการคงสถานะเดิมและบันทึก failed เพื่อ retry ภายหลัง ห้ามเดาปลายทาง
 
 ## Daily Employee Transfer Slip HR Route — v3.2 (21/8/2569)
 
