@@ -2,9 +2,9 @@
 
 ### CHAT-ATTACHMENT-004 — แสดงรูปแนบในข้อความ Web Chat (23/8/2569)
 
-- สถานะ: `แก้ไขโค้ดและเอกสารแล้ว; รอ deploy/UAT รูปจริง`
+- สถานะ: `ขึ้น Vercel/Cloudflare แล้ว; รอ authenticated UAT รูปจริง` | commit `9d6d215`; Vercel GitHub checks ของ `wisdom-ai` และ `wisdomai-react` สำเร็จ; Cloudflare bundle `Chat-CU7PYrsY.js` พบ marker inline preview ครบ
 - ขอบเขต: ไฟล์ `image/*` ที่มี signed URL จะแสดงภาพตัวอย่างแบบ responsive ใน message bubble และกดภาพหรือ `เปิดรูปเต็ม` เพื่อเปิดแท็บใหม่; PDF/Office/text และรูปที่ browser decode ไม่ได้ยัง fallback เป็นปุ่ม `เปิดไฟล์`; bucket ยังคง private และใช้ RLS/signed URL เดิม
-- Verification gate: targeted attachment regression, ESLint, full lint/build, ตรวจ artifact ของ Vercel/Cloudflare หลัง deploy และ UAT ด้วย JPG/PNG + PDF/เอกสาร โดยตรวจ `storage.objects`, `chat_messages` และ signed URL ตามสิทธิ์สมาชิกห้อง
+- Verification gate: targeted attachment regression, ESLint, full lint/build และ `git diff --check` ผ่าน; Cloudflare artifact ตรวจพบ `เปิดรูปเต็ม`, `รูปภาพแนบ` และ `image/`; direct Vercel fetch จาก environment นี้ถูก remote ปิด connection แต่ GitHub deployment checks สำเร็จ; เหลือ UAT ด้วย JPG/PNG + PDF/เอกสาร โดยตรวจ `storage.objects`, `chat_messages` และ signed URL ตามสิทธิ์สมาชิกห้อง
 - Migration/legacy: ไม่มี schema/data migration; ตรวจ legacy file messages เดิมแล้วไม่ต้องแปลงข้อมูล
 - Rollback: revert inline preview ให้กลับเป็น file card/link ได้โดยไม่ลบข้อความ ไฟล์ หรือ policy
 
