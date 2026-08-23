@@ -33,12 +33,24 @@ const workforceFlows = [
   },
   {
     title: 'ปิดรอบค่าแรง',
-    version: 'Payroll v1.7',
+    version: 'Payroll Reporting v1.8 · 23/8/2569',
     icon: <PaymentsOutlinedIcon color="primary" />,
     summary: 'คำนวณงวด → ตรวจรายการค้าง → ปิดรอบล็อกข้อมูล → ส่งรอจ่าย → ยืนยันจ่ายและออก Payslip',
-    bullets: ['ใช้ RPC กลาง manage_pay_period_close_flow', 'ปิดรอบไม่ได้ถ้ามีเวลา/Payroll รอตรวจ', 'หลังจ่ายแล้วห้ามแก้ย้อนหลังตรง ให้ทำ Adjustment งวดถัดไป'],
+    bullets: ['อ่านจาก docs/PAYROLL_REPORTING_FLOW.md และ docs/WORKFORCE_BACKBONE_FLOW.md', 'ใช้ RPC กลาง manage_pay_period_close_flow', 'รูปแบบเวลาใช้ workforce_rule_settings และ formatter กลาง', 'ปิดรอบไม่ได้ถ้ามีเวลา/Payroll รอตรวจ', 'หลังจ่ายแล้วห้ามแก้ย้อนหลังตรง ให้ทำ Adjustment งวดถัดไป'],
     path: '/reports',
     action: 'ไปปิดรอบ / Payslip',
+  },
+] as const
+
+const accountingFlows = [
+  {
+    title: 'ตรวจและยืนยันเอกสารบัญชี',
+    version: 'Accounting Confirmation v1.0 · 23/8/2569',
+    icon: <RuleOutlinedIcon color="primary" />,
+    summary: 'แยก Error ตามขั้นตอนบันทึกประเภท โครงการ/บัญชี และยืนยัน เพื่อแก้ไขจุดที่ผิดก่อน retry โดยไม่สร้าง Accounting/Stock/AP ซ้ำ',
+    bullets: ['อ่านจาก docs/ACCOUNTING_DOCUMENT_CONFIRMATION_FLOW.md', 'ทุก mutation ผ่าน Mutation Attempt Center', 'จำกัด company และสิทธิ์ด้วย RPC/RLS', 'retry ใช้เอกสารเดิมและแจ้งขั้นตอนที่ล้มเหลวใกล้ปุ่มดำเนินการ'],
+    path: '/accounting-documents',
+    action: 'ไปตรวจเอกสารบัญชี',
   },
 ] as const
 
@@ -75,7 +87,7 @@ const systemFlows = [
     version: 'Omni v1.0 · 22/8/2569',
     icon: <ChatBubbleOutlineOutlinedIcon color="primary" />,
     summary: 'LINE และ Web Chat เป็นได้ทั้งขาเข้าและขาออก โดยมี registry กลาง วิเคราะห์บทสนทนา ส่ง Filter และกันซ้ำข้ามช่องทาง',
-    bullets: ['อ่านจาก docs/OMNI_CHANNEL_INTAKE_OUTTAKE_FLOW.md และ docs/INTAKE_CASE_FLOW.md', 'หน้า Intake ใช้ Subtab มุมมอง 2 แบบ และย้าย Source/วันที่ไป Filter Drawer เพื่อลดพื้นที่ซ้ำ', 'Drawer ล้าง preview/context และกันผลลัพธ์ async ของรายการเก่าก่อนแสดงรายการใหม่', 'ค่า default โหลดวันนี้/รายการรอ Filter เพื่อลดภาระหน้าใหญ่', 'งานภายในใช้ Web Chat/Queue เป็นหลัก ส่วน LINE ใช้คนนอกหรือแจ้งเตือนสั้นตาม Config'],
+    bullets: ['อ่านจาก docs/OMNI_CHANNEL_INTAKE_OUTTAKE_FLOW.md และ docs/INTAKE_CASE_FLOW.md', 'ศูนย์เอกสารมี 2 มุมมองหลัก: คิวเอกสาร และข้อความและบริบท; Intake/Filter/คิวปลายทางเลือกจาก Filter Drawer', 'Filter Drawer เปลี่ยนรายการจริง เก็บ URL/state มีปุ่มล้างและจำนวนตัวกรอง', 'ตาราง/Drawer แสดงต้นทาง ปลายทาง ผู้รับผิดชอบ สิ่งที่ต้องทำต่อ Comment และ Version', 'Drawer ล้าง preview/context และกันผลลัพธ์ async ของรายการเก่าก่อนแสดงรายการใหม่', 'ค่า default โหลดวันนี้/รายการรอ Filter เพื่อลดภาระหน้าใหญ่', 'งานภายในใช้ Web Chat/Queue เป็นหลัก ส่วน LINE ใช้คนนอกหรือแจ้งเตือนสั้นตาม Config'],
     path: '/document-flows',
     action: 'ไปศูนย์ Intake / Filter',
   },
@@ -168,6 +180,22 @@ export function FlowRegistryPage() {
           <Button component={RouterLink} to={flow.path} variant="outlined" size="small" sx={{ mt: 1.5 }}>
             {flow.action}
           </Button>
+        </Box>)}
+      </Stack>
+    </Paper>
+    <Paper variant="outlined" sx={{ p: 2.5 }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+        <RuleOutlinedIcon color="primary" />
+        <Typography variant="h6" sx={{ fontWeight: 800 }}>Accounting / Stock Confirmation Flow</Typography>
+        <Chip size="small" color="success" label="อัปเดตล่าสุด 23/8/2569" />
+      </Stack>
+      <Typography color="text.secondary" sx={{ mt: 1 }}>Flow ตรวจเอกสารก่อนสร้างบัญชี Stock หรือเจ้าหนี้ พร้อม Error แยกตามขั้นตอนและ Mutation Audit</Typography>
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} sx={{ mt: 2 }}>
+        {accountingFlows.map((flow) => <Box key={flow.title} sx={{ flex: 1, p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>{flow.icon}<Typography sx={{ fontWeight: 900 }}>{flow.title}</Typography><Chip size="small" label={flow.version} /></Stack>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{flow.summary}</Typography>
+          <Stack spacing={.5} sx={{ mt: 1.25 }}>{flow.bullets.map((item) => <Typography key={item} variant="caption" sx={{ display: 'block' }}>• {item}</Typography>)}</Stack>
+          <Button component={RouterLink} to={flow.path} variant="outlined" size="small" sx={{ mt: 1.5 }}>{flow.action}</Button>
         </Box>)}
       </Stack>
     </Paper>

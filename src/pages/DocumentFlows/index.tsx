@@ -31,6 +31,12 @@ type FlowItem = {
   intake_id: string
   review_case_id: string | null
   source_message_id: string | null
+  source_channel?: string | null
+  source_room_name?: string | null
+  source_sender_name?: string | null
+  source_received_at?: string | null
+  source_file_kind?: string | null
+  source_attachment_count?: number | null
   accounting_document_id: string | null
   current_flow: Flow | 'completed'
   current_room: string
@@ -132,6 +138,11 @@ const stateLabels: Record<string, string> = {
 }
 const dataReviewLabels = { complete: 'ข้อมูลครบถ้วน', incomplete: 'ข้อมูลไม่ครบ', recheck_required: 'แก้ไขแล้ว · รอตรวจซ้ำ', rechecked: 'ตรวจซ้ำผ่าน' } as const
 const dataReviewColor = (status?: FlowItem['data_review_status']) => status === 'incomplete' ? 'error' : status === 'recheck_required' ? 'warning' : status === 'rechecked' ? 'info' : 'success'
+const nextActionLabel = (item: FlowItem) => {
+  const action = availableActions(item)[0]
+  return action ? actionLabels[action] : item.state === 'posted' || item.state === 'completed' ? 'ปิดงานแล้ว' : 'ติดตามสถานะ'
+}
+const latestComment = (item: FlowItem) => item.data_review_note ?? item.classification_note ?? item.last_error ?? '-'
 
 const money = (value: number | null) => value == null ? '-' : new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(value)
 const confidence = (value: number | null) => value == null ? '-' : `${(value * 100).toFixed(1)}%`
@@ -188,6 +199,7 @@ export function DocumentFlowsPage() {
   const { profile, currentCompany } = useAuth()
   usePageTitle('Document Flow Center')
   const [flow, setFlow] = useState<ViewMode>('intake_room')
+  const [queueView, setQueueView] = useState<Exclude<ViewMode, 'omni_filter'>>('intake_room')
   const [searchParams, setSearchParams] = useSearchParams()
   const [globalScope, setGlobalScope] = useState<DocumentFlowScope>(() => ({
     channel: (searchParams.get('channel') as DocumentFlowScope['channel']) || 'all',
@@ -661,11 +673,9 @@ export function DocumentFlowsPage() {
     {success && <Alert severity="success" onClose={() => setSuccess('')}>{success}</Alert>}
     <Paper variant="outlined">
       <Stack sx={{ px: 1 }}>
-        <Tabs value={flow} onChange={(_event, value) => { setFlow(value as ViewMode); setStatus('all'); setTypeFilter('all'); setDestinationDepartment('all') }} variant="scrollable">
-          <Tab value="intake_room" label={`1. Intake Room (${counts.intake})`} />
-          <Tab value="omni_filter" label={`2. Omni Filter (${counts.omniFilter})`} />
-          <Tab value="filter" label={`3. Document Filter (${counts.filter})`} />
-          <Tab value="task_types" label={`4. คิวงานปลายทาง (${counts.taskTypes})`} />
+        <Tabs value={flow === 'omni_filter' ? 'omni_filter' : 'documents'} onChange={(_event, value) => { if (value === 'omni_filter') setFlow('omni_filter'); else setFlow(queueView); setStatus('all'); setTypeFilter('all'); setDestinationDepartment('all') }} variant="scrollable">
+          <Tab value="documents" label={`คิวเอกสาร (${counts.intake + counts.filter + counts.taskTypes})`} />
+          <Tab value="omni_filter" label={`ข้อความและบริบท (${counts.omniFilter})`} />
         </Tabs>
       </Stack>
     </Paper>
@@ -710,6 +720,20 @@ export function DocumentFlowsPage() {
         ]}
       />
     )}
+    <Drawer anchor="right" open={globalFilterOpen} onClose={() => setGlobalFilterOpen(false)} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 420 }, p: 3 } } }}>
+      <Stack spacing={2}>
+        <Box><Typography variant="h6" sx={{ fontWeight: 800 }}>ตัวกรองและมุมมองศูนย์เอกสาร</Typography><Typography variant="body2" color="text.secondary">เลือกคิวจาก Drawer เดียว ค่าใน URL และรายการจะเปลี่ยนตามจริง</Typography></Box>
+        <FormControl size="small" fullWidth><InputLabel>มุมมองหลัก</InputLabel><Select label="มุมมองหลัก" value={flow === 'omni_filter' ? queueView : flow} onChange={(event) => { const next = event.target.value as Exclude<ViewMode, 'omni_filter'>; setQueueView(next); setFlow(next); setStatus('all'); setTypeFilter('all'); setDestinationDepartment('all') }}><MenuItem value="intake_room">Intake Room · คิวรับเข้า</MenuItem><MenuItem value="filter">Document Filter · คัดแยกเอกสาร</MenuItem><MenuItem value="task_types">คิวงานปลายทาง</MenuItem></Select></FormControl>
+        <FormControl size="small" fullWidth><InputLabel>ช่องทาง</InputLabel><Select label="ช่องทาง" value={globalScope.channel ?? 'all'} onChange={(event) => updateGlobalScope({ channel: event.target.value as DocumentFlowScope['channel'] })}><MenuItem value="all">ทุกช่องทาง</MenuItem><MenuItem value="line">LINE</MenuItem><MenuItem value="telegram">Telegram</MenuItem><MenuItem value="web_chat">Web Chat</MenuItem><MenuItem value="hr">HR</MenuItem><MenuItem value="unknown">ไม่ทราบต้นทาง</MenuItem></Select></FormControl>
+        <TextField size="small" type="date" label="วันที่รับเข้า" value={globalScope.date ?? ''} onChange={(event) => updateGlobalScope({ date: event.target.value })} slotProps={{ inputLabel: { shrink: true } }} fullWidth />
+        <TextField size="small" label="ห้องต้นทาง" value={globalScope.room ?? ''} onChange={(event) => updateGlobalScope({ room: event.target.value })} fullWidth />
+        <TextField size="small" label="ผู้ส่ง" value={globalScope.sender ?? ''} onChange={(event) => updateGlobalScope({ sender: event.target.value })} fullWidth />
+        <FormControl size="small" fullWidth><InputLabel>ประเภทไฟล์</InputLabel><Select label="ประเภทไฟล์" value={globalScope.fileKind ?? 'all'} onChange={(event) => updateGlobalScope({ fileKind: event.target.value as DocumentFlowScope['fileKind'] })}><MenuItem value="all">ทุกประเภทไฟล์</MenuItem><MenuItem value="image_or_scan">รูป/สแกน</MenuItem><MenuItem value="pdf">PDF</MenuItem><MenuItem value="document">เอกสาร</MenuItem><MenuItem value="unknown">ไม่ระบุชนิด</MenuItem></Select></FormControl>
+        <TextField size="small" label="โครงการ" value={globalScope.project ?? ''} onChange={(event) => updateGlobalScope({ project: event.target.value })} fullWidth />
+        <Stack direction="row" spacing={1}><Button fullWidth variant="outlined" onClick={selectTodayScope}>วันนี้</Button><Button fullWidth onClick={clearGlobalScope}>ล้างทั้งหมด</Button></Stack>
+        <Button variant="contained" onClick={() => setGlobalFilterOpen(false)}>ใช้ตัวกรอง</Button>
+      </Stack>
+    </Drawer>
     {flow !== 'intake_room' && flow !== 'omni_filter' && (
     <>
     <StandardDataTable
@@ -756,10 +780,15 @@ export function DocumentFlowsPage() {
       columns={[
         { id: 'updated', label: 'อัปเดตล่าสุด', minWidth: 160, render: (row) => new Date(row.updated_at).toLocaleString('th-TH'), sortValue: (row) => new Date(row.updated_at) },
         { id: 'created', label: 'รับเข้าเมื่อ', minWidth: 160, render: (row) => new Date(row.created_at).toLocaleString('th-TH'), sortValue: (row) => new Date(row.created_at), exportValue: (row) => row.created_at },
+        { id: 'source', label: 'ต้นทาง', minWidth: 180, render: (row) => <Stack spacing={.25}><Chip size="small" label={row.source_channel ?? 'ไม่ระบุช่องทาง'} /><Typography variant="caption" color="text.secondary">{row.source_room_name ?? 'ไม่ระบุห้อง'}</Typography></Stack>, exportValue: (row) => `${row.source_channel ?? ''} ${row.source_room_name ?? ''}` },
+        { id: 'sender', label: 'ผู้ส่ง', minWidth: 150, render: (row) => row.source_sender_name ?? 'ไม่ระบุผู้ส่ง', exportValue: (row) => row.source_sender_name ?? '' },
         { id: 'intake', label: 'Intake ID', minWidth: 125, render: (row) => <Typography sx={{ fontFamily: 'monospace' }}>{row.intake_id.slice(0, 8)}…</Typography>, exportValue: (row) => row.intake_id },
         { id: 'type', label: 'ประเภท', minWidth: 170, render: (row) => typeLabels[row.document_type ?? 'other'] ?? row.document_type ?? '-' },
         { id: 'department', label: 'ปลายทาง', minWidth: 190, render: (row) => <Stack direction="row" spacing={.5} useFlexGap sx={{ flexWrap: 'wrap' }}>{departmentsFor(row).map((department) => <Chip key={department} size="small" label={departmentLabels[department]} />)}</Stack>, exportValue: (row) => departmentsFor(row).join(', ') },
         { id: 'assignment', label: 'คิวงาน', minWidth: 150, render: (row) => row.assignment_status === 'candidate_review' ? <Chip size="small" color="warning" label="รอยืนยันปลายทาง" /> : row.assignment_status === 'claimed' || row.assignment_status === 'in_progress' ? <Chip size="small" color="success" label="มีผู้รับงาน" /> : <Chip size="small" label="รอมอบหมาย" /> },
+        { id: 'assignee', label: 'ผู้รับผิดชอบ', minWidth: 145, render: (row) => row.assignment_status === 'claimed' || row.assignment_status === 'in_progress' ? 'มีผู้รับงานแล้ว' : 'ยังไม่มอบหมาย' },
+        { id: 'next_action', label: 'สิ่งที่ต้องทำต่อ', minWidth: 165, render: (row) => nextActionLabel(row), exportValue: (row) => nextActionLabel(row) },
+        { id: 'latest_comment', label: 'Comment ล่าสุด', minWidth: 220, render: (row) => <Typography noWrap sx={{ maxWidth: 220 }}>{latestComment(row)}</Typography>, exportValue: (row) => latestComment(row) },
         { id: 'route_target', label: 'เส้นทางรับเข้า', minWidth: 170, render: (row) => <Typography sx={{ whiteSpace: 'nowrap' }}>{routeTargetLabel(row.route_target)}</Typography>, exportValue: (row) => row.route_target ?? '' },
         { id: 'vendor', label: 'ผู้ขาย/คู่ค้า', minWidth: 210, render: (row) => row.vendor_name ?? '-' },
         { id: 'project', label: 'โครงการ', minWidth: 160, render: (row) => row.projects?.name ?? 'ไม่ระบุ' },
@@ -789,19 +818,6 @@ export function DocumentFlowsPage() {
       ]}
     />
     {nextCursor && <Stack direction="row" sx={{ justifyContent: 'center' }}><Button disabled={loading} onClick={() => void load(nextCursor, true)}>Load next page</Button></Stack>}
-    <Drawer anchor="right" open={globalFilterOpen} onClose={() => setGlobalFilterOpen(false)} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 420 }, p: 3 } } }}>
-      <Stack spacing={2}>
-        <Box><Typography variant="h6" sx={{ fontWeight: 800 }}>ตัวกรองข้อมูลกลาง</Typography><Typography variant="body2" color="text.secondary">ค่าชุดเดียวกันใช้กับ Intake, Filter และคิวปลายทาง</Typography></Box>
-        <FormControl size="small" fullWidth><InputLabel>ช่องทาง</InputLabel><Select label="ช่องทาง" value={globalScope.channel ?? 'all'} onChange={(event) => updateGlobalScope({ channel: event.target.value as DocumentFlowScope['channel'] })}><MenuItem value="all">ทุกช่องทาง</MenuItem><MenuItem value="line">LINE</MenuItem><MenuItem value="telegram">Telegram</MenuItem><MenuItem value="web_chat">Web Chat</MenuItem><MenuItem value="hr">HR</MenuItem><MenuItem value="unknown">ไม่ทราบต้นทาง</MenuItem></Select></FormControl>
-        <TextField size="small" type="date" label="วันที่รับเข้า" value={globalScope.date ?? ''} onChange={(event) => updateGlobalScope({ date: event.target.value })} slotProps={{ inputLabel: { shrink: true } }} fullWidth />
-        <TextField size="small" label="ห้องต้นทาง" value={globalScope.room ?? ''} onChange={(event) => updateGlobalScope({ room: event.target.value })} fullWidth />
-        <TextField size="small" label="ผู้ส่ง" value={globalScope.sender ?? ''} onChange={(event) => updateGlobalScope({ sender: event.target.value })} fullWidth />
-        <FormControl size="small" fullWidth><InputLabel>ประเภทไฟล์</InputLabel><Select label="ประเภทไฟล์" value={globalScope.fileKind ?? 'all'} onChange={(event) => updateGlobalScope({ fileKind: event.target.value as DocumentFlowScope['fileKind'] })}><MenuItem value="all">ทุกประเภทไฟล์</MenuItem><MenuItem value="image_or_scan">รูป/สแกน</MenuItem><MenuItem value="pdf">PDF</MenuItem><MenuItem value="document">เอกสาร</MenuItem><MenuItem value="unknown">ไม่ระบุชนิด</MenuItem></Select></FormControl>
-        <TextField size="small" label="โครงการ" value={globalScope.project ?? ''} onChange={(event) => updateGlobalScope({ project: event.target.value })} fullWidth />
-        <Stack direction="row" spacing={1}><Button fullWidth variant="outlined" onClick={selectTodayScope}>วันนี้</Button><Button fullWidth onClick={clearGlobalScope}>ล้างทั้งหมด</Button></Stack>
-        <Button variant="contained" onClick={() => setGlobalFilterOpen(false)}>ใช้ตัวกรอง</Button>
-      </Stack>
-    </Drawer>
     <Dialog open={Boolean(timelineItem)} onClose={() => setTimelineItem(null)} fullWidth maxWidth="md">
       <DialogTitle>Timeline — Intake {timelineItem?.intake_id.slice(0, 8)}…</DialogTitle>
       <DialogContent dividers><Stack spacing={1.25}>
@@ -821,7 +837,8 @@ export function DocumentFlowsPage() {
     <Drawer anchor="right" open={Boolean(selectedItem)} onClose={() => { ++previewRequestRef.current; setSelectedItem(null); setPreviewFiles([]); setPreviewIndex(0); setPreviewMessage(''); setTransferSlipParties(null); setTransferSlipPartiesMessage('') }} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 520 }, p: 3 } } }}>
       {selectedItem && <Stack spacing={2}>
         <Box><Typography variant="overline" color="text.secondary">ความสัมพันธ์ข้ามห้อง</Typography><Typography variant="h5" sx={{ fontWeight: 800 }}>{typeLabels[selectedItem.document_type ?? 'other'] ?? selectedItem.document_type ?? 'เอกสาร'}</Typography><Typography variant="body2" color="text.secondary">Intake → Filter → {departmentLabels[selectedItem.target_department ?? taskCategoryOf(selectedItem)] ?? 'คิวปลายทาง'} · สถานะ {stateLabels[selectedItem.state] ?? selectedItem.state}</Typography></Box>
-        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}><Chip label={flowLabels[selectedItem.current_flow] ?? selectedItem.current_flow} color="primary" /><Chip label={dataReviewLabels[selectedItem.data_review_status ?? 'complete']} color={dataReviewColor(selectedItem.data_review_status)} /> <Chip label={selectedItem.sensitivity === 'restricted_hr' ? 'ข้อมูล HR จำกัดสิทธิ์' : selectedItem.sensitivity === 'financial' ? 'ข้อมูลการเงิน' : 'ข้อมูลทั่วไป'} color={selectedItem.sensitivity === 'restricted_hr' ? 'warning' : 'default'} /></Stack>
+        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}><Chip label={flowLabels[selectedItem.current_flow] ?? selectedItem.current_flow} color="primary" /><Chip label={dataReviewLabels[selectedItem.data_review_status ?? 'complete']} color={dataReviewColor(selectedItem.data_review_status)} /> <Chip label={selectedItem.sensitivity === 'restricted_hr' ? 'ข้อมูล HR จำกัดสิทธิ์' : selectedItem.sensitivity === 'financial' ? 'ข้อมูลการเงิน' : 'ข้อมูลทั่วไป'} color={selectedItem.sensitivity === 'restricted_hr' ? 'warning' : 'default'} /><Chip label={`Version ${selectedItem.version}`} /></Stack>
+        <Paper variant="outlined" sx={{ p: 1.5 }}><Stack spacing={.5}><Typography variant="subtitle2" sx={{ fontWeight: 800 }}>เส้นทางและผู้รับผิดชอบ</Typography><Typography variant="body2">ต้นทาง: {selectedItem.source_channel ?? 'ไม่ระบุ'} · {selectedItem.source_room_name ?? 'ไม่ระบุห้อง'} · ผู้ส่ง {selectedItem.source_sender_name ?? 'ไม่ระบุ'}</Typography><Typography variant="body2">รับเข้า: {dateTime(selectedItem.source_received_at ?? selectedItem.created_at)} · ปลายทาง: {departmentsFor(selectedItem).map((department) => departmentLabels[department]).join(', ')}</Typography><Typography variant="body2">สถานะรับงาน: {selectedItem.assignment_status === 'claimed' || selectedItem.assignment_status === 'in_progress' ? 'มีผู้รับผิดชอบแล้ว' : 'ยังไม่รับงาน'} · สิ่งที่ต้องทำต่อ: {nextActionLabel(selectedItem)}</Typography><Typography variant="body2" color="text.secondary">Comment ล่าสุด: {latestComment(selectedItem)}</Typography></Stack></Paper>
         {selectedItem.data_review_note && <Alert severity={selectedItem.data_review_status === 'incomplete' ? 'error' : 'warning'}>สถานะข้อมูล: {selectedItem.data_review_note}</Alert>}
         <Button variant="outlined" onClick={() => void openPreview(selectedItem)}>เปิดเอกสาร/รูปต้นฉบับ</Button>
         {previewMessage && <Alert severity="info">{previewMessage}</Alert>}

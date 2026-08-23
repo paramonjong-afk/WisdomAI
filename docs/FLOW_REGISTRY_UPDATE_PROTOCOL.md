@@ -1,5 +1,21 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Document Flow Two-View Center and Real Filter Drawer v1.19 — 23/8/2569
+
+- **เหตุผล:** ลด Tab หลักให้เหลือ 2 มุมมอง และแก้ Filter Drawer ให้ควบคุมมุมมอง/ตัวกรองจริงจากจุดเดียว
+- **ผลกระทบ:** Intake/Omni/Document Filter/คิวปลายทางย้ายเป็นตัวเลือกใน Drawer, เพิ่มข้อมูลปลายทางและรายละเอียดเส้นทาง; ไม่เปลี่ยน schema, สิทธิ์, gateway transition หรือข้อมูลเดิม
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** targeted lint, TypeScript, Vite build, static responsive checks และ UAT หลัง sign-in; blocker คือ browser session ไม่มีบัญชีทดสอบจึงต้องทำ click UAT ภายหลัง
+- **Rollback:** คืน tabs เดิมและถอดคอลัมน์สรุปได้ โดยไม่แก้ข้อมูลหรือ Audit
+
+## ล่าสุด: Accounting/Payroll Regression Contract v1.0 — 23/8/2569
+
+- **เหตุผล:** แก้ regression ที่ทำให้ Accounting แจ้ง Error ไม่ระบุขั้นตอน และ Reports ไม่ใช้ค่ารูปแบบเวลา/ค่าเฉลี่ยตาม requirement เดิม พร้อมปรับ test contract ที่ล้าสมัย
+- **ผลกระทบ:** `docs/ACCOUNTING_DOCUMENT_CONFIRMATION_FLOW.md`, `docs/PAYROLL_REPORTING_FLOW.md`, AccountingDocuments, Reports และ regression tests 6 รายการ; ไม่เปลี่ยน schema/RLS หรือ Production
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** test รายตัว 6 รายการ, full test suite, lint, build และตรวจ dialog/Reports จาก local build
+- **Rollback:** คืน source/test patch ชุดนี้ได้; ไม่มีข้อมูลหรือ migration ต้องย้อน
+
 ## ล่าสุด: Intake Room Compact View and Drawer Isolation v1.18 — 23/8/2569
 
 - **เหตุผล:** ลดข้อมูลซ้ำบนหน้า Intake และป้องกัน Drawer แสดงรูป/ข้อมูลจากรายการก่อนหน้าเมื่อผู้ใช้คลิกรายการใหม่เร็ว ๆ

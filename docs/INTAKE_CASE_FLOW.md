@@ -223,3 +223,12 @@ flowchart LR
 - Static/automated checks: preview request guards, state clearing on row change/close, central HR filter, responsive Drawer width และการคง query `current_flow = intake` ผ่านทั้งหมด
 - Desktop/Tablet/Mobile review: ใช้ responsive rules เดียวกัน (`xs: 100%`, `sm` จำกัดความกว้าง Drawer) และไม่พบโค้ดที่เปลี่ยน routing, permission หรือ state transition
 - Real-page UAT blocker: deployment เปิดได้แต่ browser session นี้ถูก redirect ไป `/login` จึงยังคลิกเลือกแถว/สลับรายการด้วยบัญชีจริงไม่ได้; ต้อง sign in แล้วทำ UAT ซ้ำตามขั้นตอน: เปิด Document Flow → เลือก Intake → คลิกแถว A เปิด Drawer → คลิกแถว B ทันที → ยืนยันชื่อ/รูป/บริบทเป็นของ B และไม่เห็นผลโหลดของ A
+
+## Document Flow Two-View Center and Real Filter Drawer — v3.7 (23/8/2569)
+
+- Main view เหลือ 2 มุมมอง: `คิวเอกสาร` และ `ข้อความและบริบท`; Intake Room, Document Filter และคิวงานปลายทางเลือกจาก `มุมมองหลัก` ใน Filter Drawer เดียว
+- Filter Drawer เปิดได้จากทุกมุมมอง, เปลี่ยนรายการจริง, เก็บค่าใน URL/state, มีล้างทั้งหมด/วันนี้/จำนวนตัวกรอง และไม่เปลี่ยน routing, permission หรือ state transition
+- ตารางคิวเอกสารเพิ่มต้นทาง/ห้อง/ผู้ส่ง, ปลายทาง, ผู้รับผิดชอบ, สิ่งที่ต้องทำต่อ และ Comment ล่าสุด; Drawer รายละเอียดเพิ่มเส้นทาง วันเวลา Version และสถานะรับงาน
+- ข้อมูลต้นทางและข้อความยังแยกหน้าที่เดิม: คิวเอกสารคือไฟล์/รูปที่ต้องส่งต่อ ส่วนข้อความและบริบทคือข้อความ/ผล AI ที่ใช้สร้างคิว
+- ปิดคิวได้ผ่าน transition เดิมเท่านั้น ข้อมูลไม่ถูกลบและค้นย้อนหลังผ่าน Timeline/Audit ได้
+- Owner: Platform UI; rollback คือคืน tab selector เดิมโดยไม่กระทบ gateway หรือ schema
