@@ -6,7 +6,8 @@ const row = (overrides: Partial<TransferSlipQueueRow> = {}): TransferSlipQueueRo
   taskId: crypto.randomUUID(), itemId: crypto.randomUUID(), intakeId: crypto.randomUUID(), sourceMessageId: crypto.randomUUID(), createdAt: '2026-08-23T08:00:00Z', taskStatus: 'queued',
   senderName: 'ผู้โอน', recipientName: 'ผู้รับ', amount: 1200, transferAt: '2026-08-23T07:30:00Z', reviewStatus: 'pending', route: 'accounting',
   sourceChannel: 'line', sourceRoomName: 'ห้องทดสอบ', sourceSenderName: 'ผู้ส่ง', sourceReceivedAt: '2026-08-23T08:00:00Z', dataReviewStatus: 'complete', dataReviewNote: null,
-  candidateDepartments: ['accounting'], expenseType: null, laborAmount: null, duplicateOf: null, ...overrides,
+  candidateDepartments: ['accounting'], expenseType: null, laborAmount: null, duplicateOf: null,
+  transactionId: crypto.randomUUID(), senderBankName: 'ธนาคาร ก', senderAccountLast4: '1234', recipientBankName: 'ธนาคาร ข', recipientAccountLast4: '5678', bankReference: 'REF-001', paymentPartyConfidence: .95, analysisConfidence: .94, analysisModel: 'fixture', notes: null, ...overrides,
 })
 
 const fixture = [

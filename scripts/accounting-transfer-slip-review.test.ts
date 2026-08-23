@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+const page = readFileSync('src/pages/AccountingDocuments/index.tsx', 'utf8')
+const migration = readFileSync('supabase/migrations/20260823110613_transfer_slip_drawer_review.sql', 'utf8')
+const edge = readFileSync('supabase/functions/reprocess-transfer-slips/index.ts', 'utf8')
+assert.match(page, /1\. รูปต้นฉบับและ AI/)
+assert.match(page, /2\. ตรวจและแก้ข้อมูล/)
+assert.match(page, /review_transfer_slip_details/)
+assert.match(page, /ให้ AI อ่านสลิปใหม่/)
+assert.match(migration, /transfer_slip_review_locked/)
+assert.match(migration, /changed_fields/)
+assert.match(migration, /before.*after/s)
+assert.match(migration, /revoke all on function public\.review_transfer_slip_details/)
+assert.match(edge, /item_id\?: string/)
+assert.match(edge, /transfer_slip_ai_reread/)
+assert.match(edge, /single_item/)
+assert.match(edge, /targetItemId \? item\.current_flow/)
+console.log('accounting transfer-slip review contract: PASS')

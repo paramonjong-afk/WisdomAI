@@ -23,6 +23,16 @@ export type TransferSlipQueueRow = {
   expenseType: string | null
   laborAmount: number | null
   duplicateOf: string | null
+  transactionId: string | null
+  senderBankName: string | null
+  senderAccountLast4: string | null
+  recipientBankName: string | null
+  recipientAccountLast4: string | null
+  bankReference: string | null
+  paymentPartyConfidence: number | null
+  analysisConfidence: number | null
+  analysisModel: string | null
+  notes: string | null
 }
 
 export const isDuplicateTransferSlip = (row: TransferSlipQueueRow) => row.reviewStatus === 'duplicate' || Boolean(row.duplicateOf)

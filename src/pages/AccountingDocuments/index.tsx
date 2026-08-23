@@ -3,7 +3,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined'
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined'
 import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined'
 import {
-  Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
+  Accordion, AccordionDetails, AccordionSummary, Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
   DialogTitle, Drawer, FormControlLabel, IconButton, MenuItem, Paper, Select, Stack, Tab, Tabs, TextField, Typography,
 } from '@mui/material'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -40,6 +40,8 @@ type AccountingDocument = {
 type AccountingPendingSlip = TransferSlipQueueRow
 type SlipPreviewFile = { url: string; contentType: string | null; label: string }
 type SlipFlowEvent = { id: string; event_type: string; from_flow: string | null; to_flow: string | null; from_state: string | null; to_state: string | null; note: string | null; created_at: string }
+type SlipReviewDraft = { senderName: string; senderBankName: string; senderAccountLast4: string; recipientName: string; recipientBankName: string; recipientAccountLast4: string; amount: string; transferAt: string; bankReference: string; note: string }
+const slipDraftFromRow = (row: AccountingPendingSlip): SlipReviewDraft => ({ senderName: row.senderName ?? '', senderBankName: row.senderBankName ?? '', senderAccountLast4: row.senderAccountLast4 ?? '', recipientName: row.recipientName ?? '', recipientBankName: row.recipientBankName ?? '', recipientAccountLast4: row.recipientAccountLast4 ?? '', amount: row.amount == null ? '' : String(row.amount), transferAt: row.transferAt ? new Date(row.transferAt).toISOString().slice(0, 16) : '', bankReference: row.bankReference ?? '', note: row.dataReviewNote ?? row.notes ?? '' })
 type DocumentSetMember = { id: string; source_message_id: string; document_type: string; status: DocumentStatus; page_number: number | null; created_at: string }
 type SetMatchGap = { documentType: string; documentLabel: string; isRequired: boolean }
 type DocumentSetMatchSummary = {
@@ -142,6 +144,10 @@ export function AccountingDocumentsPage() {
   const [slipPreviewMessage, setSlipPreviewMessage] = useState('')
   const [slipEvents, setSlipEvents] = useState<SlipFlowEvent[]>([])
   const [slipDetailLoading, setSlipDetailLoading] = useState(false)
+  const [slipDetailTab, setSlipDetailTab] = useState(0)
+  const [slipReviewDraft, setSlipReviewDraft] = useState<SlipReviewDraft | null>(null)
+  const [slipAiGuidance, setSlipAiGuidance] = useState('')
+  const [slipActionLoading, setSlipActionLoading] = useState(false)
   const slipRequestRef = useRef(0)
   const [inventory, setInventory] = useState<InventoryBalance[]>([])
   const [projectInventory, setProjectInventory] = useState<ProjectInventoryBalance[]>([])
@@ -236,16 +242,16 @@ export function AccountingDocumentsPage() {
       const items = (itemRows ?? []) as Array<{ id: string; intake_id: string | null; source_message_id: string | null; current_room: string | null; route_target: string | null; updated_at: string; source_channel: string | null; source_room_name: string | null; source_sender_name: string | null; source_received_at: string | null; data_review_status: string | null; data_review_note: string | null; candidate_departments: string[] | null }>
       const sourceIds = [...new Set(items.map(item => item.source_message_id).filter((id): id is string => Boolean(id)))]
       const { data: txRows, error: txError } = sourceIds.length
-        ? await supabase.from('financial_transactions').select('source_message_id,sender_name,recipient_name,amount_total,transfer_at,review_status,expense_type,labor_amount,duplicate_of').in('source_message_id', sourceIds).neq('review_status', 'dismissed')
+        ? await supabase.from('financial_transactions').select('id,source_message_id,sender_name,sender_bank_name,sender_account_last4,recipient_name,recipient_bank_name,recipient_account_last4,amount_total,transfer_at,bank_reference,review_status,expense_type,labor_amount,duplicate_of,payment_party_confidence,analysis_confidence,analysis_model,notes').in('source_message_id', sourceIds).neq('review_status', 'dismissed')
         : { data: [], error: null }
       if (txError) setError(current => current ?? userError(txError))
-      const txBySource = new Map(((txRows ?? []) as Array<{ source_message_id: string; sender_name: string | null; recipient_name: string | null; amount_total: number | null; transfer_at: string | null; review_status: string | null; expense_type: string | null; labor_amount: number | null; duplicate_of: string | null }>).map(row => [row.source_message_id, row]))
+      const txBySource = new Map(((txRows ?? []) as Array<Record<string, unknown> & { source_message_id: string }>).map(row => [row.source_message_id, row]))
       const itemById = new Map(items.map(item => [item.id, item]))
       pending = taskList.flatMap(task => {
         const item = itemById.get(task.item_id)
         if (!item) return []
         const tx = item.source_message_id ? txBySource.get(item.source_message_id) : undefined
-        return [{ taskId: task.id, itemId: item.id, intakeId: item.intake_id, sourceMessageId: item.source_message_id, createdAt: task.created_at, taskStatus: task.status, senderName: tx?.sender_name ?? null, recipientName: tx?.recipient_name ?? null, amount: tx?.amount_total == null ? null : Number(tx.amount_total), transferAt: tx?.transfer_at ?? null, reviewStatus: tx?.review_status ?? null, route: item.route_target ?? item.current_room, sourceChannel: item.source_channel, sourceRoomName: item.source_room_name, sourceSenderName: item.source_sender_name, sourceReceivedAt: item.source_received_at, dataReviewStatus: item.data_review_status, dataReviewNote: item.data_review_note, candidateDepartments: item.candidate_departments ?? [], expenseType: tx?.expense_type ?? null, laborAmount: tx?.labor_amount == null ? null : Number(tx.labor_amount), duplicateOf: tx?.duplicate_of ?? null }]
+        return [{ taskId: task.id, itemId: item.id, intakeId: item.intake_id, sourceMessageId: item.source_message_id, createdAt: task.created_at, taskStatus: task.status, senderName: tx?.sender_name as string ?? null, recipientName: tx?.recipient_name as string ?? null, amount: tx?.amount_total == null ? null : Number(tx.amount_total), transferAt: tx?.transfer_at as string ?? null, reviewStatus: tx?.review_status as string ?? null, route: item.route_target ?? item.current_room, sourceChannel: item.source_channel, sourceRoomName: item.source_room_name, sourceSenderName: item.source_sender_name, sourceReceivedAt: item.source_received_at, dataReviewStatus: item.data_review_status, dataReviewNote: item.data_review_note, candidateDepartments: item.candidate_departments ?? [], expenseType: tx?.expense_type as string ?? null, laborAmount: tx?.labor_amount == null ? null : Number(tx.labor_amount), duplicateOf: tx?.duplicate_of as string ?? null, transactionId: tx?.id as string ?? null, senderBankName: tx?.sender_bank_name as string ?? null, senderAccountLast4: tx?.sender_account_last4 as string ?? null, recipientBankName: tx?.recipient_bank_name as string ?? null, recipientAccountLast4: tx?.recipient_account_last4 as string ?? null, bankReference: tx?.bank_reference as string ?? null, paymentPartyConfidence: tx?.payment_party_confidence == null ? null : Number(tx.payment_party_confidence), analysisConfidence: tx?.analysis_confidence == null ? null : Number(tx.analysis_confidence), analysisModel: tx?.analysis_model as string ?? null, notes: tx?.notes as string ?? null }]
       })
     }
     setPendingSlips(pending)
@@ -1018,11 +1024,13 @@ export function AccountingDocumentsPage() {
     setSlipPreviewMessage('')
     setSlipEvents([])
     setSlipDetailLoading(false)
+    setSlipDetailTab(0); setSlipReviewDraft(null); setSlipAiGuidance(''); setSlipActionLoading(false)
   }
 
   const openSlipDetail = async (slip: AccountingPendingSlip) => {
     const requestId = ++slipRequestRef.current
     setSelectedSlip(slip)
+    setSlipDetailTab(0); setSlipReviewDraft(slipDraftFromRow(slip)); setSlipAiGuidance('')
     setSlipPreviewFiles([])
     setSlipPreviewIndex(0)
     setSlipPreviewMessage('กำลังเปิดไฟล์ต้นฉบับ…')
@@ -1058,6 +1066,59 @@ export function AccountingDocumentsPage() {
     } finally {
       if (requestId === slipRequestRef.current) setSlipDetailLoading(false)
     }
+  }
+
+  const rereadSelectedSlip = async () => {
+    if (!selectedSlip) return
+    setSlipActionLoading(true); setError(null); setSuccess(null)
+    try {
+      const { data, error: invokeError } = await supabase.functions.invoke('reprocess-transfer-slips', { body: { item_id: selectedSlip.itemId, guidance: slipAiGuidance.trim() || undefined } })
+      if (invokeError) throw invokeError
+      if (data?.failed) throw new Error(data?.results?.[0]?.detail ?? 'AI อ่านสลิปไม่สำเร็จ')
+      setSuccess('AI อ่านสลิปใหม่แล้ว กรุณาตรวจและยืนยันข้อมูลในแท็บถัดไป')
+      await loadData()
+      if (selectedSlip.sourceMessageId) {
+        const { data: tx } = await supabase.from('financial_transactions').select('sender_name,sender_bank_name,sender_account_last4,recipient_name,recipient_bank_name,recipient_account_last4,amount_total,transfer_at,bank_reference,payment_party_confidence,analysis_confidence,analysis_model,notes').eq('source_message_id', selectedSlip.sourceMessageId).maybeSingle()
+        if (tx) {
+          const refreshed = { ...selectedSlip, senderName: tx.sender_name, senderBankName: tx.sender_bank_name, senderAccountLast4: tx.sender_account_last4, recipientName: tx.recipient_name, recipientBankName: tx.recipient_bank_name, recipientAccountLast4: tx.recipient_account_last4, amount: tx.amount_total == null ? null : Number(tx.amount_total), transferAt: tx.transfer_at, bankReference: tx.bank_reference, paymentPartyConfidence: tx.payment_party_confidence == null ? null : Number(tx.payment_party_confidence), analysisConfidence: tx.analysis_confidence == null ? null : Number(tx.analysis_confidence), analysisModel: tx.analysis_model, notes: tx.notes }
+          setSelectedSlip(refreshed); setSlipReviewDraft(slipDraftFromRow(refreshed))
+        }
+      }
+      const timeline = await documentFlowGateway.loadTimeline(selectedSlip.itemId)
+      if (!timeline.error) setSlipEvents((timeline.data ?? []) as SlipFlowEvent[])
+      setSlipDetailTab(1)
+    } catch (actionError) { setError(userError(actionError)) }
+    finally { setSlipActionLoading(false) }
+  }
+
+  const saveSlipReview = async (decision: 'draft' | 'confirm' | 'request_information') => {
+    if (!selectedSlip || !slipReviewDraft) return
+    setSlipActionLoading(true); setError(null); setSuccess(null)
+    try {
+      const amount = slipReviewDraft.amount.trim() ? Number(slipReviewDraft.amount) : null
+      if (amount != null && (!Number.isFinite(amount) || amount < 0)) throw new Error('จำนวนเงินไม่ถูกต้อง')
+      const { error: rpcError } = await supabase.rpc('review_transfer_slip_details', {
+        target_item_id: selectedSlip.itemId,
+        target_event_key: `transfer-slip-review:${selectedSlip.itemId}:${crypto.randomUUID()}`,
+        target_decision: decision,
+        target_sender_name: slipReviewDraft.senderName || null,
+        target_sender_bank_name: slipReviewDraft.senderBankName || null,
+        target_sender_account_last4: slipReviewDraft.senderAccountLast4 || null,
+        target_recipient_name: slipReviewDraft.recipientName || null,
+        target_recipient_bank_name: slipReviewDraft.recipientBankName || null,
+        target_recipient_account_last4: slipReviewDraft.recipientAccountLast4 || null,
+        target_amount_total: amount,
+        target_transfer_at: slipReviewDraft.transferAt ? new Date(slipReviewDraft.transferAt).toISOString() : null,
+        target_bank_reference: slipReviewDraft.bankReference || null,
+        target_note: slipReviewDraft.note || null,
+      })
+      if (rpcError) throw rpcError
+      setSuccess(decision === 'confirm' ? 'ยืนยันข้อมูลสลิปและบันทึก Audit แล้ว' : decision === 'request_information' ? 'ส่งกลับเพื่อขอข้อมูลเพิ่มแล้ว' : 'บันทึกฉบับร่างและ Audit แล้ว')
+      await loadData()
+      const timeline = await documentFlowGateway.loadTimeline(selectedSlip.itemId)
+      if (!timeline.error) setSlipEvents((timeline.data ?? []) as SlipFlowEvent[])
+    } catch (actionError) { setError(userError(actionError)) }
+    finally { setSlipActionLoading(false) }
   }
 
   const visibleDocuments = useMemo(() => documents.filter(document => statusFilter === 'active'
@@ -1283,29 +1344,18 @@ export function AccountingDocumentsPage() {
     <Paper variant="outlined"><Tabs value={tab} onChange={(_event, value) => setTab(value)} variant="scrollable"><Tab label="เอกสารและเส้นทางจัดซื้อ" /><Tab label="Match Flow" /><Tab label={`รายการราคาสินค้า (${productPrices.length})`} /><Tab label="Stock รวม" /><Tab label="Stock แยกโครงการ/คลัง" /></Tabs></Paper>
     {renderTabContent()}
 
-    <Drawer anchor="right" open={Boolean(selectedSlip)} onClose={closeSlipDetail} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 560 }, p: 3 } } }}>
-      {selectedSlip && <Stack spacing={2}>
-        <Box><Typography variant="overline" color="text.secondary">Accounting Pending Queue</Typography><Typography variant="h5" sx={{ fontWeight: 800 }}>สลิปโอนเงิน</Typography><Typography variant="body2" sx={{ fontFamily: 'monospace' }}>Document ID: {selectedSlip.intakeId ?? selectedSlip.itemId}</Typography></Box>
+    <Drawer anchor="right" open={Boolean(selectedSlip)} onClose={closeSlipDetail} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 680 }, p: 0 } } }}>
+      {selectedSlip && <Stack sx={{ minHeight: '100%' }}>
+        <Box sx={{ position: 'sticky', top: 0, zIndex: 2, bgcolor: 'background.paper', px: 3, pt: 2.5, borderBottom: 1, borderColor: 'divider' }}><Typography variant="overline" color="text.secondary">Accounting Pending Queue</Typography><Typography variant="h5" sx={{ fontWeight: 800 }}>ตรวจสลิปโอนเงิน</Typography><Typography variant="body2" sx={{ fontFamily: 'monospace' }}>Document ID: {selectedSlip.intakeId ?? selectedSlip.itemId}</Typography>
         <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
           <Chip color="primary" label="ปลายทางแรก: บัญชี" />
           <Chip color={transferSlipQueueBucket(selectedSlip) === 'duplicate' ? 'error' : transferSlipQueueBucket(selectedSlip) === 'incomplete' ? 'warning' : transferSlipQueueBucket(selectedSlip) === 'reviewed' ? 'success' : 'info'} label={transferSlipQueueBucket(selectedSlip) === 'duplicate' ? 'รายการซ้ำ' : transferSlipQueueBucket(selectedSlip) === 'incomplete' ? 'ข้อมูลไม่ครบ' : transferSlipQueueBucket(selectedSlip) === 'reviewed' ? 'ตรวจแล้ว' : 'รอตรวจ'} />
           {transferSlipContinuation(selectedSlip).label && <Chip color="secondary" label={transferSlipContinuation(selectedSlip).label} />}
         </Stack>
-        <Paper variant="outlined" sx={{ p: 1.5 }}><Stack spacing={.75}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>ข้อมูลธุรกรรม</Typography>
-          <Typography variant="body2">วันที่โอน: {selectedSlip.transferAt ? new Date(selectedSlip.transferAt).toLocaleString('th-TH') : 'ยังอ่านไม่ได้'}</Typography>
-          <Typography variant="body2">ผู้โอน: {selectedSlip.senderName ?? 'ยังอ่านไม่ได้'}</Typography>
-          <Typography variant="body2">ผู้รับ: {selectedSlip.recipientName ?? 'ยังอ่านไม่ได้'}</Typography>
-          <Typography variant="body2">จำนวนเงิน: {money(selectedSlip.amount)}</Typography>
-          <Typography variant="body2">เส้นทางต่อ: {transferSlipContinuation(selectedSlip).route}</Typography>
-          {selectedSlip.dataReviewNote && <Typography variant="body2" color="warning.main">หมายเหตุข้อมูล: {selectedSlip.dataReviewNote}</Typography>}
-        </Stack></Paper>
-        <Paper variant="outlined" sx={{ p: 1.5 }}><Stack spacing={.75}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Source Reference</Typography>
-          <Typography variant="body2">ช่องทาง/ห้อง: {selectedSlip.sourceChannel ?? 'ไม่ระบุ'} · {selectedSlip.sourceRoomName ?? 'ไม่ระบุห้อง'}</Typography>
-          <Typography variant="body2">ผู้ส่ง: {selectedSlip.sourceSenderName ?? 'ไม่ระบุ'} · รับเข้า {selectedSlip.sourceReceivedAt ? new Date(selectedSlip.sourceReceivedAt).toLocaleString('th-TH') : new Date(selectedSlip.createdAt).toLocaleString('th-TH')}</Typography>
-          <Typography variant="caption" color="text.secondary">Message ID: {selectedSlip.sourceMessageId ?? '-'}</Typography>
-        </Stack></Paper>
+        <Tabs value={slipDetailTab} onChange={(_event, value) => setSlipDetailTab(value)} variant="fullWidth" sx={{ mt: 1 }}><Tab label="1. รูปต้นฉบับและ AI" /><Tab label="2. ตรวจและแก้ข้อมูล" /></Tabs></Box>
+        <Stack spacing={2} sx={{ p: 3, flex: 1 }}>
+        {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}{success && <Alert severity="success" onClose={() => setSuccess(null)}>{success}</Alert>}
+        {slipDetailTab === 0 && <>
         {slipDetailLoading && <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}><CircularProgress size={18} /><Typography variant="body2">กำลังโหลดรูปและ Audit…</Typography></Stack>}
         {slipPreviewMessage && <Alert severity="info">{slipPreviewMessage}</Alert>}
         {slipPreviewFiles.length > 1 && <Stack direction="row" spacing={.5} useFlexGap sx={{ flexWrap: 'wrap' }}>{slipPreviewFiles.map((file, index) => <Button key={file.url} size="small" variant={index === slipPreviewIndex ? 'contained' : 'outlined'} onClick={() => setSlipPreviewIndex(index)}>{file.label}</Button>)}</Stack>}
@@ -1313,12 +1363,33 @@ export function AccountingDocumentsPage() {
           <Button component="a" href={activeSlipPreview.url} target="_blank" rel="noreferrer" variant="outlined" endIcon={<OpenInNewOutlinedIcon />}>เปิดไฟล์จริงในแท็บใหม่</Button>
           {activeSlipPreview.contentType?.startsWith('image/') ? <Box component="img" src={activeSlipPreview.url} alt="รูปสลิปต้นฉบับ" sx={{ width: '100%', maxHeight: 480, objectFit: 'contain', borderRadius: 1, bgcolor: 'grey.100' }} /> : <Box component="iframe" title="ไฟล์สลิปต้นฉบับ" src={activeSlipPreview.url} sx={{ width: '100%', height: 420, border: 0, borderRadius: 1 }} />}
         </>}
-        <Paper variant="outlined" sx={{ p: 1.5 }}><Stack spacing={1}>
-          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}><Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Source/Audit Flow</Typography><Chip size="small" label={`${slipEvents.length} Events`} /></Stack>
+        <TextField multiline minRows={2} label="คำแนะนำให้ AI อ่านใหม่ (ไม่บังคับ)" placeholder="เช่น เน้นอ่านวันที่ เวลา เลขอ้างอิง และชื่อผู้โอนจากภาพเท่านั้น" value={slipAiGuidance} onChange={event => setSlipAiGuidance(event.target.value.slice(0, 500))} helperText={`${slipAiGuidance.length}/500 · AI จะไม่ยืนยันรายการแทน Admin`} />
+        <Button variant="contained" disabled={!canManage || slipActionLoading || !activeSlipPreview} onClick={() => void rereadSelectedSlip()}>{slipActionLoading ? 'AI กำลังอ่าน…' : 'ให้ AI อ่านสลิปใหม่'}</Button>
+        <Paper variant="outlined" sx={{ p: 1.5 }}><Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Source Reference</Typography><Typography variant="body2">{selectedSlip.sourceChannel ?? 'ไม่ระบุ'} · {selectedSlip.sourceRoomName ?? 'ไม่ระบุห้อง'} · {selectedSlip.sourceSenderName ?? 'ไม่ระบุผู้ส่ง'}</Typography><Typography variant="caption" color="text.secondary">Message ID: {selectedSlip.sourceMessageId ?? '-'}</Typography></Paper>
+        </>}
+        {slipDetailTab === 1 && slipReviewDraft && <>
+          <Alert severity="info">แก้ค่าที่อ่านไม่ได้ได้ทันที ค่า AI เป็นเพียงข้อเสนอ ระบบบันทึกผู้แก้ เวลา และค่าก่อน/หลังทุกครั้ง</Alert>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
+            <TextField label="วันที่และเวลาโอน" type="datetime-local" value={slipReviewDraft.transferAt} onChange={event => setSlipReviewDraft(current => current && ({ ...current, transferAt: event.target.value }))} slotProps={{ inputLabel: { shrink: true } }} />
+            <TextField label="จำนวนเงิน" type="number" value={slipReviewDraft.amount} onChange={event => setSlipReviewDraft(current => current && ({ ...current, amount: event.target.value }))} />
+            <TextField label="ชื่อผู้โอน" value={slipReviewDraft.senderName} onChange={event => setSlipReviewDraft(current => current && ({ ...current, senderName: event.target.value }))} />
+            <TextField label="ธนาคารผู้โอน" value={slipReviewDraft.senderBankName} onChange={event => setSlipReviewDraft(current => current && ({ ...current, senderBankName: event.target.value }))} />
+            <TextField label="เลขบัญชีผู้โอน 4 ตัวท้าย" value={slipReviewDraft.senderAccountLast4} onChange={event => setSlipReviewDraft(current => current && ({ ...current, senderAccountLast4: event.target.value.replace(/\D/g, '').slice(0, 4) }))} />
+            <TextField label="ชื่อผู้รับ" value={slipReviewDraft.recipientName} onChange={event => setSlipReviewDraft(current => current && ({ ...current, recipientName: event.target.value }))} />
+            <TextField label="ธนาคารผู้รับ" value={slipReviewDraft.recipientBankName} onChange={event => setSlipReviewDraft(current => current && ({ ...current, recipientBankName: event.target.value }))} />
+            <TextField label="เลขบัญชีผู้รับ 4 ตัวท้าย" value={slipReviewDraft.recipientAccountLast4} onChange={event => setSlipReviewDraft(current => current && ({ ...current, recipientAccountLast4: event.target.value.replace(/\D/g, '').slice(0, 4) }))} />
+            <TextField label="เลขอ้างอิงธนาคาร" value={slipReviewDraft.bankReference} onChange={event => setSlipReviewDraft(current => current && ({ ...current, bankReference: event.target.value }))} sx={{ gridColumn: { sm: '1 / -1' } }} />
+            <TextField multiline minRows={2} label="หมายเหตุ/ข้อมูลที่ต้องขอเพิ่ม" value={slipReviewDraft.note} onChange={event => setSlipReviewDraft(current => current && ({ ...current, note: event.target.value }))} sx={{ gridColumn: { sm: '1 / -1' } }} />
+          </Box>
+          <Paper variant="outlined" sx={{ p: 1.5 }}><Typography variant="body2">AI confidence: {selectedSlip.analysisConfidence == null ? '-' : `${Math.round(selectedSlip.analysisConfidence * 100)}%`} · Payment fields: {selectedSlip.paymentPartyConfidence == null ? '-' : `${Math.round(selectedSlip.paymentPartyConfidence * 100)}%`}</Typography><Typography variant="caption" color="text.secondary">Model: {selectedSlip.analysisModel ?? '-'}</Typography></Paper>
+        </>}
+        <Accordion disableGutters><AccordionSummary><Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}><Typography sx={{ fontWeight: 800 }}>Source/Audit Flow</Typography><Chip size="small" label={`${slipEvents.length} Events`} /></Stack></AccordionSummary><AccordionDetails><Stack spacing={1}>
           {slipEvents.length === 0 && !slipDetailLoading && <Typography variant="body2" color="text.secondary">ยังไม่พบ Audit Event</Typography>}
           {slipEvents.map(event => <Box key={event.id} sx={{ borderLeft: 3, borderColor: 'primary.light', pl: 1.25 }}><Typography variant="body2" sx={{ fontWeight: 700 }}>{event.event_type}</Typography><Typography variant="caption" color="text.secondary">{event.from_flow ?? '-'} / {event.from_state ?? '-'} → {event.to_flow ?? '-'} / {event.to_state ?? '-'} · {new Date(event.created_at).toLocaleString('th-TH')}</Typography>{event.note && <Typography variant="body2">{event.note}</Typography>}</Box>)}
-        </Stack></Paper>
+        </Stack></AccordionDetails></Accordion>
         <Button href={`/document-flows?document_view=task_types&item_id=${encodeURIComponent(selectedSlip.itemId)}`} variant="text">เปิดในศูนย์เส้นทางเอกสาร</Button>
+        </Stack>
+        {slipDetailTab === 1 && <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ position: 'sticky', bottom: 0, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider', p: 2, zIndex: 2 }}><Button disabled={!canManage || slipActionLoading} onClick={() => void saveSlipReview('draft')}>บันทึกฉบับร่าง</Button><Button color="warning" variant="outlined" disabled={!canManage || slipActionLoading || !slipReviewDraft?.note.trim()} onClick={() => void saveSlipReview('request_information')}>ขอข้อมูลเพิ่ม</Button><Button color="success" variant="contained" disabled={!canManage || slipActionLoading} onClick={() => void saveSlipReview('confirm')}>ยืนยันข้อมูลสลิป</Button></Stack>}
       </Stack>}
     </Drawer>
 
