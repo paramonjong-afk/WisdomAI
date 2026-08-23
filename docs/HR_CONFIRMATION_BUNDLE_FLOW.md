@@ -11,6 +11,7 @@ flowchart TD
   B --> C[Bundle key\ncompany + employee + Bangkok date + project]
   C --> D[Attach source item idempotently]
   D --> E[Central validation]
+  D --> EV[Evidence ledger\nmessage / attachment / document / attendance]
   E --> E1[Employee name and company]
   E --> E2[Project/site consistency]
   E --> E3[Clock-in/out pair and time order]
@@ -19,7 +20,8 @@ flowchart TD
   E --> F{Complete and conflict-free?}
   F -->|No| G[Needs more information]
   F -->|Yes| H[Pending approval]
-  H --> I[One system confirmation message per bundle]
+  H --> TC[Task Card\nowner + next action + SLA]
+  TC --> I[One system confirmation message per bundle]
   I --> J{Manager / HR action}
   J -->|Confirm| K[Approve child jobs in time order]
   J -->|Request more| G
@@ -38,6 +40,11 @@ flowchart TD
   J --> S
   K --> S
   Q --> S
+  EV --> S
+  TC --> SLA{SLA overdue?}
+  SLA -->|Yes| ESC[Escalate L1-L3 + audit]
+  SLA -->|No| DS[Daily HR summary]
+  ESC --> DS
 ```
 
 # HR Confirmation Bundle Flow
@@ -64,7 +71,7 @@ Gate บันทึก `raw_message_id`, channel, room, source reference, conte
 ## Inputs and outputs
 
 - **Input:** `chat_attendance_approval_jobs`, ผู้ส่ง/โปรไฟล์, `clock_in|clock_out`, เวลา, site/project, request code, room/message, GPS, Selfie และ validation เดิม
-- **Output:** `hr_confirmation_bundles`, `hr_confirmation_bundle_items`, `hr_confirmation_bundle_events`, attendance session ที่ผ่าน approval และ System Confirmation หนึ่งข้อความต่อ bundle
+- **Output:** `hr_confirmation_bundles`, `hr_confirmation_bundle_items`, `hr_confirmation_evidence`, `hr_confirmation_bundle_events`, Task Card, Daily Summary, attendance session ที่ผ่าน approval และ System Confirmation หนึ่งข้อความต่อ bundle
 - System MSG เป็น projection สำหรับยืนยัน/แจ้งผู้รับผิดชอบเท่านั้น ไม่ใช่ source ใหม่ และ `message_class=system_confirmation` ต้องถูกตัดออกจาก Omni Intake
 
 ## States
@@ -89,6 +96,22 @@ Gate บันทึก `raw_message_id`, channel, room, source reference, conte
 5. request code/job/session ต้องไม่ซ้ำ และ child job ที่มี `duplicate_of_job_id` ถือเป็น conflict
 6. site ต้องอยู่ใน project/company เดียวกัน; ข้อมูล GPS/Selfie และ missing fields ใช้กติกา approval เดิม
 7. การกดซ้ำใช้ `bundle_key`, unique child `job_id` และ action idempotency key เดิม จึงคืนผลเดิมโดยไม่เขียน attendance หรือ System MSG ซ้ำ
+8. ทุก child ต้องมี Evidence ชนิด `attendance_job`; ตอนปิด 100% ต้องมี `attendance_session_id` ครบตามจำนวน child และ source message/attachment/document ถูกเก็บเมื่อมีจริง
+
+## Task Card, SLA and escalation
+
+- Task Card หนึ่งใบต่อ Bundle แสดงช่าง วันที่ โครงการ สถานะ Owner, Next Action, Evidence, เวลาเข้า/ออก, conflict และ SLA
+- Owner ต้องเป็นสมาชิก active ของบริษัทเดียวกัน; HR/Admin/Manager รับงานหรือมอบหมายผ่าน `assign_hr_confirmation_bundle` พร้อม idempotency key
+- SLA เริ่ม 30 นาทีสำหรับงานรอตรวจ/อนุมัติ และ 4 ชั่วโมงเมื่อรอข้อมูลเพิ่ม; terminal state ไม่มี SLA
+- งานเกิน SLA ถูกเพิ่ม `escalation_level` สูงสุด 3 พร้อม `sla_escalated` audit และกำหนด SLA รอบใหม่ ไม่เปลี่ยนผล attendance เอง
+- `get_hr_confirmation_daily_summary` สรุปจำนวนรอตรวจ รอข้อมูล รออนุมัติ บันทึกแล้ว ปิดแล้ว เกิน SLA และ escalated ตามบริษัท/วันที่
+
+## Evidence contract
+
+- Evidence เก็บแบบ append/idempotent ใน `hr_confirmation_evidence` และอ้างกลับ `bundle_item_id`
+- รองรับ source message ID, attachment bucket/path/name, Document Flow Item ID, Approval Job ID และ Attendance Session ID
+- Evidence snapshot เก็บเฉพาะ metadata ที่จำเป็น เช่น request code, action, requested time, validation, channel และ classification reason; ไม่คัดลอกรหัสผ่าน/token
+- Employee อ่าน Evidence ของตนเอง; HR/Manager อ่านเฉพาะบริษัทปัจจุบันผ่าน RLS และ client แก้ ledger โดยตรงไม่ได้
 
 ## Roles and permissions
 
@@ -113,7 +136,7 @@ Gate บันทึก `raw_message_id`, channel, room, source reference, conte
 
 ## Audit events
 
-ขั้นต่ำฝั่ง Gate: `raw_received`, `intake_classified`, `candidate_confirmed`, `more_information_required`, `intake_rejected` และฝั่ง Bundle: `bundle_received`, `validation_completed`, `approval_requested`, `approval_granted`, `child_attendance_recorded`, `bundle_recorded`, `bundle_rejected`, `bundle_closed_100_percent`, `action_failed`, `confirmation_sent|confirmation_failed` พร้อม actor, source, from/to state, idempotency key และ details
+ขั้นต่ำฝั่ง Gate: `raw_received`, `intake_classified`, `candidate_confirmed`, `more_information_required`, `intake_rejected` และฝั่ง Bundle: `bundle_received`, `validation_completed`, `operational_gate_refreshed`, `owner_assigned`, `approval_requested`, `approval_granted`, `child_attendance_recorded`, `bundle_recorded`, `sla_escalated`, `bundle_rejected`, `bundle_closed_100_percent`, `action_failed`, `confirmation_sent|confirmation_failed` พร้อม actor, source, from/to state, idempotency key และ details
 
 ## Owner
 
@@ -124,5 +147,6 @@ Gate บันทึก `raw_message_id`, channel, room, source reference, conte
 
 | Version | Date | Rationale | Impact | Migration | Verification | Rollback |
 | --- | --- | --- | --- | --- | --- | --- |
+| v1.2 | 23/8/2569 | ทำ Bundle พร้อมใช้งานจริงด้วย Evidence, Task Card, Owner, Next Action, SLA, Escalation และ Daily Summary | เพิ่ม Evidence ledger/RLS, operational approval-close gate, assignment/escalation/summary RPC และ Task Card ในห้อง HR | `20260823120020_hr_confirmation_operational_readiness.sql` local-only; ห้าม Production จนผ่าน local runtime/browser UAT | fixture/contract/integration, RLS/idempotency, typecheck/lint/build และ browser Local; Cloudflare smoke ภายหลัง | ปิด operational triggers/RPC/UI, เก็บ Evidence/Audit เดิมเพื่อย้อนตรวจ และคืนการอ่าน Bundle v1.1 โดยไม่ลบ Raw/Attendance |
 | v1.1 | 23/8/2569 | ปรับ trigger ให้เรียก wrapper แบบปลอด recursion และเติม classification metadata ให้ local HR fixture/omni projection | Trigger sync, fixture classification reason/rule/model metadata และ confirmation retry guard คงที่ | `20260823060547_hr_confirmation_bundle.sql` local-only; ห้าม Production จนผ่าน local runtime/UAT และอนุมัติ | `test:hr-confirmation-bundle`, `scripts/document-flow-filter-consistency.test.ts`, `npm.cmd run lint`, `npm.cmd run build` | คืน trigger call เดิมและตัด metadata enrichment ออก; ledger/audit และ raw เดิมไม่ต้องลบ |
 | v1.0 | 23/8/2569 | เพิ่ม Intake Gate เก็บ Raw pending ก่อนคัด และรวม attendance/HR summary เป็นชุดต่อช่าง/วัน/โครงการ | Raw/gate audit + Bundle ledger, child mapping, approval RPC, System Confirmation projection และ HR queue | `20260823060547_hr_confirmation_bundle.sql` local-only; ห้าม Production จนผ่าน local runtime/UAT และอนุมัติ | Local fixture เห็น Raw จำนวนมากเหลือเฉพาะ candidate, normal/missing/duplicate/conflict/reject/idempotency/RLS, typecheck/lint/build, Cloudflare ภายหลัง | ปิด gate/bundle trigger/RPC/UI และคืน individual confirmation projection; เก็บ Raw/ledger/audit และ attendance เดิม ห้ามลบ |

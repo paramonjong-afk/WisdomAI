@@ -1,5 +1,21 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Web Chat Operational Core Local-first v1.0 — 23/8/2569
+
+- **เหตุผล:** ทำให้ Web Chat มี Task Card/Thread/Evidence/Action มาตรฐานเดียวกันทุกข้อความสำคัญ โดยไม่ให้ข้อความ System Result วนกลับเป็นงานใหม่ และไม่ปะปนหลายรายการในห้องเดียว
+- **ผลกระทบ:** `src/services/webChatOperationalCore.ts`, `src/pages/Chat/index.tsx`, `scripts/web-chat-operational-core.test.ts`, `docs/WEB_CHAT_OPERATIONAL_CORE_FLOW.md` และ Flow Registry card; เพิ่ม projection local-first, deterministic task/thread, owner/role guard, audit/idempotency, unread/read, SLA/exception และ daily summary โดยไม่เปลี่ยน business RPC, RLS, Storage หรือข้อมูล Production
+- **Migration:** ไม่มี; ห้ามเชื่อม mutation/queue จริงจนกว่าจะผ่าน Local-first gate
+- **การตรวจสอบ:** `npm run test:web-chat-operational-core`, typecheck, lint, build และ existing Chat/Program Development tests; Cloudflare runtime smoke ทำภายหลังตามเงื่อนไข Local-first
+- **Rollback:** ถอด Operational Core panel/service/test/document card ได้โดยไม่แตะ `chat_messages`, ไฟล์แนบ, attendance, HR, advance หรือ development task เดิม
+
+## ล่าสุด: HR Confirmation Operational Readiness v1.2 — 23/8/2569
+
+- **เหตุผล:** ทำ HR Confirmation Bundle ให้เป็นงานปฏิบัติการจริง ไม่ใช่เพียงรายการรออนุมัติ โดยต้องมี Evidence, Owner, Next Action, SLA/Escalation และ Daily Summary ครบ
+- **ผลกระทบ:** เพิ่ม `hr_confirmation_evidence`, Task Card fields บน Bundle, operational approve/close gate, assignment/escalation/daily-summary RPC และ UI ห้อง HR; Raw/Attendance เดิมไม่ถูกลบหรือเขียนซ้ำ
+- **Migration:** `20260823120020_hr_confirmation_operational_readiness.sql` แบบ Local-first; ไม่แตะ Production จนผ่าน local database/RLS/browser UAT
+- **การตรวจสอบ:** fixture/contract/integration, Evidence linkage, owner/company permission, idempotency, SLA escalation, close 100% gate, typecheck/lint/build และ Local browser; Cloudflare smoke ภายหลัง
+- **Rollback:** ปิด operational triggers/RPC/UI และกลับไปอ่าน Bundle v1.1; เก็บ Evidence/Audit เดิมเพื่อย้อนตรวจ ห้ามลบ Raw หรือ Attendance
+
 ## ล่าสุด: Cloudflare Production Account Token Gate v1.1 — 23/8/2569
 
 - **เหตุผล:** User API Token อาจตอบว่า valid แต่ไม่มีสิทธิ์ Account Pages และ clean worktree อาจไม่มี `.env` ทำให้ build ผ่านแต่หน้า Production ว่าง
@@ -929,3 +945,5 @@
 - Accounting Transfer Slip Queue v1.2.1 (23/8/2569): authenticated Production smoke corrected the duplicate projection to the existing `financial_transactions.duplicate_of` column. This restores transaction details/counts without schema or data mutation; rollback the whole v1.2 queue view rather than restoring the invalid column name.
 
 - Accounting Transfer Slip Drawer Review v1.3 (23/8/2569): added a two-tab source/AI and manual-review Drawer. AI re-read is scoped by `document_flow_items.id`, preserves the Accounting route, and records model/rule/guidance audit; Admin corrections use the company-guarded idempotent `review_transfer_slip_details` RPC with required-field validation and before/after audit. Migration `20260823111848_transfer_slip_drawer_review.sql`; rollback disables the actions/RPC and restores the prior Edge Function while preserving raw source and audit history.
+
+- Accounting Transfer Slip Money Lineage v1.4 (23/8/2569): Drawer review now captures source fund, fund holder, payer, final beneficiary, project/site, fund balance and every transfer hop. `review_transfer_slip_money_lineage` validates and writes the reviewed projection atomically, then completes Accounting and creates idempotent HR, Inventory, Project, Accounting Posting or Advance continuation. Unmatched advance holders remain `recheck_required`; raw source/OCR is never overwritten. Migration `20260823115443_transfer_slip_money_lineage_routing.sql`; rollback revokes the new RPC/hides the routing card while retaining lineage and audit for recovery.

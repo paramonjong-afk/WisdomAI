@@ -54,6 +54,14 @@ import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 import { userError } from '../../utils/userError'
 import { ensureProgramDevelopmentRoom } from '../../services/programDevelopmentGateway'
 import { ensureGeneralWorkRoom } from '../../services/generalWorkRoomGateway'
+import {
+  applyOperationalAction as applyOperationalCoreAction,
+  buildOperationalTaskCards,
+  dailyOperationalSummary,
+  type OperationalAction,
+  type OperationalStatus,
+  type OperationalTaskCard,
+} from '../../services/webChatOperationalCore'
 import { useNavigate } from 'react-router-dom'
 
 type RoomMemberRole = 'owner' | 'member'
@@ -354,10 +362,26 @@ type HrConfirmationBundle = {
   status: HrConfirmationStatus
   validation_summary: { employee_name?: string; item_count?: number; clock_in_at?: string; clock_out_at?: string; missing_fields?: string[]; conflicts?: string[] }
   confirmation_status: string
+  owner_profile_id: string | null
+  next_action: 'review' | 'request_information' | 'approve' | 'record_attendance' | 'close_job' | 'none'
+  sla_due_at: string | null
+  escalation_level: number
   decision_note: string | null
   last_error: string | null
   updated_at: string
 }
+type HrConfirmationEvidence = {
+  id: string
+  bundle_id: string
+  source_kind: 'message' | 'attachment' | 'document' | 'attendance_job' | 'attendance_session' | 'hr_summary'
+  source_ref: string
+  source_message_id: string | null
+  document_flow_item_id: string | null
+  attendance_job_id: string | null
+  attendance_session_id: string | null
+  attachment_name: string | null
+}
+type HrDailySummary = { date: string; total: number; pending_review: number; needs_more_info: number; pending_approval: number; recorded: number; closed: number; overdue: number; escalated: number }
 
 const hrIntakeStatusLabel: Record<HrIntakeStatus, string> = {
   pending: 'รอคัดกรอง', context: 'บริบท', duplicate: 'ข้อมูลซ้ำ', already_confirmed: 'ยืนยันแล้ว', not_hr: 'ไม่ใช่งาน HR',
@@ -394,6 +418,49 @@ const developmentTaskStatusColor: Record<DevelopmentTaskStatus, 'default' | 'inf
   completed: 'success',
   blocked: 'error',
 }
+
+const hrLocalFixtureEnabled = () => import.meta.env.DEV && typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('hr_fixture') === '1'
+const hrLocalFixture = {
+  counts: { raw_total: 12, pending: 1, context: 2, duplicate: 1, already_confirmed: 1, not_hr: 1, low_confidence: 3, candidate: 2, needs_more_info: 1, rejected: 0, confirmed: 0 } as HrIntakeCounts,
+  summary: { date: '2026-08-23', total: 1, pending_review: 0, needs_more_info: 0, pending_approval: 1, recorded: 0, closed: 0, overdue: 0, escalated: 0 } as HrDailySummary,
+  bundle: { id: 'fixture-bundle-1', employee_profile_id: 'fixture-employee-1', work_date: '2026-08-23', project_id: 'fixture-project-1', status: 'pending_approval', validation_summary: { employee_name: 'ช่างทดสอบ Local', item_count: 2, clock_in_at: '2026-08-23T01:00:00Z', clock_out_at: '2026-08-23T10:00:00Z', missing_fields: [], conflicts: [] }, confirmation_status: 'sent', owner_profile_id: 'fixture-owner-1', next_action: 'approve', sla_due_at: new Date(Date.now() + 30 * 60_000).toISOString(), escalation_level: 0, decision_note: null, last_error: null, updated_at: new Date().toISOString() } as HrConfirmationBundle,
+  evidence: [
+    { id: 'fixture-evidence-in', bundle_id: 'fixture-bundle-1', source_kind: 'attendance_job', source_ref: 'ATT-IN-001', source_message_id: 'MSG-IN-001', document_flow_item_id: null, attendance_job_id: 'ATT-IN-001', attendance_session_id: null, attachment_name: 'selfie-in.jpg' },
+    { id: 'fixture-evidence-out', bundle_id: 'fixture-bundle-1', source_kind: 'attendance_job', source_ref: 'ATT-OUT-001', source_message_id: 'MSG-OUT-001', document_flow_item_id: 'DOC-001', attendance_job_id: 'ATT-OUT-001', attendance_session_id: null, attachment_name: 'selfie-out.jpg' },
+  ] as HrConfirmationEvidence[],
+}
+
+const operationalStatusLabel: Record<OperationalStatus, string> = {
+  received: 'รับเข้า',
+  in_progress: 'กำลังทำ',
+  waiting_review: 'รอข้อมูล/รอตรวจ',
+  completed: 'ปิดแล้ว',
+  blocked: 'ติดข้อยกเว้น',
+  duplicate: 'ซ้ำ',
+  failed: 'ส่งไม่สำเร็จ',
+}
+
+const operationalStatusColor: Record<OperationalStatus, 'default' | 'info' | 'warning' | 'success' | 'error'> = {
+  received: 'info',
+  in_progress: 'warning',
+  waiting_review: 'warning',
+  completed: 'success',
+  blocked: 'error',
+  duplicate: 'default',
+  failed: 'error',
+}
+
+const operationalActionLabels: Array<{ action: OperationalAction; label: string }> = [
+  { action: 'claim', label: 'รับงาน' },
+  { action: 'start', label: 'เริ่มทำ' },
+  { action: 'confirm', label: 'ยืนยัน' },
+  { action: 'request_info', label: 'ขอข้อมูล' },
+  { action: 'return', label: 'ส่งกลับ' },
+  { action: 'dispatch', label: 'ส่งต่อ' },
+  { action: 'match', label: 'จับคู่' },
+  { action: 'close', label: 'ปิดงาน' },
+  { action: 'view_result', label: 'ดูผลลัพธ์' },
+]
 
 const labelFromProfile = (profile: RoomMemberProfile | null | undefined, fallbackId = '-') => {
   return profile?.full_name?.trim() || profile?.email?.trim() || fallbackId
@@ -455,11 +522,16 @@ export function ChatPage() {
   const [hrIntakeItems, setHrIntakeItems] = useState<HrIntakeRawItem[]>([])
   const [hrIntakeCounts, setHrIntakeCounts] = useState<HrIntakeCounts | null>(null)
   const [hrConfirmationBundles, setHrConfirmationBundles] = useState<HrConfirmationBundle[]>([])
+  const [hrConfirmationEvidence, setHrConfirmationEvidence] = useState<HrConfirmationEvidence[]>([])
+  const [hrDailySummary, setHrDailySummary] = useState<HrDailySummary | null>(null)
   const [hrGateBusyId, setHrGateBusyId] = useState('')
   const [developmentTasks, setDevelopmentTasks] = useState<DevelopmentTask[]>([])
   const [developmentTasksCheckedAt, setDevelopmentTasksCheckedAt] = useState(0)
   const [developmentTaskBusyId, setDevelopmentTaskBusyId] = useState('')
   const [developmentResultTask, setDevelopmentResultTask] = useState<DevelopmentTask | null>(null)
+  const [operationalTaskOverrides, setOperationalTaskOverrides] = useState<Record<string, OperationalTaskCard>>({})
+  const [operationalSelectedTaskId, setOperationalSelectedTaskId] = useState('')
+  const [operationalTaskBusyId, setOperationalTaskBusyId] = useState('')
   const [voiceListening, setVoiceListening] = useState(false)
   const [pendingAttachment, setPendingAttachment] = useState<File | null>(null)
   const [isDragActive, setIsDragActive] = useState(false)
@@ -540,6 +612,20 @@ export function ChatPage() {
   const activeCallId = activeCall?.callId
   const activeCallStatus = activeCall?.status
   const incomingCallId = incomingCall?.callId
+  const operationalLocalMode = import.meta.env.DEV
+  const operationalBaseCards = useMemo(
+    () => buildOperationalTaskCards(messages, selectedRoom?.room_key, new Date()),
+    [messages, selectedRoom?.room_key],
+  )
+  const operationalTaskCards = useMemo(
+    () => operationalBaseCards.map((card) => operationalTaskOverrides[card.taskId] ?? card),
+    [operationalBaseCards, operationalTaskOverrides],
+  )
+  const operationalSummary = useMemo(
+    () => dailyOperationalSummary(operationalTaskCards, new Date()),
+    [operationalTaskCards],
+  )
+  const operationalSelectedTask = operationalTaskCards.find((card) => card.taskId === operationalSelectedTaskId) ?? null
 
   useEffect(() => {
     roomsRef.current = rooms
@@ -635,6 +721,30 @@ export function ChatPage() {
     setNote(message)
     if (reset) setTimeout(() => setNote(''), 2400)
   }, [])
+
+  const actOperationalTask = useCallback((card: OperationalTaskCard, action: OperationalAction) => {
+    if (!operationalLocalMode) {
+      setToast('Operational Core อยู่ใน Local-first mode: ยังไม่เขียนข้อมูลจริง', true)
+      return
+    }
+    if (operationalTaskBusyId) return
+    setOperationalTaskBusyId(card.taskId)
+    const result = applyOperationalCoreAction(
+      card,
+      action,
+      { id: activeProfileId, role: profile?.role ?? currentCompany?.company_role ?? null },
+      new Date(),
+      `${card.taskId}:${action}`,
+    )
+    if (!result.accepted) {
+      setToast(result.error || 'ดำเนินการไม่สำเร็จ', true)
+    } else {
+      setOperationalTaskOverrides((current) => ({ ...current, [card.taskId]: result.card }))
+      setOperationalSelectedTaskId(card.taskId)
+      setToast(result.duplicate ? 'คำสั่งซ้ำ: ใช้ผลเดิม ไม่สร้าง Audit ซ้ำ' : `อัปเดต ${card.taskId} แล้ว`, true)
+    }
+    setOperationalTaskBusyId('')
+  }, [activeProfileId, currentCompany?.company_role, operationalLocalMode, operationalTaskBusyId, profile?.role, setToast])
 
   const sendCallSignal = useCallback(async (signal: CallSignal) => {
     const channel = callChannelsRef.current.get(signal.roomId)
@@ -1295,30 +1405,43 @@ export function ChatPage() {
       setHrConfirmationBundles([])
       return
     }
-    const [countsResult, intakeResult, bundleResult] = await Promise.all([
+    const [countsResult, intakeResult, bundleResult, summaryResult] = await Promise.all([
       supabase.rpc('hr_intake_gate_counts'),
       supabase.from('hr_intake_raw_items')
         .select('id,source_channel,source_ref,room_id,status,content_snapshot,confidence,classification_reason,duplicate_of_id,bundle_id,created_at')
         .in('status', ['pending', 'candidate', 'low_confidence', 'needs_more_info', 'duplicate', 'already_confirmed'])
         .order('created_at', { ascending: false }).limit(80),
       supabase.from('hr_confirmation_bundles')
-        .select('id,employee_profile_id,work_date,project_id,status,validation_summary,confirmation_status,decision_note,last_error,updated_at')
+        .select('id,employee_profile_id,work_date,project_id,status,validation_summary,confirmation_status,owner_profile_id,next_action,sla_due_at,escalation_level,decision_note,last_error,updated_at')
         .in('status', ['received', 'under_review', 'needs_more_info', 'pending_approval', 'approved', 'recorded'])
         .order('updated_at', { ascending: false }).limit(40),
+      supabase.rpc('get_hr_confirmation_daily_summary', { target_date: new Date().toLocaleDateString('en-CA') }),
     ])
-    const schemaMissing = [countsResult.error, intakeResult.error, bundleResult.error].find((error) => error?.code === '42P01' || error?.code === 'PGRST202')
+    const schemaMissing = [countsResult.error, intakeResult.error, bundleResult.error, summaryResult.error].find((error) => error?.code === '42P01' || error?.code === '42703' || error?.code === 'PGRST202')
     if (schemaMissing) {
-      setHrIntakeItems([]); setHrIntakeCounts(null); setHrConfirmationBundles([])
+      if (hrLocalFixtureEnabled()) {
+        setHrIntakeItems([]); setHrIntakeCounts(hrLocalFixture.counts); setHrConfirmationBundles([hrLocalFixture.bundle]); setHrConfirmationEvidence(hrLocalFixture.evidence); setHrDailySummary(hrLocalFixture.summary)
+      } else {
+        setHrIntakeItems([]); setHrIntakeCounts(null); setHrConfirmationBundles([]); setHrConfirmationEvidence([]); setHrDailySummary(null)
+      }
       return
     }
-    const error = countsResult.error || intakeResult.error || bundleResult.error
+    const error = countsResult.error || intakeResult.error || bundleResult.error || summaryResult.error
     if (error) {
       setToast(userError(error), true)
       return
     }
     setHrIntakeCounts((countsResult.data ?? null) as HrIntakeCounts | null)
     setHrIntakeItems((intakeResult.data ?? []) as HrIntakeRawItem[])
-    setHrConfirmationBundles((bundleResult.data ?? []) as HrConfirmationBundle[])
+    const bundles = (bundleResult.data ?? []) as HrConfirmationBundle[]
+    setHrConfirmationBundles(bundles)
+    setHrDailySummary((summaryResult.data ?? null) as HrDailySummary | null)
+    if (bundles.length === 0) { setHrConfirmationEvidence([]); return }
+    const evidenceResult = await supabase.from('hr_confirmation_evidence')
+      .select('id,bundle_id,source_kind,source_ref,source_message_id,document_flow_item_id,attendance_job_id,attendance_session_id,attachment_name')
+      .in('bundle_id', bundles.map((bundle) => bundle.id)).order('created_at', { ascending: true })
+    if (evidenceResult.error) setToast(userError(evidenceResult.error), true)
+    else setHrConfirmationEvidence((evidenceResult.data ?? []) as HrConfirmationEvidence[])
   }, [attendanceIntegrationRoomId, setToast])
 
   const actHrIntakeItem = async (item: HrIntakeRawItem, action: 'confirm' | 'request_more' | 'reject') => {
@@ -1352,6 +1475,19 @@ export function ChatPage() {
       if (updated.last_error) throw new Error(updated.last_error)
       setToast(action === 'close' ? 'ตรวจครบและปิด Bundle 100% แล้ว' : hrBundleStatusLabel[updated.status], true)
       await Promise.all([loadHrIntakeGate(selectedRoom.id), loadMessages(selectedRoom.id)])
+    } catch (error) { setToast(userError(error), true) } finally { setHrGateBusyId('') }
+  }
+
+  const claimHrConfirmationBundle = async (bundle: HrConfirmationBundle) => {
+    if (!canManageCompany || !selectedRoom || !activeProfileId || hrGateBusyId) return
+    setHrGateBusyId(bundle.id)
+    try {
+      const { error } = await supabase.rpc('assign_hr_confirmation_bundle', {
+        target_bundle_id: bundle.id, target_owner_profile_id: activeProfileId, target_action_key: crypto.randomUUID(),
+      })
+      if (error) throw error
+      setToast('รับผิดชอบ Task Card แล้ว', true)
+      await loadHrIntakeGate(selectedRoom.id)
     } catch (error) { setToast(userError(error), true) } finally { setHrGateBusyId('') }
   }
 
@@ -2195,9 +2331,14 @@ export function ChatPage() {
     setHrIntakeItems([])
     setHrIntakeCounts(null)
     setHrConfirmationBundles([])
+    setHrConfirmationEvidence([])
+    setHrDailySummary(null)
     setDevelopmentTasks([])
     setDevelopmentTasksCheckedAt(0)
     setDevelopmentResultTask(null)
+    setOperationalTaskOverrides({})
+    setOperationalSelectedTaskId('')
+    setOperationalTaskBusyId('')
     setUnreadCounts({})
     setOnlineProfileMap({})
   }, [])
@@ -2595,6 +2736,102 @@ export function ChatPage() {
               <Divider sx={{ mb: 1 }} />
 
               <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, overflowY: 'auto', overflowX: 'hidden', px: { xs: 0.25, sm: 0.75 }, py: 0.75, borderRadius: 1.5, bgcolor: 'action.hover', scrollbarGutter: 'stable' }}>
+                <Card variant="outlined" sx={{ mb: 1, borderColor: 'primary.main', bgcolor: 'background.paper' }}>
+                  <CardContent sx={{ py: 1, px: 1.25, '&:last-child': { pb: 1 } }}>
+                    <Stack spacing={0.8}>
+                      <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                          <TaskAltOutlinedIcon color="primary" fontSize="small" />
+                          <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>Operational Core</Typography>
+                          <Chip size="small" color={operationalLocalMode ? 'warning' : 'default'} label={operationalLocalMode ? 'Local-first preview' : 'อ่านอย่างเดียว'} />
+                        </Stack>
+                        <Typography variant="caption" color="text.secondary">Thread แยกตามข้อความต้นทาง · ไม่สร้างงานจาก System Result</Typography>
+                      </Stack>
+                      <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
+                        <Chip size="small" label={`รับเข้า ${operationalSummary.received}`} />
+                        <Chip size="small" color="warning" label={`กำลังทำ/ส่งต่อ ${operationalSummary.forwarded}`} />
+                        <Chip size="small" color={operationalSummary.pending > 0 ? 'warning' : 'default'} label={`ค้าง ${operationalSummary.pending}`} />
+                        <Chip size="small" color="success" label={`ปิดแล้ว ${operationalSummary.closed}`} />
+                        <Chip size="small" label={`ซ้ำ ${operationalSummary.duplicate}`} />
+                        <Chip size="small" color={operationalSummary.failed > 0 ? 'error' : 'default'} label={`Failed ${operationalSummary.failed}`} />
+                        {operationalSummary.slaBreached > 0 && <Chip size="small" color="error" label={`เกิน SLA ${operationalSummary.slaBreached}`} />}
+                      </Stack>
+                      {!operationalLocalMode && <Alert severity="info" sx={{ py: 0 }}>ปุ่ม Action จะเปิดหลังผ่าน Local-first gate และเชื่อม RPC ของ Module ที่รับผิดชอบ</Alert>}
+                      {operationalTaskCards.length === 0 ? (
+                        <Typography variant="caption" color="text.secondary">ยังไม่มีข้อความสำคัญที่ต้องสร้าง Task Card · ข้อความทั่วไปยังคงแสดงใน Chat ตามปกติ</Typography>
+                      ) : (
+                        <Stack spacing={0.7}>
+                          {operationalTaskCards.map((card) => {
+                            const slaBreached = ['received', 'waiting_review', 'blocked'].includes(card.status) && new Date(card.dueAt).getTime() < Date.now()
+                            const terminal = card.status === 'completed'
+                            return (
+                              <Card
+                                key={card.taskId}
+                                variant="outlined"
+                                onClick={() => setOperationalSelectedTaskId(card.taskId)}
+                                sx={{ bgcolor: card.taskId === operationalSelectedTaskId ? 'primary.50' : 'action.hover', cursor: 'pointer' }}
+                              >
+                                <CardContent sx={{ py: 0.9, px: 1, '&:last-child': { pb: 0.9 } }}>
+                                  <Stack spacing={0.6}>
+                                    <Stack direction="row" spacing={0.6} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                                      <Typography variant="body2" sx={{ fontWeight: 900 }}>{card.taskId}</Typography>
+                                      <Chip size="small" color={operationalStatusColor[card.status]} label={operationalStatusLabel[card.status]} />
+                                      <Chip size="small" variant="outlined" label={card.module} />
+                                      {card.unread && <Chip size="small" color="info" label="ยังไม่อ่าน" />}
+                                      {slaBreached && <Chip size="small" color="error" label="เกิน SLA" />}
+                                    </Stack>
+                                    <Typography variant="caption" color="text.secondary">
+                                      Thread: {card.threadKey} · Owner: {card.ownerName} · Next: {card.nextAction} · Due: {formatTime(card.dueAt)} ({card.slaMinutes} นาที)
+                                    </Typography>
+                                    <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
+                                      {card.documentId && <Chip size="small" variant="outlined" label={`Document ${card.documentId}`} />}
+                                      {card.advanceId && <Chip size="small" variant="outlined" label={`Advance ${card.advanceId}`} />}
+                                      {card.attendanceId && <Chip size="small" variant="outlined" label={`Attendance ${card.attendanceId}`} />}
+                                    </Stack>
+                                    {card.exception && <Alert severity={card.failed ? 'error' : 'warning'} sx={{ py: 0 }}>{card.exception}</Alert>}
+                                    <Stack direction="row" spacing={0.45} sx={{ flexWrap: 'wrap' }}>
+                                      {operationalActionLabels.map(({ action, label }) => (
+                                        <Button
+                                          key={action}
+                                          size="small"
+                                          variant={action === 'close' ? 'contained' : 'outlined'}
+                                          color={action === 'close' ? 'success' : 'primary'}
+                                          disabled={!operationalLocalMode || operationalTaskBusyId === card.taskId || (terminal && action !== 'view_result')}
+                                          onClick={(event) => {
+                                            event.stopPropagation()
+                                            actOperationalTask(card, action)
+                                          }}
+                                        >
+                                          {label}
+                                        </Button>
+                                      ))}
+                                    </Stack>
+                                  </Stack>
+                                </CardContent>
+                              </Card>
+                            )
+                          })}
+                        </Stack>
+                      )}
+                      {operationalSelectedTask && (
+                        <Card variant="outlined" sx={{ borderColor: 'secondary.main', bgcolor: 'background.default' }}>
+                          <CardContent sx={{ py: 0.9, px: 1, '&:last-child': { pb: 0.9 } }}>
+                            <Stack spacing={0.6}>
+                              <Typography variant="body2" sx={{ fontWeight: 900 }}>Evidence Panel · {operationalSelectedTask.taskId}</Typography>
+                              <Typography variant="caption" color="text.secondary">Source Message: {operationalSelectedTask.sourceMessageId} · Thread: {operationalSelectedTask.threadKey}</Typography>
+                              <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
+                                {operationalSelectedTask.evidence.map((item) => <Chip key={`${item.kind}-${item.value}`} size="small" variant="outlined" label={`${item.label}: ${item.value}`} />)}
+                              </Stack>
+                              <Typography variant="caption" color="text.secondary">
+                                Audit: {operationalSelectedTask.audit.map((event) => `${event.event} (${event.actorId})`).join(' → ')}
+                              </Typography>
+                            </Stack>
+                          </CardContent>
+                        </Card>
+                      )}
+                    </Stack>
+                  </CardContent>
+                </Card>
                 {isProgramDevelopmentRoom && (
                   <Card variant="outlined" sx={{ mb: 1, borderColor: 'secondary.main', bgcolor: 'background.paper' }}>
                     <CardContent sx={{ py: 1, px: 1.25, '&:last-child': { pb: 1 } }}>
@@ -2676,6 +2913,9 @@ export function ChatPage() {
                           {hrIntakeCounts && <Chip size="small" variant="outlined" label={`บริบท/ซ้ำ/ยืนยันแล้ว ${hrIntakeCounts.context + hrIntakeCounts.duplicate + hrIntakeCounts.already_confirmed}`} />}
                         </Stack>
                         <Typography variant="caption" color="text.secondary">Raw ไม่ถูกลบ · System/Daily Summary เป็นบริบท · รายการซ้ำไม่สร้าง Job ใหม่</Typography>
+                        {hrDailySummary && <Alert severity={hrDailySummary.overdue > 0 ? 'warning' : 'info'}>
+                          สรุป HR วันนี้: ทั้งหมด {hrDailySummary.total} · รอตรวจ {hrDailySummary.pending_review} · รอข้อมูล {hrDailySummary.needs_more_info} · รออนุมัติ {hrDailySummary.pending_approval} · บันทึกแล้ว {hrDailySummary.recorded} · ปิดแล้ว {hrDailySummary.closed} · เกิน SLA {hrDailySummary.overdue}
+                        </Alert>}
                         {hrIntakeItems.map((item) => (
                           <Paper key={item.id} variant="outlined" sx={{ p: 1, bgcolor: 'action.hover' }}>
                             <Stack spacing={0.55}>
@@ -2701,16 +2941,27 @@ export function ChatPage() {
                           const missing = bundle.validation_summary?.missing_fields ?? []
                           const conflicts = bundle.validation_summary?.conflicts ?? []
                           const employeeName = bundle.validation_summary?.employee_name || labelFromProfile(profileNameMap.get(bundle.employee_profile_id), bundle.employee_profile_id)
+                          const ownerName = bundle.owner_profile_id ? labelFromProfile(profileNameMap.get(bundle.owner_profile_id), bundle.owner_profile_id) : 'ยังไม่มีผู้รับผิดชอบ'
+                          const evidence = hrConfirmationEvidence.filter((item) => item.bundle_id === bundle.id)
+                          const slaMinutes = bundle.sla_due_at ? Math.ceil((new Date(bundle.sla_due_at).getTime() - Date.now()) / 60000) : null
                           return <Paper key={bundle.id} variant="outlined" sx={{ p: 1 }}>
                             <Stack spacing={0.6}>
                               <Stack direction="row" spacing={0.6} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
                                 <Typography variant="body2" sx={{ fontWeight: 900 }}>{employeeName} · {bundle.work_date}</Typography>
                                 <Chip size="small" color={bundle.status === 'pending_approval' ? 'warning' : bundle.status === 'recorded' ? 'success' : 'default'} label={hrBundleStatusLabel[bundle.status]} />
                                 <Chip size="small" variant="outlined" label={`${bundle.validation_summary?.item_count ?? 0} รายการ`} />
+                                {bundle.escalation_level > 0 && <Chip size="small" color="error" label={`Escalation L${bundle.escalation_level}`} />}
                               </Stack>
                               <Typography variant="caption" color="text.secondary">เข้า {bundle.validation_summary?.clock_in_at || '-'} · ออก {bundle.validation_summary?.clock_out_at || '-'} · อัปเดต {formatTime(bundle.updated_at)}</Typography>
+                              <Typography variant="caption" color={slaMinutes != null && slaMinutes <= 0 ? 'error' : 'text.secondary'}>
+                                Owner: {ownerName} · Next: {bundle.next_action} · SLA: {slaMinutes == null ? '-' : slaMinutes > 0 ? `เหลือ ${slaMinutes} นาที` : `เกิน ${Math.abs(slaMinutes)} นาที`}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Evidence {evidence.length}: {evidence.length === 0 ? 'ยังไม่มี' : evidence.map((item) => `${item.source_kind}:${item.attachment_name || item.source_ref}${item.attendance_session_id ? ` → Attendance ${item.attendance_session_id}` : ''}`).join(' · ')}
+                              </Typography>
                               {(missing.length > 0 || conflicts.length > 0) && <Alert severity="warning">ข้อมูลขาด: {missing.join(', ') || '-'} · ขัดแย้ง: {conflicts.join(', ') || '-'}</Alert>}
                               {bundle.last_error && <Alert severity="error">{bundle.last_error}</Alert>}
+                              {canManageCompany && bundle.owner_profile_id !== activeProfileId && bundle.status !== 'closed' && bundle.status !== 'cancelled' && <Button size="small" variant="outlined" disabled={hrGateBusyId === bundle.id} onClick={() => void claimHrConfirmationBundle(bundle)}>รับงานนี้</Button>}
                               {canManageCompany && bundle.status === 'pending_approval' && <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
                                 <Button size="small" variant="contained" disabled={hrGateBusyId === bundle.id} onClick={() => void actHrConfirmationBundle(bundle, 'confirm')}>ยืนยันและบันทึกเวลา</Button>
                                 <Button size="small" variant="outlined" disabled={hrGateBusyId === bundle.id} onClick={() => void actHrConfirmationBundle(bundle, 'request_more')}>ขอข้อมูลเพิ่ม</Button>

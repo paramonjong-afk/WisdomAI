@@ -9,6 +9,8 @@ export type FlowRegistryFilters = {
   to: string
   module: FlowRegistryModule | 'all'
   status: FlowRegistryStatusFilter
+  source: string
+  owner: string
 }
 
 export type FlowRegistryTimelineEntry = {
@@ -36,6 +38,13 @@ export type FlowRegistryRecord = {
   detailPath: string
   sourceId: string | null
   auditKey: string
+  taskId: string
+  sourceRefs: string[]
+  evidenceRefs: string[]
+  auditRefs: string[]
+  nextAction: string
+  blocker: string | null
+  slaDueAt: string | null
 }
 
 export type FlowRegistryNode = {
@@ -62,6 +71,7 @@ export type FlowRegistrySnapshot = {
   auditTrail: Record<string, FlowRegistryTimelineEntry[]>
   lastUpdated: string
   sourceWarnings: string[]
+  reconciliation: { rowCount: number; received: number; open: number; closed: number; forwarded: number; consistent: boolean }
 }
 
 type Row = Record<string, unknown>
@@ -180,6 +190,31 @@ async function loadRegistryData(filters: FlowRegistryFilters, includeAudit = tru
 
   const addRecord = (record: FlowRegistryRecord, timeline: FlowRegistryTimelineEntry[] = []) => {
     if (filters.status !== 'all' && record.status !== filters.status) return
+    if (filters.source && !record.sourceRefs.some((value) => value.toLowerCase().includes(filters.source.toLowerCase()))) return
+    if (filters.owner && !record.owner.toLowerCase().includes(filters.owner.toLowerCase())) return
+    const key = record.sourceId ? recordKey(record.module, record.sourceId) : recordKey(record.module, record.id)
+    const existingIndex = records.findIndex((item) => recordKey(item.module, item.sourceId || item.id) === key)
+    if (existingIndex >= 0) {
+      const existing = records[existingIndex]
+      stageCounts.set(existing.stage, Math.max(0, (stageCounts.get(existing.stage) ?? 1) - 1))
+      destinationGroups.set(groupDestination(existing), Math.max(0, (destinationGroups.get(groupDestination(existing)) ?? 1) - 1))
+      const merged: FlowRegistryRecord = {
+        ...existing,
+        ...record,
+        id: existing.id,
+        sourceId: existing.sourceId || record.sourceId,
+        sourceRefs: [...new Set([...existing.sourceRefs, ...record.sourceRefs])],
+        evidenceRefs: [...new Set([...existing.evidenceRefs, ...record.evidenceRefs])],
+        auditRefs: [...new Set([...existing.auditRefs, ...record.auditRefs])],
+        blocker: record.blocker || existing.blocker,
+        nextAction: record.nextAction || existing.nextAction,
+      }
+      records[existingIndex] = merged
+      stageCounts.set(merged.stage, (stageCounts.get(merged.stage) ?? 0) + 1)
+      destinationGroups.set(groupDestination(merged), (destinationGroups.get(groupDestination(merged)) ?? 0) + 1)
+      if (timeline.length > 0) auditTrail[merged.auditKey] = mergeTimeline(auditTrail[merged.auditKey], timeline)
+      return
+    }
     records.push(record)
     stageCounts.set(record.stage, (stageCounts.get(record.stage) ?? 0) + 1)
     const group = groupDestination(record)
@@ -242,6 +277,13 @@ async function loadRegistryData(filters: FlowRegistryFilters, includeAudit = tru
       detailPath: '/document-flows',
       sourceId,
       auditKey: recordKey('omni', sourceId),
+      taskId: sourceId,
+      sourceRefs: [sourceId],
+      evidenceRefs: [],
+      auditRefs: timeline.map((entry) => entry.id),
+      nextAction: status === 'waiting' ? 'ตรวจข้อมูลเพิ่มเติม' : status === 'closed' ? 'ไม่มี' : 'ตรวจและจัดประเภท',
+      blocker: error || (waiting ? 'รอข้อมูลจากต้นทาง' : null),
+      slaDueAt: null,
     }, timeline)
   })
 
@@ -267,6 +309,13 @@ async function loadRegistryData(filters: FlowRegistryFilters, includeAudit = tru
       detailPath: '/document-flows',
       sourceId: sourceId || null,
       auditKey: recordKey('omni', sourceId || asString(row.id)),
+      taskId: sourceId || asString(row.id),
+      sourceRefs: [sourceId || asString(row.id)],
+      evidenceRefs: [],
+      auditRefs: [],
+      nextAction: status === 'waiting' ? 'รับข้อมูลและตรวจซ้ำ' : 'ตรวจ Filter',
+      blocker: error || null,
+      slaDueAt: null,
     })
   })
 
@@ -292,6 +341,13 @@ async function loadRegistryData(filters: FlowRegistryFilters, includeAudit = tru
       detailPath: '/document-flows',
       sourceId: asString(row.source_id) || null,
       auditKey: recordKey('omni', asString(row.source_id) || asString(row.id)),
+      taskId: asString(row.source_id) || asString(row.id),
+      sourceRefs: [asString(row.source_id) || asString(row.id)],
+      evidenceRefs: [asString(row.id)],
+      auditRefs: [],
+      nextAction: status === 'error' ? 'Retry delivery' : status === 'closed' ? 'ตรวจปลายทาง' : 'ส่งปลายทาง',
+      blocker: error || null,
+      slaDueAt: null,
     })
   })
 
@@ -317,6 +373,13 @@ async function loadRegistryData(filters: FlowRegistryFilters, includeAudit = tru
       detailPath: '/chat',
       sourceId: jobId,
       auditKey: recordKey('attendance', jobId),
+      taskId: jobId,
+      sourceRefs: [asString(row.room_id) || jobId],
+      evidenceRefs: [jobId],
+      auditRefs: includeAudit ? attendanceAuditResult.rows.filter((auditRow) => asString(auditRow.job_id) === jobId).map((auditRow) => asString(auditRow.id)) : [],
+      nextAction: status === 'error' ? 'ตรวจและส่ง MSG ใหม่' : status === 'waiting' ? 'รอผู้รับผิดชอบ' : status === 'closed' ? 'ไม่มี' : 'อนุมัติ/บันทึก',
+      blocker: messageError || null,
+      slaDueAt: null,
     }, includeAudit ? attendanceAuditResult.rows
       .filter((auditRow) => asString(auditRow.job_id) === jobId)
       .map((auditRow) => ({
@@ -350,6 +413,13 @@ async function loadRegistryData(filters: FlowRegistryFilters, includeAudit = tru
       detailPath: '/advance-settlements',
       sourceId: asString(row.source_flow_item_id) || null,
       auditKey: recordKey('advance', caseId),
+      taskId: caseId,
+      sourceRefs: [asString(row.source_flow_item_id) || caseId],
+      evidenceRefs: [asString(row.source_flow_item_id) || ''].filter(Boolean),
+      auditRefs: includeAudit ? advanceAuditResult.rows.filter((auditRow) => asString(auditRow.case_id) === caseId).map((auditRow) => asString(auditRow.id)) : [],
+      nextAction: status === 'error' ? 'Retry การแจ้งผล' : status === 'waiting' ? 'รอรับงาน/ข้อมูล' : status === 'closed' ? 'ไม่มี' : 'อนุมัติ/บันทึก',
+      blocker: asString(row.confirmation_delivery_error) || null,
+      slaDueAt: null,
     }, includeAudit ? advanceAuditResult.rows
       .filter((auditRow) => asString(auditRow.case_id) === caseId)
       .map((auditRow) => ({
@@ -385,11 +455,22 @@ async function loadRegistryData(filters: FlowRegistryFilters, includeAudit = tru
       detailPath: '/advance-settlements',
       sourceId: asString(row.advance_case_id),
       auditKey: recordKey('advance', asString(row.advance_case_id)),
+      taskId: asString(row.advance_case_id) || asString(row.id),
+      sourceRefs: [asString(row.advance_case_id) || asString(row.id)],
+      evidenceRefs: [asString(row.id)],
+      auditRefs: [],
+      nextAction: status === 'error' ? 'Retry เฉพาะ delivery นี้' : status === 'closed' ? 'ตรวจ Audit' : 'ส่ง MSG',
+      blocker: error || null,
+      slaDueAt: null,
     })
   })
 
   const allRecords = records.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-  return { records: allRecords, stageCounts, destinationCounts, destinationGroups, exceptionCounts, auditTrail, warnings }
+  const canonicalDestinationCounts = new Map<string, number>()
+  allRecords.forEach((record) => record.destination.split(',').map((value) => value.trim()).filter(Boolean).forEach((destination) => {
+    canonicalDestinationCounts.set(destination, (canonicalDestinationCounts.get(destination) ?? 0) + 1)
+  }))
+  return { records: allRecords, stageCounts, destinationCounts: canonicalDestinationCounts, destinationGroups, exceptionCounts, auditTrail, warnings }
 }
 
 const stageCount = (data: RegistryData, stage: string) => data.stageCounts.get(stage) ?? 0
@@ -428,6 +509,14 @@ export async function loadFlowRegistrySnapshot(filters: FlowRegistryFilters): Pr
   const waitingForInfo = currentRange.records.filter((record) => record.status === 'waiting').length
   const forwarded = count((record) => record.stage === 'ส่งปลายทาง' || record.stage === 'อนุมัติ/บันทึก' || record.status === 'closed')
   const closedSuccessfully = count((record) => record.status === 'closed')
+  const reconciliation = {
+    rowCount: currentRange.records.length,
+    received: currentRange.records.length,
+    open: open.length,
+    closed: closedSuccessfully,
+    forwarded,
+    consistent: currentRange.records.length === open.length + closedSuccessfully,
+  }
   return {
     receivedToday: currentRange.records.filter((record) => new Date(record.createdAt).toDateString() === new Date().toDateString()).length,
     underReview: currentRange.records.filter((record) => record.status === 'open' || record.stage === 'วิเคราะห์' || record.stage === 'Filter').length,
@@ -453,5 +542,6 @@ export async function loadFlowRegistrySnapshot(filters: FlowRegistryFilters): Pr
     auditTrail: currentRange.auditTrail,
     lastUpdated: new Date().toISOString(),
     sourceWarnings: [...new Set([...currentRange.warnings, ...previousRange.warnings])].sort(),
+    reconciliation,
   }
 }

@@ -17,7 +17,7 @@ flowchart LR
 
 ## Purpose
 
-The admin-only Flow Registry page is a live monitoring surface. It reads the same runtime registries used by Intake, Filter, OutTake, attendance approval, and employee advance delivery. It does not invent fallback numbers when a source is unavailable.
+The admin-only Flow Registry page is a live monitoring surface. It reads the same runtime registries used by Intake, Filter, OutTake, attendance approval, and employee advance delivery. Related task and delivery rows are reconciled to the source task instead of counted as separate work items. It does not invent fallback numbers when a source is unavailable.
 
 ## Inputs and filters
 
@@ -25,10 +25,11 @@ The admin-only Flow Registry page is a live monitoring surface. It reads the sam
 - Date range based on `created_at`.
 - Module: Omni/Intake, attendance/HR, or employee advance.
 - Status: open, waiting, error, closed.
+- Source/Document ID and owner text filters apply before aggregation and drill-down.
 
 ## Outputs and interaction
 
-Summary cards show received, under review, waiting, forwarded, SLA breach (>24 hours), and successful close. Nodes show count and maximum age. Destination and exception lanes are clickable; the dialog lists real IDs, status, owner, timestamps, and error text, then links to the relevant Detail/Audit page.
+Summary cards show received, under review, waiting, forwarded, SLA breach (>24 hours), and successful close. Nodes show count and maximum age. Destination and exception lanes are clickable; the dialog lists one canonical Task row with source/evidence/audit references, owner, SLA, next action, blocker, timestamps, and error text, then links to the relevant Detail/Audit page with task/source/audit query IDs.
 
 ## Source and status rules
 

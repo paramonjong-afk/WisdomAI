@@ -46,6 +46,20 @@ for (const needle of ['owner_profile_id', 'sla_due_at', 'create table public.hr_
 for (const label of ['HR Intake Gate', 'ข้อมูลเข้าทั้งหมด', 'ยืนยันเข้า Bundle', 'ขอข้อมูลเพิ่ม', 'ปฏิเสธ', 'ตรวจครบและปิด Job 100%']) {
   assert.ok(chatPage.includes(label), `missing HR room action: ${label}`)
 }
+for (const needle of [
+  'create table public.hr_confirmation_evidence',
+  'owner_profile_id uuid', 'next_action text', 'sla_due_at timestamptz', 'escalation_level smallint',
+  'sync_hr_confirmation_evidence', 'refresh_hr_confirmation_operational_gate',
+  'enforce_hr_confirmation_operational_gate', 'assign_hr_confirmation_bundle',
+  'escalate_overdue_hr_confirmation_bundles', 'get_hr_confirmation_daily_summary',
+  'hr_confirmation_operational_evidence_gate_failed', 'hr_confirmation_attendance_evidence_incomplete',
+  'alter table public.hr_confirmation_evidence enable row level security',
+  'revoke insert,update,delete on public.hr_confirmation_evidence from anon,authenticated',
+]) assert.ok(operationalMigration.includes(needle), `missing operational HR contract: ${needle}`)
+assert.doesNotMatch(operationalMigration, /delete from public\.(hr_intake_raw_items|attendance_sessions)/i)
+for (const label of ['สรุป HR วันนี้', 'Owner:', 'Next:', 'SLA:', 'Evidence', 'รับงานนี้', 'Escalation L']) {
+  assert.ok(chatPage.includes(label), `missing HR Task Card UI: ${label}`)
+}
 
 type Fixture = {
   id: string
@@ -93,5 +107,20 @@ assert.equal(classified.filter((row) => row.status === 'already_confirmed').leng
 assert.equal(classified.filter((row) => row.status === 'low_confidence').length, 3)
 assert.equal(classified.filter((row) => row.status === 'needs_more_info').length, 2)
 assert.equal(classified.filter((row) => row.status === 'not_hr').length, 1)
+
+const taskCard = {
+  owner: 'hr-manager-1', nextAction: 'approve', slaDueAt: Date.now() + 30 * 60_000,
+  evidence: [{ kind: 'attendance_job', id: 'job-in' }, { kind: 'attendance_job', id: 'job-out' }],
+  childJobs: [{ id: 'job-in', sessionId: 'session-in' }, { id: 'job-out', sessionId: 'session-out' }],
+  audit: ['bundle_received', 'validation_completed', 'approval_granted', 'child_attendance_recorded', 'bundle_recorded'],
+}
+assert.ok(taskCard.owner, 'approval requires an owner')
+assert.equal(new Set(taskCard.evidence.map((row) => row.id)).size, taskCard.childJobs.length, 'every child needs attendance-job evidence')
+assert.ok(taskCard.childJobs.every((row) => row.sessionId), 'close 100% requires attendance session IDs')
+assert.equal(new Set(taskCard.audit).size, 5, 'close 100% requires complete audit events')
+assert.ok(taskCard.slaDueAt > Date.now(), 'new approval task receives an SLA')
+
+const repeatedActionKey = 'bundle-1:approve:fixed-key'
+assert.equal(new Set([repeatedActionKey, repeatedActionKey]).size, 1, 'repeated action key must remain idempotent')
 
 console.log(`HR intake gate fixture passed: raw=${fixtures.length}, candidates=${candidates.length}, bundles=${bundleKeys.size}`)

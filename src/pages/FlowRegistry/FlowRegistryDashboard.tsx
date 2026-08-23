@@ -57,13 +57,15 @@ export function FlowRegistryDashboard() {
   const [toDate, setToDate] = useState(today)
   const [module, setModule] = useState<FlowRegistryFilters['module']>('all')
   const [status, setStatus] = useState<FlowRegistryStatusFilter>('all')
+  const [source, setSource] = useState('')
+  const [owner, setOwner] = useState('')
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [snapshot, setSnapshot] = useState<FlowRegistrySnapshot | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [selectedLabel, setSelectedLabel] = useState('')
 
-  const filters = useMemo<FlowRegistryFilters>(() => ({ companyId, from: startOfDate(fromDate), to: endOfDate(toDate), module, status }), [companyId, fromDate, module, status, toDate])
+  const filters = useMemo<FlowRegistryFilters>(() => ({ companyId, from: startOfDate(fromDate), to: endOfDate(toDate), module, status, source, owner }), [companyId, fromDate, module, owner, source, status, toDate])
   const load = useCallback(async () => {
     if (!companyId) return
     setLoading(true)
@@ -110,6 +112,9 @@ export function FlowRegistryDashboard() {
         <TextField size="small" type="date" label="ถึง" value={toDate} onChange={(event) => setToDate(event.target.value)} slotProps={{ inputLabel: { shrink: true } }} sx={{ minWidth: 160 }} />
         <FormControl size="small" sx={{ minWidth: 145 }}><InputLabel>Module</InputLabel><Select value={module} label="Module" onChange={(event) => setModule(event.target.value as FlowRegistryModule | 'all')}><MenuItem value="all">ทุก Module</MenuItem><MenuItem value="omni">Omni / Intake</MenuItem><MenuItem value="attendance">ลงเวลา / HR</MenuItem><MenuItem value="advance">เงินสำรองจ่าย</MenuItem></Select></FormControl>
         <FormControl size="small" sx={{ minWidth: 135 }}><InputLabel>สถานะ</InputLabel><Select value={status} label="สถานะ" onChange={(event) => setStatus(event.target.value as FlowRegistryStatusFilter)}><MenuItem value="all">ทุกสถานะ</MenuItem><MenuItem value="open">กำลังทำ</MenuItem><MenuItem value="waiting">รอข้อมูล</MenuItem><MenuItem value="error">ผิดพลาด</MenuItem><MenuItem value="closed">ปิดแล้ว</MenuItem></Select></FormControl>
+        <TextField size="small" label="Source / Document ID" value={source} onChange={(event) => setSource(event.target.value)} sx={{ minWidth: 190 }} />
+        <TextField size="small" label="ผู้รับผิดชอบ" value={owner} onChange={(event) => setOwner(event.target.value)} sx={{ minWidth: 155 }} />
+        {(source || owner || module !== 'all' || status !== 'all') && <Button size="small" onClick={() => { setSource(''); setOwner(''); setModule('all'); setStatus('all') }}>ล้างตัวกรอง</Button>}
         <Typography variant="caption" color="text.secondary" sx={{ ml: { md: 'auto' } }}>ช่วงเวลาคำนวณจาก created_at ของแต่ละ registry</Typography>
       </Stack>
     </PaperLike>
@@ -140,10 +145,13 @@ export function FlowRegistryDashboard() {
       </Stack>
 
       {snapshot.sourceWarnings.length > 0 && <Alert severity="warning"><b>แหล่งข้อมูลที่ยังไม่พร้อม:</b> {snapshot.sourceWarnings.join(' · ')}</Alert>}
+      <Alert severity={snapshot.reconciliation.consistent ? 'success' : 'error'}>
+        Count reconciliation: {snapshot.reconciliation.rowCount.toLocaleString('th-TH')} rows · เปิด {snapshot.reconciliation.open.toLocaleString('th-TH')} · ปิด {snapshot.reconciliation.closed.toLocaleString('th-TH')} · ส่งต่อ {snapshot.reconciliation.forwarded.toLocaleString('th-TH')} {snapshot.reconciliation.consistent ? 'ตรงกัน' : 'ไม่ตรงกัน ต้องตรวจ source'}
+      </Alert>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}><Typography variant="caption" color="text.secondary">Last updated: {new Date(snapshot.lastUpdated).toLocaleString('th-TH')}</Typography><Button component={RouterLink} to="/document-flows" size="small" variant="outlined">เปิดรายการ Intake / Audit ทั้งหมด</Button></Stack>
     </>}
 
-    <Dialog open={Boolean(selectedLabel)} onClose={() => setSelectedLabel('')} fullWidth maxWidth="md"><DialogTitle>Drill-down · {selectedLabel}</DialogTitle><DialogContent dividers>{detailRecords.length === 0 ? <Alert severity="info">ไม่พบรายการจริงตามตัวกรองนี้</Alert> : <Stack spacing={0.75}>{detailRecords.map((record) => <Card key={`${record.module}-${record.id}`} variant="outlined"><CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}><Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ justifyContent: 'space-between' }}><Box sx={{ minWidth: 0 }}><Typography variant="body2" sx={{ fontWeight: 800 }}>{record.title}</Typography><Typography variant="caption" color="text.secondary">{record.module} · {record.id} · ผู้รับผิดชอบ {record.owner}</Typography></Box><Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}><Chip size="small" label={record.status} color={record.status === 'error' ? 'error' : record.status === 'waiting' ? 'warning' : record.status === 'closed' ? 'success' : 'info'} /><Typography variant="caption" color="text.secondary">ค้าง {ageLabel(record.ageMinutes)}</Typography></Stack></Stack>{record.error && <Typography variant="caption" color="error">Error: {record.error}</Typography>}<Divider sx={{ my: 0.75 }} /><Typography variant="caption" color="text.secondary">สร้าง {new Date(record.createdAt).toLocaleString('th-TH')} · อัปเดต {new Date(record.updatedAt).toLocaleString('th-TH')}</Typography></CardContent></Card>)}</Stack>}</DialogContent><DialogActions><Button onClick={() => setSelectedLabel('')}>ปิด</Button><Button component={RouterLink} to={detailRecords[0]?.detailPath ?? '/document-flows'} variant="contained" onClick={() => setSelectedLabel('')}>เปิดหน้า Detail / Audit</Button></DialogActions></Dialog>
+    <Dialog open={Boolean(selectedLabel)} onClose={() => setSelectedLabel('')} fullWidth maxWidth="md"><DialogTitle>Drill-down · {selectedLabel}</DialogTitle><DialogContent dividers>{detailRecords.length === 0 ? <Alert severity="info">ไม่พบรายการจริงตามตัวกรองนี้</Alert> : <Stack spacing={0.75}>{detailRecords.map((record) => <Card key={`${record.module}-${record.id}`} variant="outlined"><CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}><Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ justifyContent: 'space-between' }}><Box sx={{ minWidth: 0 }}><Typography variant="body2" sx={{ fontWeight: 800 }}>{record.title}</Typography><Typography variant="caption" color="text.secondary">{record.module} · Task {record.taskId} · ผู้รับผิดชอบ {record.owner}</Typography></Box><Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}><Chip size="small" label={record.status} color={record.status === 'error' ? 'error' : record.status === 'waiting' ? 'warning' : record.status === 'closed' ? 'success' : 'info'} /><Typography variant="caption" color="text.secondary">ค้าง {ageLabel(record.ageMinutes)}</Typography></Stack></Stack>{record.error && <Typography variant="caption" color="error">Error: {record.error}</Typography>}<Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>Source: {record.sourceRefs.join(', ') || '-'} · Evidence: {record.evidenceRefs.join(', ') || '-'} · Audit: {record.auditRefs.join(', ') || '-'}</Typography><Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>SLA: {record.slaDueAt ? new Date(record.slaDueAt).toLocaleString('th-TH') : 'ยังไม่กำหนด'} · สิ่งที่ต้องทำต่อ: {record.nextAction}{record.blocker ? ` · Blocker: ${record.blocker}` : ''}</Typography><Divider sx={{ my: 0.75 }} /><Typography variant="caption" color="text.secondary">สร้าง {new Date(record.createdAt).toLocaleString('th-TH')} · อัปเดต {new Date(record.updatedAt).toLocaleString('th-TH')}</Typography></CardContent></Card>)}</Stack>}</DialogContent><DialogActions><Button onClick={() => setSelectedLabel('')}>ปิด</Button><Button component={RouterLink} to={detailRecords[0] ? `${detailRecords[0].detailPath}?task_id=${encodeURIComponent(detailRecords[0].taskId)}&source_id=${encodeURIComponent(detailRecords[0].sourceId ?? '')}&audit_key=${encodeURIComponent(detailRecords[0].auditKey)}` : '/document-flows'} variant="contained" onClick={() => setSelectedLabel('')}>เปิดหน้า Detail / Audit</Button></DialogActions></Dialog>
   </Stack>
 }
 
