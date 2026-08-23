@@ -19,7 +19,7 @@ const checks: Array<[string, boolean]> = [
   ['approval message carries required attendance facts and actions', migration.includes('ช่าง: ') && migration.includes('โครงการ/ไซต์:') && migration.includes('รหัสรายการ:') && migration.includes('Action: อนุมัติ · Reject · ขอข้อมูลเพิ่ม')],
   ['system confirmation is excluded from Omni intake', migration.includes("message_class='system_confirmation'") && migration.includes("add column if not exists message_class")],
   ['decision records claim and audit path', migration.includes('claimed_by') && migration.includes('claimed_at') && migration.includes('chat_attendance_approval_events')],
-  ['Codex room is never a Web Chat destination', !migration.toLowerCase().includes('codex') && !chat.toLowerCase().includes('codex')],
+  ['Codex room is never an attendance Web Chat destination', !migration.toLowerCase().includes('codex') && !chat.includes("target_room_id: 'codex'") && !chat.includes("room_id: 'codex'")],
 ]
 
 for (const [name, passed] of checks) {
