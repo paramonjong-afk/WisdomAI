@@ -1220,7 +1220,7 @@ export function AccountingDocumentsPage() {
                 { id: 'source', label: 'Source', minWidth: 220, render: row => <Box><Typography variant="body2">{row.sourceChannel ?? 'ไม่ระบุช่องทาง'} · {row.sourceRoomName ?? 'ไม่ระบุห้อง'}</Typography><Typography variant="caption" color="text.secondary">{row.sourceSenderName ?? 'ไม่ระบุผู้ส่ง'}</Typography></Box> },
                 { id: 'status', label: 'สถานะตรวจ', minWidth: 150, render: row => { const bucket = transferSlipQueueBucket(row); return <Chip size="small" color={bucket === 'reviewed' ? 'success' : bucket === 'duplicate' ? 'error' : bucket === 'incomplete' ? 'warning' : 'info'} label={bucket === 'reviewed' ? 'ตรวจแล้ว' : bucket === 'duplicate' ? 'รายการซ้ำ' : bucket === 'incomplete' ? 'ข้อมูลไม่ครบ' : row.taskStatus === 'claimed' ? 'บัญชีรับงานแล้ว' : 'รอตรวจ'} /> } },
                 { id: 'next', label: 'ปลายทางถัดไป', minWidth: 210, render: row => { const continuation = transferSlipContinuation(row); return <Stack direction="row" spacing={.5} sx={{ alignItems: 'center' }}>{continuation.label && <Chip size="small" color="secondary" label={continuation.label} />}<Typography variant="body2">{continuation.route}</Typography></Stack> } },
-                { id: 'open', label: 'หลักฐาน', minWidth: 120, render: () => <Button size="small" variant="outlined">เปิดรูป/Audit</Button>, exportable: false },
+                { id: 'open', label: 'หลักฐาน', minWidth: 120, render: row => <Button size="small" variant="outlined" onClick={() => void openSlipDetail(row)}>เปิดรูป/Audit</Button>, exportable: false },
               ]}
             />
           </> : <StandardDataTable
