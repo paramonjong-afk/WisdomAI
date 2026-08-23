@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 
 const migration = fs.readFileSync('supabase/migrations/20260823060547_hr_confirmation_bundle.sql', 'utf8')
+const operationalMigration = fs.readFileSync('supabase/migrations/20260823120020_hr_confirmation_operational_readiness.sql', 'utf8')
 const flow = fs.readFileSync('docs/HR_CONFIRMATION_BUNDLE_FLOW.md', 'utf8')
 const chatPage = fs.readFileSync('src/pages/Chat/index.tsx', 'utf8')
 
@@ -39,6 +40,9 @@ assert.match(migration, /revoke insert,update,delete on public\.hr_intake_raw_it
 assert.match(migration, /revoke all on function public\.act_hr_confirmation_bundle[\s\S]*from public,anon/)
 assert.doesNotMatch(migration, /delete from public\.hr_intake_raw_items/i, 'raw HR intake must never be deleted')
 assert.match(migration, /where id=new\.id and \(confirmation_status,last_error\) is distinct from/, 'confirmation retry must not recurse')
+for (const needle of ['owner_profile_id', 'sla_due_at', 'create table public.hr_confirmation_evidence', 'sync_hr_confirmation_evidence', 'refresh_hr_confirmation_operational_gate', 'assign_hr_confirmation_bundle', 'escalate_overdue_hr_confirmation_bundles', 'hr_confirmation_operational_evidence_gate_failed']) {
+  assert.ok(operationalMigration.includes(needle), `missing HR operational readiness contract: ${needle}`)
+}
 for (const label of ['HR Intake Gate', 'ข้อมูลเข้าทั้งหมด', 'ยืนยันเข้า Bundle', 'ขอข้อมูลเพิ่ม', 'ปฏิเสธ', 'ตรวจครบและปิด Job 100%']) {
   assert.ok(chatPage.includes(label), `missing HR room action: ${label}`)
 }
