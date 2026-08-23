@@ -1115,6 +1115,8 @@ export function AccountingDocumentsPage() {
       if (rpcError) throw rpcError
       setSuccess(decision === 'confirm' ? 'ยืนยันข้อมูลสลิปและบันทึก Audit แล้ว' : decision === 'request_information' ? 'ส่งกลับเพื่อขอข้อมูลเพิ่มแล้ว' : 'บันทึกฉบับร่างและ Audit แล้ว')
       await loadData()
+      const updatedSlip: AccountingPendingSlip = { ...selectedSlip, senderName: slipReviewDraft.senderName || null, senderBankName: slipReviewDraft.senderBankName || null, senderAccountLast4: slipReviewDraft.senderAccountLast4 || null, recipientName: slipReviewDraft.recipientName || null, recipientBankName: slipReviewDraft.recipientBankName || null, recipientAccountLast4: slipReviewDraft.recipientAccountLast4 || null, amount, transferAt: slipReviewDraft.transferAt ? new Date(slipReviewDraft.transferAt).toISOString() : null, bankReference: slipReviewDraft.bankReference || null, reviewStatus: decision === 'confirm' ? 'confirmed' : 'pending', dataReviewStatus: decision === 'confirm' ? 'rechecked' : 'incomplete', dataReviewNote: slipReviewDraft.note || null }
+      setSelectedSlip(updatedSlip)
       const timeline = await documentFlowGateway.loadTimeline(selectedSlip.itemId)
       if (!timeline.error) setSlipEvents((timeline.data ?? []) as SlipFlowEvent[])
     } catch (actionError) { setError(userError(actionError)) }
