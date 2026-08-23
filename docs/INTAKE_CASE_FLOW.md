@@ -217,3 +217,9 @@ flowchart LR
 - เมื่อเลือกแถวใหม่ ระบบล้าง preview/context เดิมทันที และใช้ request generation guard กันผลลัพธ์ async ของรายการเก่ามาเขียนทับ Drawer รายการใหม่
 - Responsive: ตาราง/คอลัมน์ยังใช้ StandardDataTable เดิม; บนจอแคบ Drawer ขยายเต็มความกว้าง ไม่เปลี่ยน routing, state transition, destination หรือสิทธิ์
 - Owner: Platform UI; rollback คือคืนแถว Source Filter/ปุ่มเดิมได้ โดยไม่กระทบข้อมูลหรือเส้นทางงาน
+
+### UAT record — 23/8/2569
+
+- Static/automated checks: preview request guards, state clearing on row change/close, central HR filter, responsive Drawer width และการคง query `current_flow = intake` ผ่านทั้งหมด
+- Desktop/Tablet/Mobile review: ใช้ responsive rules เดียวกัน (`xs: 100%`, `sm` จำกัดความกว้าง Drawer) และไม่พบโค้ดที่เปลี่ยน routing, permission หรือ state transition
+- Real-page UAT blocker: deployment เปิดได้แต่ browser session นี้ถูก redirect ไป `/login` จึงยังคลิกเลือกแถว/สลับรายการด้วยบัญชีจริงไม่ได้; ต้อง sign in แล้วทำ UAT ซ้ำตามขั้นตอน: เปิด Document Flow → เลือก Intake → คลิกแถว A เปิด Drawer → คลิกแถว B ทันที → ยืนยันชื่อ/รูป/บริบทเป็นของ B และไม่เห็นผลโหลดของ A
