@@ -7,7 +7,7 @@ const route = readFileSync('src/router/index.tsx', 'utf8')
 const navigation = readFileSync('src/utils/navigation.ts', 'utf8')
 const posting = readFileSync('supabase/migrations/202608160026_posting_flow_work_backlog.sql', 'utf8')
 
-for (const term of ['Intake Room', 'Filter', 'คิวงานปลายทาง', 'IntakeRoomPanel', 'ตัวกรองข้อมูลกลาง']) {
+for (const term of ['Intake Room', 'Filter', 'คิวงานปลายทาง', 'IntakeRoomPanel', 'ตัวกรองกลาง']) {
   assert.ok(page.includes(term), `missing: ${term}`)
 }
 for (const term of ['ทุกแผนก', 'บัญชี', 'จัดซื้อ', 'สต็อก/รับสินค้า', 'departmentsFor']) {
@@ -23,7 +23,7 @@ for (const field of ['confidence', 'current_flow', 'current_room', 'version']) a
 assert.ok(page.includes('loadQueuePage'), 'Document Flow Center must use the cursor gateway')
 assert.ok(page.includes('nextCursor'), 'Document Flow Center must retain the server cursor')
 assert.ok(page.includes('bangkokToday'), 'Document Flow Center must default Intake loading to the Bangkok business day')
-assert.ok(page.includes('>วันนี้</Button>') && page.includes('>ทั้งหมด</Button>'), 'Document Flow Center must expose quick day/all scope controls')
+assert.ok(page.includes('>วันนี้</Button>') && page.includes('>ล้างทั้งหมด</Button>'), 'Document Flow Center must expose quick day/clear scope controls')
 assert.equal((page.match(/<Drawer anchor="right" open=\{globalFilterOpen\}/g) ?? []).length, 1, 'Document Flow Center must render one global filter drawer')
 assert.ok(!gateway.includes('async loadCenter'), 'legacy 2,000-row Document Flow Center query must be removed')
 assert.ok(!page.includes('limit(2000)'), 'Document Flow Center must not fetch an unbounded queue')

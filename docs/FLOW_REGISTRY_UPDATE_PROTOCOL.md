@@ -16,6 +16,14 @@
 - **การตรวจสอบ:** targeted lint, TypeScript, Vite build, static responsive checks และ UAT หลัง sign-in; blocker คือ browser session ไม่มีบัญชีทดสอบจึงต้องทำ click UAT ภายหลัง
 - **Rollback:** คืน tabs เดิมและถอดคอลัมน์สรุปได้ โดยไม่แก้ข้อมูลหรือ Audit
 
+## ล่าสุด: Document Flow Single Tabset v1.20 — 23/8/2569
+
+- **เหตุผล:** แก้การแสดง Tab ซ้อนสองชั้นจาก `DocumentFlowsPage` และ `IntakeRoomPanel` ให้ผู้ใช้เห็นชุด Tab เดียวที่มีเพียง 2 มุมมอง
+- **ผลกระทบ:** `src/pages/DocumentFlows/index.tsx` คง Tabset กลาง 2 ตัว (`คิวเอกสาร`, `ข้อความและบริบท`) และเปลี่ยนตัวเลือกแผนกปลายทางเป็น Dropdown; `src/pages/IntakeRoom.tsx` เป็นตารางคิวโดยไม่มี Tabset ซ้ำ; search/filter/pagination/URL/state และสิทธิ์เดิมไม่เปลี่ยน
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** `scripts/document-flow-single-tabset.test.ts`, targeted ESLint, TypeScript, Vite build และตรวจหน้า `/document-flows` บน Desktop/Tablet/Mobile; ต้องยืนยันว่า DOM มี Tabset เดียวและสลับ content ไม่ซ้ำ
+- **Rollback:** คืนส่วนแสดง Tabset ของ Intake ได้โดยไม่แตะข้อมูล, routing, schema หรือ Audit แต่ไม่ควรเปิดซ้ำเพราะจะกลับมาเกิด UI ซ้อน
+
 ## ล่าสุด: Accounting/Payroll Regression Contract v1.0 — 23/8/2569
 
 - **เหตุผล:** แก้ regression ที่ทำให้ Accounting แจ้ง Error ไม่ระบุขั้นตอน และ Reports ไม่ใช้ค่ารูปแบบเวลา/ค่าเฉลี่ยตาม requirement เดิม พร้อมปรับ test contract ที่ล้าสมัย

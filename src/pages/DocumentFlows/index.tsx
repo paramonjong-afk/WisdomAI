@@ -682,12 +682,15 @@ export function DocumentFlowsPage() {
         </Tabs>
       </Stack>
     </Paper>
-    {flow === 'task_types' && <Paper variant="outlined">
-      <Tabs value={destinationDepartment} onChange={(_event, value) => setDestinationDepartment(value as DestinationDepartment)} variant="scrollable" sx={{ px: 1 }}>
-        <Tab value="all" label={`ทุกแผนก (${destinationCounts.all})`} />
-        {(Object.keys(departmentLabels).filter((value) => value !== 'admin') as TaskCategory[]).map((department) => <Tab key={department} value={department} label={`${departmentLabels[department]} (${destinationCounts[department]})`} />)}
-      </Tabs>
-    </Paper>}
+    {flow === 'task_types' && <Stack direction="row" sx={{ alignItems: 'center', px: .5, flexWrap: 'wrap', gap: 1 }}>
+      <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 240 } }}>
+        <InputLabel>แผนกปลายทาง</InputLabel>
+        <Select label="แผนกปลายทาง" value={destinationDepartment} onChange={(event) => setDestinationDepartment(event.target.value as DestinationDepartment)}>
+          <MenuItem value="all">ทุกแผนก ({destinationCounts.all})</MenuItem>
+          {(Object.keys(departmentLabels).filter((value) => value !== 'admin') as TaskCategory[]).map((department) => <MenuItem key={department} value={department}>{departmentLabels[department]} ({destinationCounts[department]})</MenuItem>)}
+        </Select>
+      </FormControl>
+    </Stack>}
     {activeGlobalFilterCount > 0 && <Stack direction="row" spacing={1} sx={{ alignItems: 'center', px: .5 }}><Chip size="small" color="primary" label={`ตัวกรอง ${activeGlobalFilterCount} รายการ`} onClick={() => setGlobalFilterOpen(true)} /><Typography variant="caption" color="text.secondary">ใช้กับทุก Tap</Typography><Button size="small" onClick={clearGlobalScope}>ล้าง</Button></Stack>}
     {flow === 'intake_room' && <IntakeRoomPanel tableToolsRef={intakeTableToolsRef} globalScope={globalScope} onVisibleCountChange={setVisibleIntakeCount} />}
     {flow === 'omni_filter' && (

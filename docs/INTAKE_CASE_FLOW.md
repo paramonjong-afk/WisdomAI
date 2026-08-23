@@ -65,6 +65,25 @@ flowchart LR
 
 ## Global Flow Scope and Preview — v1.3 (19/8/2569)
 
+### Document Flow Center single-tabset contract — v2.9 (23/8/2569)
+
+```mermaid
+flowchart LR
+  A[Document Flow Center] --> B{มุมมองเดียวจาก Tabset กลาง}
+  B -->|คิวเอกสาร| C[Intake / Filter / คิวปลายทาง
+เลือกผ่าน Filter Drawer หรือ Dropdown]
+  B -->|ข้อความและบริบท| D[Omni source/context table]
+  C --> E[ค้นหา / Filter / Pagination]
+  D --> E
+  E --> F[Drawer รายการ + Preview + Timeline]
+```
+
+- `DocumentFlowsPage` เป็นเจ้าของ Tabset เพียงชุดเดียว มี 2 มุมมอง: `คิวเอกสาร` และ `ข้อความและบริบท`
+- `IntakeRoomPanel` เป็นตารางคิวเอกสารเท่านั้น ห้าม render Tabset ซ้ำเมื่อถูก mount ใต้ศูนย์กลาง
+- การเลือกแผนกปลายทางเป็น Dropdown ในมุมมองคิวงานปลายทาง ไม่ใช่ Tabset ชั้นที่สอง
+- ค่า `document_view`, ตัวกรองกลาง, จำนวน, pagination และสิทธิ์ยังคงมาจาก state/gateway เดิม
+- สลับมุมมองเปลี่ยนเฉพาะ content ที่แสดง; ไม่สร้างรายการหรือเปลี่ยน state transition
+
 ### ตัวกรองกลาง
 
 - หน้า `Document Flow Center` เป็นเจ้าของตัวกรองกลางเพียงชุดเดียว และส่งชุดเดิมไปยัง Intake, Filter และคิวปลายทาง
@@ -98,6 +117,7 @@ flowchart LR
 | v2.6 | 20/8/2569 | แก้ PDF หน้าว่าง โดยให้ renderer จับรายงานใน viewport และใช้หน้ากากระหว่างสร้างไฟล์ | ไม่มี migration | คืนตำแหน่ง renderer เดิมได้; ไม่เปลี่ยนข้อมูลหรือ audit |
 | v2.7 | 20/8/2569 | แยกข้อมูลธุรกรรมสลิปใน Intake: ต้นทางไฟล์แยกจากผู้โอน/ผู้รับ/ธนาคาร และเก็บเลขบัญชีเฉพาะ 4 ตัวท้าย | `20260820164102_transfer_slip_payment_parties.sql` | ซ่อนคอลัมน์/Drawer และหยุดบันทึก field ใหม่ได้; ข้อมูลเดิมไม่ถูกลบ |
 | v2.8 | 21/8/2569 | เพิ่มงานอ่านสลิปย้อนหลังแบบเป็น batch สำหรับ Admin เพื่อเติมข้อมูลคู่โอนจากไฟล์ต้นฉบับเดิม โดยไม่สร้าง Intake ซ้ำหรือเปลี่ยนเส้นทางงาน | ไม่มี migration | หยุดเรียก Edge Function และซ่อนปุ่ม; ผลที่บันทึกแล้วคงเป็น Audit อ่านย้อนหลังได้ |
+| v2.9 | 23/8/2569 | แก้ Tab ซ้อนใน Document Flow Center ให้เหลือ Tabset เดียว 2 มุมมอง และย้ายตัวเลือกแผนกปลายทางเป็น Dropdown โดยไม่เปลี่ยน Flow/สิทธิ์/ข้อมูล | ไม่มี migration | คืน Tabset เดิมได้โดยไม่แก้ข้อมูลหรือ Audit |
 | v2.9 | 21/8/2569 | กำหนด auto-route สลิปที่ผ่าน Intake Quality Gate เข้า Filter ตรวจสอบการโอนของบัญชี และซ่อมเส้นทางสลิปเดิมผ่านกฎเดียวกัน | `20260820222343_transfer_slip_auto_routing.sql` | ปิด trigger/คืน route เดิมได้; ไม่ลบ Intake ID ไฟล์ หรือ Audit |
 | v3.0 | 21/8/2569 | ส่งสลิปที่ผ่าน Intake จาก Filter เข้าห้องบัญชี (Tap 3) อัตโนมัติ พร้อมสร้าง destination task กลาง | `20260820223637_transfer_slip_auto_dispatch_accounting.sql` | ปิด trigger/คืนรายการเข้า Filter ผ่าน workflow กลาง; ไม่ลบ Intake ID ไฟล์ task หรือ Audit |
 | v3.1 | 21/8/2569 | แสดงรายละเอียดคู่โอนของสลิปใน Drawer คิวบัญชีจากทะเบียนกลางโดยไม่คัดลอกข้อมูล | ไม่มี migration | ซ่อนส่วนรายละเอียดใน Drawer; ไม่มีข้อมูลถูกแก้ |
