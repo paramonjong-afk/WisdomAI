@@ -65,6 +65,7 @@
     "test:supplier-invoice-creditor": "node --experimental-strip-types scripts/supplier-invoice-creditor.test.ts",
     "test:utility-direct-ap": "node --experimental-strip-types scripts/utility-direct-ap.test.ts",
     "test:accounting-duplicate-filter": "node --experimental-strip-types scripts/accounting-duplicate-filter.test.ts",
+    "test:accounting-transfer-slips": "node --experimental-strip-types scripts/accounting-transfer-slip-queue.test.ts",
     "test:quotation-confirmed-ui-state": "node --experimental-strip-types scripts/quotation-confirmed-ui-state.test.ts",
     "test:product-name-billing-delivery": "node --experimental-strip-types scripts/product-name-billing-delivery.test.ts",
     "test:purchase-vendor-stock-detail": "node --experimental-strip-types scripts/purchase-vendor-stock-detail.test.ts",

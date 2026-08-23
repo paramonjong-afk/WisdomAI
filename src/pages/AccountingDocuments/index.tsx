@@ -1,16 +1,20 @@
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined'
+import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined'
 import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined'
 import {
   Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
-  DialogTitle, FormControlLabel, IconButton, MenuItem, Paper, Select, Stack, Tab, Tabs, TextField, Typography,
+  DialogTitle, Drawer, FormControlLabel, IconButton, MenuItem, Paper, Select, Stack, Tab, Tabs, TextField, Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
 import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { documentFlowGateway } from '../../services/documentFlowGateway'
+import { filterTransferSlipQueue, transferSlipContinuation, transferSlipQueueBucket, transferSlipQueueCounts } from '../../services/accountingTransferSlipQueue'
+import type { TransferSlipQueueFilter, TransferSlipQueueRow } from '../../services/accountingTransferSlipQueue'
 import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 import { userError } from '../../utils/userError'
 
@@ -33,20 +37,9 @@ type AccountingDocument = {
   projects: { name: string } | null
   line_messages: { line_senders: { display_name: string | null } | null; line_groups: { display_name: string | null } | null } | null
 }
-type AccountingPendingSlip = {
-  taskId: string
-  itemId: string
-  intakeId: string | null
-  sourceMessageId: string | null
-  createdAt: string
-  taskStatus: string
-  senderName: string | null
-  recipientName: string | null
-  amount: number | null
-  transferAt: string | null
-  reviewStatus: string | null
-  route: string | null
-}
+type AccountingPendingSlip = TransferSlipQueueRow
+type SlipPreviewFile = { url: string; contentType: string | null; label: string }
+type SlipFlowEvent = { id: string; event_type: string; from_flow: string | null; to_flow: string | null; from_state: string | null; to_state: string | null; note: string | null; created_at: string }
 type DocumentSetMember = { id: string; source_message_id: string; document_type: string; status: DocumentStatus; page_number: number | null; created_at: string }
 type SetMatchGap = { documentType: string; documentLabel: string; isRequired: boolean }
 type DocumentSetMatchSummary = {
@@ -139,8 +132,17 @@ export function AccountingDocumentsPage() {
       operation,
     })
   const [tab, setTab] = useState(0)
+  const [accountingQueueView, setAccountingQueueView] = useState<'slips' | 'documents'>('slips')
+  const [slipFilter, setSlipFilter] = useState<TransferSlipQueueFilter>('transfer_slip')
   const [documents, setDocuments] = useState<AccountingDocument[]>([])
   const [pendingSlips, setPendingSlips] = useState<AccountingPendingSlip[]>([])
+  const [selectedSlip, setSelectedSlip] = useState<AccountingPendingSlip | null>(null)
+  const [slipPreviewFiles, setSlipPreviewFiles] = useState<SlipPreviewFile[]>([])
+  const [slipPreviewIndex, setSlipPreviewIndex] = useState(0)
+  const [slipPreviewMessage, setSlipPreviewMessage] = useState('')
+  const [slipEvents, setSlipEvents] = useState<SlipFlowEvent[]>([])
+  const [slipDetailLoading, setSlipDetailLoading] = useState(false)
+  const slipRequestRef = useRef(0)
   const [inventory, setInventory] = useState<InventoryBalance[]>([])
   const [projectInventory, setProjectInventory] = useState<ProjectInventoryBalance[]>([])
   const [productPrices, setProductPrices] = useState<ProductPriceReference[]>([])
@@ -217,7 +219,7 @@ export function AccountingDocumentsPage() {
       .from('document_flow_destination_tasks')
       .select('id,item_id,status,created_at')
       .eq('department', 'accounting')
-      .in('status', ['queued', 'claimed'])
+      .in('status', ['queued', 'claimed', 'completed', 'returned', 'recheck_required'])
       .order('created_at', { ascending: false })
       .limit(1000)
     if (taskError) setError(current => current ?? userError(taskError))
@@ -227,23 +229,23 @@ export function AccountingDocumentsPage() {
     if (itemIds.length) {
       const { data: itemRows, error: itemError } = await supabase
         .from('document_flow_items')
-        .select('id,intake_id,source_message_id,document_type,current_room,route_target,updated_at')
+        .select('id,intake_id,source_message_id,document_type,current_room,route_target,updated_at,source_channel,source_room_name,source_sender_name,source_received_at,data_review_status,data_review_note,candidate_departments')
         .in('id', itemIds)
         .eq('document_type', 'transfer_slip')
       if (itemError) setError(current => current ?? userError(itemError))
-      const items = (itemRows ?? []) as Array<{ id: string; intake_id: string | null; source_message_id: string | null; current_room: string | null; route_target: string | null; updated_at: string }>
+      const items = (itemRows ?? []) as Array<{ id: string; intake_id: string | null; source_message_id: string | null; current_room: string | null; route_target: string | null; updated_at: string; source_channel: string | null; source_room_name: string | null; source_sender_name: string | null; source_received_at: string | null; data_review_status: string | null; data_review_note: string | null; candidate_departments: string[] | null }>
       const sourceIds = [...new Set(items.map(item => item.source_message_id).filter((id): id is string => Boolean(id)))]
       const { data: txRows, error: txError } = sourceIds.length
-        ? await supabase.from('financial_transactions').select('source_message_id,sender_name,recipient_name,amount_total,transfer_at,review_status').in('source_message_id', sourceIds).neq('review_status', 'dismissed')
+        ? await supabase.from('financial_transactions').select('source_message_id,sender_name,recipient_name,amount_total,transfer_at,review_status,expense_type,labor_amount,duplicate_of_transaction_id').in('source_message_id', sourceIds).neq('review_status', 'dismissed')
         : { data: [], error: null }
       if (txError) setError(current => current ?? userError(txError))
-      const txBySource = new Map(((txRows ?? []) as Array<{ source_message_id: string; sender_name: string | null; recipient_name: string | null; amount_total: number | null; transfer_at: string | null; review_status: string | null }>).map(row => [row.source_message_id, row]))
+      const txBySource = new Map(((txRows ?? []) as Array<{ source_message_id: string; sender_name: string | null; recipient_name: string | null; amount_total: number | null; transfer_at: string | null; review_status: string | null; expense_type: string | null; labor_amount: number | null; duplicate_of_transaction_id: string | null }>).map(row => [row.source_message_id, row]))
       const itemById = new Map(items.map(item => [item.id, item]))
       pending = taskList.flatMap(task => {
         const item = itemById.get(task.item_id)
         if (!item) return []
         const tx = item.source_message_id ? txBySource.get(item.source_message_id) : undefined
-        return [{ taskId: task.id, itemId: item.id, intakeId: item.intake_id, sourceMessageId: item.source_message_id, createdAt: task.created_at, taskStatus: task.status, senderName: tx?.sender_name ?? null, recipientName: tx?.recipient_name ?? null, amount: tx?.amount_total == null ? null : Number(tx.amount_total), transferAt: tx?.transfer_at ?? null, reviewStatus: tx?.review_status ?? null, route: item.route_target ?? item.current_room }]
+        return [{ taskId: task.id, itemId: item.id, intakeId: item.intake_id, sourceMessageId: item.source_message_id, createdAt: task.created_at, taskStatus: task.status, senderName: tx?.sender_name ?? null, recipientName: tx?.recipient_name ?? null, amount: tx?.amount_total == null ? null : Number(tx.amount_total), transferAt: tx?.transfer_at ?? null, reviewStatus: tx?.review_status ?? null, route: item.route_target ?? item.current_room, sourceChannel: item.source_channel, sourceRoomName: item.source_room_name, sourceSenderName: item.source_sender_name, sourceReceivedAt: item.source_received_at, dataReviewStatus: item.data_review_status, dataReviewNote: item.data_review_note, candidateDepartments: item.candidate_departments ?? [], expenseType: tx?.expense_type ?? null, laborAmount: tx?.labor_amount == null ? null : Number(tx.labor_amount), duplicateOf: tx?.duplicate_of_transaction_id ?? null }]
       })
     }
     setPendingSlips(pending)
@@ -1004,6 +1006,60 @@ export function AccountingDocumentsPage() {
     setSaving(false)
   }
 
+  const slipCounts = useMemo(() => transferSlipQueueCounts(pendingSlips), [pendingSlips])
+  const visibleSlips = useMemo(() => filterTransferSlipQueue(pendingSlips, slipFilter), [pendingSlips, slipFilter])
+  const activeSlipPreview = slipPreviewFiles[slipPreviewIndex] ?? null
+
+  const closeSlipDetail = () => {
+    ++slipRequestRef.current
+    setSelectedSlip(null)
+    setSlipPreviewFiles([])
+    setSlipPreviewIndex(0)
+    setSlipPreviewMessage('')
+    setSlipEvents([])
+    setSlipDetailLoading(false)
+  }
+
+  const openSlipDetail = async (slip: AccountingPendingSlip) => {
+    const requestId = ++slipRequestRef.current
+    setSelectedSlip(slip)
+    setSlipPreviewFiles([])
+    setSlipPreviewIndex(0)
+    setSlipPreviewMessage('กำลังเปิดไฟล์ต้นฉบับ…')
+    setSlipEvents([])
+    setSlipDetailLoading(true)
+    try {
+      const [previewResult, timelineResult] = await Promise.all([
+        documentFlowGateway.preview(slip.itemId),
+        documentFlowGateway.loadTimeline(slip.itemId),
+      ])
+      if (requestId !== slipRequestRef.current) return
+      if (timelineResult.error) setError(current => current ?? `โหลด Audit Flow ไม่สำเร็จ: ${userError(timelineResult.error)}`)
+      else setSlipEvents((timelineResult.data ?? []) as SlipFlowEvent[])
+      if (previewResult.error) {
+        setSlipPreviewMessage(`เปิดไฟล์ไม่ได้: ${userError(previewResult.error)}`)
+        return
+      }
+      const previewData = previewResult.data as { reason?: string; files?: Array<{ bucket: string; path: string; content_type?: string | null }> } | null
+      if (!previewData?.files?.length) {
+        setSlipPreviewMessage(previewData?.reason ?? 'ไม่พบไฟล์ต้นฉบับ')
+        return
+      }
+      const signedFiles = await Promise.all(previewData.files.map(async (file, index) => {
+        const signed = await documentFlowGateway.signedPreviewUrl(file.bucket, file.path)
+        return signed.data?.signedUrl ? { url: signed.data.signedUrl, contentType: file.content_type ?? null, label: `ไฟล์ ${index + 1}` } : null
+      }))
+      if (requestId !== slipRequestRef.current) return
+      const available = signedFiles.filter((file): file is SlipPreviewFile => Boolean(file))
+      setSlipPreviewFiles(available)
+      setSlipPreviewMessage(available.length ? '' : 'สร้างลิงก์เปิดไฟล์ไม่สำเร็จ กรุณาลองใหม่')
+    } catch (detailError) {
+      if (requestId === slipRequestRef.current) setSlipPreviewMessage(`เปิดไฟล์ไม่ได้: ${userError(detailError)}`)
+    } finally {
+      if (requestId === slipRequestRef.current) setSlipDetailLoading(false)
+    }
+  }
+
   const visibleDocuments = useMemo(() => documents.filter(document => statusFilter === 'active'
     ? !['duplicate', 'dismissed'].includes(document.status)
     : !statusFilter || document.status === statusFilter), [documents, statusFilter])
@@ -1069,31 +1125,44 @@ export function AccountingDocumentsPage() {
     if (tab === 0) {
       return (
         <Stack spacing={2}>
-          <Paper variant="outlined" sx={{ p: 1.5, borderTop: 3, borderTopColor: 'info.main' }}>
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between' }}>
-              <Box><Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Accounting Pending Queue · สลิปโอนเงิน</Typography><Typography variant="body2" color="text.secondary">สลิปที่ Intake ส่งมารอทีมบัญชีตรวจสอบ ยังไม่ใช่เอกสารบัญชีที่ยืนยันแล้ว</Typography></Box>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}><Chip color={pendingSlips.length ? 'warning' : 'default'} label={`${pendingSlips.length} รายการ`} /><Button size="small" href="/document-flows?document_view=task_types">เปิดศูนย์เส้นทาง</Button></Stack>
-            </Stack>
+          <Paper variant="outlined">
+            <Tabs value={accountingQueueView} onChange={(_event, value: 'slips' | 'documents') => setAccountingQueueView(value)} variant="scrollable">
+              <Tab value="slips" label={`สลิปโอนเงิน (${slipCounts.transfer_slip})`} />
+              <Tab value="documents" label={`เอกสารบัญชีทั่วไป (${visibleDocuments.length})`} />
+            </Tabs>
           </Paper>
-          <StandardDataTable
-            rows={pendingSlips}
-            getRowId={row => row.taskId}
-            getSearchText={row => [row.intakeId, row.sourceMessageId, row.senderName, row.recipientName, row.route].filter(Boolean).join(' ')}
-            searchLabel="ค้นหา Intake ID ผู้โอน ผู้รับ หรือเส้นทาง"
-            emptyText="ไม่มีสลิปค้างในคิวบัญชี"
-            exportFileName="wisdomai-accounting-pending-slips"
-            minWidth={1100}
-            columns={[
-              { id: 'date', label: 'รับเข้า', minWidth: 140, render: row => new Date(row.transferAt ?? row.createdAt).toLocaleString('th-TH') },
-              { id: 'intake', label: 'Intake/Document ID', minWidth: 190, render: row => <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{(row.intakeId ?? row.itemId).slice(0, 12)}…</Typography> },
-              { id: 'parties', label: 'ผู้โอน → ผู้รับ', minWidth: 260, render: row => `${row.senderName ?? 'ไม่ระบุ'} → ${row.recipientName ?? 'ไม่ระบุ'}` },
-              { id: 'amount', label: 'ยอด', minWidth: 120, align: 'right', render: row => money(row.amount) },
-              { id: 'route', label: 'เส้นทาง', minWidth: 180, render: row => row.route ?? 'accounting' },
-              { id: 'status', label: 'สถานะรับงาน', minWidth: 150, render: row => <Chip size="small" color={row.taskStatus === 'claimed' ? 'info' : 'warning'} label={row.taskStatus === 'claimed' ? 'บัญชีรับงานแล้ว' : 'รอตรวจสอบ'} /> },
-            ]}
-          />
-          <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>เอกสารบัญชีที่ยืนยัน/รอตรวจ</Typography>
-          <StandardDataTable
+          {accountingQueueView === 'slips' ? <>
+            <Paper variant="outlined" sx={{ p: 1.5, borderTop: 3, borderTopColor: 'info.main' }}>
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between' }}>
+                <Box><Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Accounting Pending Queue · สลิปโอนเงิน</Typography><Typography variant="body2" color="text.secondary">คิวสลิปจาก Intake ที่ส่งบัญชีเป็นปลายทางแรก · รายการซ้ำแยกไว้อ้างอิงและไม่นับในยอดหลัก</Typography></Box>
+                <Button size="small" href="/document-flows?document_view=task_types">เปิดศูนย์เส้นทาง</Button>
+              </Stack>
+              <Stack direction="row" spacing={1} useFlexGap sx={{ mt: 1.5, flexWrap: 'wrap' }}>
+                {([['transfer_slip', 'สลิปโอนเงิน'], ['pending', 'รอตรวจ'], ['reviewed', 'ตรวจแล้ว'], ['duplicate', 'ซ้ำ'], ['incomplete', 'ข้อมูลไม่ครบ']] as Array<[TransferSlipQueueFilter, string]>).map(([value, label]) => <Chip key={value} clickable color={slipFilter === value ? 'primary' : 'default'} variant={slipFilter === value ? 'filled' : 'outlined'} label={`${label} (${slipCounts[value]})`} onClick={() => setSlipFilter(value)} />)}
+              </Stack>
+            </Paper>
+            <StandardDataTable
+              rows={visibleSlips}
+              getRowId={row => row.taskId}
+              getSearchText={row => [row.intakeId, row.sourceMessageId, row.senderName, row.recipientName, row.sourceChannel, row.sourceRoomName, transferSlipContinuation(row).route].filter(Boolean).join(' ')}
+              searchLabel="ค้นหา Document ID ผู้โอน ผู้รับ Source หรือปลายทาง"
+              emptyText={`ไม่มีรายการในตัวกรอง “${slipFilter === 'transfer_slip' ? 'สลิปโอนเงิน' : slipFilter === 'pending' ? 'รอตรวจ' : slipFilter === 'reviewed' ? 'ตรวจแล้ว' : slipFilter === 'duplicate' ? 'ซ้ำ' : 'ข้อมูลไม่ครบ'}”`}
+              exportFileName={`wisdomai-accounting-transfer-slips-${slipFilter}`}
+              minWidth={1450}
+              onRowClick={row => void openSlipDetail(row)}
+              columns={[
+                { id: 'id', label: 'Document ID', minWidth: 180, render: row => <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{(row.intakeId ?? row.itemId).slice(0, 12)}…</Typography>, exportValue: row => row.intakeId ?? row.itemId },
+                { id: 'date', label: 'วันที่โอน', minWidth: 150, render: row => row.transferAt ? new Date(row.transferAt).toLocaleString('th-TH') : 'ยังอ่านไม่ได้' },
+                { id: 'sender', label: 'ผู้โอน', minWidth: 190, render: row => row.senderName ?? 'ยังอ่านไม่ได้' },
+                { id: 'recipient', label: 'ผู้รับ', minWidth: 190, render: row => row.recipientName ?? 'ยังอ่านไม่ได้' },
+                { id: 'amount', label: 'จำนวนเงิน', minWidth: 130, align: 'right', render: row => money(row.amount) },
+                { id: 'source', label: 'Source', minWidth: 220, render: row => <Box><Typography variant="body2">{row.sourceChannel ?? 'ไม่ระบุช่องทาง'} · {row.sourceRoomName ?? 'ไม่ระบุห้อง'}</Typography><Typography variant="caption" color="text.secondary">{row.sourceSenderName ?? 'ไม่ระบุผู้ส่ง'}</Typography></Box> },
+                { id: 'status', label: 'สถานะตรวจ', minWidth: 150, render: row => { const bucket = transferSlipQueueBucket(row); return <Chip size="small" color={bucket === 'reviewed' ? 'success' : bucket === 'duplicate' ? 'error' : bucket === 'incomplete' ? 'warning' : 'info'} label={bucket === 'reviewed' ? 'ตรวจแล้ว' : bucket === 'duplicate' ? 'รายการซ้ำ' : bucket === 'incomplete' ? 'ข้อมูลไม่ครบ' : row.taskStatus === 'claimed' ? 'บัญชีรับงานแล้ว' : 'รอตรวจ'} /> } },
+                { id: 'next', label: 'ปลายทางถัดไป', minWidth: 210, render: row => { const continuation = transferSlipContinuation(row); return <Stack direction="row" spacing={.5} sx={{ alignItems: 'center' }}>{continuation.label && <Chip size="small" color="secondary" label={continuation.label} />}<Typography variant="body2">{continuation.route}</Typography></Stack> } },
+                { id: 'open', label: 'หลักฐาน', minWidth: 120, render: () => <Button size="small" variant="outlined">เปิดรูป/Audit</Button>, exportable: false },
+              ]}
+            />
+          </> : <StandardDataTable
             rows={visibleDocuments}
             getRowId={row => row.id}
             getSearchText={row => [row.vendor_name, row.document_number, documentLabels[row.document_type], row.projects?.name].filter(Boolean).join(' ')}
@@ -1113,7 +1182,7 @@ export function AccountingDocumentsPage() {
               { id: 'status', label: 'สถานะ', minWidth: 170, render: row => <Chip size="small" color={row.status === 'confirmed' ? 'success' : row.status === 'duplicate' ? 'error' : row.status === 'needs_correction' ? 'warning' : 'default'} label={documentStatusLabel(row)} /> },
               { id: 'action', label: 'ตรวจสอบ', minWidth: 120, render: row => <Button size="small" variant="outlined" onClick={() => void openDocument(row)}>เปิดเอกสาร</Button> },
             ]}
-          />
+          />}
         </Stack>
       )
     }
@@ -1213,6 +1282,45 @@ export function AccountingDocumentsPage() {
     </Box>
     <Paper variant="outlined"><Tabs value={tab} onChange={(_event, value) => setTab(value)} variant="scrollable"><Tab label="เอกสารและเส้นทางจัดซื้อ" /><Tab label="Match Flow" /><Tab label={`รายการราคาสินค้า (${productPrices.length})`} /><Tab label="Stock รวม" /><Tab label="Stock แยกโครงการ/คลัง" /></Tabs></Paper>
     {renderTabContent()}
+
+    <Drawer anchor="right" open={Boolean(selectedSlip)} onClose={closeSlipDetail} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 560 }, p: 3 } } }}>
+      {selectedSlip && <Stack spacing={2}>
+        <Box><Typography variant="overline" color="text.secondary">Accounting Pending Queue</Typography><Typography variant="h5" sx={{ fontWeight: 800 }}>สลิปโอนเงิน</Typography><Typography variant="body2" sx={{ fontFamily: 'monospace' }}>Document ID: {selectedSlip.intakeId ?? selectedSlip.itemId}</Typography></Box>
+        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+          <Chip color="primary" label="ปลายทางแรก: บัญชี" />
+          <Chip color={transferSlipQueueBucket(selectedSlip) === 'duplicate' ? 'error' : transferSlipQueueBucket(selectedSlip) === 'incomplete' ? 'warning' : transferSlipQueueBucket(selectedSlip) === 'reviewed' ? 'success' : 'info'} label={transferSlipQueueBucket(selectedSlip) === 'duplicate' ? 'รายการซ้ำ' : transferSlipQueueBucket(selectedSlip) === 'incomplete' ? 'ข้อมูลไม่ครบ' : transferSlipQueueBucket(selectedSlip) === 'reviewed' ? 'ตรวจแล้ว' : 'รอตรวจ'} />
+          {transferSlipContinuation(selectedSlip).label && <Chip color="secondary" label={transferSlipContinuation(selectedSlip).label} />}
+        </Stack>
+        <Paper variant="outlined" sx={{ p: 1.5 }}><Stack spacing={.75}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>ข้อมูลธุรกรรม</Typography>
+          <Typography variant="body2">วันที่โอน: {selectedSlip.transferAt ? new Date(selectedSlip.transferAt).toLocaleString('th-TH') : 'ยังอ่านไม่ได้'}</Typography>
+          <Typography variant="body2">ผู้โอน: {selectedSlip.senderName ?? 'ยังอ่านไม่ได้'}</Typography>
+          <Typography variant="body2">ผู้รับ: {selectedSlip.recipientName ?? 'ยังอ่านไม่ได้'}</Typography>
+          <Typography variant="body2">จำนวนเงิน: {money(selectedSlip.amount)}</Typography>
+          <Typography variant="body2">เส้นทางต่อ: {transferSlipContinuation(selectedSlip).route}</Typography>
+          {selectedSlip.dataReviewNote && <Typography variant="body2" color="warning.main">หมายเหตุข้อมูล: {selectedSlip.dataReviewNote}</Typography>}
+        </Stack></Paper>
+        <Paper variant="outlined" sx={{ p: 1.5 }}><Stack spacing={.75}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Source Reference</Typography>
+          <Typography variant="body2">ช่องทาง/ห้อง: {selectedSlip.sourceChannel ?? 'ไม่ระบุ'} · {selectedSlip.sourceRoomName ?? 'ไม่ระบุห้อง'}</Typography>
+          <Typography variant="body2">ผู้ส่ง: {selectedSlip.sourceSenderName ?? 'ไม่ระบุ'} · รับเข้า {selectedSlip.sourceReceivedAt ? new Date(selectedSlip.sourceReceivedAt).toLocaleString('th-TH') : new Date(selectedSlip.createdAt).toLocaleString('th-TH')}</Typography>
+          <Typography variant="caption" color="text.secondary">Message ID: {selectedSlip.sourceMessageId ?? '-'}</Typography>
+        </Stack></Paper>
+        {slipDetailLoading && <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}><CircularProgress size={18} /><Typography variant="body2">กำลังโหลดรูปและ Audit…</Typography></Stack>}
+        {slipPreviewMessage && <Alert severity="info">{slipPreviewMessage}</Alert>}
+        {slipPreviewFiles.length > 1 && <Stack direction="row" spacing={.5} useFlexGap sx={{ flexWrap: 'wrap' }}>{slipPreviewFiles.map((file, index) => <Button key={file.url} size="small" variant={index === slipPreviewIndex ? 'contained' : 'outlined'} onClick={() => setSlipPreviewIndex(index)}>{file.label}</Button>)}</Stack>}
+        {activeSlipPreview && <>
+          <Button component="a" href={activeSlipPreview.url} target="_blank" rel="noreferrer" variant="outlined" endIcon={<OpenInNewOutlinedIcon />}>เปิดไฟล์จริงในแท็บใหม่</Button>
+          {activeSlipPreview.contentType?.startsWith('image/') ? <Box component="img" src={activeSlipPreview.url} alt="รูปสลิปต้นฉบับ" sx={{ width: '100%', maxHeight: 480, objectFit: 'contain', borderRadius: 1, bgcolor: 'grey.100' }} /> : <Box component="iframe" title="ไฟล์สลิปต้นฉบับ" src={activeSlipPreview.url} sx={{ width: '100%', height: 420, border: 0, borderRadius: 1 }} />}
+        </>}
+        <Paper variant="outlined" sx={{ p: 1.5 }}><Stack spacing={1}>
+          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}><Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Source/Audit Flow</Typography><Chip size="small" label={`${slipEvents.length} Events`} /></Stack>
+          {slipEvents.length === 0 && !slipDetailLoading && <Typography variant="body2" color="text.secondary">ยังไม่พบ Audit Event</Typography>}
+          {slipEvents.map(event => <Box key={event.id} sx={{ borderLeft: 3, borderColor: 'primary.light', pl: 1.25 }}><Typography variant="body2" sx={{ fontWeight: 700 }}>{event.event_type}</Typography><Typography variant="caption" color="text.secondary">{event.from_flow ?? '-'} / {event.from_state ?? '-'} → {event.to_flow ?? '-'} / {event.to_state ?? '-'} · {new Date(event.created_at).toLocaleString('th-TH')}</Typography>{event.note && <Typography variant="body2">{event.note}</Typography>}</Box>)}
+        </Stack></Paper>
+        <Button href={`/document-flows?document_view=task_types&item_id=${encodeURIComponent(selectedSlip.itemId)}`} variant="text">เปิดในศูนย์เส้นทางเอกสาร</Button>
+      </Stack>}
+    </Drawer>
 
     <Dialog open={Boolean(selected)} onClose={() => !saving && setSelected(null)} maxWidth="xl" fullWidth slotProps={{paper:{sx:{height:'94vh'}}}}>
       <DialogTitle sx={{py:1.25}}><Stack direction="row" spacing={1} sx={{alignItems:'center',justifyContent:'space-between'}}><span>ตรวจสอบเอกสาร: {selected ? documentLabels[documentType] ?? documentType : ''}</span>{selected&&['pending','needs_correction'].includes(selected.status)&&<Chip size="small" color={hasUnsavedDraftChanges?'warning':'success'} variant={hasUnsavedDraftChanges?'filled':'outlined'} label={hasUnsavedDraftChanges?'โหมดแก้ไข · ยังไม่บันทึก':'บันทึกแล้ว'}/>}</Stack></DialogTitle>
