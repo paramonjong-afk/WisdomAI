@@ -27,6 +27,11 @@ flowchart LR
   G -->|Approved| H[Reconcile received - approved use - returned/offset]
   H -->|Balance = 0| I[Closed + audit]
   H -->|Balance != 0| J[Settlement required]
+  K --> N[Program Loop: queue System Confirmation]
+  N --> O[Ensure standard rooms: source when verified / HR / Finance]
+  O --> P[Web Chat delivery ledger: queued to sent to delivered]
+  P -->|Failure| Q[room_setup_failed or failed; advance pending_retry]
+  P -->|Success| R[Audit + close notification Job]
 ```
 
 ## Data, roles, and route
@@ -43,12 +48,16 @@ flowchart LR
 - The advance table is a read-only projection of the central records: it shows the standardized holder, how the name was matched (`auto`, `Admin confirmed`, or legacy), source-data completeness, current reconciliation state, and the complete route. It never overwrites fields extracted from the original slip.
 - Opening a case shows its source slip, current central flow state, and an automatic timeline from `employee_advance_audit`. The same source route is retained for a technician sub-advance through its parent case.
 - Clicking a case row or any received/approved-use/outstanding amount opens the same right-side Advance Detail Drawer. It lists every payment/evidence line, the source-slip facts, route and audit timeline; it is a read-only detail view until an authorised user uses one of its explicit actions.
+- After a case is written and its creation audit succeeds, the Program Loop creates an idempotent `employee_advance_message_deliveries` projection. It reuses the same `Advance ID` and base `event_key` for each destination and derives a destination-specific `delivery_key` so retries cannot duplicate a message. The standard destinations are the verified source room/self context, `hr_primary` only when the case has an employee/payroll condition, and `finance_primary` for the accountable financial owner. Codex room 00 is never a destination.
+- `ensure_advance_confirmation_room` first resolves a canonical `room_key`; when absent it creates `hr_primary`, `finance_primary`, or a verified `source_room` inside a company-scoped lock, adds only the allowed role members, records room ID/key/creator/time/reason and the Advance event in Audit, then permits delivery. It never falls back to an unrelated room.
+- A confirmation is labelled `SYSTEM MSG CONFIRM` and `message_class=system_confirmation`; Omni Intake ignores it, so the notification cannot be interpreted as a new advance. The message includes Advance ID/Document ID, technician, date, amount, project/site, saved status, recorder, and time. Delivery is tracked as `queued`, `sent`, `delivered`, `failed`, or `room_setup_failed`; failures update the case to `pending_retry` and remain visible to the retry worker.
 
 ## Failure and retry
 
 - No source Flow/company, recipient not a matching active monthly employee, missing project/evidence, invalid amount, version conflict, or missing approval produces a recoverable user error and leaves data unchanged.
 - Reopening/correction creates an audit trail; source slips, Intake ID, attached files, accounting/HR tasks, and previously approved lines are never deleted by the workflow.
 - Owner: Accounting is accountable for final close; HR owns daily-wage validation; company admin/manager owns exception approval.
+- Room owners: Finance primary owns `finance_primary`; HR owns `hr_primary`; the source/self room is created only from a verified Document Flow source context. The Codex tracking room is outside the Web Chat delivery graph.
 
 ## Change record
 
@@ -60,3 +69,5 @@ flowchart LR
 | v1.3 | 21/8/2569 | Surface the central automatic match, source quality, and document route as columns and a case-detail timeline without changing source slip or settlement data | No migration; derives from central cases, source transaction, Flow item, and audit | lint/build/test and production protected-route inspection | Hide projection columns/drawer sections; source, case, and audit remain |
 | v1.4 | 21/8/2569 | Repair title-insensitive holder matching and reprocess only the same idempotent safe rule; four qualified drafts were created from existing source slips | `20260821071722_normalize_advance_holder_titles.sql`, `20260821072004_fix_advance_holder_name_regex.sql` | RPC normalization and draft-case count verified | Disable trigger/function; retain all source/audit/cases |
 | v1.5 | 22/8/2569 | Replace the centered case detail dialog with a right-side Drawer and make received/used/outstanding amounts direct detail entry points; payment/evidence list remains central read-only data until an explicit action is chosen | No migration | TypeScript, lint, build, pipeline test and protected-route inspection | Restore centered Dialog; no case, payment, source or audit data changes |
+| v1.6 | 23/8/2569 | Add Program Loop System Confirmation after a successful advance write: canonical room ensure/create, source/HR/Finance routing, shared Advance event key plus destination delivery key, delivery/retry ledger, and no Omni re-intake | `20260823035155_employee_advance_confirmation_outbox.sql` (Production baseline; includes resolved room-variable ambiguity fix) | Migration contract/scenario tests, schema/RPC/trigger inspection, lint, typecheck, build, and protected-page verification | Disable the confirmation trigger/integration and retry worker; retain advance cases, chat messages, rooms, and Audit for reconciliation; do not delete financial source records |
+| v1.7 | 23/8/2569 | Harden the SECURITY DEFINER room-provisioning helper: only authenticated managers (or internal system callers) may invoke it; anonymous/PUBLIC execution is revoked while authenticated/service-role execution remains available | `20260823035600_fix_advance_confirmation_room_scope.sql`, `20260823035700_lock_advance_confirmation_room_rpc.sql` | Production privilege query confirms `anon=false`, `authenticated=true`, `service_role=true`, manager guard present; contract tests, lint, typecheck, and build pass | Revoke the helper grants and disable confirmation provisioning if rollback is required; retain existing rooms, messages, deliveries, and Audit |

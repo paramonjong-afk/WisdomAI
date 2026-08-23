@@ -5,6 +5,7 @@ import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { queueAdvanceConfirmation, type AdvanceConfirmationDelivery } from '../../services/advanceConfirmationGateway'
 import { userError } from '../../utils/userError'
 
 type SettlementItem = { id: string; expense_type: string; amount: number; approval_status: string; description: string; expense_date: string; evidence_reference: string | null }
@@ -50,6 +51,7 @@ export function AdvanceSettlementsPage() {
   const [selected, setSelected] = useState<AdvanceCase | null>(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [confirmation, setConfirmation] = useState<AdvanceConfirmationDelivery | null>(null)
   const [lineOpen, setLineOpen] = useState(false)
   const [subAdvanceOpen, setSubAdvanceOpen] = useState(false)
   const [dailyEmployees, setDailyEmployees] = useState<DailyEmployee[]>([])
@@ -81,10 +83,11 @@ export function AdvanceSettlementsPage() {
   const automaticCount = rows.filter((row) => ['auto_create_from_holder_registry', 'admin_confirm_name_match'].some((action) => (row.employee_advance_audit ?? []).some((audit) => audit.action === action))).length
   const addLine = async () => { if (!selected) return; setSaving(true); const { error: rpcError } = await supabase.rpc('add_employee_advance_settlement_item', { target_case_id: selected.id, target_event_key: crypto.randomUUID(), target_expense_type: line.expense_type, target_amount: Number(line.amount), target_expense_date: line.expense_date, target_payee_name: null, target_project_id: null, target_work_package_id: null, target_evidence_flow_item_id: null, target_evidence_reference: line.evidence_reference || null, target_description: line.description }); setSaving(false); if (rpcError) { setError(userError(rpcError)); return }; setLineOpen(false); await load() }
   const transition = async (action: string) => { if (!selected) return; setSaving(true); const { error: rpcError } = await supabase.rpc('transition_employee_advance_case', { target_case_id: selected.id, target_event_key: crypto.randomUUID(), target_action: action, target_expected_version: selected.version, target_reason: null }); setSaving(false); if (rpcError) { setError(userError(rpcError)); return }; setSelected(null); await load() }
-  const createSubAdvance = async () => { if (!selected) return; setSaving(true); const { error: rpcError } = await supabase.rpc('create_employee_sub_advance', { target_parent_case_id: selected.id, target_event_key: crypto.randomUUID(), target_holder_profile_id: subAdvance.holderProfileId, target_holder_person_id: null, target_amount: Number(subAdvance.amount), target_description: subAdvance.description, target_project_id: null, target_work_package_id: null }); setSaving(false); if (rpcError) { setError(userError(rpcError)); return }; setSubAdvanceOpen(false); await load() }
+  const createSubAdvance = async () => { if (!selected) return; setSaving(true); const { data: created, error: rpcError } = await supabase.rpc('create_employee_sub_advance', { target_parent_case_id: selected.id, target_event_key: crypto.randomUUID(), target_holder_profile_id: subAdvance.holderProfileId, target_holder_person_id: null, target_amount: Number(subAdvance.amount), target_description: subAdvance.description, target_project_id: null, target_work_package_id: null }); if (rpcError) { setSaving(false); setError(userError(rpcError)); return }; try { const delivery = await queueAdvanceConfirmation((created as { id: string }).id); setConfirmation(delivery); setError('') } catch (confirmationError) { setConfirmation(null); setError(`บันทึกรายการสำเร็จแล้ว แต่คิว MSG Confirm ยังไม่พร้อมส่ง: ${userError(confirmationError as { message?: string })}`) }; setSaving(false); setSubAdvanceOpen(false); await load() }
   return <Stack spacing={2}>
     <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}><BoxTitle /><Button startIcon={<RefreshOutlined />} onClick={() => void load()}>รีเฟรช</Button></Stack>
     {error && <Alert severity="error">{error}</Alert>}
+    {confirmation && <Alert severity={['failed', 'pending_room_setup', 'room_setup_failed'].includes(confirmation.status) ? 'warning' : 'success'} onClose={() => setConfirmation(null)}><strong>System MSG Confirm: {confirmation.status === 'queued' ? 'ปิดงานแล้ว/รอส่ง MSG' : confirmation.status}</strong><br />รหัสรายการ: {confirmation.advance_case_id}<br />{confirmation.message_text}</Alert>}
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><Metric label="เงินทดรองรับมา" value={money(received)} /><Metric label="ยอดคงค้างที่ยังไม่ปิด" value={money(openBalance)} /><Metric label="สร้าง/ยืนยันอัตโนมัติ" value={`${automaticCount} เคส`} /></Stack>
     <StandardDataTable rows={rows} getRowId={(row) => row.id} getSearchText={(row) => `${row.advance_number} ${holderName(row)} ${row.bank_reference ?? ''} ${routeText(row)}`} searchLabel="ค้นหารหัส ผู้ถือเงิน สลิป หรือเส้นทาง" onRowClick={setSelected} minWidth={1820} columns={[
       { id: 'number', label: 'รหัสเงินทดรอง', minWidth: 160, render: (row) => row.advance_number },

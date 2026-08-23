@@ -47,6 +47,8 @@ import { supabase } from '../../lib/supabase'
 import { parseChatAttendanceCommand, type ChatAttendanceAction } from '../../utils/chatAttendanceCommand'
 import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 import { userError } from '../../utils/userError'
+import { ensureProgramDevelopmentRoom } from '../../services/programDevelopmentGateway'
+import { ensureGeneralWorkRoom } from '../../services/generalWorkRoomGateway'
 import { useNavigate } from 'react-router-dom'
 
 type RoomMemberRole = 'owner' | 'member'
@@ -67,6 +69,10 @@ type RoomMember = {
 type ChatRoom = {
   id: string
   name: string
+  company_id?: string
+  room_key?: string | null
+  is_private?: boolean
+  room_purpose?: string | null
   created_by: string | null
   created_at: string
   updated_at: string
@@ -85,7 +91,7 @@ type ChatMessage = {
   room_id: string
   sender_profile_id: string | null
   message_type: MessageType
-  message_class?: 'user_message' | 'system_confirmation'
+  message_class?: 'user_message' | 'system_confirmation' | 'system_result'
   text_content: string | null
   attachment_bucket: string | null
   attachment_path: string | null
@@ -380,6 +386,7 @@ export function ChatPage() {
       || ['company_admin', 'executive', 'manager', 'site_supervisor'].includes(currentCompany?.company_role ?? ''),
     [profile?.role, currentCompany?.company_role],
   )
+  const canProvisionProgramDevelopmentRoom = profile?.role === 'admin' && currentCompany?.company_role === 'company_admin'
 
   const canManageThisRoom = useMemo(() => {
     if (!selectedRoom) return false
@@ -973,11 +980,43 @@ export function ChatPage() {
     if (!currentCompany?.company_id) return
 
     setLoadingRooms(true)
-    const { data, error } = await supabase
+    if (canProvisionProgramDevelopmentRoom) {
+      try {
+        await ensureProgramDevelopmentRoom(currentCompany.company_id)
+      } catch (error) {
+        // Keep older deployments usable until the provisioning migration is applied.
+        const code = (error as { code?: string } | null)?.code
+        if (code !== '42883' && code !== '42704') setToast(userError(error), true)
+      }
+    }
+    if (canManageCompany) {
+      try {
+        await ensureGeneralWorkRoom(currentCompany.company_id)
+      } catch (error) {
+        const code = (error as { code?: string } | null)?.code
+        if (code !== '42883' && code !== '42704') setToast(userError(error), true)
+      }
+    }
+
+    const metadataQuery = await supabase
       .from('chat_rooms')
-      .select('id,name,created_by,created_at,updated_at,chat_room_members(profile_id,member_role,joined_at,profiles(full_name,email))')
+      .select('id,name,company_id,room_key,is_private,room_purpose,created_by,created_at,updated_at,chat_room_members(profile_id,member_role,joined_at,profiles(full_name,email))')
       .eq('company_id', currentCompany.company_id)
       .order('updated_at', { ascending: false })
+    let data: unknown[] | null = metadataQuery.data as unknown[] | null
+    let error = metadataQuery.error
+
+    if (error) {
+      // Metadata columns are absent before the migration. Fall back to the
+      // legacy projection so the existing chat remains available.
+      const legacy = await supabase
+        .from('chat_rooms')
+        .select('id,name,created_by,created_at,updated_at,chat_room_members(profile_id,member_role,joined_at,profiles(full_name,email))')
+        .eq('company_id', currentCompany.company_id)
+        .order('updated_at', { ascending: false })
+      data = legacy.data as unknown[] | null
+      error = legacy.error
+    }
 
     if (error) {
       setToast(userError(error), true)
@@ -1005,6 +1044,10 @@ export function ChatPage() {
       return {
         id: typeof raw.id === 'string' ? raw.id : '',
         name: typeof raw.name === 'string' ? raw.name : '',
+        company_id: typeof raw.company_id === 'string' ? raw.company_id : undefined,
+        room_key: typeof raw.room_key === 'string' ? raw.room_key : null,
+        is_private: raw.is_private === true,
+        room_purpose: typeof raw.room_purpose === 'string' ? raw.room_purpose : null,
         created_by: typeof raw.created_by === 'string' ? raw.created_by : null,
         created_at: typeof raw.created_at === 'string' ? raw.created_at : '',
         updated_at: typeof raw.updated_at === 'string' ? raw.updated_at : '',
@@ -1038,7 +1081,7 @@ export function ChatPage() {
       return fallback
     })
     setLoadingRooms(false)
-  }, [currentCompany?.company_id, loadUnreadCounts, roomSelectionStorageKey, setToast])
+  }, [canManageCompany, canProvisionProgramDevelopmentRoom, currentCompany?.company_id, loadUnreadCounts, roomSelectionStorageKey, setToast])
 
   const loadRoomMembers = useCallback(async (roomId: string) => {
     setLoadingMembers(true)
@@ -2054,7 +2097,7 @@ export function ChatPage() {
       >
         <ListItemText
           disableTypography
-          primary={<Typography variant="body2" noWrap sx={{ fontWeight: 700 }}>{room.name}</Typography>}
+          primary={<Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', minWidth: 0 }}><Typography variant="body2" noWrap sx={{ fontWeight: 700 }}>{room.name}</Typography>{room.room_key === 'general_work_primary' && <Chip size="small" label="งานทั่วไป" sx={{ height: 18, fontSize: 10 }} />}{room.room_key === 'program_development_primary' && <Chip size="small" label="ส่วนตัว" color="secondary" sx={{ height: 18, fontSize: 10 }} />}</Stack>}
           secondary={(
             <Typography component="span" variant="caption" color="text.secondary" noWrap>
               {room.chat_room_members?.length ?? 0} คน · {roomOnlineCount} ออนไลน์
@@ -2374,6 +2417,7 @@ export function ChatPage() {
                                   · {formatTime(message.created_at)}
                                 </Typography>
                                 {message.message_class === 'system_confirmation' && <Chip size="small" label="System Confirmation" color="info" sx={{ height: 20 }} />}
+                                {message.message_class === 'system_result' && <Chip size="small" label="System Result" color="success" sx={{ height: 20 }} />}
                               </Stack>
 
                               {message.message_type === 'text' ? (

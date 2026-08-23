@@ -11,6 +11,7 @@ import { Alert, Box, Button, Chip, Divider, Paper, Stack, Typography } from '@mu
 import { Link as RouterLink } from 'react-router-dom'
 import { PageHeader } from '../../components/PageHeader'
 import { usePageTitle } from '../../hooks/usePageTitle'
+import { FlowRegistryDashboard } from './FlowRegistryDashboard'
 
 const steps = [
   ['1. รับเข้า', 'LINE / Web Chat / Upload → Omni Source Registry', 'เก็บช่องทาง ห้อง ผู้ส่ง เวลา ไฟล์ และ fingerprint เพื่อกันซ้ำ'],
@@ -51,6 +52,15 @@ const accountingFlows = [
     bullets: ['อ่านจาก docs/ACCOUNTING_DOCUMENT_CONFIRMATION_FLOW.md', 'ทุก mutation ผ่าน Mutation Attempt Center', 'จำกัด company และสิทธิ์ด้วย RPC/RLS', 'retry ใช้เอกสารเดิมและแจ้งขั้นตอนที่ล้มเหลวใกล้ปุ่มดำเนินการ'],
     path: '/accounting-documents',
     action: 'ไปตรวจเอกสารบัญชี',
+  },
+  {
+    title: 'เงินสำรองจ่าย → Web Chat Confirmation',
+    version: 'Advance Program Loop v1.6 · 23/8/2569',
+    icon: <PaymentsOutlinedIcon color="primary" />,
+    summary: 'บันทึกรายการสำเร็จ → Audit → ensure ห้องมาตรฐาน → ส่ง System Confirmation ไป source/HR/Finance ตามเงื่อนไข พร้อม delivery/retry โดยไม่ส่งห้อง 00',
+    bullets: ['อ่านจาก docs/EMPLOYEE_ADVANCE_SETTLEMENT_FLOW.md', 'room_key: source_room (เมื่อ source context ยืนยันได้), hr_primary, finance_primary', 'ใช้ Advance ID/event_key เดิมทุกปลายทางและ delivery_key แยกปลายทางกันซ้ำ', 'ห้อง/สมาชิกสร้างตาม role ภายใต้ company lock และ Audit; สร้างไม่สำเร็จเป็น room_setup_failed/pending_retry', 'ข้อความเป็น system_confirmation และไม่ย้อนเข้า Omni เพื่อสร้างรายการเบิกซ้ำ'],
+    path: '/advance-settlements',
+    action: 'ไปหน้าเงินสำรองจ่าย',
   },
 ] as const
 
@@ -119,6 +129,15 @@ const systemFlows = [
     action: 'ไปตั้งค่าห้อง HR',
   },
   {
+    title: '00 | Program Development',
+    version: 'Development Room v1.0 · 23/8/2569',
+    icon: <ChatBubbleOutlineOutlinedIcon color="primary" />,
+    summary: 'ห้องส่วนตัวของเจ้าของระบบสำหรับ Requirement/Bug/UI/Flow/Database/API/Test/Build/Deploy สร้าง Development Task และส่งเข้าคิว Codex โดยไม่รับข้อมูลธุรกิจ',
+    bullets: ['อ่านจาก docs/PROGRAM_DEVELOPMENT_ROOM_FLOW.md', 'canonical room_key คือ program_development_primary และชื่อ 00 | Program Development', 'private owner-only; ไม่เพิ่มสมาชิกอัตโนมัติและห้าม Program Loop เงินสำรองจ่าย/ลงเวลาส่งเข้า', 'Task state: รับคำสั่ง → กำลังทำ → รอตรวจ → เสร็จ/Blocked', 'System Result แสดงผลเท่านั้นและไม่สร้าง task ซ้ำ'],
+    path: '/chat',
+    action: 'เปิด Web Chat',
+  },
+  {
     title: 'ลงเวลา → Web Chat',
     version: 'Time Tracking v1.2 · 22/8/2569',
     icon: <TimerOutlinedIcon color="primary" />,
@@ -145,6 +164,7 @@ export function FlowRegistryPage() {
   usePageTitle('Flow Registry')
   return <Stack spacing={2.5}>
     <PageHeader title="ทะเบียน Flow ระบบ" description="แหล่งอ้างอิงกลางของขั้นตอน กติกา และมาตรฐานการแก้ไขระบบ" />
+    <FlowRegistryDashboard />
     <Alert severity="info"><b>กติกาบังคับ:</b> ก่อนแก้ทุก Module ต้องตรวจว่ามี Flow หรือไม่; หากไม่มีต้องสร้าง Flow ก่อนเริ่มแก้ และต้องอัปเดตทะเบียน/เอกสารทุกครั้งที่พฤติกรรมระบบเปลี่ยน พร้อม build/test และตรวจผลจริง</Alert>
     <Paper variant="outlined" sx={{ p: 2.5 }}>
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}><AccountTreeOutlinedIcon color="primary" /><Typography variant="h6" sx={{ fontWeight: 800 }}>Intake Case → Document Flow</Typography><Chip size="small" color="success" label="v2.7 · 20/8/2569" /><Chip size="small" label="Project Work Package v1.4" /><Chip size="small" label="Transfer Slip Parties" /></Stack>

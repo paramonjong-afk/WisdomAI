@@ -1,10 +1,35 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Document Flow Intake Backfill Entry Removed v1.0 — 23/8/2569
+
+- **เหตุผล:** ปุ่ม/เมนู “แยกสลิปย้อนหลัง” บน Intake ทำให้ผู้ใช้สับสนและไม่อยู่ใน Flow ใหม่ จึงต้องถอดออกจากหน้าใช้งานโดยไม่แตะข้อมูลสลิปหรือ Audit เดิม
+- **ผลกระทบ:** `src/pages/IntakeRoom.tsx`, regression test สำหรับ Document Flow และเอกสาร Intake Case; backend backfill และข้อมูลเดิมยังคงอยู่ถ้าต้องอ้างอิงย้อนหลัง
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** lint, typecheck, test, build และตรวจหน้า `/document-flows` ว่าไม่มีปุ่ม/handler backfill แล้ว
+- **Rollback:** คืนปุ่ม/handler เดิมได้โดยไม่ลบสลิป, Document Flow Item หรือ Audit
+
+
+## ล่าสุด: Private Program Development Room v1.0 — 23/8/2569
+
+- **เหตุผล:** แยกคำสั่งพัฒนาโปรแกรมออกจาก Web Chat ธุรกิจด้วยห้อง canonical `program_development_primary` ชื่อ `00 | Program Development` และไม่ให้ System Result วนกลับมาสร้างคำสั่งซ้ำ
+- **ผลกระทบ:** `chat_rooms.room_key/is_private/room_purpose`, `development_tasks`, `development_task_dispatches`, `program_development_audit`, owner-only provisioning/route/status RPC และ membership/mutation guards; Program Loop เงินสำรองจ่าย/ลงเวลาไม่ target ห้องนี้
+- **Migration:** `20260823035207_program_development_room.sql` (Production baseline); unique room key + advisory lock, owner membership เท่านั้น, development intent allow-list และ system_result guard
+- **การตรวจสอบ:** `test:program-development-room`, targeted/full lint, typecheck/build และ protected Chat/Flow Registry route; UAT ต้องใช้ session เจ้าของระบบจริง
+- **Rollback:** ปิด route trigger/RPC และซ่อน room card; เก็บ Chat, task, dispatch และ audit เดิมไว้ ไม่ลบข้อมูลธุรกิจ
+
+## ล่าสุด: Employee Advance Program Loop → Web Chat Confirmation v1.6 — 23/8/2569
+
+- **เหตุผล:** ให้รายการเบิกล่วงหน้าช่างส่ง System Confirmation ภายใน Program Loop หลังบันทึกและ Audit สำเร็จ โดยไม่ใช้ห้อง 00 ของ Codex เป็นปลายทาง และไม่เปิดทางให้ข้อความย้อนกลับมาสร้างรายการเบิกซ้ำ
+- **ผลกระทบ:** `employee_advance_message_deliveries`, `employee_advance_cases.confirmation_delivery_status`, canonical `chat_rooms.room_key`, RPC `ensure_advance_confirmation_room`/`queue_employee_advance_confirmation`/`retry_employee_advance_confirmations`, trigger หลังสร้าง case, `chat_messages.message_class=system_confirmation`; ปลายทางมาตรฐานคือ `source_room` เมื่อ source context ยืนยันได้, `hr_primary` เมื่อมีเงื่อนไขพนักงาน/ค่าแรง, และ `finance_primary` สำหรับผู้รับผิดชอบการเงิน
+- **Migration:** `20260823035155_employee_advance_confirmation_outbox.sql` (Production baseline); ใช้ company-scoped advisory lock และ unique `(company_id, room_key)`/`delivery_key`, เพิ่มสมาชิกเฉพาะ role ที่กำหนด, บันทึก room setup ใน `employee_advance_audit`, และสถานะ `room_setup_failed`/`pending_retry` เมื่อสร้างห้องหรือส่งไม่ได้
+- **การตรวจสอบ:** advance confirmation contract/scenario test (ห้องเดิม/สร้างใหม่/duplicate/concurrent model/member permission/success/failure/retry), migration/RPC/trigger inspection, lint, typecheck, build และ protected `/advance-settlements`; production migration ต้องได้รับ approval เพิ่มเติมเพราะมีการสร้างห้อง/สมาชิกและ trigger ส่งข้อความ
+- **Rollback:** ปิด trigger/integration/retry worker และซ่อนการแจ้งเตือนใน UI; เก็บ advance cases, chat messages, rooms และ audit ไว้เพื่อ reconcile ห้ามลบข้อมูลต้นทางการเงิน
+
 ## ล่าสุด: Web Chat Attendance Approval + Close 100% v2.4 — 23/8/2569
 
 - **เหตุผล:** แยกการรับข้อมูลลงเวลาจากการบันทึกจริง ให้ผู้รับผิดชอบตัดสินใจผ่าน Action และห้ามปิด Job ก่อนข้อมูล/บันทึก/Audit ครบ
 - **ผลกระทบ:** `src/pages/Chat/index.tsx`, `chat_attendance_approval_jobs`, event audit, RPC create/review/close, test และ Chat Attendance Flow; ใช้รหัสรายการเดิมกันซ้ำ
-- **Migration:** `20260823025922_web_chat_attendance_approval_jobs.sql`; ไม่ reconcile รายการ Web Chat เดิมเพราะรายการเดิมไม่มี approval job และยังคง attendance source เดิม
+- **Migration:** `20260823031549_web_chat_attendance_approval_jobs.sql` (Production baseline; แทน timestamp local เดิม `20260823025922` ที่มี SQL เดียวกัน); ไม่ reconcile รายการ Web Chat เดิมเพราะรายการเดิมไม่มี approval job และยังคง attendance source เดิม
 - **การตรวจสอบ:** scenario tests 7 กรณี, migration contract, targeted/full tests, lint, build และ real page `/chat`
 - **Rollback:** คืน Web Chat submit เดิมและ drop เฉพาะ RPC/table approval ใหม่; ห้ามลบ attendance จริงหรือ audit ที่เกิดแล้ว
 
@@ -833,8 +858,13 @@
 
 - **เหตุผล:** รายการลงเวลาที่ระบบตรวจพบต้องแจ้ง HR ผ่าน MSG จุดกลาง พร้อมให้รับงานและตัดสินใจได้ โดยไม่สร้างรายการลงเวลาซ้ำจากข้อความยืนยันระบบ
 - **ผลกระทบ:** `chat_attendance_approval_jobs` เพิ่มสถานะการส่ง/ผู้รับ/เวลารับงาน, `chat_messages.message_class`, delivery projection และ Omni trigger; `attendance_sessions` ยังเป็น source of truth
-- **Migration:** `20260823025922_web_chat_attendance_approval_jobs.sql`; เพิ่ม RLS/metadata, System Confirmation MSG และ fallback `pending_send` เมื่อไม่มี HR recipient
+- **Migration:** `20260823031549_web_chat_attendance_approval_jobs.sql` (Production baseline); เพิ่ม RLS/metadata, System Confirmation MSG และ fallback `pending_send` เมื่อไม่มี HR recipient
 - **การตรวจสอบ:** migration contract/static checks, TypeScript, targeted lint, build และ UAT หน้า `/chat` ภายใต้ session ผู้จัดการ; ตรวจสถานะ pending_send/send_failed/sent, claim จาก decision และ audit
 - **Rollback:** ปิด trigger/metadata projection และคืน UI approval เดิมได้โดยไม่ลบ `attendance_sessions`, `chat_messages`, jobs หรือ audit; System Confirmation ยังคงค้นย้อนหลังได้
 
 - **Program Loop boundary:** ปลายทางภายในระบบใช้ห้องต้นทาง/ห้องงาน, HR หลัก และห้องเงินสำรองจ่ายตาม config กลาง โดยใช้ `request_code/event_key` เดิมทุกจุด; ห้อง 00 ของ Codex ไม่ใช่ Web Chat destination และต้องไม่มี duplicate notification ไปที่นั่น
+# Latest changes (23/08/2569)
+
+- Flow Registry Active Dashboard v1.0: added `docs/FLOW_REGISTRY_DASHBOARD_FLOW.md`, read-only runtime source aggregation, filters, refresh, nodes, exception lane, and drill-down. No migration; rollback is UI/service removal.
+- General Work Room v1.0: added `docs/GENERAL_WORK_ROOM_FLOW.md` and Production baseline migration `20260823035220_general_work_room.sql`; canonical `general_work_primary`, company-scoped membership, safe classification/forwarding, audit, and pending destination retry path.
+- Advance Confirmation RPC hardening v1.1: Production applied `20260823041021_lock_advance_confirmation_room_rpc`; `ensure_advance_confirmation_room` now requires a manager when called with an authenticated session, and `EXECUTE` is revoked from `PUBLIC`/`anon` (retained for `authenticated`/`service_role`). Verify with the privilege query and retain the existing no-fallback room/audit/retry flow.
