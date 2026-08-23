@@ -131,6 +131,28 @@ flowchart TD
 
 HR/ผู้จัดการบริษัทเป็น owner ของการเลือกห้องและสมาชิกห้อง; ทีมระบบเป็น owner ของ trigger, migration และ retry path
 
+## Attendance Approval MSG v3.3 — 23/8/2569
+
+```mermaid
+flowchart LR
+  A[attendance_sessions ตรวจเบื้องต้น] --> B[delivery ledger เดิม + approval job]
+  B --> C{ห้อง/ผู้รับ HR พร้อมหรือไม่}
+  C -->|ไม่พร้อม| D[pending_send หรือ send_failed + blocker]
+  C -->|พร้อม| E[System Confirmation MSG]
+  E --> F[HR รับงาน/Claim]
+  F --> G{คำสั่ง}
+  G -->|อนุมัติ| H[attendance approved]
+  G -->|Reject| I[attendance rejected]
+  G -->|ขอข้อมูลเพิ่ม| J[attendance needs_review]
+  H --> K[attendance_approval_events + audit]
+  I --> K
+  J --> K
+```
+
+ข้อความ MSG แสดงช่าง, เข้า/ออก, วันเวลา, โครงการ/ไซต์, รหัสรายการเดิม, ผลตรวจซ้ำ และสถานะส่ง/ผู้รับ/เวลาส่ง งานทุกชิ้นใช้ `chat_attendance_approval_jobs` เป็น ledger กลางและใช้ `request_code` เดิมเพื่อกันซ้ำ หากไม่มีห้องหรือผู้รับจะค้าง `pending_send`; หาก insert ข้อความล้มเหลวจะเป็น `send_failed` และยังไม่ถือว่างานปิด ผู้จัดการ/HR รับงานแล้วจึงเลือกอนุมัติ, Reject หรือขอข้อมูลเพิ่มได้ โดยทุกจุดเขียน `chat_attendance_approval_events` และ `attendance_audit_logs`.
+
+ข้อความที่สร้างโดยระบบถูกติด `message_class=system_confirmation` และ Omni intake ข้ามข้อความ class นี้ จึงไม่สร้างรายการลงเวลา/Intake ซ้ำจากการยืนยันของระบบ
+
 ## Chat command / voice path (v1.1)
 
 ผู้ใช้ส่งคำสั่งสั้นในห้อง เช่น `แจ้งเข้างาน`, `ลงเวลาเข้า`, `แจ้งออกงาน` หรือกดปุ่มไมโครโฟนเพื่อพูดภาษาไทย ระบบถอดเสียงเป็นข้อความและตรวจเจตนาแบบ vocabulary ที่กำหนดไว้ หากไม่ตรงคำสั่งจะเก็บเป็นข้อความรอให้ผู้ใช้กดส่งตามปกติ คำสั่งที่ตรงจะเปิดหน้าต่างยืนยัน โดยไม่บันทึกข้อความคำสั่งดิบลงห้องซ้ำ
@@ -309,6 +331,43 @@ flowchart LR
   P -->|ใช่| Q[แสดงภาพตัวอย่างในข้อความ และกดเปิดรูปเต็มได้]
   P -->|ไม่ใช่| R[แสดงการ์ดไฟล์และปุ่มเปิดไฟล์]
 ```
+
+## Web Chat Attendance Approval + Close 100% (v2.4)
+
+```mermaid
+flowchart TD
+  A[Web Chat ตรวจพบคำสั่งเข้า/ออก] --> B[เก็บชื่อช่าง เวลา ทิศทาง ไซต์ รหัส GPS Selfie]
+  B --> C[ตรวจเบื้องต้น + duplicate check]
+  C -->|ข้อมูลไม่ครบ/ชื่อหรือไซต์ไม่ตรง| D[รอข้อมูลเพิ่ม ส่งคืนเจ้าของ Job เปิด]
+  C -->|ครบและไม่ซ้ำ| E[รอผู้รับผิดชอบอนุมัติ]
+  E -->|Reject| F[Reject ส่งคืนเจ้าของ Job เปิด]
+  E -->|ขอข้อมูลเพิ่ม| D
+  E -->|กด Action อนุมัติ| G[อนุมัติแล้ว]
+  G --> H{เขียน attendance_sessions สำเร็จหรือไม่}
+  H -->|ไม่สำเร็จ| I[Rollback transaction + Job ยังไม่ recorded]
+  H -->|สำเร็จ| J[บันทึกเวลาสำเร็จ + Audit]
+  J --> K{ครบข้อมูล ไม่ซ้ำ อนุมัติ บันทึกจริง และ Audit 5 เหตุการณ์หรือไม่}
+  K -->|ไม่ครบ| L[ห้ามปิด Job]
+  K -->|ครบ| M[Action ปิด Job 100%]
+  E -->|ไม่ตอบ >= 30 นาที| N[แสดงไม่มีผู้ตอบ Job ยังเปิด]
+```
+
+- **Input:** ผู้ส่ง, ชื่อจากโปรไฟล์, `clock_in|clock_out`, เวลา, โครงการ/ไซต์, GPS, Selfie, room และ `request_code` เดิมจากหน้าต่าง Web Chat
+- **Output:** `attendance_sessions` จะถูกสร้าง/ปิดเวลาหลัง Action อนุมัติเท่านั้น; Job ปิดเมื่อ close gate ผ่านครบ
+- **States:** `detected → prechecked → pending_approval → approved → recorded → closed`; ทางแยก `needs_more_info|rejected` ไม่ปิด Job และส่ง owner กลับเป็นผู้ร้องขอ
+- **Roles/permissions:** ผู้ใช้สร้าง Job ของตนในห้องที่เป็นสมาชิก; company manager เป็นผู้กด Approve/Reject/Request more/Close; RPC ตรวจ tenant และสิทธิ์ซ้ำ
+- **Integrations:** `chat_attendance_approval_jobs`, `chat_attendance_approval_events`, RPC create/review/close และ `attendance_sessions`; `request_code` เป็น idempotency key ต่อบริษัท
+- **Failure/retry:** request code เดิมคืน Job เดิม; duplicate attendance ส่งกลับ `needs_more_info`; การเขียนเวลาล้มเหลว rollback approval ใน transaction; ไม่มีผู้ตอบแสดง warning แต่ไม่เปลี่ยนหรือปิดสถานะ
+- **Audit:** `data_detected`, `precheck_completed`, `approval_requested`, `approval_granted`, `attendance_recorded`, `job_closed_100_percent`; Reject/request-more/duplicate มี event แยก
+- **Owner:** ผู้ร้องขอรับผิดชอบข้อมูลที่ขาด; manager รับผิดชอบการตัดสินใจและปิด Job; ระบบรับผิดชอบ idempotency, atomic write และ audit gate
+
+### Change record v2.4 — 23/8/2569
+
+- เหตุผล: ห้าม Web Chat เขียนเวลาจริงทันทีโดยไม่มีผู้รับผิดชอบอนุมัติ และนิยามปิด Job ให้ตรวจครบ 100%
+- ผลกระทบ: หน้า Chat, ตาราง Job/Audit, RPC create/review/close และ Flow Registry
+- Migration: `20260823025922_web_chat_attendance_approval_jobs.sql`; ไม่มีการแก้รายการเดิมย้อนหลัง
+- Verification: contract scenarios ปกติ/ซ้ำ/ชื่อไม่ตรง/ข้อมูลไม่ครบ/Reject/request-more/no-response, lint, build และหน้า `/chat`
+- Rollback: ปิด UI approval, คืน submit ไป `attendance-clock`, แล้ว drop RPC/table ใหม่ได้; ไม่ลบ `attendance_sessions` ที่บันทึกสำเร็จแล้ว
 
 - **เหตุผล:** flow เดิมเริ่มอัปโหลดทันทีใน `onChange` ของ file input ทำให้ผู้ใช้มือถือไม่เห็นว่าไฟล์ถูกเลือกแล้ว และเมื่อ session/ห้องยังไม่พร้อมอาจดูเหมือนเลือกไฟล์แล้วหายไป
 - **ผลกระทบ:** `src/pages/Chat/index.tsx` รองรับทั้ง file picker และลากไฟล์มาวางในพื้นที่แชต; เปลี่ยนเป็น `selected → pending → sending → uploaded → message_recorded|failed`; ผู้ใช้เห็นชื่อ/ขนาดไฟล์และกด `ส่งไฟล์` เอง; input ใช้ visually-hidden style แทน `hidden` เพื่อให้ file picker บน mobile ทำงานสม่ำเสมอ

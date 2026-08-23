@@ -85,6 +85,7 @@ type ChatMessage = {
   room_id: string
   sender_profile_id: string | null
   message_type: MessageType
+  message_class?: 'user_message' | 'system_confirmation'
   text_content: string | null
   attachment_bucket: string | null
   attachment_path: string | null
@@ -262,6 +263,41 @@ const isChatImageAttachment = (contentType: string | null | undefined) => {
   return Boolean(contentType?.trim().toLowerCase().startsWith('image/'))
 }
 
+type AttendanceApprovalStatus = 'detected' | 'prechecked' | 'pending_approval' | 'approved' | 'recorded' | 'needs_more_info' | 'rejected' | 'closed'
+
+type AttendanceApprovalJob = {
+  id: string
+  request_code: string
+  requester_profile_id: string
+  responsible_profile_id: string | null
+  site_id: string | null
+  action: ChatAttendanceAction
+  requested_at: string
+  status: AttendanceApprovalStatus
+  validation_result: { employee_name?: string; missing_fields?: string[]; duplicate_checked?: boolean }
+  duplicate_of_job_id: string | null
+  attendance_session_id: string | null
+  decision_note: string | null
+  message_status?: 'pending_send' | 'sent' | 'send_failed'
+  recipient_profile_id?: string | null
+  message_sent_at?: string | null
+  claimed_by?: string | null
+  claimed_at?: string | null
+  message_error?: string | null
+  created_at: string
+}
+
+const attendanceApprovalStatusLabel: Record<AttendanceApprovalStatus, string> = {
+  detected: 'ตรวจพบข้อมูล',
+  prechecked: 'ตรวจสอบเบื้องต้นแล้ว',
+  pending_approval: 'รอผู้รับผิดชอบอนุมัติ',
+  approved: 'อนุมัติแล้ว',
+  recorded: 'บันทึกเวลาสำเร็จ',
+  needs_more_info: 'รอข้อมูลเพิ่ม',
+  rejected: 'Reject — Job ยังเปิด',
+  closed: 'ปิด Job 100%',
+}
+
 const labelFromProfile = (profile: RoomMemberProfile | null | undefined, fallbackId = '-') => {
   return profile?.full_name?.trim() || profile?.email?.trim() || fallbackId
 }
@@ -315,6 +351,10 @@ export function ChatPage() {
   const [attendanceCameraOpen, setAttendanceCameraOpen] = useState(false)
   const [attendanceCameraReady, setAttendanceCameraReady] = useState(false)
   const [attendanceBusy, setAttendanceBusy] = useState(false)
+  const [attendanceRequestCode, setAttendanceRequestCode] = useState('')
+  const [attendanceApprovalJobs, setAttendanceApprovalJobs] = useState<AttendanceApprovalJob[]>([])
+  const [attendanceApprovalCheckedAt, setAttendanceApprovalCheckedAt] = useState(0)
+  const [attendanceApprovalBusyId, setAttendanceApprovalBusyId] = useState('')
   const [voiceListening, setVoiceListening] = useState(false)
   const [pendingAttachment, setPendingAttachment] = useState<File | null>(null)
   const [isDragActive, setIsDragActive] = useState(false)
@@ -1055,7 +1095,7 @@ export function ChatPage() {
       const { data, error } = await supabase
         .from('chat_messages')
         .select(
-          'id,room_id,sender_profile_id,message_type,text_content,attachment_bucket,attachment_path,attachment_name,attachment_content_type,attachment_size,created_at',
+          'id,room_id,sender_profile_id,message_type,message_class,text_content,attachment_bucket,attachment_path,attachment_name,attachment_content_type,attachment_size,created_at',
         )
         .eq('room_id', roomId)
         .order('created_at', { ascending: true })
@@ -1079,6 +1119,47 @@ export function ChatPage() {
     },
     [hydrateAttachment, setToast],
   )
+
+  const loadAttendanceApprovalJobs = useCallback(async (roomId: string) => {
+    const { data, error } = await supabase
+      .from('chat_attendance_approval_jobs')
+      .select('id,request_code,requester_profile_id,responsible_profile_id,site_id,action,requested_at,status,validation_result,duplicate_of_job_id,attendance_session_id,decision_note,message_status,recipient_profile_id,message_sent_at,claimed_by,claimed_at,message_error,created_at')
+      .eq('room_id', roomId)
+      .order('created_at', { ascending: false })
+      .limit(30)
+    if (error) {
+      setAttendanceApprovalJobs([])
+      if (error.code !== '42P01') setToast(userError(error), true)
+      return
+    }
+    setAttendanceApprovalJobs((data ?? []) as AttendanceApprovalJob[])
+    setAttendanceApprovalCheckedAt(Date.now())
+  }, [setToast])
+
+  const reviewAttendanceApprovalJob = async (job: AttendanceApprovalJob, action: 'approve' | 'reject' | 'request_more' | 'close') => {
+    if (!canManageCompany || !selectedRoom) return
+    const note = action === 'approve' || action === 'close'
+      ? null
+      : window.prompt(action === 'reject' ? 'ระบุเหตุผล Reject' : 'ระบุข้อมูลที่ต้องการเพิ่ม')
+    if ((action === 'reject' || action === 'request_more') && !note?.trim()) return
+    setAttendanceApprovalBusyId(job.id)
+    try {
+      const functionName = action === 'close' ? 'close_web_chat_attendance_job' : 'review_web_chat_attendance_job'
+      const args = action === 'close'
+        ? { target_job_id: job.id }
+        : { target_job_id: job.id, review_action: action, review_note: note }
+      const { data, error } = await supabase.rpc(functionName, args)
+      if (error) throw error
+      const updated = data as AttendanceApprovalJob
+      setToast(action === 'close' ? 'ปิด Job 100% แล้ว' : attendanceApprovalStatusLabel[updated.status], true)
+      await loadAttendanceApprovalJobs(selectedRoom.id)
+      await loadMessages(selectedRoom.id)
+    } catch (error) {
+      setToast(userError(error), true)
+    } finally {
+      setAttendanceApprovalBusyId('')
+    }
+  }
 
   const openCreate = () => {
     if (!canOpenCreate) return
@@ -1160,6 +1241,7 @@ export function ChatPage() {
       return
     }
     setAttendanceAction(action)
+    setAttendanceRequestCode(createChatAttachmentId())
     setAttendanceSiteId('')
     setAttendanceLocation(null)
     setAttendanceSelfie(null)
@@ -1335,36 +1417,27 @@ export function ChatPage() {
         request: { room_id: roomId, action, site_id: attendanceSiteId || null, gps_error_code: attendanceLocation.gpsErrorCode ?? null },
         operation: async () => {
           const extension = attendanceSelfie.name.split('.').pop()?.toLowerCase() || 'jpg'
-          const path = `${activeProfileId}/${Date.now()}-${action === 'clock_in' ? 'in' : 'out'}-chat.${extension}`
+          const requestCode = attendanceRequestCode || createChatAttachmentId()
+          const path = `${activeProfileId}/${requestCode}-${action === 'clock_in' ? 'in' : 'out'}-chat.${extension}`
           const { error: uploadError } = await supabase.storage.from('attendance-selfies').upload(path, attendanceSelfie, {
             contentType: attendanceSelfie.type, upsert: false,
           })
           if (uploadError) throw uploadError
           selfiePath = path
-          const { data, error } = await supabase.functions.invoke('attendance-clock', {
-            body: {
-              action,
-              siteId: action === 'clock_in' ? attendanceSiteId : undefined,
-              latitude: attendanceLocation.latitude,
-              longitude: attendanceLocation.longitude,
-              accuracy: attendanceLocation.accuracy,
-              gpsErrorCode: attendanceLocation.gpsErrorCode,
-              gpsErrorMessage: attendanceLocation.gpsErrorMessage,
-              selfiePath: path,
-              device: getDeviceInfo(),
-            },
+          const { data, error } = await supabase.rpc('create_web_chat_attendance_job', {
+            target_room_id: roomId,
+            target_request_code: requestCode,
+            target_action: action,
+            target_site_id: action === 'clock_in' ? attendanceSiteId : null,
+            target_requested_at: new Date().toISOString(),
+            target_latitude: attendanceLocation.latitude,
+            target_longitude: attendanceLocation.longitude,
+            target_accuracy_meters: attendanceLocation.accuracy,
+            target_selfie_path: path,
+            target_device_info: getDeviceInfo(),
           })
           if (error) {
-            let detail = userError(error)
-            const context = (error as { context?: Response }).context
-            if (context && typeof context.clone === 'function') {
-              try {
-                const payload = await context.clone().json() as { error?: string }
-                if (payload.error) detail = payload.error
-              } catch {
-                // Keep the transport error when the response body is not JSON.
-              }
-            }
+            const detail = userError(error)
             cleanupSelfie = true
             throw new Error(detail)
           }
@@ -1373,8 +1446,8 @@ export function ChatPage() {
             throw new Error(data.error)
           }
           return {
-            message: typeof data?.message === 'string' ? data.message : action === 'clock_in' ? 'ลงเวลาเข้าสำเร็จ' : 'ลงเวลาออกสำเร็จ',
-            status: typeof data?.status === 'string' ? data.status : undefined,
+            message: 'รับข้อมูลแล้วและส่งให้ผู้รับผิดชอบอนุมัติ',
+            status: typeof data?.status === 'string' ? data.status : 'pending_approval',
             selfiePath: path,
           }
         },
@@ -1385,8 +1458,10 @@ export function ChatPage() {
       setAttendanceLocation(null)
       setAttendanceSelfie(null)
       setAttendanceSiteId('')
+      setAttendanceRequestCode('')
+      await loadAttendanceApprovalJobs(roomId)
       await loadMessages(roomId)
-      const statusText = result.status === 'needs_review' ? 'รับรายการแล้ว รอตรวจสอบ GPS' : result.message
+      const statusText = result.status === 'needs_more_info' ? 'ข้อมูลยังไม่ครบ ระบบเปิด Job รอข้อมูลเพิ่ม' : result.message
       setToast(statusText, true)
     } catch (error) {
       if (cleanupSelfie && selfiePath) await supabase.storage.from('attendance-selfies').remove([selfiePath])
@@ -1809,12 +1884,13 @@ export function ChatPage() {
     if (!selectedRoomId) return
     const timer = window.setTimeout(() => {
       void loadRoomMembers(selectedRoomId)
+      void loadAttendanceApprovalJobs(selectedRoomId)
       void loadMessages(selectedRoomId).then((loaded) => {
         if (loaded) void markRoomRead(selectedRoomId)
       })
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [loadMessages, loadRoomMembers, markRoomRead, selectedRoomId])
+  }, [loadAttendanceApprovalJobs, loadMessages, loadRoomMembers, markRoomRead, selectedRoomId])
 
   useEffect(() => {
     scrollToBottom()
@@ -2181,6 +2257,49 @@ export function ChatPage() {
               <Divider sx={{ mb: 1 }} />
 
               <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, overflowY: 'auto', overflowX: 'hidden', px: { xs: 0.25, sm: 0.75 }, py: 0.75, borderRadius: 1.5, bgcolor: 'action.hover', scrollbarGutter: 'stable' }}>
+                {attendanceIntegrationRoomId === selectedRoom.id && attendanceApprovalJobs.length > 0 && (
+                  <Stack spacing={0.75} sx={{ mb: 1 }}>
+                    {attendanceApprovalJobs.map((job) => {
+                      const missing = job.validation_result?.missing_fields ?? []
+                      const requesterName = job.validation_result?.employee_name
+                        || labelFromProfile(profileNameMap.get(job.requester_profile_id), job.requester_profile_id)
+                      const waitingMinutes = Math.max(0, Math.floor((attendanceApprovalCheckedAt - new Date(job.created_at).getTime()) / 60000))
+                      return (
+                        <Card key={job.id} variant="outlined" sx={{ borderColor: job.status === 'pending_approval' && waitingMinutes >= 30 ? 'warning.main' : 'divider' }}>
+                          <CardContent sx={{ py: 1, px: 1.25, '&:last-child': { pb: 1 } }}>
+                            <Stack spacing={0.65}>
+                              <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                                <Typography variant="body2" sx={{ fontWeight: 800 }}>{job.action === 'clock_in' ? 'ลงเวลาเข้า' : 'ลงเวลาออก'} · {requesterName}</Typography>
+                                <Chip size="small" label={attendanceApprovalStatusLabel[job.status]} color={job.status === 'closed' ? 'success' : job.status === 'pending_approval' ? 'warning' : 'default'} />
+                                {job.status === 'pending_approval' && waitingMinutes >= 30 && <Chip size="small" color="warning" label={`ไม่มีผู้ตอบ ${waitingMinutes} นาที`} />}
+                              </Stack>
+                              <Typography variant="caption" color="text.secondary">
+                                เวลา {formatTime(job.requested_at)} · รหัส {job.request_code} · ตรวจซ้ำแล้ว {job.validation_result?.duplicate_checked ? 'ใช่' : 'ไม่ครบ'}
+                              </Typography>
+                              <Typography variant="caption" color={job.message_status === 'send_failed' ? 'error' : 'text.secondary'}>
+                                MSG: {job.message_status === 'sent' ? `ส่งแล้ว ${job.message_sent_at ? formatTime(job.message_sent_at) : ''}` : job.message_status === 'send_failed' ? `ส่งไม่สำเร็จ ${job.message_error ?? ''}` : 'รอส่ง'} · ผู้รับ {job.recipient_profile_id ? labelFromProfile(profileNameMap.get(job.recipient_profile_id), job.recipient_profile_id) : 'ยังไม่พบ'} · {job.claimed_by ? `รับงานแล้ว ${job.claimed_at ? formatTime(job.claimed_at) : ''}` : 'ยังไม่รับงาน'}
+                              </Typography>
+                              {missing.length > 0 && <Alert severity="warning">ข้อมูลที่ต้องเพิ่ม: {missing.join(', ')}</Alert>}
+                              {job.decision_note && <Typography variant="caption">หมายเหตุ: {job.decision_note}</Typography>}
+                              {canManageCompany && job.status === 'pending_approval' && (
+                                <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
+                                  <Button size="small" variant="contained" disabled={attendanceApprovalBusyId === job.id} onClick={() => void reviewAttendanceApprovalJob(job, 'approve')}>อนุมัติและบันทึกจริง</Button>
+                                  <Button size="small" variant="outlined" disabled={attendanceApprovalBusyId === job.id} onClick={() => void reviewAttendanceApprovalJob(job, 'request_more')}>ขอข้อมูลเพิ่ม</Button>
+                                  <Button size="small" color="error" disabled={attendanceApprovalBusyId === job.id} onClick={() => void reviewAttendanceApprovalJob(job, 'reject')}>Reject</Button>
+                                </Stack>
+                              )}
+                              {canManageCompany && job.status === 'recorded' && (
+                                <Button size="small" color="success" variant="contained" disabled={attendanceApprovalBusyId === job.id} onClick={() => void reviewAttendanceApprovalJob(job, 'close')}>
+                                  ตรวจครบและปิด Job 100%
+                                </Button>
+                              )}
+                            </Stack>
+                          </CardContent>
+                        </Card>
+                      )
+                    })}
+                  </Stack>
+                )}
                 {loadingMessages ? (
                   <Box sx={{ display: 'grid', placeItems: 'center', py: 8 }}>
                     <CircularProgress size={24} />
@@ -2228,6 +2347,7 @@ export function ChatPage() {
                                 <Typography variant="caption" sx={{ opacity: 0.75, whiteSpace: 'nowrap' }}>
                                   · {formatTime(message.created_at)}
                                 </Typography>
+                                {message.message_class === 'system_confirmation' && <Chip size="small" label="System Confirmation" color="info" sx={{ height: 20 }} />}
                               </Stack>
 
                               {message.message_type === 'text' ? (

@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Web Chat Attendance Approval + Close 100% v2.4 — 23/8/2569
+
+- **เหตุผล:** แยกการรับข้อมูลลงเวลาจากการบันทึกจริง ให้ผู้รับผิดชอบตัดสินใจผ่าน Action และห้ามปิด Job ก่อนข้อมูล/บันทึก/Audit ครบ
+- **ผลกระทบ:** `src/pages/Chat/index.tsx`, `chat_attendance_approval_jobs`, event audit, RPC create/review/close, test และ Chat Attendance Flow; ใช้รหัสรายการเดิมกันซ้ำ
+- **Migration:** `20260823025922_web_chat_attendance_approval_jobs.sql`; ไม่ reconcile รายการ Web Chat เดิมเพราะรายการเดิมไม่มี approval job และยังคง attendance source เดิม
+- **การตรวจสอบ:** scenario tests 7 กรณี, migration contract, targeted/full tests, lint, build และ real page `/chat`
+- **Rollback:** คืน Web Chat submit เดิมและ drop เฉพาะ RPC/table approval ใหม่; ห้ามลบ attendance จริงหรือ audit ที่เกิดแล้ว
+
 ## ล่าสุด: Document Flow Two-View Center and Real Filter Drawer v1.19 — 23/8/2569
 
 - **เหตุผล:** ลด Tab หลักให้เหลือ 2 มุมมอง และแก้ Filter Drawer ให้ควบคุมมุมมอง/ตัวกรองจริงจากจุดเดียว
@@ -812,3 +820,11 @@
 - **Migration:** ไม่มี business schema ใหม่; ใช้ marker สำหรับ remote-only history และ mark applied เฉพาะ migration local ที่ยืนยัน schema บน Production แล้ว
 - **การตรวจสอบ:** `supabase migration list --linked`, schema/function/policy query, `supabase db push --dry-run`, TypeScript/lint/build และตรวจหน้า Flow Registry
 - **Rollback:** ลบ marker ใน local repository ได้; ห้าม revert remote history หรือ schema โดยไม่มี backup/หลักฐาน schema
+
+## ล่าสุด: Attendance Approval MSG v3.3 — 23/8/2569
+
+- **เหตุผล:** รายการลงเวลาที่ระบบตรวจพบต้องแจ้ง HR ผ่าน MSG จุดกลาง พร้อมให้รับงานและตัดสินใจได้ โดยไม่สร้างรายการลงเวลาซ้ำจากข้อความยืนยันระบบ
+- **ผลกระทบ:** `chat_attendance_approval_jobs` เพิ่มสถานะการส่ง/ผู้รับ/เวลารับงาน, `chat_messages.message_class`, delivery projection และ Omni trigger; `attendance_sessions` ยังเป็น source of truth
+- **Migration:** `20260823025922_web_chat_attendance_approval_jobs.sql`; เพิ่ม RLS/metadata, System Confirmation MSG และ fallback `pending_send` เมื่อไม่มี HR recipient
+- **การตรวจสอบ:** migration contract/static checks, TypeScript, targeted lint, build และ UAT หน้า `/chat` ภายใต้ session ผู้จัดการ; ตรวจสถานะ pending_send/send_failed/sent, claim จาก decision และ audit
+- **Rollback:** ปิด trigger/metadata projection และคืน UI approval เดิมได้โดยไม่ลบ `attendance_sessions`, `chat_messages`, jobs หรือ audit; System Confirmation ยังคงค้นย้อนหลังได้
