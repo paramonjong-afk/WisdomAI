@@ -23,7 +23,7 @@ import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 import { documentFlowGateway, type DocumentFlowScope, type OmniFilterTaskRow, type TransferSlipParties } from '../../services/documentFlowGateway'
 
 type Flow = 'intake' | 'filter' | 'posting'
-type ViewMode = 'intake_room' | 'omni_filter' | 'filter' | 'task_types'
+type ViewMode = 'intake_room' | 'omni_filter' | 'hr_confirmation' | 'filter' | 'task_types'
 type TaskCategory = 'accounting' | 'procurement' | 'inventory' | 'hr' | 'project' | 'reference'
 type DestinationDepartment = 'all' | TaskCategory
 type FlowItem = {
@@ -201,7 +201,7 @@ export function DocumentFlowsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const initialDocumentView = searchParams.get('document_view') as ViewMode | null
   const initialQueueView: Exclude<ViewMode, 'omni_filter'> = initialDocumentView === 'filter' || initialDocumentView === 'task_types' ? initialDocumentView : 'intake_room'
-  const [flow, setFlow] = useState<ViewMode>(initialDocumentView === 'omni_filter' ? 'omni_filter' : initialQueueView)
+  const [flow, setFlow] = useState<ViewMode>(initialDocumentView === 'omni_filter' || initialDocumentView === 'hr_confirmation' ? initialDocumentView : initialQueueView)
   const [queueView, setQueueView] = useState<Exclude<ViewMode, 'omni_filter'>>(initialQueueView)
   const [globalScope, setGlobalScope] = useState<DocumentFlowScope>(() => ({
     channel: (searchParams.get('channel') as DocumentFlowScope['channel']) || 'all',
@@ -276,6 +276,11 @@ export function DocumentFlowsPage() {
     globalScope.fileKind !== 'all' ? `ชนิดไฟล์: ${globalScope.fileKind}` : null,
     globalScope.project ? `โครงการ: ${globalScope.project}` : null,
   ].filter((value): value is string => Boolean(value)), [globalScope, isDefaultTodayScope])
+  const hrGateSummary = useMemo(() => {
+    const result = { candidate: 0, system: 0, duplicate: 0, low_confidence: 0 }
+    for (const row of omniTasks) { const gate = row.omni_intake_sources?.hr_bundle?.gate; if (gate) result[gate] += 1 }
+    return result
+  }, [omniTasks])
   const setVisibleIntakeCount = useCallback((count: number) => setCounts((current) => current.intake === count ? current : { ...current, intake: count }), [])
 
   useEffect(() => {
@@ -317,8 +322,8 @@ export function DocumentFlowsPage() {
   const load = useCallback(async (cursor: QueueCursor | null = null, append = false) => {
     setLoading(true)
     setError('')
-    if (flow === 'omni_filter') {
-      const response = await documentFlowGateway.loadOmniFilterTasks(globalScope)
+    if (flow === 'omni_filter' || flow === 'hr_confirmation') {
+      const response = await documentFlowGateway.loadOmniFilterTasks(flow === 'hr_confirmation' ? { ...globalScope, conversationType: 'hr_confirmation' } : globalScope)
       if (response.error) {
         setError(`โหลด Omni Filter ไม่สำเร็จ: ${userError(response.error)}`)
         setLoading(false)
@@ -686,7 +691,7 @@ export function DocumentFlowsPage() {
     {success && <Alert severity="success" onClose={() => setSuccess('')}>{success}</Alert>}
     <Paper variant="outlined">
       <Stack sx={{ px: 1 }}>
-        <Tabs value={flow === 'omni_filter' ? 'omni_filter' : 'documents'} onChange={(_event, value) => { if (value === 'omni_filter') setFlow('omni_filter'); else setFlow(queueView); setStatus('all'); setTypeFilter('all'); setDestinationDepartment('all') }} variant="scrollable">
+        <Tabs value={flow === 'omni_filter' || flow === 'hr_confirmation' ? 'omni_filter' : 'documents'} onChange={(_event, value) => { if (value === 'omni_filter') setFlow('omni_filter'); else setFlow(queueView); setStatus('all'); setTypeFilter('all'); setDestinationDepartment('all') }} variant="scrollable">
           <Tab value="documents" label={`คิวเอกสาร (${flow === 'filter' ? counts.filter : flow === 'task_types' ? counts.taskTypes : counts.intake})`} />
           <Tab value="omni_filter" label={`ข้อความและบริบท (${counts.omniFilter})`} />
         </Tabs>
@@ -701,10 +706,10 @@ export function DocumentFlowsPage() {
         </Select>
       </FormControl>
     </Stack>}
-    {globalScope.localTestData && <Alert severity="info" action={<Stack direction="row" spacing={.5}><Button size="small" onClick={() => { void load() }}>Reload</Button><Button size="small" onClick={clearGlobalScope}>Reset</Button></Stack>}>LOCAL TEST DATA · วันที่ 22–23/8/2569 · 5 รายการ · ไม่ใช่ข้อมูล Production</Alert>}
+    {globalScope.localTestData && <Alert severity="info" action={<Stack direction="row" spacing={.5}><Button size="small" onClick={() => { void load() }}>Reload</Button><Button size="small" onClick={clearGlobalScope}>Reset</Button></Stack>}>LOCAL TEST DATA · วันที่ 22–23/8/2569 · 9 รายการ · ไม่ใช่ข้อมูล Production</Alert>}
     {activeGlobalFilterCount > 0 && <Stack direction="row" spacing={1} sx={{ alignItems: 'center', px: .5, flexWrap: 'wrap' }}>{activeGlobalFilterLabels.map((label) => <Chip key={label} size="small" color="primary" label={label} onClick={() => setGlobalFilterOpen(true)} />)}<Typography variant="caption" color="text.secondary">ผลลัพธ์นับจากตัวกรองเดียวกับตาราง</Typography><Button size="small" onClick={clearGlobalScope}>ล้างตัวกรอง</Button></Stack>}
     {flow === 'intake_room' && <IntakeRoomPanel tableToolsRef={intakeTableToolsRef} globalScope={globalScope} onVisibleCountChange={setVisibleIntakeCount} />}
-    {flow === 'omni_filter' && (
+    {(flow === 'omni_filter' || flow === 'hr_confirmation') && (
       <StandardDataTable
         rows={omniTasks}
         getRowId={(row) => row.id}
@@ -724,15 +729,16 @@ export function DocumentFlowsPage() {
         hideToolbar
         onToolsReady={(tools) => { flowTableToolsRef.current = tools }}
         defaultSort={{ columnId: 'updated', direction: 'desc' }}
-        toolbar={<Alert severity="info" sx={{ width: '100%' }}>ศูนย์กลางนี้รับจาก LINE/Web Chat → วิเคราะห์บทสนทนา → กันรายการซ้ำ → ส่งต่อ Filter ตามแผนก โดยยังคงข้อมูลต้นทางไว้ตรวจย้อนหลัง</Alert>}
+        toolbar={<Alert severity="info" sx={{ width: '100%' }}>{flow === 'hr_confirmation' ? `HR Pending Queue · Candidate ${hrGateSummary.candidate} · Summary/System ${hrGateSummary.system} · Duplicate ${hrGateSummary.duplicate} · Low confidence ${hrGateSummary.low_confidence} — Web Chat → AI ลงเวลา → รวมตามช่าง/วัน/โครงการ → HR ยืนยัน` : 'ศูนย์กลางนี้รับจาก LINE/Web Chat → วิเคราะห์บทสนทนา → กันรายการซ้ำ → ส่งต่อ Filter ตามแผนก โดยยังคงข้อมูลต้นทางไว้ตรวจย้อนหลัง'}</Alert>}
         columns={[
           { id: 'updated', label: 'อัปเดต', minWidth: 145, render: (row) => new Date(row.updated_at).toLocaleString('th-TH'), sortValue: (row) => new Date(row.updated_at), exportValue: (row) => row.updated_at },
           { id: 'source', label: 'ต้นทาง', minWidth: 140, render: (row) => <Stack spacing={.25}><Chip size="small" color={row.omni_intake_sources?.source_channel === 'web_chat' ? 'info' : 'success'} label={row.omni_intake_sources?.source_channel === 'web_chat' ? 'Web Chat' : 'LINE'} /><Typography variant="caption" color="text.secondary">{row.omni_intake_sources?.source_kind ?? 'message'}</Typography></Stack>, exportValue: (row) => row.omni_intake_sources?.source_channel ?? '' },
           { id: 'room_sender', label: 'ห้อง / ผู้ส่ง', minWidth: 220, render: (row) => <Stack spacing={.25}><Typography sx={{ fontWeight: 700 }}>{row.omni_intake_sources?.source_room_name ?? 'ไม่ระบุห้อง'}</Typography><Typography variant="caption" color="text.secondary">{row.omni_intake_sources?.source_sender_name ?? 'ไม่ระบุผู้ส่ง'}</Typography></Stack>, exportValue: (row) => `${row.omni_intake_sources?.source_room_name ?? ''} ${row.omni_intake_sources?.source_sender_name ?? ''}` },
-          { id: 'analysis', label: 'AI วิเคราะห์', minWidth: 190, render: (row) => <Stack direction="row" spacing={.5} useFlexGap sx={{ flexWrap: 'wrap' }}><Chip size="small" label={omniConversationLabels[row.omni_intake_sources?.conversation_type ?? 'unknown'] ?? row.omni_intake_sources?.conversation_type ?? 'รอคัดแยก'} /><Chip size="small" color={(row.omni_intake_sources?.confidence ?? 0) >= .8 ? 'success' : 'warning'} label={confidence(row.omni_intake_sources?.confidence ?? null)} /></Stack>, exportValue: (row) => row.omni_intake_sources?.conversation_type ?? '' },
+          { id: 'analysis', label: 'AI วิเคราะห์', minWidth: 190, render: (row) => <Stack direction="row" spacing={.5} useFlexGap sx={{ flexWrap: 'wrap' }}><Chip size="small" label={omniConversationLabels[row.omni_intake_sources?.conversation_type ?? 'unknown'] ?? row.omni_intake_sources?.conversation_type ?? 'รอคัดแยก'} /><Chip size="small" color={(row.omni_intake_sources?.confidence ?? 0) >= .8 ? 'success' : 'warning'} label={confidence(row.omni_intake_sources?.confidence ?? null)} />{flow === 'hr_confirmation' && row.omni_intake_sources?.hr_bundle?.gate && <Chip size="small" color={row.omni_intake_sources.hr_bundle.gate === 'candidate' ? 'success' : row.omni_intake_sources.hr_bundle.gate === 'low_confidence' ? 'warning' : 'info'} label={{ candidate: 'Candidate', system: 'Summary/System', duplicate: 'Duplicate/Confirmed', low_confidence: 'Not HR/Low confidence' }[row.omni_intake_sources.hr_bundle.gate]} />}</Stack>, exportValue: (row) => row.omni_intake_sources?.conversation_type ?? '' },
           { id: 'department', label: 'ปลายทาง', minWidth: 150, render: (row) => <Chip size="small" color={row.required ? 'primary' : 'default'} label={departmentLabels[row.department] ?? row.department} />, exportValue: (row) => departmentLabels[row.department] ?? row.department },
           { id: 'dedupe', label: 'ซ้ำ/ต้นฉบับ', minWidth: 135, render: (row) => <Chip size="small" color={row.omni_intake_sources?.dedupe_status === 'primary' ? 'success' : 'warning'} label={omniDedupeLabels[row.omni_intake_sources?.dedupe_status ?? 'primary'] ?? row.omni_intake_sources?.dedupe_status ?? '-'} />, exportValue: (row) => row.omni_intake_sources?.dedupe_status ?? '' },
           { id: 'summary', label: 'สรุปสำหรับ Filter', minWidth: 300, render: (row) => <Stack spacing={.25}><Typography noWrap sx={{ maxWidth: 360 }}>{row.omni_intake_sources?.ai_summary ?? row.omni_intake_sources?.text_content ?? '-'}</Typography>{(row.omni_intake_sources?.attachment_count ?? 0) > 0 && <Typography variant="caption" color="text.secondary">แนบไฟล์ {row.omni_intake_sources?.attachment_count} รายการ</Typography>}</Stack>, exportValue: (row) => row.omni_intake_sources?.ai_summary ?? row.omni_intake_sources?.text_content ?? '' },
+          ...(flow === 'hr_confirmation' ? [{ id: 'hr_bundle', label: 'HR Confirmation Bundle', minWidth: 380, render: (row: OmniFilterTaskRow) => { const bundle = row.omni_intake_sources?.hr_bundle; return <Stack spacing={.25}><Typography>{bundle?.worker_name ?? '-'} · {bundle?.project_name ?? '-'}</Typography><Typography variant="caption">สมาชิก {bundle?.member_count ?? 0} · ขาด: {bundle?.missing_events?.join(', ') || 'ไม่มี'} · ซ้ำ {bundle?.duplicate_count ?? 0} · ขัดแย้ง {bundle?.conflict_count ?? 0}</Typography><Typography variant="caption" color="text.secondary">ผู้รับผิดชอบ: {bundle?.responsible ?? '-'} · ต่อไป: {bundle?.next_action ?? '-'}</Typography></Stack> }, exportValue: (row: OmniFilterTaskRow) => row.omni_intake_sources?.hr_bundle?.worker_name ?? '' }] : []),
           { id: 'status', label: 'สถานะงาน', minWidth: 140, render: (row) => <Chip size="small" label={omniTaskStatusLabels[row.task_status] ?? row.task_status} />, exportValue: (row) => row.task_status },
         ]}
       />
@@ -740,7 +746,7 @@ export function DocumentFlowsPage() {
     <Drawer anchor="right" open={globalFilterOpen} onClose={() => setGlobalFilterOpen(false)} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 420 }, p: 3 } } }}>
       <Stack spacing={2}>
         <Box><Typography variant="h6" sx={{ fontWeight: 800 }}>ตัวกรองและมุมมองศูนย์เอกสาร</Typography><Typography variant="body2" color="text.secondary">เลือกคิวจาก Drawer เดียว ค่าใน URL และรายการจะเปลี่ยนตามจริง</Typography></Box>
-        <FormControl size="small" fullWidth><InputLabel>มุมมองหลัก</InputLabel><Select label="มุมมองหลัก" value={flow} onChange={(event) => { const next = event.target.value as ViewMode; if (next === 'omni_filter') setFlow('omni_filter'); else { setQueueView(next); setFlow(next) } setStatus('all'); setTypeFilter('all'); setDestinationDepartment('all') }}><MenuItem value="intake_room">Intake Room · คิวรับเข้า</MenuItem><MenuItem value="filter">Document Filter · คัดแยกเอกสาร</MenuItem><MenuItem value="task_types">คิวงานปลายทาง</MenuItem><MenuItem value="omni_filter">ข้อความและบริบท</MenuItem></Select></FormControl>
+        <FormControl size="small" fullWidth><InputLabel>มุมมองหลัก</InputLabel><Select label="มุมมองหลัก" value={flow} onChange={(event) => { const next = event.target.value as ViewMode; if (next === 'omni_filter' || next === 'hr_confirmation') setFlow(next); else { setQueueView(next); setFlow(next) } setStatus('all'); setTypeFilter('all'); setDestinationDepartment('all') }}><MenuItem value="intake_room">Intake Room · คิวรับเข้า</MenuItem><MenuItem value="filter">Document Filter · คัดแยกเอกสาร</MenuItem><MenuItem value="task_types">คิวงานปลายทาง</MenuItem><MenuItem value="omni_filter">ข้อความและบริบท</MenuItem><MenuItem value="hr_confirmation">HR Confirmation · ชุดยืนยันลงเวลา</MenuItem></Select></FormControl>
         <FormControl size="small" fullWidth><InputLabel>ช่องทาง</InputLabel><Select label="ช่องทาง" value={globalScope.channel ?? 'all'} onChange={(event) => updateGlobalScope({ channel: event.target.value as DocumentFlowScope['channel'] })}><MenuItem value="all">ทุกช่องทาง</MenuItem><MenuItem value="line">LINE</MenuItem><MenuItem value="telegram">Telegram</MenuItem><MenuItem value="web_chat">Web Chat</MenuItem><MenuItem value="hr">HR</MenuItem><MenuItem value="unknown">ไม่ทราบต้นทาง</MenuItem></Select></FormControl>
         <TextField size="small" type="date" label="วันที่รับเข้า" value={globalScope.date ?? ''} onChange={(event) => updateGlobalScope({ date: event.target.value })} slotProps={{ inputLabel: { shrink: true } }} fullWidth />
         <TextField size="small" label="ห้องต้นทาง" value={globalScope.room ?? ''} onChange={(event) => updateGlobalScope({ room: event.target.value })} fullWidth />

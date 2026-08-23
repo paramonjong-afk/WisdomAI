@@ -41,6 +41,7 @@ export type DocumentFlowScope = {
   fileKind?: 'all' | 'image_or_scan' | 'pdf' | 'document' | 'unknown'
   project?: string
   localTestData?: boolean
+  conversationType?: 'all' | 'hr_confirmation'
 }
 
 export type OmniFilterTaskRow = {
@@ -70,6 +71,18 @@ export type OmniFilterTaskRow = {
     suggested_departments: string[]
     filter_status: string
     outtake_status: string
+    hr_bundle?: {
+      worker_name: string
+      project_name: string
+      workday: string
+      member_count: number
+      missing_events: string[]
+      duplicate_count: number
+      conflict_count: number
+      responsible: string
+      next_action: string
+      gate: 'candidate' | 'system' | 'duplicate' | 'low_confidence'
+    }
   } | null
 }
 
@@ -192,6 +205,7 @@ export const documentFlowGateway = {
     if (start && end) query = query.gte('omni_intake_sources.occurred_at', start).lt('omni_intake_sources.occurred_at', end)
     if (filters.room?.trim()) query = query.ilike('omni_intake_sources.source_room_name', `%${filters.room.trim()}%`)
     if (filters.sender?.trim()) query = query.ilike('omni_intake_sources.source_sender_name', `%${filters.sender.trim()}%`)
+    if (filters.conversationType === 'hr_confirmation') query = query.eq('omni_intake_sources.conversation_type', 'hr')
     if (filters.fileKind && filters.fileKind !== 'all') {
       if (filters.fileKind === 'unknown') query = query.eq('omni_intake_sources.attachment_count', 0)
       else query = query.gt('omni_intake_sources.attachment_count', 0)

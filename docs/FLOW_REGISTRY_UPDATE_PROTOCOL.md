@@ -1,5 +1,29 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Intake Classification Gateway 6 Modules v1.0 — 23/8/2569
+
+- **เหตุผล:** ให้ Intake คัดแยก Web Chat/เอกสาร/สลิปเป็นโมดูลปลายทางด้วยกฎ deterministic, structured classifier และ policy gate ก่อนส่งต่อ
+- **ผลกระทบ:** `src/services/intakeClassificationGateway.ts`, local precision/recall fixture contract และเอกสาร Intake flow; ไม่เขียน Production และไม่เปลี่ยน schema
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** deterministic routing, low-confidence hold, duplicate idempotency, system-context, count reconciliation, typecheck/lint/build และ Local browser HR Pending
+- **Rollback:** หยุดเรียก gateway/ซ่อน filter classification ได้ โดยเก็บ raw/source และ audit เดิมไว้
+
+## ล่าสุด: HR Pending/Confirmation Bundle แยกจาก Document Queue v1.0 — 23/8/2569
+
+- **เหตุผล:** แยกข้อมูล Web Chat ที่เกี่ยวกับ HR ออกจากคิวสลิป/Accounting และไม่ถือว่าเป็น HR ที่ยืนยันแล้วจนกว่าจะผ่าน HR Confirmation Gate
+- **ผลกระทบ:** Document Flow มุมมอง `HR Confirmation`, local HR bundle fixture และ metadata gate candidate/system/duplicate/low-confidence; เก็บ raw/source/message ID และไม่เปลี่ยน schema หรือปลายทาง Production
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** Local fixture วันที่ 22–23/8/2569, filter HR Pending, bundle detail/4 gate groups, ESLint, typecheck และ build
+- **Rollback:** เอา `document_view=hr_confirmation` ออกจาก URL/ซ่อนตัวเลือกมุมมองได้ โดยไม่ลบ source, message หรือ audit
+
+## ล่าสุด: HR Intake Gate + Confirmation Bundle v1.0 — 23/8/2569
+
+- **เหตุผล:** เก็บ Web Chat Raw เป็น pending ก่อนคัด System/Daily Summary เป็น context, แยก duplicate/already-confirmed/not-HR/low-confidence และรวมเฉพาะ Candidate ที่ครบเป็นชุดตามบริษัท+ช่าง+วันที่ Bangkok+โครงการ
+- **ผลกระทบ:** เพิ่ม Raw/Gate event ledger และ count ก่อน/หลัง พร้อม source/reason/duplicate link; เพิ่ม bundle/item/event ledger, validation คู่เข้าออก/ชื่อ/โครงการ/เวลา/duplicate/conflict, manager Action ยืนยัน/ขอข้อมูลเพิ่ม/ปฏิเสธ/ปิด 100%, System Confirmation หนึ่งข้อความต่อ bundle และใช้ approval RPC เดิมเขียน attendance
+- **Migration:** `20260823060547_hr_confirmation_bundle.sql` local-only ระหว่างพัฒนา; ห้าม Apply Production จน local database fixture/RLS/runtime ผ่านและได้รับอนุมัติ
+- **การตรวจสอบ:** fixture Raw จำนวนมากเหลือเฉพาะ candidate, context/duplicate/already-confirmed/not-HR/low-confidence, bundle normal/missing/conflict/reject/idempotency/RLS, targeted/full tests, typecheck/lint/build และ Cloudflare read-only smoke ภายหลัง
+- **Rollback:** ปิด bundle trigger/RPC/UI และคืน individual confirmation projection; เก็บ ledger/audit และ attendance ที่บันทึกแล้ว ห้ามลบข้อมูลจริง
+
 ## ล่าสุด: Intake Local Test Fixture และ Filter Consistency v1.0 — 23/8/2569
 
 - **เหตุผล:** แก้กรณีจำนวนหัว Tab ไม่ตรงกับแถวตาราง และทำให้ทดสอบ Intake ใน Local ได้โดยไม่ปะปนข้อมูล Production
