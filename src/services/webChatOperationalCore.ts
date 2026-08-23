@@ -110,9 +110,10 @@ const firstMatch = (text: string, patterns: RegExp[]) => {
 const extractIds = (text: string) => ({
   advanceId: firstMatch(text, [/(ADV(?:ANCE)?[-_:#\s]*[A-Z0-9][A-Z0-9-]*)/i]),
   documentId: firstMatch(text, [/(DOC(?:UMENT)?[-_:#\s]*[A-Z0-9][A-Z0-9-]*)/i]),
-  attendanceId: firstMatch(text, [/(ATT(?:ENDANCE)?|REQ)[-_:#\s]*([A-Z0-9][A-Z0-9-]*)/i])
-    ? (text.match(/(ATT(?:ENDANCE)?|REQ)[-_:#\s]*([A-Z0-9][A-Z0-9-]*)/i)?.[0] ?? '').replace(/\s+/g, '-')
-    : null,
+  attendanceId: (() => {
+    const match = text.match(/(ATT(?:ENDANCE)?|REQ)[-_:#\s]*([A-Z0-9][A-Z0-9-]*)/i)
+    return match?.[0] ? match[0].replace(/\s+/g, '-') : null
+  })(),
 })
 
 const isSystemContext = (message: OperationalMessage, text: string) => {

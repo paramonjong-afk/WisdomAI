@@ -138,6 +138,15 @@ const systemFlows = [
     action: 'เปิด Web Chat',
   },
   {
+    title: 'Web Chat Operational Core',
+    version: 'Operational Core v1.0 · Local-first · 23/8/2569',
+    icon: <ChatBubbleOutlineOutlinedIcon color="primary" />,
+    summary: 'Task Card กลางต่อข้อความสำคัญ แยก Thread, Evidence, Owner, SLA และ Action มาตรฐาน โดยกัน System Result ไม่ให้วนเป็นงานใหม่',
+    bullets: ['อ่านจาก docs/WEB_CHAT_OPERATIONAL_CORE_FLOW.md', 'Task ID deterministic, Thread แยกตาม source message และเชื่อม Document/Advance/Attendance ID เมื่อพบ', 'Evidence Panel แสดงไฟล์/รูป, OCR, Source, Document ID และ Audit', 'Action: รับงาน, เริ่มทำ, ยืนยัน, ขอข้อมูล, ส่งกลับ, ส่งต่อ, จับคู่, ปิดงาน, ดูผลลัพธ์ พร้อม owner/role guard และ idempotency', 'Daily Summary แสดงรับเข้า/ส่งต่อ/ค้าง/ปิด/ซ้ำ/failed/unread/SLA; รุ่นนี้ local-first ไม่เขียนข้อมูลจริง'],
+    path: '/chat',
+    action: 'เปิด Web Chat Operational Core',
+  },
+  {
     title: 'ลงเวลา → Web Chat',
     version: 'Time Tracking v1.2 · 22/8/2569',
     icon: <TimerOutlinedIcon color="primary" />,
