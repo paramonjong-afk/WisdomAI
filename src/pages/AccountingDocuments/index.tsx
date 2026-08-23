@@ -533,6 +533,7 @@ export function AccountingDocumentsPage() {
       account_code: line.account_code, account_name: line.account_name,
       allocations: line.allocations,
     }))
+    let failureStage = 'ขั้นตอนบันทึกประเภทเอกสาร'
     try {
       await runAttempt('classify_accounting_document',{
         p_document_id: selected.id, p_document_type: documentType,
@@ -541,12 +542,14 @@ export function AccountingDocumentsPage() {
         p_document_id: selected.id, p_document_type: documentType,
         p_document_purpose: documentPurpose, p_apply_to_similar: applyToSimilar,
       }))
+      failureStage = 'ขั้นตอนบันทึกโครงการ หมวดต้นทุน หรือบัญชี'
       await runAttempt('save_accounting_document_classification',{
         p_document_id: selected.id, p_header: header, p_lines: payload,
       },()=>supabase.rpc('save_accounting_document_classification', {
         p_document_id: selected.id, p_header: header, p_lines: payload,
       }))
       if (confirmAfterSave) {
+        failureStage = 'ขั้นตอนยืนยันและสร้างรายการบัญชี'
         await runAttempt('confirm_accounting_document',{
           p_document_id: selected.id,
         },()=>supabase.rpc('confirm_accounting_document', { p_document_id: selected.id }))
@@ -555,7 +558,7 @@ export function AccountingDocumentsPage() {
         setSuccess('ยืนยันเอกสารและสร้างรายการบัญชีแยกตามโครงการเรียบร้อยแล้ว'); setSelected(null); await loadData()
       } else setSuccess('บันทึกโครงการ หมวดต้นทุน และการแบ่งยอดเรียบร้อยแล้ว')
     } catch (error) {
-      setError(`บันทึกเอกสารไม่สำเร็จ: ${userError(error)}`)
+      setError(`${failureStage}: ${userError(error)}`)
     } finally { setSaving(false) }
   }
 

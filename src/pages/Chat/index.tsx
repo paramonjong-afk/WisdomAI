@@ -330,6 +330,44 @@ type AttendanceApprovalJob = {
   created_at: string
 }
 
+type HrIntakeStatus = 'pending' | 'context' | 'duplicate' | 'already_confirmed' | 'not_hr' | 'low_confidence' | 'candidate' | 'needs_more_info' | 'rejected' | 'confirmed'
+type HrIntakeRawItem = {
+  id: string
+  source_channel: string
+  source_ref: string
+  room_id: string | null
+  status: HrIntakeStatus
+  content_snapshot: string | null
+  confidence: number | null
+  classification_reason: string | null
+  duplicate_of_id: string | null
+  bundle_id: string | null
+  created_at: string
+}
+type HrIntakeCounts = Record<HrIntakeStatus, number> & { raw_total: number }
+type HrConfirmationStatus = 'received' | 'under_review' | 'needs_more_info' | 'pending_approval' | 'approved' | 'recorded' | 'closed' | 'cancelled'
+type HrConfirmationBundle = {
+  id: string
+  employee_profile_id: string
+  work_date: string
+  project_id: string | null
+  status: HrConfirmationStatus
+  validation_summary: { employee_name?: string; item_count?: number; clock_in_at?: string; clock_out_at?: string; missing_fields?: string[]; conflicts?: string[] }
+  confirmation_status: string
+  decision_note: string | null
+  last_error: string | null
+  updated_at: string
+}
+
+const hrIntakeStatusLabel: Record<HrIntakeStatus, string> = {
+  pending: 'รอคัดกรอง', context: 'บริบท', duplicate: 'ข้อมูลซ้ำ', already_confirmed: 'ยืนยันแล้ว', not_hr: 'ไม่ใช่งาน HR',
+  low_confidence: 'ความมั่นใจต่ำ', candidate: 'รอยืนยันเข้า Bundle', needs_more_info: 'รอข้อมูลเพิ่ม', rejected: 'ปฏิเสธ', confirmed: 'เข้า Bundle แล้ว',
+}
+const hrBundleStatusLabel: Record<HrConfirmationStatus, string> = {
+  received: 'รับเข้า', under_review: 'รอตรวจ', needs_more_info: 'รอข้อมูลเพิ่ม', pending_approval: 'รออนุมัติ',
+  approved: 'อนุมัติแล้ว', recorded: 'บันทึกเวลาแล้ว', closed: 'ปิดงาน', cancelled: 'ยกเลิก',
+}
+
 const attendanceApprovalStatusLabel: Record<AttendanceApprovalStatus, string> = {
   detected: 'ตรวจพบข้อมูล',
   prechecked: 'ตรวจสอบเบื้องต้นแล้ว',
@@ -414,6 +452,10 @@ export function ChatPage() {
   const [attendanceApprovalJobs, setAttendanceApprovalJobs] = useState<AttendanceApprovalJob[]>([])
   const [attendanceApprovalCheckedAt, setAttendanceApprovalCheckedAt] = useState(0)
   const [attendanceApprovalBusyId, setAttendanceApprovalBusyId] = useState('')
+  const [hrIntakeItems, setHrIntakeItems] = useState<HrIntakeRawItem[]>([])
+  const [hrIntakeCounts, setHrIntakeCounts] = useState<HrIntakeCounts | null>(null)
+  const [hrConfirmationBundles, setHrConfirmationBundles] = useState<HrConfirmationBundle[]>([])
+  const [hrGateBusyId, setHrGateBusyId] = useState('')
   const [developmentTasks, setDevelopmentTasks] = useState<DevelopmentTask[]>([])
   const [developmentTasksCheckedAt, setDevelopmentTasksCheckedAt] = useState(0)
   const [developmentTaskBusyId, setDevelopmentTaskBusyId] = useState('')
@@ -445,6 +487,7 @@ export function ChatPage() {
   )
   const canProvisionProgramDevelopmentRoom = profile?.role === 'admin' && currentCompany?.company_role === 'company_admin'
   const isProgramDevelopmentRoom = selectedRoom?.room_key === 'program_development_primary'
+  const isHrRoom = selectedRoom?.room_key === 'hr_primary' || attendanceIntegrationRoomId === selectedRoom?.id
   const isProgramDevelopmentOwner = Boolean(
     isProgramDevelopmentRoom
       && canProvisionProgramDevelopmentRoom
@@ -1243,6 +1286,74 @@ export function ChatPage() {
     setAttendanceApprovalJobs((data ?? []) as AttendanceApprovalJob[])
     setAttendanceApprovalCheckedAt(Date.now())
   }, [setToast])
+
+  const loadHrIntakeGate = useCallback(async (roomId: string) => {
+    const room = roomsRef.current.find((item) => item.id === roomId)
+    if (room?.room_key !== 'hr_primary' && attendanceIntegrationRoomId !== roomId) {
+      setHrIntakeItems([])
+      setHrIntakeCounts(null)
+      setHrConfirmationBundles([])
+      return
+    }
+    const [countsResult, intakeResult, bundleResult] = await Promise.all([
+      supabase.rpc('hr_intake_gate_counts'),
+      supabase.from('hr_intake_raw_items')
+        .select('id,source_channel,source_ref,room_id,status,content_snapshot,confidence,classification_reason,duplicate_of_id,bundle_id,created_at')
+        .in('status', ['pending', 'candidate', 'low_confidence', 'needs_more_info', 'duplicate', 'already_confirmed'])
+        .order('created_at', { ascending: false }).limit(80),
+      supabase.from('hr_confirmation_bundles')
+        .select('id,employee_profile_id,work_date,project_id,status,validation_summary,confirmation_status,decision_note,last_error,updated_at')
+        .in('status', ['received', 'under_review', 'needs_more_info', 'pending_approval', 'approved', 'recorded'])
+        .order('updated_at', { ascending: false }).limit(40),
+    ])
+    const schemaMissing = [countsResult.error, intakeResult.error, bundleResult.error].find((error) => error?.code === '42P01' || error?.code === 'PGRST202')
+    if (schemaMissing) {
+      setHrIntakeItems([]); setHrIntakeCounts(null); setHrConfirmationBundles([])
+      return
+    }
+    const error = countsResult.error || intakeResult.error || bundleResult.error
+    if (error) {
+      setToast(userError(error), true)
+      return
+    }
+    setHrIntakeCounts((countsResult.data ?? null) as HrIntakeCounts | null)
+    setHrIntakeItems((intakeResult.data ?? []) as HrIntakeRawItem[])
+    setHrConfirmationBundles((bundleResult.data ?? []) as HrConfirmationBundle[])
+  }, [attendanceIntegrationRoomId, setToast])
+
+  const actHrIntakeItem = async (item: HrIntakeRawItem, action: 'confirm' | 'request_more' | 'reject') => {
+    if (!canManageCompany || !selectedRoom || hrGateBusyId) return
+    const reason = action === 'confirm' ? 'HR ยืนยัน Candidate เข้า Confirmation Bundle'
+      : window.prompt(action === 'request_more' ? 'ระบุข้อมูลที่ต้องการเพิ่ม' : 'ระบุเหตุผลที่ปฏิเสธ')
+    if (!reason?.trim()) return
+    setHrGateBusyId(item.id)
+    try {
+      const { error } = await supabase.rpc('act_hr_intake_item', {
+        target_raw_item_id: item.id, target_action: action, target_reason: reason.trim(), target_action_key: crypto.randomUUID(),
+      })
+      if (error) throw error
+      setToast(action === 'confirm' ? 'ยืนยัน Candidate เข้า Bundle แล้ว' : action === 'request_more' ? 'ส่งกลับเพื่อขอข้อมูลเพิ่มแล้ว' : 'ปฏิเสธรายการแล้ว', true)
+      await loadHrIntakeGate(selectedRoom.id)
+    } catch (error) { setToast(userError(error), true) } finally { setHrGateBusyId('') }
+  }
+
+  const actHrConfirmationBundle = async (bundle: HrConfirmationBundle, action: 'confirm' | 'request_more' | 'reject' | 'close') => {
+    if (!canManageCompany || !selectedRoom || hrGateBusyId) return
+    const reason = action === 'request_more' || action === 'reject'
+      ? window.prompt(action === 'request_more' ? 'ระบุข้อมูลที่ต้องการเพิ่ม' : 'ระบุเหตุผลที่ปฏิเสธ') : null
+    if ((action === 'request_more' || action === 'reject') && !reason?.trim()) return
+    setHrGateBusyId(bundle.id)
+    try {
+      const { data, error } = await supabase.rpc('act_hr_confirmation_bundle', {
+        target_bundle_id: bundle.id, target_action: action, target_reason: reason?.trim() || null, target_action_key: crypto.randomUUID(),
+      })
+      if (error) throw error
+      const updated = data as HrConfirmationBundle
+      if (updated.last_error) throw new Error(updated.last_error)
+      setToast(action === 'close' ? 'ตรวจครบและปิด Bundle 100% แล้ว' : hrBundleStatusLabel[updated.status], true)
+      await Promise.all([loadHrIntakeGate(selectedRoom.id), loadMessages(selectedRoom.id)])
+    } catch (error) { setToast(userError(error), true) } finally { setHrGateBusyId('') }
+  }
 
   const loadDevelopmentTasks = useCallback(async (roomId: string) => {
     const room = roomsRef.current.find((item) => item.id === roomId)
@@ -2081,6 +2192,9 @@ export function ChatPage() {
     setRoomMembers([])
     setMessages([])
     setAttendanceIntegrationRoomId(null)
+    setHrIntakeItems([])
+    setHrIntakeCounts(null)
+    setHrConfirmationBundles([])
     setDevelopmentTasks([])
     setDevelopmentTasksCheckedAt(0)
     setDevelopmentResultTask(null)
@@ -2106,13 +2220,14 @@ export function ChatPage() {
     const timer = window.setTimeout(() => {
       void loadRoomMembers(selectedRoomId)
       void loadAttendanceApprovalJobs(selectedRoomId)
+      void loadHrIntakeGate(selectedRoomId)
       void loadDevelopmentTasks(selectedRoomId)
       void loadMessages(selectedRoomId).then((loaded) => {
         if (loaded) void markRoomRead(selectedRoomId)
       })
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [loadAttendanceApprovalJobs, loadDevelopmentTasks, loadMessages, loadRoomMembers, markRoomRead, selectedRoomId])
+  }, [loadAttendanceApprovalJobs, loadDevelopmentTasks, loadHrIntakeGate, loadMessages, loadRoomMembers, markRoomRead, selectedRoomId])
 
   useEffect(() => {
     scrollToBottom()
@@ -2549,7 +2664,67 @@ export function ChatPage() {
                     </CardContent>
                   </Card>
                 )}
-                {attendanceIntegrationRoomId === selectedRoom.id && attendanceApprovalJobs.length > 0 && (
+                {isHrRoom && (hrIntakeCounts || hrIntakeItems.length > 0 || hrConfirmationBundles.length > 0) && (
+                  <Card variant="outlined" sx={{ mb: 1, borderColor: 'info.main' }}>
+                    <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
+                      <Stack spacing={1}>
+                        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>HR Intake Gate</Typography>
+                          {hrIntakeCounts && <Chip size="small" label={`ข้อมูลเข้าทั้งหมด ${hrIntakeCounts.raw_total}`} />}
+                          {hrIntakeCounts && <Chip size="small" color="warning" label={`รอคัด ${hrIntakeCounts.pending + hrIntakeCounts.low_confidence}`} />}
+                          {hrIntakeCounts && <Chip size="small" color="success" label={`ต้องยืนยัน ${hrIntakeCounts.candidate}`} />}
+                          {hrIntakeCounts && <Chip size="small" variant="outlined" label={`บริบท/ซ้ำ/ยืนยันแล้ว ${hrIntakeCounts.context + hrIntakeCounts.duplicate + hrIntakeCounts.already_confirmed}`} />}
+                        </Stack>
+                        <Typography variant="caption" color="text.secondary">Raw ไม่ถูกลบ · System/Daily Summary เป็นบริบท · รายการซ้ำไม่สร้าง Job ใหม่</Typography>
+                        {hrIntakeItems.map((item) => (
+                          <Paper key={item.id} variant="outlined" sx={{ p: 1, bgcolor: 'action.hover' }}>
+                            <Stack spacing={0.55}>
+                              <Stack direction="row" spacing={0.6} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                                <Chip size="small" color={item.status === 'candidate' ? 'success' : item.status === 'low_confidence' ? 'warning' : 'default'} label={hrIntakeStatusLabel[item.status]} />
+                                <Typography variant="caption">{item.source_channel} · Ref {item.source_ref}</Typography>
+                                {item.confidence != null && <Chip size="small" variant="outlined" label={`มั่นใจ ${Math.round(item.confidence * 100)}%`} />}
+                              </Stack>
+                              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{item.content_snapshot || '(ไม่มีข้อความ)'}</Typography>
+                              <Typography variant="caption" color="text.secondary">เหตุผล: {item.classification_reason || 'รอระบบคัดกรอง'}{item.duplicate_of_id ? ` · ซ้ำกับ ${item.duplicate_of_id}` : ''}{item.bundle_id ? ` · Bundle ${item.bundle_id}` : ''}</Typography>
+                              {canManageCompany && ['candidate', 'low_confidence', 'needs_more_info'].includes(item.status) && (
+                                <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
+                                  {item.status === 'candidate' && <Button size="small" variant="contained" disabled={hrGateBusyId === item.id} onClick={() => void actHrIntakeItem(item, 'confirm')}>ยืนยันเข้า Bundle</Button>}
+                                  <Button size="small" variant="outlined" disabled={hrGateBusyId === item.id} onClick={() => void actHrIntakeItem(item, 'request_more')}>ขอข้อมูลเพิ่ม</Button>
+                                  <Button size="small" color="error" disabled={hrGateBusyId === item.id} onClick={() => void actHrIntakeItem(item, 'reject')}>ปฏิเสธ</Button>
+                                </Stack>
+                              )}
+                            </Stack>
+                          </Paper>
+                        ))}
+                        {hrConfirmationBundles.length > 0 && <Divider><Chip size="small" label={`Confirmation Bundle ${hrConfirmationBundles.length}`} /></Divider>}
+                        {hrConfirmationBundles.map((bundle) => {
+                          const missing = bundle.validation_summary?.missing_fields ?? []
+                          const conflicts = bundle.validation_summary?.conflicts ?? []
+                          const employeeName = bundle.validation_summary?.employee_name || labelFromProfile(profileNameMap.get(bundle.employee_profile_id), bundle.employee_profile_id)
+                          return <Paper key={bundle.id} variant="outlined" sx={{ p: 1 }}>
+                            <Stack spacing={0.6}>
+                              <Stack direction="row" spacing={0.6} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                                <Typography variant="body2" sx={{ fontWeight: 900 }}>{employeeName} · {bundle.work_date}</Typography>
+                                <Chip size="small" color={bundle.status === 'pending_approval' ? 'warning' : bundle.status === 'recorded' ? 'success' : 'default'} label={hrBundleStatusLabel[bundle.status]} />
+                                <Chip size="small" variant="outlined" label={`${bundle.validation_summary?.item_count ?? 0} รายการ`} />
+                              </Stack>
+                              <Typography variant="caption" color="text.secondary">เข้า {bundle.validation_summary?.clock_in_at || '-'} · ออก {bundle.validation_summary?.clock_out_at || '-'} · อัปเดต {formatTime(bundle.updated_at)}</Typography>
+                              {(missing.length > 0 || conflicts.length > 0) && <Alert severity="warning">ข้อมูลขาด: {missing.join(', ') || '-'} · ขัดแย้ง: {conflicts.join(', ') || '-'}</Alert>}
+                              {bundle.last_error && <Alert severity="error">{bundle.last_error}</Alert>}
+                              {canManageCompany && bundle.status === 'pending_approval' && <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
+                                <Button size="small" variant="contained" disabled={hrGateBusyId === bundle.id} onClick={() => void actHrConfirmationBundle(bundle, 'confirm')}>ยืนยันและบันทึกเวลา</Button>
+                                <Button size="small" variant="outlined" disabled={hrGateBusyId === bundle.id} onClick={() => void actHrConfirmationBundle(bundle, 'request_more')}>ขอข้อมูลเพิ่ม</Button>
+                                <Button size="small" color="error" disabled={hrGateBusyId === bundle.id} onClick={() => void actHrConfirmationBundle(bundle, 'reject')}>ปฏิเสธ</Button>
+                              </Stack>}
+                              {canManageCompany && bundle.status === 'recorded' && <Button size="small" color="success" variant="contained" disabled={hrGateBusyId === bundle.id} onClick={() => void actHrConfirmationBundle(bundle, 'close')}>ตรวจครบและปิด Job 100%</Button>}
+                            </Stack>
+                          </Paper>
+                        })}
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                )}
+                {attendanceIntegrationRoomId === selectedRoom.id && !hrIntakeCounts && hrConfirmationBundles.length === 0 && attendanceApprovalJobs.length > 0 && (
                   <Stack spacing={0.75} sx={{ mb: 1 }}>
                     {attendanceApprovalJobs.map((job) => {
                       const missing = job.validation_result?.missing_fields ?? []

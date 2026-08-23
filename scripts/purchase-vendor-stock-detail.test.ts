@@ -14,6 +14,6 @@ assert.match(page, /label="ชื่อผู้ขายจริง"/)
 assert.match(page, /บันทึกผู้ขาย/)
 assert.match(page, /บันทึกสินค้า\/Stock/)
 assert.match(page, /line\.item_type==='stock'\?'รับเข้า Stock':'ต้นทุนตรง ไม่เข้า Stock'/)
-assert.match(page, /p_quantity:Number\(line\.quantity\?\?0\)/)
+assert.match(page, /p_quantity:\s*Number\(line\.quantity\s*\?\?\s*0\)/)
 
 console.log('purchase vendor and stock detail correction tests passed')

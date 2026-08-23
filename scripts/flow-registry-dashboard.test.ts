@@ -7,21 +7,44 @@ assert.match(page, /รับเข้าวันนี้/)
 assert.match(page, /เส้นทางงานจริง/)
 assert.match(page, /Exception Lane/)
 assert.match(page, /Auto refresh 30s/)
+assert.match(page, /window\.setInterval\(\(\) => void load\(\), 30000\)/)
+assert.match(page, /window\.clearInterval\(timer\)/)
+assert.match(page, /direction=\{\{ xs: 'column', md: 'row' \}\}/)
+assert.match(page, /minWidth: \{ xs: '100%', md: 120 \}/)
 assert.match(page, /Drill-down/)
+assert.match(page, /Detail \/ Audit/)
 assert.match(gateway, /omni_intake_sources/)
 assert.match(gateway, /chat_attendance_approval_jobs/)
 assert.match(gateway, /employee_advance_cases/)
 assert.match(gateway, /sourceWarnings/)
 assert.match(gateway, /created_at/)
 
-type RouteRecord = { module: 'omni' | 'attendance' | 'advance'; stage: string; status: 'open' | 'waiting' | 'error' | 'closed' }
+type RouteRecord = {
+  module: 'omni' | 'attendance' | 'advance'
+  stage: string
+  status: 'open' | 'waiting' | 'error' | 'closed'
+  destination: string
+  forwarded: boolean
+  owner: string
+  auditAction: string
+  detailPath: string
+}
 const closed = (record: RouteRecord) => record.status === 'closed' || record.stage === 'ปิดงาน'
 const sample: RouteRecord[] = [
-  { module: 'omni', stage: 'Filter', status: 'waiting' },
-  { module: 'attendance', stage: 'อนุมัติ/บันทึก', status: 'error' },
-  { module: 'advance', stage: 'ปิดงาน', status: 'closed' },
+  { module: 'omni', stage: 'Filter', status: 'waiting', destination: 'บัญชี', forwarded: false, owner: 'reviewer-1', auditAction: 'filter_reviewed', detailPath: '/document-flows/omni-1' },
+  { module: 'attendance', stage: 'อนุมัติ/บันทึก', status: 'error', destination: 'HR', forwarded: true, owner: 'hr-1', auditAction: 'approval_failed', detailPath: '/attendance/approval-1' },
+  { module: 'advance', stage: 'ปิดงาน', status: 'closed', destination: 'เงินสำรองจ่าย', forwarded: true, owner: 'finance-1', auditAction: 'closed', detailPath: '/advance-settlements/advance-1' },
 ]
-assert.equal(sample.filter((record) => !closed(record)).length, 2)
-assert.equal(sample.filter(closed).length, 1)
+assert.equal(sample.length, 3, 'fixture should represent three incoming records')
+assert.equal(sample.filter((record) => !closed(record)).length, 2, 'open plus waiting/error records should remain pending')
+assert.equal(sample.filter((record) => closed(record)).length, 1, 'closed record should be counted separately')
+assert.equal(sample.filter((record) => record.forwarded).length, 2, 'forwarded records should be counted separately')
+assert.equal(sample.filter((record) => record.status === 'error').length, 1, 'error should remain in the active queue')
+assert.deepEqual([...new Set(sample.map((record) => record.destination))].sort(), ['HR', 'บัญชี', 'เงินสำรองจ่าย'].sort(), 'destination lane should preserve real destinations')
+assert.deepEqual(sample.map((record) => ({ owner: record.owner, auditAction: record.auditAction, detailPath: record.detailPath })), [
+  { owner: 'reviewer-1', auditAction: 'filter_reviewed', detailPath: '/document-flows/omni-1' },
+  { owner: 'hr-1', auditAction: 'approval_failed', detailPath: '/attendance/approval-1' },
+  { owner: 'finance-1', auditAction: 'closed', detailPath: '/advance-settlements/advance-1' },
+], 'drill-down fixture should expose owner, audit action, and detail path')
 
 console.log('flow registry dashboard contract tests passed: source-backed metrics, filters, drill-down, refresh and exception lane')

@@ -33,6 +33,7 @@ const ContractorsPage = lazyWithReload(() => import('../pages/Contractors').then
 const ApprovalsPage = lazyWithReload(() => import('../pages/Approvals').then((module) => ({ default: module.ApprovalsPage })))
 const NotificationsPage = lazyWithReload(() => import('../pages/Notifications').then((module) => ({ default: module.NotificationsPage })))
 const ReportsPage = lazyWithReload(() => import('../pages/Reports').then((module) => ({ default: module.ReportsPage })))
+const AdvancePaymentReportPage = lazyWithReload(() => import('../pages/Reports/AdvancePaymentReport').then((module) => ({ default: module.AdvancePaymentReportPage })))
 const ImageReviewPage = lazyWithReload(() => import('../pages/ImageReview').then((module) => ({ default: module.ImageReviewPage })))
 const ResetPasswordPage = lazyWithReload(() => import('../pages/ResetPassword').then((module) => ({ default: module.ResetPasswordPage })))
 const SystemHealthPage = lazyWithReload(() => import('../pages/SystemHealth').then((module) => ({ default: module.SystemHealthPage })))
@@ -88,6 +89,7 @@ export const router = createBrowserRouter([
               { path: 'approvals', element: managerOnly(<ApprovalsPage />) },
               { path: 'notifications', element: deferred(<NotificationsPage />) },
               { path: 'reports', element: managerOnly(<ReportsPage />) },
+              { path: 'advance-payment-report', element: managerOnly(<AdvancePaymentReportPage />) },
               { path: 'image-review', element: managerOnly(<ImageReviewPage />) },
               { path: 'document-flows', element: managerOnly(<DocumentFlowsPage />) },
               { path: 'document-flows/intake-room', element: <Navigate to="/document-flows" replace /> },

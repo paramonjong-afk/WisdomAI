@@ -11,7 +11,7 @@ import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
 import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 import { userError } from '../../utils/userError'
-import { defaultWorkTimeDisplaySettings, type WorkTimeDisplaySettings } from '../../utils/timeDisplay'
+import { defaultWorkTimeDisplaySettings, formatWorkTime, type WorkTimeDisplaySettings } from '../../utils/timeDisplay'
 import { calculateEffectiveWorkday, type WorkdayOverrideMode } from '../../utils/wageDay'
 import { calculateHolidayWage } from '../../utils/holidayWage'
 import { RealtimePayrollForecast } from './RealtimePayrollForecast'
@@ -457,6 +457,10 @@ export function ReportsPage(){
   const totalGrossPay=payrollSummaryRows.reduce((sum,row)=>sum+row.grossPay,0)
   const totalAdvanceDeduction=payrollSummaryRows.reduce((sum,row)=>sum+row.advanceDeduction,0)
   const totalEstimatedPay=payrollSummaryRows.reduce((sum,row)=>sum+row.estimatedPay,0)
+  const renderWorkTime=(minutes:number|null|undefined)=>{
+    const formatted=formatWorkTime(minutes,timeDisplaySettings)
+    return <Stack spacing={.1}><Typography variant="body2">{formatted.primary}</Typography>{formatted.secondary&&<Typography variant="caption" color="text.secondary">{formatted.secondary}</Typography>}</Stack>
+  }
   const summaryPolicy=employmentPolicies.find(item=>item.profile_id===summaryTarget?.id),summaryWorkPolicy=workPolicies.find(item=>item.id===summaryPolicy?.work_policy_id)??workPolicies[0]
   const summaryPayrolls=payrolls.filter(item=>item.profile_id===summaryTarget?.id)
   const summaryHasPayroll=summaryPayrolls.length>0
@@ -643,6 +647,7 @@ export function ReportsPage(){
         {id:'type',label:'ประเภท',render:r=>employmentTypeLabel[r.employmentType]??r.employmentType},
         {id:'effective',label:'ช่วงมีผล',render:r=><Stack spacing={.25}><Typography variant="body2">{r.effectiveLabel}</Typography>{r.lastWorkingOn&&<Typography variant="caption" color="text.secondary">วันสุดท้าย {new Date(`${r.lastWorkingOn}T12:00:00+07:00`).toLocaleDateString('th-TH')}</Typography>}</Stack>,exportValue:r=>r.effectiveLabel},
         {id:'netDays',label:'วันสุทธิ',render:r=><Button onClick={()=>openEmployeeSummary(r,true)}><b>{r.netDays>0?`${r.netDays.toLocaleString('th-TH',{maximumFractionDigits:2})} วัน`:'-'}</b></Button>,exportValue:r=>r.netDays?`${r.netDays} วัน`:'-'},
+        {id:'workedAverage',label:'เวลาทำงาน / เฉลี่ย/วัน',render:r=><Stack spacing={.25}>{renderWorkTime(r.worked)}<Typography variant="caption" color="text.secondary">เฉลี่ย/วัน {r.days?formatWorkTime(r.worked/r.days,timeDisplaySettings).primary:'-'}</Typography></Stack>,exportValue:r=>`${formatWorkTime(r.worked,timeDisplaySettings).primary} · เฉลี่ย/วัน ${r.days?formatWorkTime(r.worked/r.days,timeDisplaySettings).primary:'-'}`},
         {id:'review',label:'รอตรวจ',render:r=>r.open>0?<Chip size="small" color="warning" label={`${r.open} รายการ`}/>:r.status==='รอตรวจ'?<Chip size="small" color="warning" label="รอตรวจ"/>:'-',exportValue:r=>r.open>0?`${r.open} รายการ`:r.status==='รอตรวจ'?'รอตรวจ':'-'},
         {id:'gross',label:'รายได้รวม',render:r=><Typography sx={{fontWeight:700}}>{optionalMoney(r.grossPay)}</Typography>,exportValue:r=>optionalMoney(r.grossPay)},
         {id:'deduct',label:'เบิก/หัก',render:r=>optionalMoney(r.advanceDeduction),exportValue:r=>optionalMoney(r.advanceDeduction)},
@@ -665,7 +670,7 @@ export function ReportsPage(){
       {id:'site',label:'ไซต์',render:(r)=>`${r.project_sites?.projects?.name??''} ${r.project_sites?.name??'-'}`},
       {id:'time',label:'เวลาจริง / กะ',render:(r)=><Stack spacing={.25}><Typography variant="body2">จริง {new Date(r.clock_in_at).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})} – {r.clock_out_at?new Date(r.clock_out_at).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'}):'-'}</Typography><Typography variant="caption" color="text.secondary">กะ {r.scheduled_start_at?new Date(r.scheduled_start_at).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'}):'-'} – {r.scheduled_end_at?new Date(r.scheduled_end_at).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'}):'-'}</Typography></Stack>},
       {id:'early',label:'มาก่อน / OT ก่อนกะ / ไม่นับ',render:(r)=><Stack spacing={.25}><Typography variant="body2">{duration(r.early_arrival_minutes)}</Typography><Typography variant="caption" color="success.main">OT {duration(r.pre_shift_overtime_minutes)}</Typography><Typography variant="caption" color="text.secondary">ไม่นับ {duration(r.excluded_minutes)}</Typography></Stack>},
-      {id:'worked',label:'ทำงานจริง',render:(r)=>duration(r.worked_minutes)},{id:'normal',label:'ปกติ',render:(r)=>duration(r.normal_minutes)},{id:'outside',label:'นอกตาราง',render:(r)=>duration(Math.max(0,Number(r.worked_minutes??0)-Number(r.normal_minutes??0)))},
+      {id:'worked',label:'ทำงานจริง',render:(r)=>renderWorkTime(r.worked_minutes)},{id:'normal',label:'ปกติ',render:(r)=>renderWorkTime(r.normal_minutes)},{id:'outside',label:'นอกตาราง',render:(r)=>duration(Math.max(0,Number(r.worked_minutes??0)-Number(r.normal_minutes??0)))},
       {id:'ot',label:'OT อนุมัติ',render:(r)=>duration(r.overtime_minutes)},
       {id:'late',label:'สาย/ออกก่อน',render:(r)=>`${r.late_minutes}/${r.early_leave_minutes} นาที`},
       {id:'status',label:'สถานะ',render:(r)=>r.status},
@@ -751,7 +756,7 @@ export function ReportsPage(){
       {id:'otherSite',label:'ทำที่อื่น',render:r=><Typography color={r.otherSiteDays?'info.main':'text.primary'} sx={{fontWeight:r.otherSiteDays?700:400}}>{r.otherSiteDays} วัน</Typography>},
       {id:'leave',label:'ลา',render:r=>`${r.leaveDays} วัน`},
       {id:'missing',label:'ไม่พบเวลา',render:r=><Typography color={r.missingDays?'error.main':'success.main'} sx={{fontWeight:700}}>{r.missingDays} วัน</Typography>},
-      {id:'worked',label:'ทำงานจริง',render:r=>duration(r.workedMinutes)},
+      {id:'worked',label:'ทำงานจริง',render:r=>renderWorkTime(r.workedMinutes)},
       {id:'employment',label:'ประเภท / นโยบายเวลา',render:r=><Stack><Typography variant="body2">{employmentTypeLabel[r.employmentType]??r.employmentType}</Typography><Typography variant="caption" color="text.secondary">{attendancePolicyLabel[r.attendancePolicy]??r.attendancePolicy}</Typography></Stack>},
       {id:'employeePay',label:'เงินสุทธิงวดนี้ / ประมาณการ',render:r=>r.employeePay.toLocaleString('th-TH',{style:'currency',currency:'THB'})},
       {id:'allocation',label:'วิธีคำนวณ',render:r=><Stack><Typography variant="body2">{r.allocationLabel}</Typography>{r.employmentType==='monthly'&&r.attendancePolicy!=='exempt'&&<Typography variant="caption" color="text.secondary">ผ่านตรวจ {duration(r.verifiedMinutes)} / มาตรฐาน {duration(r.standardMinutes)}</Typography>}</Stack>},

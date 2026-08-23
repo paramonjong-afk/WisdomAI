@@ -36,6 +36,7 @@ export const navigationGroups:NavigationGroup[]=[
     {label:'ทะเบียนผู้ถือเงินสำรองจ่าย',path:'/advance-holders',roles:managers},
     {label:'เอกสารบัญชี',path:'/accounting-documents',roles:managers},
     {label:'เงินทดรองและปิดยอด',path:'/advance-settlements',roles:managers},
+    {label:'รายงานเงินสำรองจ่ายช่าง',path:'/advance-payment-report',roles:managers},
   ]},
   {label:'ระบบอื่น',items:[
     {label:'Solar',path:'/solar',roles:managers},
