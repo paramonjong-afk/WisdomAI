@@ -1,5 +1,6 @@
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined'
 import AccessTimeOutlinedIcon from '@mui/icons-material/AccessTimeOutlined'
+import CheckCircleOutlineOutlinedIcon from '@mui/icons-material/CheckCircleOutlineOutlined'
 import ArrowBackOutlinedIcon from '@mui/icons-material/ArrowBackOutlined'
 import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined'
 import CallEndOutlinedIcon from '@mui/icons-material/CallEndOutlined'
@@ -15,6 +16,10 @@ import MyLocationOutlinedIcon from '@mui/icons-material/MyLocationOutlined'
 import MenuOutlinedIcon from '@mui/icons-material/MenuOutlined'
 import PersonRemoveOutlinedIcon from '@mui/icons-material/PersonRemoveOutlined'
 import SendOutlinedIcon from '@mui/icons-material/SendOutlined'
+import ForwardToInboxOutlinedIcon from '@mui/icons-material/ForwardToInboxOutlined'
+import HelpOutlineOutlinedIcon from '@mui/icons-material/HelpOutlineOutlined'
+import PlayArrowOutlinedIcon from '@mui/icons-material/PlayArrowOutlined'
+import TaskAltOutlinedIcon from '@mui/icons-material/TaskAltOutlined'
 import {
   Alert,
   Avatar,
@@ -269,6 +274,38 @@ const isChatImageAttachment = (contentType: string | null | undefined) => {
   return Boolean(contentType?.trim().toLowerCase().startsWith('image/'))
 }
 
+type DevelopmentTaskStatus = 'received' | 'in_progress' | 'waiting_review' | 'completed' | 'blocked'
+type DevelopmentTaskDispatch = {
+  id: string
+  task_id: string
+  target: 'codex' | 'developer_queue'
+  status: 'queued' | 'sent' | 'failed'
+  retry_count: number
+  last_error: string | null
+  updated_at: string
+}
+type DevelopmentTask = {
+  id: string
+  company_id: string
+  room_id: string
+  source_message_id: string
+  task_code: string
+  request_text: string
+  intent: string
+  status: DevelopmentTaskStatus
+  owner_profile_id: string
+  result_summary: string | null
+  files: unknown
+  commit_ref: string | null
+  test_result: string | null
+  build_result: string | null
+  deploy_result: string | null
+  blocker: string | null
+  created_at: string
+  updated_at: string
+  dispatches: DevelopmentTaskDispatch[]
+}
+
 type AttendanceApprovalStatus = 'detected' | 'prechecked' | 'pending_approval' | 'approved' | 'recorded' | 'needs_more_info' | 'rejected' | 'closed'
 
 type AttendanceApprovalJob = {
@@ -302,6 +339,22 @@ const attendanceApprovalStatusLabel: Record<AttendanceApprovalStatus, string> = 
   needs_more_info: 'รอข้อมูลเพิ่ม',
   rejected: 'Reject — Job ยังเปิด',
   closed: 'ปิด Job 100%',
+}
+
+const developmentTaskStatusLabel: Record<DevelopmentTaskStatus, string> = {
+  received: 'รับคำสั่ง',
+  in_progress: 'กำลังทำ',
+  waiting_review: 'รอตรวจ/รอข้อมูล',
+  completed: 'เสร็จ',
+  blocked: 'ติด Blocker',
+}
+
+const developmentTaskStatusColor: Record<DevelopmentTaskStatus, 'default' | 'info' | 'warning' | 'success' | 'error'> = {
+  received: 'info',
+  in_progress: 'warning',
+  waiting_review: 'warning',
+  completed: 'success',
+  blocked: 'error',
 }
 
 const labelFromProfile = (profile: RoomMemberProfile | null | undefined, fallbackId = '-') => {
@@ -361,6 +414,10 @@ export function ChatPage() {
   const [attendanceApprovalJobs, setAttendanceApprovalJobs] = useState<AttendanceApprovalJob[]>([])
   const [attendanceApprovalCheckedAt, setAttendanceApprovalCheckedAt] = useState(0)
   const [attendanceApprovalBusyId, setAttendanceApprovalBusyId] = useState('')
+  const [developmentTasks, setDevelopmentTasks] = useState<DevelopmentTask[]>([])
+  const [developmentTasksCheckedAt, setDevelopmentTasksCheckedAt] = useState(0)
+  const [developmentTaskBusyId, setDevelopmentTaskBusyId] = useState('')
+  const [developmentResultTask, setDevelopmentResultTask] = useState<DevelopmentTask | null>(null)
   const [voiceListening, setVoiceListening] = useState(false)
   const [pendingAttachment, setPendingAttachment] = useState<File | null>(null)
   const [isDragActive, setIsDragActive] = useState(false)
@@ -387,12 +444,19 @@ export function ChatPage() {
     [profile?.role, currentCompany?.company_role],
   )
   const canProvisionProgramDevelopmentRoom = profile?.role === 'admin' && currentCompany?.company_role === 'company_admin'
+  const isProgramDevelopmentRoom = selectedRoom?.room_key === 'program_development_primary'
+  const isProgramDevelopmentOwner = Boolean(
+    isProgramDevelopmentRoom
+      && canProvisionProgramDevelopmentRoom
+      && selectedRoom?.created_by === activeProfileId,
+  )
 
   const canManageThisRoom = useMemo(() => {
     if (!selectedRoom) return false
+    if (selectedRoom.room_key === 'program_development_primary') return isProgramDevelopmentOwner
     if (canManageCompany) return true
     return roomMembers.some((member) => member.profile_id === activeProfileId && member.member_role === 'owner')
-  }, [activeProfileId, canManageCompany, roomMembers, selectedRoom])
+  }, [activeProfileId, canManageCompany, isProgramDevelopmentOwner, roomMembers, selectedRoom])
 
   const profileNameMap = useMemo(() => {
     const map = new Map<string, RoomMemberProfile>()
@@ -421,6 +485,7 @@ export function ChatPage() {
     }
   }, [roomSelectionStorageKey])
   const canSend = !!selectedRoomId && !!selectedRoom && !!companyId && !!activeProfileId && !busy
+    && (!isProgramDevelopmentRoom || isProgramDevelopmentOwner)
   const presenceLabel = presenceConnection === 'online'
     ? 'คุณออนไลน์'
     : presenceConnection === 'connecting' ? 'กำลังเชื่อมต่อ' : 'ออฟไลน์'
@@ -1179,6 +1244,90 @@ export function ChatPage() {
     setAttendanceApprovalCheckedAt(Date.now())
   }, [setToast])
 
+  const loadDevelopmentTasks = useCallback(async (roomId: string) => {
+    const room = roomsRef.current.find((item) => item.id === roomId)
+    if (room?.room_key !== 'program_development_primary') {
+      setDevelopmentTasks([])
+      setDevelopmentTasksCheckedAt(0)
+      return
+    }
+    const { data, error } = await supabase
+      .from('development_tasks')
+      .select('id,company_id,room_id,source_message_id,task_code,request_text,intent,status,owner_profile_id,result_summary,files,commit_ref,test_result,build_result,deploy_result,blocker,created_at,updated_at')
+      .eq('room_id', roomId)
+      .order('created_at', { ascending: false })
+      .limit(50)
+    if (error) {
+      setDevelopmentTasks([])
+      if (error.code !== '42P01') setToast(userError(error), true)
+      return
+    }
+    const rows = (data ?? []) as DevelopmentTask[]
+    const ids = rows.map((task) => task.id)
+    let dispatches: DevelopmentTaskDispatch[] = []
+    if (ids.length > 0) {
+      const dispatchResult = await supabase
+        .from('development_task_dispatches')
+        .select('id,task_id,target,status,retry_count,last_error,updated_at')
+        .in('task_id', ids)
+        .order('updated_at', { ascending: false })
+      if (!dispatchResult.error) dispatches = (dispatchResult.data ?? []) as DevelopmentTaskDispatch[]
+    }
+    const dispatchMap = new Map<string, DevelopmentTaskDispatch[]>()
+    dispatches.forEach((dispatch) => {
+      const current = dispatchMap.get(dispatch.task_id) ?? []
+      current.push(dispatch)
+      dispatchMap.set(dispatch.task_id, current)
+    })
+    setDevelopmentTasks(rows.map((task) => ({ ...task, dispatches: dispatchMap.get(task.id) ?? [] })))
+    setDevelopmentTasksCheckedAt(Date.now())
+  }, [setToast])
+
+  const transitionDevelopmentTask = async (task: DevelopmentTask, targetStatus: DevelopmentTaskStatus) => {
+    if (!isProgramDevelopmentOwner || !selectedRoom || developmentTaskBusyId) return
+    let resultSummary: string | null = null
+    if (targetStatus === 'waiting_review') {
+      resultSummary = window.prompt('ระบุข้อมูลที่ต้องการเพิ่ม (ถ้ามี)')
+      if (resultSummary === null) return
+    } else if (targetStatus === 'completed') {
+      resultSummary = window.prompt('สรุปผลการปิดงาน (ถ้ามี)')
+      if (resultSummary === null) return
+    }
+    setDevelopmentTaskBusyId(task.id)
+    try {
+      const { error } = await supabase.rpc('transition_program_development_task', {
+        target_task_id: task.id,
+        target_status: targetStatus,
+        target_result_summary: resultSummary || null,
+      })
+      if (error) throw error
+      setToast(`อัปเดต ${task.task_code} เป็น ${developmentTaskStatusLabel[targetStatus]} แล้ว`, true)
+      await loadDevelopmentTasks(selectedRoom.id)
+    } catch (error) {
+      setToast(userError(error), true)
+    } finally {
+      setDevelopmentTaskBusyId('')
+    }
+  }
+
+  const dispatchDevelopmentTask = async (task: DevelopmentTask, target: 'codex' | 'developer_queue') => {
+    if (!isProgramDevelopmentOwner || !selectedRoom || developmentTaskBusyId) return
+    setDevelopmentTaskBusyId(task.id)
+    try {
+      const { error } = await supabase.rpc('dispatch_program_development_task', {
+        target_task_id: task.id,
+        target_target: target,
+      })
+      if (error) throw error
+      setToast(`ส่งต่อ ${task.task_code} ไปยัง ${target === 'codex' ? 'Codex' : 'Module'} แล้ว`, true)
+      await loadDevelopmentTasks(selectedRoom.id)
+    } catch (error) {
+      setToast(userError(error), true)
+    } finally {
+      setDevelopmentTaskBusyId('')
+    }
+  }
+
   const reviewAttendanceApprovalJob = async (job: AttendanceApprovalJob, action: 'approve' | 'reject' | 'request_more' | 'close') => {
     if (!canManageCompany || !selectedRoom) return
     const note = action === 'approve' || action === 'close'
@@ -1932,6 +2081,9 @@ export function ChatPage() {
     setRoomMembers([])
     setMessages([])
     setAttendanceIntegrationRoomId(null)
+    setDevelopmentTasks([])
+    setDevelopmentTasksCheckedAt(0)
+    setDevelopmentResultTask(null)
     setUnreadCounts({})
     setOnlineProfileMap({})
   }, [])
@@ -1954,12 +2106,13 @@ export function ChatPage() {
     const timer = window.setTimeout(() => {
       void loadRoomMembers(selectedRoomId)
       void loadAttendanceApprovalJobs(selectedRoomId)
+      void loadDevelopmentTasks(selectedRoomId)
       void loadMessages(selectedRoomId).then((loaded) => {
         if (loaded) void markRoomRead(selectedRoomId)
       })
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [loadAttendanceApprovalJobs, loadMessages, loadRoomMembers, markRoomRead, selectedRoomId])
+  }, [loadAttendanceApprovalJobs, loadDevelopmentTasks, loadMessages, loadRoomMembers, markRoomRead, selectedRoomId])
 
   useEffect(() => {
     scrollToBottom()
@@ -1978,6 +2131,7 @@ export function ChatPage() {
         filter: `room_id=eq.${selectedRoomId}`,
         },
         () => {
+          void loadDevelopmentTasks(selectedRoomId)
           void loadMessages(selectedRoomId).then((loaded) => {
             if (loaded) void markRoomRead(selectedRoomId)
           })
@@ -1988,7 +2142,7 @@ export function ChatPage() {
     return () => {
       void supabase.removeChannel(messageChannel)
     }
-  }, [currentCompany?.company_id, loadMessages, markRoomRead, realtimeAuthReady, selectedRoomId])
+  }, [currentCompany?.company_id, loadDevelopmentTasks, loadMessages, markRoomRead, realtimeAuthReady, selectedRoomId])
 
   useEffect(() => {
     if (!currentCompany?.company_id || !realtimeAuthReady) return
@@ -2326,6 +2480,75 @@ export function ChatPage() {
               <Divider sx={{ mb: 1 }} />
 
               <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, overflowY: 'auto', overflowX: 'hidden', px: { xs: 0.25, sm: 0.75 }, py: 0.75, borderRadius: 1.5, bgcolor: 'action.hover', scrollbarGutter: 'stable' }}>
+                {isProgramDevelopmentRoom && (
+                  <Card variant="outlined" sx={{ mb: 1, borderColor: 'secondary.main', bgcolor: 'background.paper' }}>
+                    <CardContent sx={{ py: 1, px: 1.25, '&:last-child': { pb: 1 } }}>
+                      <Stack spacing={0.75}>
+                        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                          <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+                            <TaskAltOutlinedIcon color="secondary" fontSize="small" />
+                            <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>Command Inbox</Typography>
+                            <Chip size="small" color="secondary" label="รับเฉพาะงานพัฒนา" />
+                          </Stack>
+                          <Typography variant="caption" color="text.secondary">
+                            {developmentTasksCheckedAt ? `อัปเดต ${formatTime(new Date(developmentTasksCheckedAt).toISOString())}` : 'กำลังตรวจคำสั่ง'}
+                          </Typography>
+                        </Stack>
+                        {!isProgramDevelopmentOwner && <Alert severity="warning">ห้องนี้เป็น Private Room เจ้าของระบบเท่านั้น</Alert>}
+                        {isProgramDevelopmentOwner && developmentTasks.length === 0 ? (
+                          <Typography variant="caption" color="text.secondary">
+                            ยังไม่มี Task · ตัวอย่างคำสั่ง: Requirement: เพิ่มปุ่มค้นหา หรือ Bug: แนบรูปไม่ได้
+                          </Typography>
+                        ) : isProgramDevelopmentOwner ? (
+                          <Stack spacing={0.75}>
+                            {developmentTasks.map((task) => {
+                              const ownerLabel = labelFromProfile(profileNameMap.get(task.owner_profile_id), task.owner_profile_id)
+                              const dispatchLabel = task.dispatches.length === 0
+                                ? 'ยังไม่ส่งต่อ'
+                                : task.dispatches.map((dispatch) => `${dispatch.target === 'codex' ? 'Codex' : 'Module'}: ${dispatch.status}`).join(' · ')
+                              const terminal = task.status === 'completed' || task.status === 'blocked'
+                              const actionBusy = developmentTaskBusyId === task.id
+                              return (
+                                <Card key={task.id} variant="outlined" sx={{ bgcolor: 'action.hover' }}>
+                                  <CardContent sx={{ py: 1, px: 1.1, '&:last-child': { pb: 1 } }}>
+                                    <Stack spacing={0.65}>
+                                      <Stack direction="row" spacing={0.6} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                                        <Typography variant="body2" sx={{ fontWeight: 900 }}>{task.task_code}</Typography>
+                                        <Chip size="small" color={developmentTaskStatusColor[task.status]} label={developmentTaskStatusLabel[task.status]} />
+                                        <Chip size="small" variant="outlined" label={task.intent.toUpperCase()} />
+                                      </Stack>
+                                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{task.request_text}</Typography>
+                                      <Typography variant="caption" color="text.secondary">
+                                        ผู้รับผิดชอบ: {ownerLabel} · สร้าง {formatTime(task.created_at)} · แก้ไข {formatTime(task.updated_at)}
+                                      </Typography>
+                                      <Typography variant="caption" color={task.dispatches.some((dispatch) => dispatch.status === 'failed') ? 'error' : 'text.secondary'}>
+                                        ปลายทาง: {dispatchLabel}
+                                      </Typography>
+                                      {(task.commit_ref || task.test_result || task.build_result || task.deploy_result || task.blocker) && (
+                                        <Typography variant="caption" color="text.secondary">
+                                          ผลล่าสุด: {task.commit_ref ? `Commit ${task.commit_ref}` : ''}{task.test_result ? ` · Test ${task.test_result}` : ''}{task.build_result ? ` · Build ${task.build_result}` : ''}{task.deploy_result ? ` · Deploy ${task.deploy_result}` : ''}{task.blocker ? ` · Blocker ${task.blocker}` : ''}
+                                        </Typography>
+                                      )}
+                                      <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
+                                        <Button size="small" variant="outlined" startIcon={<CheckCircleOutlineOutlinedIcon />} disabled={actionBusy || terminal} onClick={() => void transitionDevelopmentTask(task, 'received')}>รับงาน</Button>
+                                        <Button size="small" variant="contained" startIcon={<PlayArrowOutlinedIcon />} disabled={actionBusy || terminal} onClick={() => void transitionDevelopmentTask(task, 'in_progress')}>เริ่มทำ</Button>
+                                        <Button size="small" variant="outlined" startIcon={<HelpOutlineOutlinedIcon />} disabled={actionBusy || terminal} onClick={() => void transitionDevelopmentTask(task, 'waiting_review')}>ขอข้อมูล</Button>
+                                        <Button size="small" variant="outlined" startIcon={<ForwardToInboxOutlinedIcon />} disabled={actionBusy} onClick={() => void dispatchDevelopmentTask(task, 'codex')}>ส่งต่อ Codex</Button>
+                                        <Button size="small" variant="outlined" startIcon={<ForwardToInboxOutlinedIcon />} disabled={actionBusy} onClick={() => void dispatchDevelopmentTask(task, 'developer_queue')}>ส่งต่อ Module</Button>
+                                        <Button size="small" color="success" variant="contained" startIcon={<CheckCircleOutlineOutlinedIcon />} disabled={actionBusy || terminal} onClick={() => void transitionDevelopmentTask(task, 'completed')}>ปิดงาน</Button>
+                                        <Button size="small" variant="text" onClick={() => setDevelopmentResultTask(task)}>ดูผลลัพธ์</Button>
+                                      </Stack>
+                                    </Stack>
+                                  </CardContent>
+                                </Card>
+                              )
+                            })}
+                          </Stack>
+                        ) : null}
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                )}
                 {attendanceIntegrationRoomId === selectedRoom.id && attendanceApprovalJobs.length > 0 && (
                   <Stack spacing={0.75} sx={{ mb: 1 }}>
                     {attendanceApprovalJobs.map((job) => {
@@ -2595,6 +2818,24 @@ export function ChatPage() {
           )}
         </Paper>
       </Box>
+
+      <Dialog open={Boolean(developmentResultTask)} onClose={() => setDevelopmentResultTask(null)} fullWidth maxWidth="sm">
+        <DialogTitle>ผลลัพธ์งานพัฒนา {developmentResultTask?.task_code ?? ''}</DialogTitle>
+        <DialogContent dividers sx={{ px: { xs: 2, sm: 3 } }}>
+          {developmentResultTask && (
+            <Stack spacing={1}>
+              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{developmentResultTask.result_summary || 'ยังไม่มีสรุปผล'}</Typography>
+              <Typography variant="caption" color="text.secondary">Files: {Array.isArray(developmentResultTask.files) ? developmentResultTask.files.map(String).join(', ') || '-' : String(developmentResultTask.files || '-')}</Typography>
+              <Typography variant="caption" color="text.secondary">Commit: {developmentResultTask.commit_ref || '-'}</Typography>
+              <Typography variant="caption" color="text.secondary">Test: {developmentResultTask.test_result || '-'} · Build: {developmentResultTask.build_result || '-'} · Deploy: {developmentResultTask.deploy_result || '-'}</Typography>
+              {developmentResultTask.blocker && <Alert severity="error">Blocker: {developmentResultTask.blocker}</Alert>}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: { xs: 2, sm: 3 }, pb: { xs: 2, sm: 1.5 } }}>
+          <Button onClick={() => setDevelopmentResultTask(null)}>ปิด</Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={roomPickerOpen} onClose={() => setRoomPickerOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>เลือกห้อง</DialogTitle>

@@ -19,6 +19,8 @@ const checks: Array<[string, boolean]> = [
   ['approval message carries required attendance facts and actions', migration.includes('ช่าง: ') && migration.includes('โครงการ/ไซต์:') && migration.includes('รหัสรายการ:') && migration.includes('Action: อนุมัติ · Reject · ขอข้อมูลเพิ่ม')],
   ['system confirmation is excluded from Omni intake', migration.includes("message_class='system_confirmation'") && migration.includes("add column if not exists message_class")],
   ['decision records claim and audit path', migration.includes('claimed_by') && migration.includes('claimed_at') && migration.includes('chat_attendance_approval_events')],
+  ['approval ledgers enable RLS and scope reads by company', migration.includes('alter table public.chat_attendance_approval_jobs enable row level security') && migration.includes('alter table public.chat_attendance_approval_events enable row level security') && migration.includes('company_id = public.current_company_id()')],
+  ['clients cannot mutate ledgers directly and anon cannot call approval RPCs', migration.includes('revoke insert, update, delete on public.chat_attendance_approval_jobs from anon, authenticated') && migration.includes('revoke all on function public.review_web_chat_attendance_job(uuid,text,text) from public,anon')],
   ['Codex room is never an attendance Web Chat destination', !migration.toLowerCase().includes('codex') && !chat.includes("target_room_id: 'codex'") && !chat.includes("room_id: 'codex'")],
 ]
 

@@ -1,9 +1,3 @@
-# Program Development Room Flow
-
-## Purpose
-
-Provide one private Web Chat room for the system owner to send development requirements to the Codex/developer queue without mixing business messages into the development loop.
-
 ```mermaid
 flowchart LR
   A[Owner opens program_development_primary] --> B[ensureStandardRoom: canonical key + private owner-only]
@@ -12,14 +6,20 @@ flowchart LR
   D -->|No| E[Keep chat message visible; audit rejected]
   D -->|Yes| F[Create Development Task ID; status received + audit]
   F --> G[Dispatch queue to Codex/developer target]
-  G --> H[รับคำสั่ง → กำลังทำ → รอตรวจ → เสร็จ/Blocked]
-  H --> I[System Result summary
-  files/commit/test/build/deploy/blocker]
-  I --> J{system_result?}
-  J -->|Yes| K[Render result only
-  never create a new task]
-  J -->|No| D
+  G --> H[Command Inbox Action Card]
+  H --> I[รับงาน / ส่งต่อ CodexหรือModule / เริ่มทำ / ขอข้อมูล / ปิดงาน]
+  I --> J[รับคำสั่ง → กำลังทำ → รอตรวจ → เสร็จ/Blocked]
+  J --> K[System Result summary<br/>files/commit/test/build/deploy/blocker]
+  K --> L{system_result?}
+  L -->|Yes| M[Render result only<br/>never create a new task]
+  L -->|No| D
 ```
+
+# Program Development Room Flow
+
+## Purpose
+
+Provide one private Web Chat room for the system owner to send development requirements to the Codex/developer queue without mixing business messages into the development loop.
 
 ## Inputs, outputs, roles, and permissions
 
@@ -29,6 +29,7 @@ flowchart LR
 - Accepted development intents contain one of Requirement, Bug, UI, Flow, Database, API, Test, Build, Deploy (including Thai equivalents). Other messages remain in Chat but are audited as rejected and do not create a task.
 - A valid message creates one idempotent `development_tasks` row and one `development_task_dispatches` row targeting the Codex/developer queue. `source_message_id` and `event_key` prevent duplicates.
 - Task states are `received`, `in_progress`, `waiting_review`, `completed`, and `blocked`. A System Result is a status/result projection containing task ID, files/commit, test/build/deploy evidence, and blocker; it is never re-ingested as a new task.
+- The owner sees a Command Inbox Action Card for every task with Task ID, intent, owner, timestamps, dispatch target/status, and result evidence. Actions call owner-checked RPCs: receive (`received`), start (`in_progress`), request information (`waiting_review`), close (`completed`), and dispatch to Codex or developer queue. “ดูผลลัพธ์” opens stored result fields without changing task state.
 
 ## Failure, retry, and audit
 
@@ -41,3 +42,4 @@ flowchart LR
 | Version | Date | Change | Migration | Rollback |
 |---|---|---|---|---|
 | v1.0 | 23/8/2569 | Add owner-only canonical development room, task/audit/dispatch queue, status transitions, and System Result guard | `20260823035207_program_development_room.sql` (Production baseline) | Disable the route trigger/RPCs and hide the room; retain chat, tasks, and audit for recovery |
+| v1.1 | 23/8/2569 | Add owner-visible Command Inbox Action Cards for task transitions, Codex/Module dispatch and result drill-down; System Result remains display-only | `20260823050000_program_development_actions.sql` | Hide Action Cards and revoke the action RPC; retain chat, tasks, dispatch records and audit |
