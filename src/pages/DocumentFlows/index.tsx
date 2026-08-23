@@ -234,6 +234,7 @@ export function DocumentFlowsPage() {
   const [globalFilterOpen, setGlobalFilterOpen] = useState(false)
   const intakeTableToolsRef = useRef<IntakeRoomTableTools | null>(null)
   const flowTableToolsRef = useRef<StandardDataTableTools | null>(null)
+  const previewRequestRef = useRef(0)
   const today = bangkokToday()
   const isDefaultTodayScope = globalScope.date === today
 
@@ -409,11 +410,13 @@ export function DocumentFlowsPage() {
   }
 
   const openPreview = async (item: FlowItem) => {
+    const requestId = ++previewRequestRef.current
     setPreviewMessage('กำลังเปิดไฟล์ต้นฉบับ…')
     setPreviewFiles([])
     setPreviewIndex(0)
     try {
       const result = await documentFlowGateway.preview(item.id)
+      if (requestId !== previewRequestRef.current) return
       if (result.error) { setPreviewMessage(`เปิดไฟล์ไม่ได้: ${userError(result.error)}`); return }
       const data = result.data as { available?: boolean; reason?: string; files?: { bucket: string; path: string; content_type?: string | null }[] } | null
       if (!data?.files?.length) { setPreviewMessage(data?.reason ?? 'ไม่พบไฟล์ต้นฉบับ'); return }
@@ -422,10 +425,12 @@ export function DocumentFlowsPage() {
         return signed.data?.signedUrl ? { url: signed.data.signedUrl, contentType: file.content_type ?? null, label: `ไฟล์ ${index + 1}` } : null
       }))
       const available = signedFiles.filter((file): file is PreviewFile => Boolean(file))
+      if (requestId !== previewRequestRef.current) return
       if (!available.length) { setPreviewMessage('สร้างลิงก์เปิดไฟล์ไม่สำเร็จ กรุณาลองใหม่หรือแจ้งผู้ดูแลระบบ'); return }
       setPreviewFiles(available)
       setPreviewMessage('')
     } catch (previewError) {
+      if (requestId !== previewRequestRef.current) return
       setPreviewMessage(`เปิดไฟล์ไม่ได้: ${userError(previewError)}`)
     }
   }
@@ -643,12 +648,7 @@ export function DocumentFlowsPage() {
   }, [])
 
   return <Stack spacing={2.5}>
-    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, flexWrap: 'wrap', minHeight: 28 }}>
-      <Stack direction="row" spacing={.5} sx={{ alignItems: 'center' }}>
-        <Button size="small" variant={isDefaultTodayScope ? 'contained' : 'outlined'} onClick={selectTodayScope}>วันนี้</Button>
-        <Button size="small" variant={!globalScope.date ? 'contained' : 'outlined'} onClick={() => updateGlobalScope({ date: '' })}>ทั้งหมด</Button>
-        <Typography variant="caption" color="text.secondary">{globalScope.date ? `รับเข้าวันที่ ${new Date(`${globalScope.date}T00:00:00`).toLocaleDateString('th-TH')}` : 'ทุกช่วงเวลา'}</Typography>
-      </Stack>
+    <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 1, flexWrap: 'wrap', minHeight: 28 }}>
       <Stack direction="row" spacing={0.5}>
         <Tooltip title="ตัวกรองกลาง"><IconButton size="small" color={activeGlobalFilterCount ? 'primary' : 'default'} onClick={() => setGlobalFilterOpen(true)}><Badge color="primary" badgeContent={activeGlobalFilterCount} invisible={activeGlobalFilterCount === 0}><FilterAltOutlinedIcon fontSize="small" /></Badge></IconButton></Tooltip>
         <Tooltip title="รีเฟรช"><span><IconButton size="small" color="primary" disabled={loading} onClick={() => { void load(); if (flow === 'intake_room') void intakeTableToolsRef.current?.refresh() }}><RefreshOutlinedIcon fontSize="small" /></IconButton></span></Tooltip>
@@ -716,7 +716,11 @@ export function DocumentFlowsPage() {
       rows={visible} getRowId={(row) => row.id} getSearchText={(row) => Object.values(row).join(' ')}
       searchLabel="ค้นหา Intake ID ผู้ขาย โครงการ ประเภท สถานะ หรือห้อง" exportFileName={`document-${flow}-flow`}
       onRowClick={(row) => {
+        ++previewRequestRef.current
         setSelectedItem(row)
+        setPreviewFiles([])
+        setPreviewIndex(0)
+        setPreviewMessage('')
         setRouteDepartment(row.target_department ?? taskCategoryOf(row))
         setRouteCandidates(row.candidate_departments ?? [])
         const defaultDepartments = row.document_type === 'cash_receipt'
@@ -788,7 +792,7 @@ export function DocumentFlowsPage() {
     <Drawer anchor="right" open={globalFilterOpen} onClose={() => setGlobalFilterOpen(false)} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 420 }, p: 3 } } }}>
       <Stack spacing={2}>
         <Box><Typography variant="h6" sx={{ fontWeight: 800 }}>ตัวกรองข้อมูลกลาง</Typography><Typography variant="body2" color="text.secondary">ค่าชุดเดียวกันใช้กับ Intake, Filter และคิวปลายทาง</Typography></Box>
-        <FormControl size="small" fullWidth><InputLabel>ช่องทาง</InputLabel><Select label="ช่องทาง" value={globalScope.channel ?? 'all'} onChange={(event) => updateGlobalScope({ channel: event.target.value as DocumentFlowScope['channel'] })}><MenuItem value="all">ทุกช่องทาง</MenuItem><MenuItem value="line">LINE</MenuItem><MenuItem value="telegram">Telegram</MenuItem><MenuItem value="web_chat">Web Chat</MenuItem><MenuItem value="unknown">ไม่ทราบต้นทาง</MenuItem></Select></FormControl>
+        <FormControl size="small" fullWidth><InputLabel>ช่องทาง</InputLabel><Select label="ช่องทาง" value={globalScope.channel ?? 'all'} onChange={(event) => updateGlobalScope({ channel: event.target.value as DocumentFlowScope['channel'] })}><MenuItem value="all">ทุกช่องทาง</MenuItem><MenuItem value="line">LINE</MenuItem><MenuItem value="telegram">Telegram</MenuItem><MenuItem value="web_chat">Web Chat</MenuItem><MenuItem value="hr">HR</MenuItem><MenuItem value="unknown">ไม่ทราบต้นทาง</MenuItem></Select></FormControl>
         <TextField size="small" type="date" label="วันที่รับเข้า" value={globalScope.date ?? ''} onChange={(event) => updateGlobalScope({ date: event.target.value })} slotProps={{ inputLabel: { shrink: true } }} fullWidth />
         <TextField size="small" label="ห้องต้นทาง" value={globalScope.room ?? ''} onChange={(event) => updateGlobalScope({ room: event.target.value })} fullWidth />
         <TextField size="small" label="ผู้ส่ง" value={globalScope.sender ?? ''} onChange={(event) => updateGlobalScope({ sender: event.target.value })} fullWidth />
@@ -814,7 +818,7 @@ export function DocumentFlowsPage() {
       </Stack></DialogContent>
       <DialogActions><Button onClick={() => setTimelineItem(null)}>ปิด</Button></DialogActions>
     </Dialog>
-    <Drawer anchor="right" open={Boolean(selectedItem)} onClose={() => { setSelectedItem(null); setTransferSlipParties(null); setTransferSlipPartiesMessage('') }} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 520 }, p: 3 } } }}>
+    <Drawer anchor="right" open={Boolean(selectedItem)} onClose={() => { ++previewRequestRef.current; setSelectedItem(null); setPreviewFiles([]); setPreviewIndex(0); setPreviewMessage(''); setTransferSlipParties(null); setTransferSlipPartiesMessage('') }} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 520 }, p: 3 } } }}>
       {selectedItem && <Stack spacing={2}>
         <Box><Typography variant="overline" color="text.secondary">ความสัมพันธ์ข้ามห้อง</Typography><Typography variant="h5" sx={{ fontWeight: 800 }}>{typeLabels[selectedItem.document_type ?? 'other'] ?? selectedItem.document_type ?? 'เอกสาร'}</Typography><Typography variant="body2" color="text.secondary">Intake → Filter → {departmentLabels[selectedItem.target_department ?? taskCategoryOf(selectedItem)] ?? 'คิวปลายทาง'} · สถานะ {stateLabels[selectedItem.state] ?? selectedItem.state}</Typography></Box>
         <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}><Chip label={flowLabels[selectedItem.current_flow] ?? selectedItem.current_flow} color="primary" /><Chip label={dataReviewLabels[selectedItem.data_review_status ?? 'complete']} color={dataReviewColor(selectedItem.data_review_status)} /> <Chip label={selectedItem.sensitivity === 'restricted_hr' ? 'ข้อมูล HR จำกัดสิทธิ์' : selectedItem.sensitivity === 'financial' ? 'ข้อมูลการเงิน' : 'ข้อมูลทั่วไป'} color={selectedItem.sensitivity === 'restricted_hr' ? 'warning' : 'default'} /></Stack>

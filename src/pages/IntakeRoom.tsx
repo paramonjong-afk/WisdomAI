@@ -1,7 +1,7 @@
 import { RefreshOutlined, Refresh } from '@mui/icons-material'
-import { ArrowDropDown, Delete, Search, ContentCopy, OpenInNewOutlined } from '@mui/icons-material'
+import { ArrowDropDown, Delete, Search, ContentCopy, OpenInNewOutlined, HistoryOutlined } from '@mui/icons-material'
 import { Alert, Box, Button, Chip, Divider, Drawer, FormControl, IconButton, Menu, MenuItem, Paper, Select, Stack, Tab, Tabs, TextField, Tooltip, Typography } from '@mui/material'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import { StandardDataTable } from '../components/StandardDataTable'
 import { useAuth } from '../hooks/useAuth'
@@ -273,7 +273,6 @@ export function IntakeRoomPanel({
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
   const [backfillLoading, setBackfillLoading] = useState(false)
-  const [inputChannelTab, setInputChannelTab] = useState<'all' | 'line' | 'telegram' | 'web_chat' | 'hr' | 'unknown'>('all')
   const [intakeContentTab, setIntakeContentTab] = useState<'documents' | 'messages'>('documents')
   const [channelFilter, setChannelFilter] = useState<'all' | 'line' | 'telegram' | 'web_chat' | 'unknown'>('all')
   const [receivedDate, setReceivedDate] = useState('')
@@ -291,6 +290,9 @@ export function IntakeRoomPanel({
   const [sourceContext, setSourceContext] = useState<ContextPreview[]>([])
   const [sourceContextMessage, setSourceContextMessage] = useState('')
   const [sourceDrawerNote, setSourceDrawerNote] = useState('')
+  const previewRequestRef = useRef(0)
+  const sourceRequestRef = useRef(0)
+  const inputChannelTab = globalScope?.channel ?? channelFilter
   // Kept only for one hot-reload cycle: this message belonged to the former
   // all-or-nothing source lookup and must never block the queue UI.
   const visibleError = error.startsWith('โหลดเส้นทางต้นทางไม่ครบ:') ? '' : error
@@ -306,6 +308,7 @@ export function IntakeRoomPanel({
   }, [])
 
   const openSourcePreview = useCallback(async (item: IntakeFlowItem) => {
+    const requestId = ++previewRequestRef.current
     setSelectedItem(item)
     setDrawerNote('')
     setPreviewFiles([])
@@ -314,12 +317,15 @@ export function IntakeRoomPanel({
     try {
       if (item.source === 'employee_intake') {
         const result = await documentFlowGateway.employeeIntakePreview(item.id)
+        if (requestId !== previewRequestRef.current) return
         if (result.error || !result.data) { setPreviewMessage(result.error ? `เปิดไฟล์ไม่ได้: ${userError(result.error)}` : 'ไม่พบไฟล์ต้นฉบับของ Intake HR'); return }
         const signed = await documentFlowGateway.signedPreviewUrl(result.data.storage_bucket, result.data.storage_path)
+        if (requestId !== previewRequestRef.current) return
         if (!signed.data?.signedUrl) { setPreviewMessage(`เปิดไฟล์ไม่ได้: ${userError(signed.error ?? new Error('สร้างลิงก์ไม่สำเร็จ'))}`); return }
         setPreviewFiles([{ url: signed.data.signedUrl, contentType: result.data.mime_type ?? null, label: 'ไฟล์ 1' }]); setPreviewMessage(''); return
       }
       const result = await documentFlowGateway.preview(item.id)
+      if (requestId !== previewRequestRef.current) return
       if (result.error) { setPreviewMessage(`เปิดไฟล์ไม่ได้: ${userError(result.error)}`); return }
       const data = result.data as { reason?: string; files?: { bucket: string; path: string; content_type?: string | null }[] } | null
       if (!data?.files?.length) { setPreviewMessage(data?.reason ?? 'ไม่พบไฟล์ต้นฉบับที่ผูกกับรายการนี้'); return }
@@ -327,10 +333,12 @@ export function IntakeRoomPanel({
         const signed = await documentFlowGateway.signedPreviewUrl(file.bucket, file.path)
         return signed.data?.signedUrl ? { url: signed.data.signedUrl, contentType: file.content_type ?? null, label: `ไฟล์ ${index + 1}` } : null
       }))
+      if (requestId !== previewRequestRef.current) return
       const available = signedFiles.filter((file): file is PreviewFile => Boolean(file))
       if (!available.length) { setPreviewMessage('สร้างลิงก์เปิดไฟล์ไม่สำเร็จ กรุณาลองใหม่หรือแจ้งผู้ดูแลระบบ'); return }
       setPreviewFiles(available); setPreviewMessage('')
     } catch (previewError) {
+      if (requestId !== previewRequestRef.current) return
       setPreviewMessage(`เปิดไฟล์ไม่ได้: ${userError(previewError)}`)
     }
   }, [])
@@ -522,25 +530,18 @@ export function IntakeRoomPanel({
       && (inputChannelTab === 'all' || (inputChannelTab === 'hr' ? item.source === 'employee_intake' : item.input_channel === inputChannelTab)))
   }, [inputChannelTab, items, queueView])
 
-  const inputChannelCounts = useMemo(() => ({
-    all: items.length,
-    line: items.filter((item) => item.input_channel === 'line' && item.source === 'document_flow').length,
-    telegram: items.filter((item) => item.input_channel === 'telegram' && item.source === 'document_flow').length,
-    web_chat: items.filter((item) => item.input_channel === 'web_chat' && item.source === 'document_flow').length,
-    hr: items.filter((item) => item.source === 'employee_intake').length,
-    unknown: items.filter((item) => item.input_channel === 'unknown' && item.source === 'document_flow').length,
-  }), [items])
-
   const visibleOmniSources = useMemo(() => omniSources.filter((source) =>
     inputChannelTab === 'all' || (inputChannelTab === 'line' && source.source_channel === 'line') || (inputChannelTab === 'web_chat' && source.source_channel === 'web_chat'),
   ), [inputChannelTab, omniSources])
 
   const openOmniSource = useCallback(async (source: OmniIntakeSourceRow) => {
+    const requestId = ++sourceRequestRef.current
     setSelectedSource(source)
     setSourceDrawerNote(source.review_note ?? '')
     setSourceContext([])
     setSourceContextMessage('กำลังโหลดบริบทข้อความและรูป/ไฟล์ที่เกี่ยวข้อง…')
     const result = await documentFlowGateway.loadOmniConversationContext(source)
+    if (requestId !== sourceRequestRef.current) return
     if (result.error) {
       setSourceContextMessage(`โหลดบริบทไม่สำเร็จ: ${userError(result.error)}`)
       return
@@ -550,6 +551,7 @@ export function IntakeRoomPanel({
       const signed = await documentFlowGateway.signedPreviewUrl(message.attachment.bucket, message.attachment.path)
       return { ...message, url: signed.data?.signedUrl ?? null }
     }))
+    if (requestId !== sourceRequestRef.current) return
     setSourceContext(previews)
     setSourceContextMessage(previews.length ? '' : 'ไม่พบบริบทในช่วงเวลาใกล้เคียง หรือข้อความนี้อยู่ในแชตส่วนตัว')
   }, [])
@@ -693,14 +695,6 @@ export function IntakeRoomPanel({
           <Tab value="documents" label={`คิวเอกสาร (${items.length})`} />
           <Tab value="messages" label={`ข้อความและบริบท (${omniSources.length})`} />
         </Tabs>
-        <Tabs value={inputChannelTab} onChange={(_event, value) => setInputChannelTab(value)} variant="scrollable" sx={{ px: 1, borderBottom: 1, borderColor: 'divider' }}>
-          <Tab value="all" label={`รับเข้าทั้งหมด (${inputChannelCounts.all})`} />
-          <Tab value="line" label={`LINE (${inputChannelCounts.line})`} />
-          <Tab value="telegram" label={`Telegram (${inputChannelCounts.telegram})`} />
-          <Tab value="web_chat" label={`Web Chat (${inputChannelCounts.web_chat})`} />
-          <Tab value="hr" label={`HR (${inputChannelCounts.hr})`} />
-          <Tab value="unknown" label={`ไม่ทราบต้นทาง (${inputChannelCounts.unknown})`} />
-        </Tabs>
         {intakeContentTab === 'documents' ? <StandardDataTable
           key={`intake-room-table-${inputChannelTab}-${queueView}`}
           rows={visible}
@@ -727,14 +721,9 @@ export function IntakeRoomPanel({
                 </IconButton>
               </Tooltip>
               : null}
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={() => void reprocessTransferSlips()}
-                disabled={backfillLoading}
-              >
-                {backfillLoading ? 'กำลังแยกสลิป…' : 'แยกสลิปย้อนหลัง'}
-              </Button>
+              <Tooltip title={backfillLoading ? 'กำลังแยกสลิปย้อนหลัง…' : 'แยกสลิปย้อนหลัง'}>
+                <span><IconButton size="small" color="default" onClick={() => void reprocessTransferSlips()} disabled={backfillLoading}><HistoryOutlined fontSize="small" /></IconButton></span>
+              </Tooltip>
               {!globalScope && <FormControl size="small" sx={{ minWidth: 150 }}>
                 <Select displayEmpty value={channelFilter} onChange={(event) => setChannelFilter(event.target.value as typeof channelFilter)}>
                   <MenuItem value="all">ทุกช่องทาง</MenuItem>
@@ -785,8 +774,12 @@ export function IntakeRoomPanel({
             </Stack>
           }}
           onRowClick={(row) => {
+            ++previewRequestRef.current
             setSelectedItem(row)
             setDrawerNote('')
+            setPreviewFiles([])
+            setPreviewIndex(0)
+            setPreviewMessage('')
           }}
           columns={[
             {
@@ -980,7 +973,7 @@ export function IntakeRoomPanel({
             </>
           ) : null}
       </Menu>
-      <Drawer anchor="right" open={Boolean(selectedItem)} onClose={() => setSelectedItem(null)} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 500 }, p: 3 } } }}>
+      <Drawer anchor="right" open={Boolean(selectedItem)} onClose={() => { ++previewRequestRef.current; setSelectedItem(null); setPreviewFiles([]); setPreviewIndex(0); setPreviewMessage('') }} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 500 }, p: 3 } } }}>
         {selectedItem && <Stack spacing={2}>
           <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'start' }}><div><Typography variant="overline" color="text.secondary">ตรวจรับข้อมูลเข้า</Typography><Typography variant="h5" sx={{ fontWeight: 800 }}>{selectedItem.document_type === 'hr_employee_document' ? 'เอกสาร HR' : routeTargetLabels[selectedItem.route_target ?? ''] ?? 'เอกสารรับเข้า'}</Typography></div><Chip color={classifyQueueState(selectedItem).color} label={classifyQueueState(selectedItem).label} /></Stack>
           <Divider />
@@ -998,7 +991,7 @@ export function IntakeRoomPanel({
           {selectedItem.source === 'employee_intake' && <Button variant="contained" disabled={actionLoading || selectedItem.state !== 'pending_review'} onClick={() => void employeeIntakeTransition(selectedItem, 'approve').then((ok) => { if (ok) setSelectedItem(null) })}>อนุมัติส่งต่อ HR</Button>}
         </Stack>}
       </Drawer>
-      <Drawer anchor="right" open={Boolean(selectedSource)} onClose={() => setSelectedSource(null)} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 560 }, p: 3 } } }}>
+      <Drawer anchor="right" open={Boolean(selectedSource)} onClose={() => { ++sourceRequestRef.current; setSelectedSource(null); setSourceContext([]); setSourceContextMessage('') }} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 560 }, p: 3 } } }}>
         {selectedSource && <Stack spacing={2}>
           <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'start' }}><Box><Typography variant="overline" color="text.secondary">ข้อมูลเข้า / บริบทการสนทนา</Typography><Typography variant="h6" sx={{ fontWeight: 800 }}>{selectedSource.source_channel === 'web_chat' ? 'Web Chat' : 'LINE'} · {selectedSource.source_room_name ?? 'แชตส่วนตัว'}</Typography></Box><Chip color={selectedSource.review_decision === 'approved' ? 'success' : selectedSource.review_decision === 'rejected' ? 'error' : 'warning'} label={selectedSource.review_decision === 'approved' ? 'อนุมัติแล้ว' : selectedSource.review_decision === 'rejected' ? 'ไม่อนุมัติ' : 'รอตรวจ'} /></Stack>
           <Divider />

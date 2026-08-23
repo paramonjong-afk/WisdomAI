@@ -208,3 +208,12 @@ flowchart LR
 - เมื่อตรงกัน ระบบคง task `accounting` เดิม และเพิ่ม task `hr` แบบ required สำหรับ Intake Item/ไฟล์/Audit เดิมหนึ่งชุด; `candidate_departments` จึงมีทั้ง accounting และ hr
 - ทุกการส่งสร้าง event `transfer_slip_daily_employee_hr_routed` โดยเก็บฝั่งที่จับคู่และรหัสพนักงาน ไม่บันทึกชื่อเต็มซ้ำใน Audit
 - หากชื่อผู้รับว่าง, ไม่ตรง, พนักงานไม่ใช่รายวัน หรือสถานะไม่ active จะไม่สร้าง HR task และสลิปคงอยู่บัญชีตามเดิม
+
+## Intake Room Compact View and Drawer Isolation — v3.6 (23/8/2569)
+
+- Main Tab และ Flow การส่งงานยังเหมือนเดิม; ปรับเฉพาะการนำเสนอหน้า Intake ให้เหลือ Subtab `คิวเอกสาร / ข้อความและบริบท`, ตาราง และแถบไอคอน
+- ตัวกรองต้นทาง, วันที่, ห้อง, ผู้ส่ง, ประเภทไฟล์ และโครงการอยู่ใน Filter Drawer กลางจากไอคอนเดียว ไม่แสดงแถว Source Filter ซ้ำบนหน้า
+- ปุ่มงานย้อนหลังที่เป็นคำสั่ง Admin ใช้ไอคอนแบบ compact แต่ยังเรียกคำสั่งเดิมและบันทึก Audit เดิม
+- เมื่อเลือกแถวใหม่ ระบบล้าง preview/context เดิมทันที และใช้ request generation guard กันผลลัพธ์ async ของรายการเก่ามาเขียนทับ Drawer รายการใหม่
+- Responsive: ตาราง/คอลัมน์ยังใช้ StandardDataTable เดิม; บนจอแคบ Drawer ขยายเต็มความกว้าง ไม่เปลี่ยน routing, state transition, destination หรือสิทธิ์
+- Owner: Platform UI; rollback คือคืนแถว Source Filter/ปุ่มเดิมได้ โดยไม่กระทบข้อมูลหรือเส้นทางงาน

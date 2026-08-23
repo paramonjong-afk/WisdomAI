@@ -33,7 +33,7 @@ export type ChequePaymentEvidence = {
 }
 
 export type DocumentFlowScope = {
-  channel?: 'all' | 'line' | 'telegram' | 'web_chat' | 'unknown'
+  channel?: 'all' | 'line' | 'telegram' | 'web_chat' | 'hr' | 'unknown'
   date?: string
   room?: string
   sender?: string
@@ -148,7 +148,8 @@ export const documentFlowGateway = {
       .eq('current_flow', 'intake')
       .order('updated_at', { ascending: false })
       .limit(2000)
-    if (filters?.channel && filters.channel !== 'all') documentQuery = documentQuery.eq('source_channel', filters.channel)
+    if (filters?.channel === 'hr') documentQuery = documentQuery.limit(0)
+    else if (filters?.channel && filters.channel !== 'all') documentQuery = documentQuery.eq('source_channel', filters.channel)
     if (start && end) documentQuery = documentQuery.gte('source_received_at', start).lte('source_received_at', end)
     if (filters.room?.trim()) documentQuery = documentQuery.ilike('source_room_name', `%${filters.room.trim()}%`)
     if (filters.sender?.trim()) documentQuery = documentQuery.ilike('source_sender_name', `%${filters.sender.trim()}%`)
