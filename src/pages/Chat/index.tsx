@@ -532,6 +532,7 @@ export function ChatPage() {
   const [operationalTaskOverrides, setOperationalTaskOverrides] = useState<Record<string, OperationalTaskCard>>({})
   const [operationalSelectedTaskId, setOperationalSelectedTaskId] = useState('')
   const [operationalTaskBusyId, setOperationalTaskBusyId] = useState('')
+  const [operationalCheckedAt] = useState(() => Date.now())
   const [voiceListening, setVoiceListening] = useState(false)
   const [pendingAttachment, setPendingAttachment] = useState<File | null>(null)
   const [isDragActive, setIsDragActive] = useState(false)
@@ -2762,7 +2763,9 @@ export function ChatPage() {
                       ) : (
                         <Stack spacing={0.7}>
                           {operationalTaskCards.map((card) => {
-                            const slaBreached = ['received', 'waiting_review', 'blocked'].includes(card.status) && new Date(card.dueAt).getTime() < Date.now()
+                            const slaBreached = operationalCheckedAt > 0
+                              && ['received', 'waiting_review', 'blocked'].includes(card.status)
+                              && new Date(card.dueAt).getTime() < operationalCheckedAt
                             const terminal = card.status === 'completed'
                             return (
                               <Card
@@ -2943,7 +2946,9 @@ export function ChatPage() {
                           const employeeName = bundle.validation_summary?.employee_name || labelFromProfile(profileNameMap.get(bundle.employee_profile_id), bundle.employee_profile_id)
                           const ownerName = bundle.owner_profile_id ? labelFromProfile(profileNameMap.get(bundle.owner_profile_id), bundle.owner_profile_id) : 'ยังไม่มีผู้รับผิดชอบ'
                           const evidence = hrConfirmationEvidence.filter((item) => item.bundle_id === bundle.id)
-                          const slaMinutes = bundle.sla_due_at ? Math.ceil((new Date(bundle.sla_due_at).getTime() - Date.now()) / 60000) : null
+                          const slaMinutes = bundle.sla_due_at && operationalCheckedAt > 0
+                            ? Math.ceil((new Date(bundle.sla_due_at).getTime() - operationalCheckedAt) / 60000)
+                            : null
                           return <Paper key={bundle.id} variant="outlined" sx={{ p: 1 }}>
                             <Stack spacing={0.6}>
                               <Stack direction="row" spacing={0.6} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
