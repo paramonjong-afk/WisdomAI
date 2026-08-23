@@ -121,7 +121,9 @@
     "test:document-ocr-audit": "node --experimental-strip-types scripts/document-ocr-provenance-audit.test.ts",
     "test:local-first-ai-router": "node --experimental-strip-types scripts/local-first-ai-router.test.ts",
     "test:filter-rule-pack": "node --experimental-strip-types scripts/filter-rule-pack.test.ts",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy:cloudflare": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-cloudflare-production.ps1",
+    "test:cloudflare-deploy": "node --experimental-strip-types scripts/cloudflare-production-deploy.test.ts"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

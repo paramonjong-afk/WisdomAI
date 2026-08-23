@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Cloudflare Production Account Token Gate v1.1 — 23/8/2569
+
+- **เหตุผล:** User API Token อาจตอบว่า valid แต่ไม่มีสิทธิ์ Account Pages และ clean worktree อาจไม่มี `.env` ทำให้ build ผ่านแต่หน้า Production ว่าง
+- **ผลกระทบ:** เพิ่ม `npm run deploy:cloudflare` เพื่อตรวจ clean commit, Account Token, Pages project, `.env`/`.env.local`, release manifest และ runtime smoke ก่อนถือว่า deploy สำเร็จ; ไม่เก็บ Token ลง repository
+- **Migration:** ไม่มี และไม่เปลี่ยนข้อมูล Production
+- **การตรวจสอบ:** deploy contract test, lint, typecheck, build, remote `release.json`, `/login` และ authenticated Module UAT
+- **Rollback:** deploy revision ก่อนหน้าที่ผ่าน smoke testด้วยคำสั่งกลาง; Token สามารถ revoke จาก Cloudflare Account API Tokens โดยไม่กระทบข้อมูลธุรกิจ
+
 ## ล่าสุด: Intake Classification Gateway 6 Modules v1.0 — 23/8/2569
 
 - **เหตุผล:** ให้ Intake คัดแยก Web Chat/เอกสาร/สลิปเป็นโมดูลปลายทางด้วยกฎ deterministic, structured classifier และ policy gate ก่อนส่งต่อ
