@@ -5,7 +5,7 @@ const migration = readFileSync('supabase/migrations/20260823111848_transfer_slip
 const edge = readFileSync('supabase/functions/reprocess-transfer-slips/index.ts', 'utf8')
 assert.match(page, /1\. รูปต้นฉบับและ AI/)
 assert.match(page, /2\. ตรวจและแก้ข้อมูล/)
-assert.match(page, /review_transfer_slip_details/)
+assert.match(page, /review_transfer_slip_money_lineage/)
 assert.match(page, /ให้ AI อ่านสลิปใหม่/)
 assert.match(page, /onClick=\{\(\) => void openSlipDetail\(row\)\}/)
 assert.match(migration, /transfer_slip_review_locked/)

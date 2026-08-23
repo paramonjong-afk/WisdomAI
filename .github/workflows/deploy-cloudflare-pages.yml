@@ -31,6 +31,18 @@ jobs:
       - name: Run reconciliation tests
         run: npm run test:advance-reconciliation
 
+      - name: Run Accounting transfer-slip tests
+        run: npm run test:accounting-transfer-slips && npm run test:accounting-transfer-slip-review
+
+      - name: Run transfer lineage test
+        run: npm run test:transfer-slip-lineage
+
+      - name: Run Advance handoff tests
+        run: npm run test:advance-report && npm run test:advance-confirmation
+
+      - name: Run HR handoff test
+        run: npm run test:hr-confirmation-bundle
+
       - name: Typecheck
         run: npm run typecheck
 

@@ -15,6 +15,8 @@ import { supabase } from '../../lib/supabase'
 import { documentFlowGateway } from '../../services/documentFlowGateway'
 import { filterTransferSlipQueue, transferSlipContinuation, transferSlipQueueBucket, transferSlipQueueCounts } from '../../services/accountingTransferSlipQueue'
 import type { TransferSlipQueueFilter, TransferSlipQueueRow } from '../../services/accountingTransferSlipQueue'
+import { emptyMoneyLineage, moneyPurposeRoute, validateMoneyLineage } from '../../services/transferSlipMoneyLineage'
+import type { MoneyFundingSource, MoneyLineageDraft, MoneyPurpose } from '../../services/transferSlipMoneyLineage'
 import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 import { userError } from '../../utils/userError'
 
@@ -42,6 +44,8 @@ type SlipPreviewFile = { url: string; contentType: string | null; label: string 
 type SlipFlowEvent = { id: string; event_type: string; from_flow: string | null; to_flow: string | null; from_state: string | null; to_state: string | null; note: string | null; created_at: string }
 type SlipReviewDraft = { senderName: string; senderBankName: string; senderAccountLast4: string; recipientName: string; recipientBankName: string; recipientAccountLast4: string; amount: string; transferAt: string; bankReference: string; note: string }
 const slipDraftFromRow = (row: AccountingPendingSlip): SlipReviewDraft => ({ senderName: row.senderName ?? '', senderBankName: row.senderBankName ?? '', senderAccountLast4: row.senderAccountLast4 ?? '', recipientName: row.recipientName ?? '', recipientBankName: row.recipientBankName ?? '', recipientAccountLast4: row.recipientAccountLast4 ?? '', amount: row.amount == null ? '' : String(row.amount), transferAt: row.transferAt ? new Date(row.transferAt).toISOString().slice(0, 16) : '', bankReference: row.bankReference ?? '', note: row.dataReviewNote ?? row.notes ?? '' })
+type StoredMoneyLineage = { funding_source_type: MoneyFundingSource; funding_source_reference: string | null; fund_holder_name: string | null; payer_name: string | null; final_beneficiary_name: string | null; purpose_type: MoneyPurpose; project_id: string | null; site_id: string | null; responsible_name: string | null; starting_amount: number | null; paid_amount: number | null; returned_amount: number; remaining_amount: number | null; hops: Array<{ from_party?: string; to_party?: string; amount?: number; transferred_at?: string; note?: string }>; route_status: string; next_destination: string; route_note: string | null }
+const moneyLineageDraftFromStored = (row: StoredMoneyLineage): MoneyLineageDraft => ({ fundingSourceType: row.funding_source_type, fundingSourceReference: row.funding_source_reference ?? '', fundHolderName: row.fund_holder_name ?? '', payerName: row.payer_name ?? '', finalBeneficiaryName: row.final_beneficiary_name ?? '', purposeType: row.purpose_type, projectId: row.project_id ?? '', siteId: row.site_id ?? '', responsibleName: row.responsible_name ?? '', startingAmount: row.starting_amount == null ? '' : String(row.starting_amount), paidAmount: row.paid_amount == null ? '' : String(row.paid_amount), returnedAmount: String(row.returned_amount ?? 0), remainingAmount: row.remaining_amount == null ? '' : String(row.remaining_amount), note: row.route_note ?? '', hops: (row.hops ?? []).map(hop => ({ fromParty: hop.from_party ?? '', toParty: hop.to_party ?? '', amount: hop.amount == null ? '' : String(hop.amount), transferredAt: hop.transferred_at ? new Date(hop.transferred_at).toISOString().slice(0, 16) : '', note: hop.note ?? '' })) })
 type DocumentSetMember = { id: string; source_message_id: string; document_type: string; status: DocumentStatus; page_number: number | null; created_at: string }
 type SetMatchGap = { documentType: string; documentLabel: string; isRequired: boolean }
 type DocumentSetMatchSummary = {
@@ -146,6 +150,8 @@ export function AccountingDocumentsPage() {
   const [slipDetailLoading, setSlipDetailLoading] = useState(false)
   const [slipDetailTab, setSlipDetailTab] = useState(0)
   const [slipReviewDraft, setSlipReviewDraft] = useState<SlipReviewDraft | null>(null)
+  const [slipMoneyLineageDraft, setSlipMoneyLineageDraft] = useState<MoneyLineageDraft | null>(null)
+  const [slipMoneyLineageStatus, setSlipMoneyLineageStatus] = useState<{ routeStatus: string; nextDestination: string } | null>(null)
   const [slipAiGuidance, setSlipAiGuidance] = useState('')
   const [slipActionLoading, setSlipActionLoading] = useState(false)
   const slipRequestRef = useRef(0)
@@ -1024,26 +1030,29 @@ export function AccountingDocumentsPage() {
     setSlipPreviewMessage('')
     setSlipEvents([])
     setSlipDetailLoading(false)
-    setSlipDetailTab(0); setSlipReviewDraft(null); setSlipAiGuidance(''); setSlipActionLoading(false)
+    setSlipDetailTab(0); setSlipReviewDraft(null); setSlipMoneyLineageDraft(null); setSlipMoneyLineageStatus(null); setSlipAiGuidance(''); setSlipActionLoading(false)
   }
 
   const openSlipDetail = async (slip: AccountingPendingSlip) => {
     const requestId = ++slipRequestRef.current
     setSelectedSlip(slip)
-    setSlipDetailTab(0); setSlipReviewDraft(slipDraftFromRow(slip)); setSlipAiGuidance('')
+    setSlipDetailTab(0); setSlipReviewDraft(slipDraftFromRow(slip)); setSlipMoneyLineageDraft(emptyMoneyLineage(slip.senderName ?? '', slip.recipientName ?? '', slip.amount, slip.transferAt ? new Date(slip.transferAt).toISOString().slice(0, 16) : '')); setSlipMoneyLineageStatus(null); setSlipAiGuidance('')
     setSlipPreviewFiles([])
     setSlipPreviewIndex(0)
     setSlipPreviewMessage('กำลังเปิดไฟล์ต้นฉบับ…')
     setSlipEvents([])
     setSlipDetailLoading(true)
     try {
-      const [previewResult, timelineResult] = await Promise.all([
+      const [previewResult, timelineResult, lineageResult] = await Promise.all([
         documentFlowGateway.preview(slip.itemId),
         documentFlowGateway.loadTimeline(slip.itemId),
+        supabase.from('transfer_slip_money_lineages').select('funding_source_type,funding_source_reference,fund_holder_name,payer_name,final_beneficiary_name,purpose_type,project_id,site_id,responsible_name,starting_amount,paid_amount,returned_amount,remaining_amount,hops,route_status,next_destination,route_note').eq('item_id', slip.itemId).maybeSingle(),
       ])
       if (requestId !== slipRequestRef.current) return
       if (timelineResult.error) setError(current => current ?? `โหลด Audit Flow ไม่สำเร็จ: ${userError(timelineResult.error)}`)
       else setSlipEvents((timelineResult.data ?? []) as SlipFlowEvent[])
+      if (lineageResult.error) setError(current => current ?? `โหลดเส้นทางเงินไม่สำเร็จ: ${userError(lineageResult.error)}`)
+      else if (lineageResult.data) { const stored = lineageResult.data as unknown as StoredMoneyLineage; setSlipMoneyLineageDraft(moneyLineageDraftFromStored(stored)); setSlipMoneyLineageStatus({ routeStatus: stored.route_status, nextDestination: stored.next_destination }) }
       if (previewResult.error) {
         setSlipPreviewMessage(`เปิดไฟล์ไม่ได้: ${userError(previewResult.error)}`)
         return
@@ -1092,14 +1101,17 @@ export function AccountingDocumentsPage() {
   }
 
   const saveSlipReview = async (decision: 'draft' | 'confirm' | 'request_information') => {
-    if (!selectedSlip || !slipReviewDraft) return
+    if (!selectedSlip || !slipReviewDraft || !slipMoneyLineageDraft) return
     setSlipActionLoading(true); setError(null); setSuccess(null)
     try {
       const amount = slipReviewDraft.amount.trim() ? Number(slipReviewDraft.amount) : null
       if (amount != null && (!Number.isFinite(amount) || amount < 0)) throw new Error('จำนวนเงินไม่ถูกต้อง')
-      const { error: rpcError } = await supabase.rpc('review_transfer_slip_details', {
+      if (decision === 'confirm') { const validation = validateMoneyLineage(slipMoneyLineageDraft, amount); if (validation.missing.length || validation.errors.length) throw new Error([...validation.missing.map(value => `ขาด ${value}`), ...validation.errors].join(' · ')) }
+      const numericOrNull = (value: string) => value.trim() ? Number(value) : null
+      const eventKey = `transfer-slip-money-lineage:${selectedSlip.itemId}:${crypto.randomUUID()}`
+      const { data: routeResult, error: rpcError } = await supabase.rpc('review_transfer_slip_money_lineage', {
         target_item_id: selectedSlip.itemId,
-        target_event_key: `transfer-slip-review:${selectedSlip.itemId}:${crypto.randomUUID()}`,
+        target_event_key: eventKey,
         target_decision: decision,
         target_sender_name: slipReviewDraft.senderName || null,
         target_sender_bank_name: slipReviewDraft.senderBankName || null,
@@ -1110,10 +1122,26 @@ export function AccountingDocumentsPage() {
         target_amount_total: amount,
         target_transfer_at: slipReviewDraft.transferAt ? new Date(slipReviewDraft.transferAt).toISOString() : null,
         target_bank_reference: slipReviewDraft.bankReference || null,
-        target_note: slipReviewDraft.note || null,
+        target_funding_source_type: slipMoneyLineageDraft.fundingSourceType,
+        target_funding_source_reference: slipMoneyLineageDraft.fundingSourceReference || null,
+        target_fund_holder_name: slipMoneyLineageDraft.fundHolderName || null,
+        target_payer_name: slipMoneyLineageDraft.payerName || null,
+        target_final_beneficiary_name: slipMoneyLineageDraft.finalBeneficiaryName || null,
+        target_purpose_type: slipMoneyLineageDraft.purposeType,
+        target_project_id: slipMoneyLineageDraft.projectId || null,
+        target_site_id: slipMoneyLineageDraft.siteId || null,
+        target_responsible_name: slipMoneyLineageDraft.responsibleName || null,
+        target_starting_amount: numericOrNull(slipMoneyLineageDraft.startingAmount),
+        target_paid_amount: numericOrNull(slipMoneyLineageDraft.paidAmount),
+        target_returned_amount: numericOrNull(slipMoneyLineageDraft.returnedAmount) ?? 0,
+        target_remaining_amount: numericOrNull(slipMoneyLineageDraft.remainingAmount),
+        target_hops: slipMoneyLineageDraft.hops.map((hop, index) => ({ sequence: index + 1, from_party: hop.fromParty.trim(), to_party: hop.toParty.trim(), amount: numericOrNull(hop.amount), transferred_at: hop.transferredAt ? new Date(hop.transferredAt).toISOString() : null, note: hop.note.trim() || null })),
+        target_note: slipMoneyLineageDraft.note || slipReviewDraft.note || null,
       })
       if (rpcError) throw rpcError
-      setSuccess(decision === 'confirm' ? 'ยืนยันข้อมูลสลิปและบันทึก Audit แล้ว' : decision === 'request_information' ? 'ส่งกลับเพื่อขอข้อมูลเพิ่มแล้ว' : 'บันทึกฉบับร่างและ Audit แล้ว')
+      const route = routeResult as { route_status?: string; next_destination?: string; advance_case_id?: string | null } | null
+      setSlipMoneyLineageStatus({ routeStatus: route?.route_status ?? (decision === 'confirm' ? 'routed' : decision === 'request_information' ? 'needs_information' : 'draft'), nextDestination: route?.next_destination ?? moneyPurposeRoute(slipMoneyLineageDraft.purposeType).route })
+      setSuccess(decision === 'confirm' ? route?.route_status === 'accounting_review' ? 'บันทึกแล้ว แต่ยังค้างบัญชีเพื่อจับคู่ผู้ถือเงินก่อนส่งเงินสำรองจ่าย' : `ยืนยันและส่งงานต่อแล้ว: ${moneyPurposeRoute(slipMoneyLineageDraft.purposeType).route}` : decision === 'request_information' ? 'ส่งกลับเพื่อขอข้อมูลเพิ่มแล้ว' : 'บันทึกฉบับร่างพร้อมเส้นทางเงินและ Audit แล้ว')
       await loadData()
       const updatedSlip: AccountingPendingSlip = { ...selectedSlip, senderName: slipReviewDraft.senderName || null, senderBankName: slipReviewDraft.senderBankName || null, senderAccountLast4: slipReviewDraft.senderAccountLast4 || null, recipientName: slipReviewDraft.recipientName || null, recipientBankName: slipReviewDraft.recipientBankName || null, recipientAccountLast4: slipReviewDraft.recipientAccountLast4 || null, amount, transferAt: slipReviewDraft.transferAt ? new Date(slipReviewDraft.transferAt).toISOString() : null, bankReference: slipReviewDraft.bankReference || null, reviewStatus: decision === 'confirm' ? 'confirmed' : 'pending', dataReviewStatus: decision === 'confirm' ? 'rechecked' : 'incomplete', dataReviewNote: slipReviewDraft.note || null }
       setSelectedSlip(updatedSlip)
@@ -1369,8 +1397,13 @@ export function AccountingDocumentsPage() {
         <Button variant="contained" disabled={!canManage || slipActionLoading || !activeSlipPreview} onClick={() => void rereadSelectedSlip()}>{slipActionLoading ? 'AI กำลังอ่าน…' : 'ให้ AI อ่านสลิปใหม่'}</Button>
         <Paper variant="outlined" sx={{ p: 1.5 }}><Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Source Reference</Typography><Typography variant="body2">{selectedSlip.sourceChannel ?? 'ไม่ระบุ'} · {selectedSlip.sourceRoomName ?? 'ไม่ระบุห้อง'} · {selectedSlip.sourceSenderName ?? 'ไม่ระบุผู้ส่ง'}</Typography><Typography variant="caption" color="text.secondary">Message ID: {selectedSlip.sourceMessageId ?? '-'}</Typography></Paper>
         </>}
-        {slipDetailTab === 1 && slipReviewDraft && <>
+        {slipDetailTab === 1 && slipReviewDraft && slipMoneyLineageDraft && <>
           <Alert severity="info">แก้ค่าที่อ่านไม่ได้ได้ทันที ค่า AI เป็นเพียงข้อเสนอ ระบบบันทึกผู้แก้ เวลา และค่าก่อน/หลังทุกครั้ง</Alert>
+          <Paper variant="outlined" sx={{ p: 1.5, borderLeft: 4, borderLeftColor: 'primary.main' }}><Stack spacing={1}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>เส้นทางเอกสารและเส้นทางเงิน</Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap sx={{ alignItems: { sm: 'center' }, flexWrap: 'wrap' }}><Chip label="ต้นทาง: Intake" /><Typography>→</Typography><Chip color="primary" label="ปัจจุบัน: บัญชีตรวจสลิป" /><Typography>→</Typography><Chip color={slipMoneyLineageDraft.purposeType === 'unknown' ? 'warning' : 'secondary'} label={`ถัดไป: ${moneyPurposeRoute(slipMoneyLineageDraft.purposeType).route.replace('บัญชี → ', '')}`} /></Stack>
+            {slipMoneyLineageStatus && <Typography variant="caption" color="text.secondary">สถานะสายเงิน: {slipMoneyLineageStatus.routeStatus} · ปลายทางระบบ: {slipMoneyLineageStatus.nextDestination}</Typography>}
+          </Stack></Paper>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
             <TextField label="วันที่และเวลาโอน" type="datetime-local" value={slipReviewDraft.transferAt} onChange={event => setSlipReviewDraft(current => current && ({ ...current, transferAt: event.target.value }))} slotProps={{ inputLabel: { shrink: true } }} />
             <TextField label="จำนวนเงิน" type="number" value={slipReviewDraft.amount} onChange={event => setSlipReviewDraft(current => current && ({ ...current, amount: event.target.value }))} />
@@ -1381,8 +1414,29 @@ export function AccountingDocumentsPage() {
             <TextField label="ธนาคารผู้รับ" value={slipReviewDraft.recipientBankName} onChange={event => setSlipReviewDraft(current => current && ({ ...current, recipientBankName: event.target.value }))} />
             <TextField label="เลขบัญชีผู้รับ 4 ตัวท้าย" value={slipReviewDraft.recipientAccountLast4} onChange={event => setSlipReviewDraft(current => current && ({ ...current, recipientAccountLast4: event.target.value.replace(/\D/g, '').slice(0, 4) }))} />
             <TextField label="เลขอ้างอิงธนาคาร" value={slipReviewDraft.bankReference} onChange={event => setSlipReviewDraft(current => current && ({ ...current, bankReference: event.target.value }))} sx={{ gridColumn: { sm: '1 / -1' } }} />
-            <TextField multiline minRows={2} label="หมายเหตุ/ข้อมูลที่ต้องขอเพิ่ม" value={slipReviewDraft.note} onChange={event => setSlipReviewDraft(current => current && ({ ...current, note: event.target.value }))} sx={{ gridColumn: { sm: '1 / -1' } }} />
           </Box>
+          <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>แหล่งเงินและปลายทางการใช้</Typography>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
+            <TextField select label="เงินที่จ่ายมาจากไหน" value={slipMoneyLineageDraft.fundingSourceType} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, fundingSourceType: event.target.value as MoneyFundingSource }))}><MenuItem value="unknown">ยังไม่ทราบ</MenuItem><MenuItem value="company_account">บัญชีบริษัท</MenuItem><MenuItem value="reserve_fund">เงินสำรองจ่าย</MenuItem><MenuItem value="employee_advance">เงินทดลองจ่าย/เบิกล่วงหน้า</MenuItem><MenuItem value="personal_reimbursement">เงินส่วนตัวสำรองก่อน</MenuItem></TextField>
+            <TextField label="รหัสกองเงิน / Advance ID" value={slipMoneyLineageDraft.fundingSourceReference} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, fundingSourceReference: event.target.value }))} />
+            <TextField label="ผู้ถือเงิน" value={slipMoneyLineageDraft.fundHolderName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, fundHolderName: event.target.value }))} helperText="บังคับเมื่อเป็นเงินสำรองหรือเงินทดลองจ่าย" />
+            <TextField label="ผู้จ่ายจริง" value={slipMoneyLineageDraft.payerName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, payerName: event.target.value }))} />
+            <TextField label="ผู้รับประโยชน์/ปลายทางสุดท้าย" value={slipMoneyLineageDraft.finalBeneficiaryName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, finalBeneficiaryName: event.target.value }))} />
+            <TextField select label="จ่ายเพื่ออะไร / ส่งไปไหนต่อ" value={slipMoneyLineageDraft.purposeType} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, purposeType: event.target.value as MoneyPurpose, ...(event.target.value === 'general_expense' ? { projectId: '', siteId: '' } : {}) }))}><MenuItem value="unknown">ยังไม่ชัดเจน</MenuItem><MenuItem value="payroll">ค่าแรง</MenuItem><MenuItem value="advance_transfer">เติมเงินสำรอง/เบิกล่วงหน้า</MenuItem><MenuItem value="materials">ซื้อวัสดุ/อุปกรณ์</MenuItem><MenuItem value="project_expense">ค่าใช้จ่ายโครงการ</MenuItem><MenuItem value="general_expense">ค่าใช้จ่ายทั่วไป</MenuItem><MenuItem value="onward_transfer">ส่งต่อให้ผู้ถือเงินอีกคน</MenuItem></TextField>
+            <TextField select label="โครงการ" value={slipMoneyLineageDraft.projectId} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, projectId: event.target.value, siteId: '' }))}><MenuItem value="">ไม่ระบุ</MenuItem>{projects.map(project => <MenuItem key={project.id} value={project.id}>{project.code ? `${project.code} · ` : ''}{project.name}</MenuItem>)}</TextField>
+            <TextField select label="ไซต์งาน" value={slipMoneyLineageDraft.siteId} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, siteId: event.target.value }))}><MenuItem value="">ไม่ระบุ</MenuItem>{sites.filter(site => site.project_id === slipMoneyLineageDraft.projectId).map(site => <MenuItem key={site.id} value={site.id}>{site.name}</MenuItem>)}</TextField>
+            <TextField label="ผู้รับผิดชอบขั้นตอนถัดไป" value={slipMoneyLineageDraft.responsibleName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, responsibleName: event.target.value }))} sx={{ gridColumn: { sm: '1 / -1' } }} />
+          </Box>
+          <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>ยอดกองเงินและการเคลียร์ยอด</Typography>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(4,1fr)' }, gap: 1.5 }}>
+            <TextField type="number" label="ยอดตั้งต้น" value={slipMoneyLineageDraft.startingAmount} onChange={event => { const starting = event.target.value; setSlipMoneyLineageDraft(current => { if (!current) return current; const paid = Number(current.paidAmount || 0); const returned = Number(current.returnedAmount || 0); const calculated = starting === '' ? '' : String(Math.max(0, Number(starting) - paid - returned)); return { ...current, startingAmount: starting, remainingAmount: calculated } }) }} />
+            <TextField type="number" label="จ่ายครั้งนี้" value={slipMoneyLineageDraft.paidAmount} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, paidAmount: event.target.value }))} />
+            <TextField type="number" label="ยอดคืน" value={slipMoneyLineageDraft.returnedAmount} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, returnedAmount: event.target.value }))} />
+            <TextField type="number" label="ยอดคงเหลือ" value={slipMoneyLineageDraft.remainingAmount} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, remainingAmount: event.target.value }))} />
+          </Box>
+          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}><Typography variant="subtitle1" sx={{ fontWeight: 800 }}>ทอดการส่งเงิน ({slipMoneyLineageDraft.hops.length})</Typography><Button size="small" startIcon={<AddOutlinedIcon />} onClick={() => setSlipMoneyLineageDraft(current => current && ({ ...current, hops: [...current.hops, { fromParty: current.hops.at(-1)?.toParty ?? '', toParty: '', amount: current.hops.at(-1)?.amount ?? current.paidAmount, transferredAt: '', note: '' }] }))}>เพิ่มทอด</Button></Stack>
+          {slipMoneyLineageDraft.hops.map((hop, index) => <Paper key={index} variant="outlined" sx={{ p: 1.25 }}><Stack spacing={1}><Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}><Typography sx={{ fontWeight: 700 }}>ทอดที่ {index + 1}</Typography><IconButton size="small" color="error" disabled={slipMoneyLineageDraft.hops.length === 1} onClick={() => setSlipMoneyLineageDraft(current => current && ({ ...current, hops: current.hops.filter((_value, hopIndex) => hopIndex !== index) }))}><DeleteOutlineIcon fontSize="small" /></IconButton></Stack><Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1 }}><TextField size="small" label="จากใคร" value={hop.fromParty} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, hops: current.hops.map((value, hopIndex) => hopIndex === index ? { ...value, fromParty: event.target.value } : value) }))} /><TextField size="small" label="ถึงใคร" value={hop.toParty} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, hops: current.hops.map((value, hopIndex) => hopIndex === index ? { ...value, toParty: event.target.value } : value) }))} /><TextField size="small" type="number" label="จำนวนเงิน" value={hop.amount} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, hops: current.hops.map((value, hopIndex) => hopIndex === index ? { ...value, amount: event.target.value } : value) }))} /><TextField size="small" type="datetime-local" label="วันเวลา" value={hop.transferredAt} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, hops: current.hops.map((value, hopIndex) => hopIndex === index ? { ...value, transferredAt: event.target.value } : value) }))} slotProps={{ inputLabel: { shrink: true } }} /><TextField size="small" label="หมายเหตุทอดนี้" value={hop.note} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, hops: current.hops.map((value, hopIndex) => hopIndex === index ? { ...value, note: event.target.value } : value) }))} sx={{ gridColumn: { sm: '1 / -1' } }} /></Box></Stack></Paper>)}
+          <TextField multiline minRows={2} label="หมายเหตุ/ข้อมูลที่ต้องขอเพิ่ม" value={slipMoneyLineageDraft.note} onChange={event => { const note = event.target.value; setSlipMoneyLineageDraft(current => current && ({ ...current, note })); setSlipReviewDraft(current => current && ({ ...current, note })) }} />
           <Paper variant="outlined" sx={{ p: 1.5 }}><Typography variant="body2">AI confidence: {selectedSlip.analysisConfidence == null ? '-' : `${Math.round(selectedSlip.analysisConfidence * 100)}%`} · Payment fields: {selectedSlip.paymentPartyConfidence == null ? '-' : `${Math.round(selectedSlip.paymentPartyConfidence * 100)}%`}</Typography><Typography variant="caption" color="text.secondary">Model: {selectedSlip.analysisModel ?? '-'}</Typography></Paper>
         </>}
         <Accordion disableGutters><AccordionSummary><Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}><Typography sx={{ fontWeight: 800 }}>Source/Audit Flow</Typography><Chip size="small" label={`${slipEvents.length} Events`} /></Stack></AccordionSummary><AccordionDetails><Stack spacing={1}>
@@ -1391,7 +1445,7 @@ export function AccountingDocumentsPage() {
         </Stack></AccordionDetails></Accordion>
         <Button href={`/document-flows?document_view=task_types&item_id=${encodeURIComponent(selectedSlip.itemId)}`} variant="text">เปิดในศูนย์เส้นทางเอกสาร</Button>
         </Stack>
-        {slipDetailTab === 1 && <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ position: 'sticky', bottom: 0, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider', p: 2, zIndex: 2 }}><Button disabled={!canManage || slipActionLoading} onClick={() => void saveSlipReview('draft')}>บันทึกฉบับร่าง</Button><Button color="warning" variant="outlined" disabled={!canManage || slipActionLoading || !slipReviewDraft?.note.trim()} onClick={() => void saveSlipReview('request_information')}>ขอข้อมูลเพิ่ม</Button><Button color="success" variant="contained" disabled={!canManage || slipActionLoading} onClick={() => void saveSlipReview('confirm')}>ยืนยันข้อมูลสลิป</Button></Stack>}
+        {slipDetailTab === 1 && <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ position: 'sticky', bottom: 0, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider', p: 2, zIndex: 2 }}><Button disabled={!canManage || slipActionLoading} onClick={() => void saveSlipReview('draft')}>บันทึกฉบับร่าง</Button><Button color="warning" variant="outlined" disabled={!canManage || slipActionLoading || !slipMoneyLineageDraft?.note.trim()} onClick={() => void saveSlipReview('request_information')}>ขอข้อมูลเพิ่ม</Button><Button color="success" variant="contained" disabled={!canManage || slipActionLoading} onClick={() => void saveSlipReview('confirm')}>{slipActionLoading ? 'กำลังบันทึกและส่งต่อ…' : 'ยืนยันและส่งไปปลายทาง'}</Button></Stack>}
       </Stack>}
     </Drawer>
 

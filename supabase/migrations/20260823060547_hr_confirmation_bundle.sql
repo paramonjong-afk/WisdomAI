@@ -556,13 +556,20 @@ begin
   return new;
 end $$;
 
+create or replace function public.sync_hr_confirmation_bundle_trigger_function()
+returns trigger language plpgsql security definer set search_path=public as $$
+begin
+  perform public.sync_hr_confirmation_bundle_for_job(new.id);
+  return new;
+end $$;
+
 drop trigger if exists publish_attendance_approval_message_trigger on public.chat_attendance_approval_jobs;
 drop trigger if exists capture_hr_intake_raw_message_trigger on public.chat_messages;
 create trigger capture_hr_intake_raw_message_trigger after insert on public.chat_messages
 for each row execute function public.capture_hr_intake_raw_message();
 drop trigger if exists sync_hr_confirmation_bundle_trigger on public.chat_attendance_approval_jobs;
 create trigger sync_hr_confirmation_bundle_trigger after insert on public.chat_attendance_approval_jobs
-for each row execute function public.sync_hr_confirmation_bundle_for_job(new.id);
+for each row execute function public.sync_hr_confirmation_bundle_trigger_function();
 drop trigger if exists publish_hr_confirmation_bundle_trigger on public.hr_confirmation_bundles;
 create trigger publish_hr_confirmation_bundle_trigger after insert or update of status,confirmation_status on public.hr_confirmation_bundles
 for each row execute function public.publish_hr_confirmation_bundle();
@@ -570,6 +577,7 @@ for each row execute function public.publish_hr_confirmation_bundle();
 revoke all on function public.refresh_hr_confirmation_bundle(uuid) from public,anon,authenticated;
 revoke all on function public.sync_hr_confirmation_bundle_for_job(uuid) from public,anon,authenticated;
 revoke all on function public.capture_hr_intake_raw_message() from public,anon,authenticated;
+revoke all on function public.sync_hr_confirmation_bundle_trigger_function() from public,anon,authenticated;
 revoke all on function public.classify_hr_intake_item(uuid,text,text,numeric,jsonb,uuid,uuid,uuid,text) from public,anon;
 revoke all on function public.act_hr_intake_item(uuid,text,text,text) from public,anon;
 revoke all on function public.hr_intake_gate_counts() from public,anon;

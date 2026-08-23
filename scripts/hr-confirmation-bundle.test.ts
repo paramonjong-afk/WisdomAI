@@ -3,6 +3,7 @@ import fs from 'node:fs'
 
 const migration = fs.readFileSync('supabase/migrations/20260823060547_hr_confirmation_bundle.sql', 'utf8')
 const flow = fs.readFileSync('docs/HR_CONFIRMATION_BUNDLE_FLOW.md', 'utf8')
+const chatPage = fs.readFileSync('src/pages/Chat/index.tsx', 'utf8')
 
 for (const needle of [
   'create table public.hr_intake_raw_items',
@@ -24,6 +25,11 @@ for (const needle of [
   'sync_hr_confirmation_bundle_trigger',
   'publish_hr_confirmation_bundle_trigger',
   'hr_intake_gate_counts',
+  "'review_started'",
+  "'approval_requested'",
+  "'bundle_closed_100_percent'",
+  "'more_information_required'",
+  "'bundle_rejected'",
 ]) assert.ok(migration.includes(needle), `missing HR bundle contract: ${needle}`)
 
 assert.match(flow, /^```mermaid[\s\S]*flowchart TD/)
@@ -32,6 +38,10 @@ assert.match(migration, /alter table public\.hr_confirmation_bundles enable row 
 assert.match(migration, /revoke insert,update,delete on public\.hr_intake_raw_items,public\.hr_intake_events from anon,authenticated/)
 assert.match(migration, /revoke all on function public\.act_hr_confirmation_bundle[\s\S]*from public,anon/)
 assert.doesNotMatch(migration, /delete from public\.hr_intake_raw_items/i, 'raw HR intake must never be deleted')
+assert.match(migration, /where id=new\.id and \(confirmation_status,last_error\) is distinct from/, 'confirmation retry must not recurse')
+for (const label of ['HR Intake Gate', 'ข้อมูลเข้าทั้งหมด', 'ยืนยันเข้า Bundle', 'ขอข้อมูลเพิ่ม', 'ปฏิเสธ', 'ตรวจครบและปิด Job 100%']) {
+  assert.ok(chatPage.includes(label), `missing HR room action: ${label}`)
+}
 
 type Fixture = {
   id: string

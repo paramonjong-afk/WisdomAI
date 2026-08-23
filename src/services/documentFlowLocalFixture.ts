@@ -1,4 +1,5 @@
 import type { DocumentFlowScope, OmniFilterTaskRow } from './documentFlowGateway'
+import { classifyIntake } from './intakeClassificationGateway'
 
 export type LocalFixtureFlowRow = Record<string, unknown> & {
   id: string
@@ -66,9 +67,12 @@ export function localQueuePage(scope: DocumentFlowScope, flow: 'intake' | 'filte
 }
 
 export function localOmniTasks(scope: DocumentFlowScope) {
-  const rows = localDocumentFlowFixture.filter((row) => matches(row, scope) && (scope.conversationType !== 'hr_confirmation' || row.document_type === 'payroll')).map((row) => ({
+  const rows = localDocumentFlowFixture.filter((row) => matches(row, scope) && (scope.conversationType !== 'hr_confirmation' || row.document_type === 'payroll')).map((row) => {
+    const classification = classifyIntake({ id: row.id, rawText: `${row.latest_comment ?? ''} ${row.document_type === 'payroll' ? 'ลงเวลา' : ''}`, documentType: row.document_type, sourceChannel: row.source_channel, sourceRoom: row.source_room_name, senderName: row.source_sender_name, duplicateOf: row.id === 'fixture-hr-2202' ? 'fixture-hr-2201' : null, isSystemSummary: row.id === 'fixture-hr-2203' })
+    return {
     id: `task-${row.id}`, department: row.target_department ?? 'accounting', task_status: row.state, required: true, note: row.latest_comment as string, created_at: row.created_at, updated_at: row.updated_at, source_id: row.id,
-    omni_intake_sources: { id: row.id, source_channel: row.source_channel, source_kind: 'message', source_room_name: row.source_room_name, source_sender_name: row.source_sender_name, occurred_at: row.source_received_at, text_content: row.latest_comment as string, attachment_count: row.source_attachment_count, dedupe_status: row.id === 'fixture-hr-2202' ? 'possible_duplicate' : 'primary', conversation_type: row.document_type === 'payroll' ? 'hr' : 'document', intent: row.document_type, ai_summary: row.latest_comment as string, confidence: row.confidence, confidence_band: row.confidence >= .9 ? 'high' : 'low', suggested_departments: [row.target_department ?? 'accounting'], filter_status: row.state, outtake_status: 'pending', ...(row.document_type === 'payroll' ? { hr_bundle: { worker_name: row.source_sender_name, project_name: row.projects?.name ?? 'ไม่ระบุโครงการ', workday: row.source_received_at.slice(0, 10), member_count: 2, missing_events: row.id === 'fixture-hr-2202' ? ['clock_out'] : [], duplicate_count: row.id === 'fixture-hr-2202' ? 1 : 0, conflict_count: row.id === 'fixture-hr-2202' ? 1 : 0, responsible: 'HR หลัก', next_action: row.next_action as string, gate: row.id === 'fixture-hr-2201' ? 'candidate' : row.id === 'fixture-hr-2202' ? 'duplicate' : row.id === 'fixture-hr-2203' ? 'system' : 'low_confidence' } } : {}) },
-  })) as unknown as OmniFilterTaskRow[]
+    omni_intake_sources: { id: row.id, source_channel: row.source_channel, source_kind: 'message', source_room_name: row.source_room_name, source_sender_name: row.source_sender_name, occurred_at: row.source_received_at, text_content: row.latest_comment as string, attachment_count: row.source_attachment_count, dedupe_status: row.id === 'fixture-hr-2202' ? 'possible_duplicate' : 'primary', conversation_type: row.document_type === 'payroll' ? 'hr' : 'document', intent: row.document_type, ai_summary: row.latest_comment as string, confidence: row.confidence, confidence_band: row.confidence >= .9 ? 'high' : 'low', suggested_departments: [row.target_department ?? 'accounting'], filter_status: row.state, outtake_status: 'pending', ...(row.document_type === 'payroll' ? { hr_bundle: { worker_name: row.source_sender_name, project_name: row.projects?.name ?? 'ไม่ระบุโครงการ', workday: row.source_received_at.slice(0, 10), member_count: 2, missing_events: row.id === 'fixture-hr-2202' ? ['clock_out'] : [], duplicate_count: row.id === 'fixture-hr-2202' ? 1 : 0, conflict_count: row.id === 'fixture-hr-2202' ? 1 : 0, responsible: 'HR หลัก', next_action: row.next_action as string, gate: row.id === 'fixture-hr-2201' ? 'candidate' : row.id === 'fixture-hr-2202' ? 'duplicate' : row.id === 'fixture-hr-2203' ? 'system' : 'low_confidence', classification_reason: classification.reason, rule_version: classification.rule_version, model_version: classification.model_version } } : {}) },
+    }
+  }) as unknown as OmniFilterTaskRow[]
   return { data: rows, count: rows.length, error: null }
 }
