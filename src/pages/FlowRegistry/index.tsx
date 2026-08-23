@@ -85,10 +85,10 @@ const systemFlows = [
   },
   {
     title: 'Application Launcher',
-    version: 'Entry Routing v1.4 · 23/8/2569',
+    version: 'Entry Routing v1.5 · 23/8/2569',
     icon: <AppsOutlinedIcon color="primary" />,
-    summary: 'จุดตรวจอุปกรณ์และบทบาทหลัง Login: มือถือเข้า Time Tracking เดิม ส่วนคอมพิวเตอร์ไป Dashboard รวมหรือ My Profile ตามสิทธิ์',
-    bullets: ['อ่านจาก docs/NAVIGATION_FLOW.md และ docs/TIME_TRACKING_FLOW.md', 'mobile → `/time-tracking`; admin/manager บน desktop → `/dashboard`; employee บน desktop → `/my-profile`', 'Web Chat ยังคงเปิดได้จาก Sidebar/ทางลัดตามสิทธิ์ และ `/` เป็น fallback เมื่อโปรไฟล์ยังโหลดไม่เสร็จ'],
+    summary: 'หลัง Login มือถือเห็น Launcher ที่มี 2 ปุ่มแยกชัดเจน: ลงเวลา และ Web Chat; คอมพิวเตอร์ไป Dashboard รวมหรือ My Profile ตามสิทธิ์',
+    bullets: ['อ่านจาก docs/NAVIGATION_FLOW.md และ docs/TIME_TRACKING_FLOW.md', 'mobile → `/` Launcher → เลือก `/time-tracking` หรือ `/chat`; admin/manager บน desktop → `/dashboard`; employee บน desktop → `/my-profile`', 'Web Chat และลงเวลาเป็นปุ่มระดับเดียวกัน ไม่ซ้อนอยู่ในไอคอนอื่น และยังมี Sidebar/ทางลัดตามสิทธิ์'],
     path: '/',
     action: 'ทดสอบจุดเข้าโปรแกรม',
   },

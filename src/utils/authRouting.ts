@@ -36,7 +36,9 @@ export function getPostLoginDestination(
   role?: ProfileRole | null,
   device: EntryDevice = detectEntryDevice(),
 ) {
-  if (device === 'mobile') return '/time-tracking'
+  // Keep mobile post-login at the launcher so the two primary destinations
+  // remain separate: Time Tracking and Web Chat.
+  if (device === 'mobile') return '/'
   if (role === 'admin' || role === 'manager') return '/dashboard'
   if (role === 'employee') return '/my-profile'
   // Do not guess a protected role while profile loading/fails. The launcher

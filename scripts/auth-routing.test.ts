@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { detectEntryDevice, getPostLoginDestination } from '../src/utils/authRouting.ts'
 
-assert.equal(getPostLoginDestination('employee', 'mobile'), '/time-tracking')
-assert.equal(getPostLoginDestination('manager', 'mobile'), '/time-tracking')
-assert.equal(getPostLoginDestination('admin', 'mobile'), '/time-tracking')
+assert.equal(getPostLoginDestination('employee', 'mobile'), '/')
+assert.equal(getPostLoginDestination('manager', 'mobile'), '/')
+assert.equal(getPostLoginDestination('admin', 'mobile'), '/')
 assert.equal(getPostLoginDestination('employee', 'desktop'), '/my-profile')
 assert.equal(getPostLoginDestination('manager', 'desktop'), '/dashboard')
 assert.equal(getPostLoginDestination('admin', 'desktop'), '/dashboard')

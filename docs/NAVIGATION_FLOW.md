@@ -11,12 +11,13 @@ flowchart LR
   P --> A[Authenticated user]
   A --> B[Resolve profile + company role]
   B --> C{ตรวจอุปกรณ์}
-  C -->|มือถือ| D[Time Tracking / ลงเวลา]
+  C -->|มือถือ| D[Launcher: 2 ปุ่มแยก ลงเวลา / Web Chat]
   C -->|คอมพิวเตอร์| E{ตรวจบทบาทจาก Profile}
   E -->|admin หรือ manager| F[Dashboard รวม]
   E -->|employee| G[My Profile / หน้าของตัวเอง]
   E -->|ยังโหลดไม่ได้| H[Launcher สำรองที่ /]
-  D --> I[Router permission guard]
+  D --> D1[เลือก ลงเวลา → /time-tracking หรือ Web Chat → /chat]
+  D1 --> I[Router permission guard]
   F --> I
   G --> I
   H --> I
@@ -34,7 +35,7 @@ flowchart LR
 ## Inputs, output, permission, failure and audit
 
 - **Inputs:** Smart Entry target health/latency and release revision parity, PWA install/open request, the single WisdomAI app icon assets, device signals (`userAgent`, viewport, touch/coarse pointer), effective company role, requested path, allowed roles, platform-admin flag, and unread Web Chat count for the active company/profile.
-- **Output:** Mobile defaults to `/time-tracking`; desktop `admin/manager` defaults to `/dashboard`; desktop `employee` defaults to `/my-profile`. Web Chat remains available through the permitted Sidebar/mobile entry. The `/` launcher is a safe fallback while profile data is unavailable.
+- **Output:** Mobile defaults to `/` Application Launcher with two same-level buttons: `/time-tracking` and `/chat`; desktop `admin/manager` defaults to `/dashboard`; desktop `employee` defaults to `/my-profile`. The launcher is a safe fallback while profile data is unavailable.
 - **Permissions:** Sidebar filters by role for usability; the route itself also enforces the permission boundary. No financial, document, or HR data is loaded by navigation.
 - **Failure/retry:** if device detection is uncertain, the system uses the desktop branch; if profile data is unavailable, it stays at `/` and retries through the existing AuthContext refresh. An unavailable or denied destination follows its Router guard. If an installed icon is stale, reinstalling the PWA/refreshing its cache picks up the versioned PNG without changing route access.
 - **Audit/owner:** navigation has no business mutation or audit event. Platform UI owns device routing/labels/icons; each destination module owns its data and audit.
@@ -49,3 +50,4 @@ flowchart LR
 | v1.3 | 22/8/2569 | Add one branded WisdomAI PWA icon (192/512 PNG) and make the installed icon open the outer launcher at `/` | manifest/icon asset checks, lint, build and browser/PWA route check | Restore `start_url` to `/time-tracking` and remove the branded icon links; routes/data remain |
 | v1.4 | 23/8/2569 | Route the first authenticated page by device and effective role: mobile → Time Tracking, desktop manager/admin → Dashboard, desktop employee → My Profile | auth-routing tests, lint, build, route guard check and mobile/desktop browser verification | Restore `/` as the default post-login destination; keep the existing launcher and module routes intact |
 | v1.5 | 23/8/2569 | Require Cloudflare fallback release revision to match Vercel before Smart Entry selects it | smart-entry/release tests, lint, build and both-host manifest check after deploy | Revert parity gate only after both hosts are rolled back to the same revision |
+| v1.6 | 23/8/2569 | Keep mobile post-login at the Application Launcher so ลงเวลา and Web Chat remain separate same-level entry buttons | auth-routing test, launcher contract test, lint, build and mobile route verification | Restore direct mobile `/time-tracking` routing; launcher and module routes remain available |

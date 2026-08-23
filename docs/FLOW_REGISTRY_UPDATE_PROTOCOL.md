@@ -169,6 +169,14 @@
 - **การตรวจสอบ:** auth-routing test, targeted/full lint, build, route guard, ตรวจ manifest/route จริง และตรวจทางเข้า Web Chat จาก Sidebar/ทางลัด
 - **Rollback:** คืน `getPostLoginDestination` เป็น `/`, ยกเลิก AppLauncher redirect และคืน Login post-auth fallback เป็น `/`; ข้อมูลลงเวลา ห้องแชต และ audit ไม่ถูกลบ
 
+## ล่าสุด: Mobile Launcher Dual Entry v1.0 — 23/8/2569
+
+- **เหตุผล:** หลัง Login บนมือถือถูกส่งตรงไปหน้าลงเวลา ทำให้ปุ่มหลัก 2 รายการใน Launcher ไม่แสดง ผู้ใช้ต้องการเลือกลงเวลาหรือ Web Chat จากจุดเดียวโดยไม่ใช้ไอคอนซ้อน
+- **ผลกระทบ:** `src/utils/authRouting.ts`, `scripts/auth-routing.test.ts`, `src/pages/FlowRegistry/index.tsx`, `docs/NAVIGATION_FLOW.md` และ `docs/TIME_TRACKING_FLOW.md`; มือถือคงอยู่ที่ `/` หลัง Login แล้วแสดงปุ่มระดับเดียวกัน 2 ปุ่มไป `/time-tracking` และ `/chat`; desktop role routing ไม่เปลี่ยน
+- **Migration:** ไม่มี schema/data migration และไม่เปลี่ยนสิทธิ์หรือข้อมูลธุรกิจ
+- **การตรวจสอบ:** auth-routing/launcher contract test, lint, typecheck, build และตรวจ route `/` ด้วย mobile viewport
+- **Rollback:** คืน mobile destination เป็น `/time-tracking`; route `/` และปุ่มทั้งสองยังคงอยู่สำหรับการเข้าผ่าน PWA/เมนู
+
 ## ล่าสุด: WisdomAI PWA App Icon v1.0 — 22/8/2569
 
 - **เหตุผล:** ให้ผู้ใช้มือถือมีไอคอนโปรแกรม WisdomAI เพียงตัวเดียว และเปิดเข้าสู่ Application Launcher ก่อนเลือก Web Chat หรือ ลงเวลา
