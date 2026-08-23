@@ -198,9 +198,11 @@ function taskCategoryOf(item: FlowItem): TaskCategory {
 export function DocumentFlowsPage() {
   const { profile, currentCompany } = useAuth()
   usePageTitle('Document Flow Center')
-  const [flow, setFlow] = useState<ViewMode>('intake_room')
-  const [queueView, setQueueView] = useState<Exclude<ViewMode, 'omni_filter'>>('intake_room')
   const [searchParams, setSearchParams] = useSearchParams()
+  const initialDocumentView = searchParams.get('document_view') as ViewMode | null
+  const initialQueueView: Exclude<ViewMode, 'omni_filter'> = initialDocumentView === 'filter' || initialDocumentView === 'task_types' ? initialDocumentView : 'intake_room'
+  const [flow, setFlow] = useState<ViewMode>(initialDocumentView === 'omni_filter' ? 'omni_filter' : initialQueueView)
+  const [queueView, setQueueView] = useState<Exclude<ViewMode, 'omni_filter'>>(initialQueueView)
   const [globalScope, setGlobalScope] = useState<DocumentFlowScope>(() => ({
     channel: (searchParams.get('channel') as DocumentFlowScope['channel']) || 'all',
     // Intake is the entry point and can grow continuously.  Start with the
@@ -270,6 +272,7 @@ export function DocumentFlowsPage() {
   useEffect(() => {
     const next = new URLSearchParams(searchParams)
     const values: Array<[string, string | undefined]> = [
+      ['document_view', flow],
       ['channel', globalScope.channel !== 'all' ? globalScope.channel : undefined],
       ['received_date', globalScope.date || undefined],
       ['source_room', globalScope.room?.trim() || undefined],
@@ -279,9 +282,9 @@ export function DocumentFlowsPage() {
     ]
     values.forEach(([key, value]) => { if (value) next.set(key, value); else next.delete(key) })
     setSearchParams(next, { replace: true })
-  // Only the global scope owns these query keys; local Intake filters remain intact.
+  // The central view and global scope own these query keys; local Intake filters remain intact.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [globalScope, setSearchParams])
+  }, [flow, globalScope, setSearchParams])
 
   /* Legacy bulk loader retained in comments only as a migration reference.
   const loadLegacy = useCallback(async () => {
