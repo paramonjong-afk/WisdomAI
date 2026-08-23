@@ -91,6 +91,7 @@
     "test:standard-table-sorting": "node --experimental-strip-types scripts/standard-table-sorting.test.ts",
     "test:attendance-channel": "node --experimental-strip-types scripts/attendance-channel.test.ts",
     "test:chat-attendance-command": "node --experimental-strip-types scripts/chat-attendance-command.test.ts",
+    "test:web-chat-attendance-approval": "node --experimental-strip-types scripts/web-chat-attendance-approval.test.ts",
     "test:chat-launcher-attachment": "node --experimental-strip-types scripts/chat-launcher-attachment.test.ts",
     "test:line-attendance-command": "node --experimental-strip-types scripts/line-attendance-command.test.ts",
     "test:hr-chat-work-event-stream": "node --experimental-strip-types scripts/hr-chat-work-event-stream.test.ts",
