@@ -1,5 +1,5 @@
 import { RefreshOutlined, Refresh } from '@mui/icons-material'
-import { ArrowDropDown, Delete, Search, ContentCopy, OpenInNewOutlined, HistoryOutlined } from '@mui/icons-material'
+import { ArrowDropDown, Delete, Search, ContentCopy, OpenInNewOutlined } from '@mui/icons-material'
 import { Alert, Box, Button, Chip, Divider, Drawer, FormControl, IconButton, Menu, MenuItem, Paper, Select, Stack, TextField, Tooltip, Typography } from '@mui/material'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
@@ -10,7 +10,6 @@ import { userError } from '../utils/userError'
 import { toFriendlyError } from '../utils/error-center'
 import { runWithMutationAttempt } from '../utils/mutationAttemptRunner'
 import { documentFlowGateway, type ChequePaymentEvidence, type DocumentFlowScope, type TransferSlipParties } from '../services/documentFlowGateway'
-import { supabase } from '../lib/supabase'
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined'
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
@@ -270,7 +269,6 @@ export function IntakeRoomPanel({
   const [items, setItems] = useState<IntakeFlowItem[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
-  const [backfillLoading, setBackfillLoading] = useState(false)
   const [channelFilter, setChannelFilter] = useState<'all' | 'line' | 'telegram' | 'web_chat' | 'unknown'>('all')
   const [receivedDate, setReceivedDate] = useState('')
   const [error, setError] = useState('')
@@ -351,13 +349,14 @@ export function IntakeRoomPanel({
     if (employeeResponse.error) {
       setError((previous) => previous || `โหลดคิว Intake HR ไม่สำเร็จ: ${userError(employeeResponse.error)}`)
     }
-    const sourceMessageIds = Array.from(new Set((response.data ?? []).map((row) => (row as RawDocumentFlowRow).source_message_id)))
+    const documentRows = (response.data ?? []) as unknown as RawDocumentFlowRow[]
+    const sourceMessageIds = Array.from(new Set(documentRows.map((row) => row.source_message_id)))
     const sourceMessageMap = new Map<string, RawLineMessage | null>()
     const transferPartyMap = new Map<string, TransferSlipParties>()
     const chequeEvidenceMap = new Map<string, ChequePaymentEvidence>()
     const senderNameMap = new Map<string, string | null>()
     const groupNameMap = new Map<string, string | null>()
-    if (sourceMessageIds.length > 0) {
+    if (sourceMessageIds.length > 0 && !globalScope?.localTestData) {
       const { messages: messageResponse, senders: sendersResponse, groups: groupsResponse } = await documentFlowGateway.loadSourceMessages(sourceMessageIds)
 
       if (messageResponse.error) {
@@ -390,7 +389,7 @@ export function IntakeRoomPanel({
       else for (const evidence of chequeResponse.data ?? []) chequeEvidenceMap.set(evidence.source_message_id, evidence)
     }
 
-    const documentFlowItems: IntakeFlowItem[] = (response.data ?? []).map((row) => {
+    const documentFlowItems: IntakeFlowItem[] = documentRows.map((row) => {
       const typedRow = row as RawDocumentFlowRow
       const projectRecord = Array.isArray(typedRow.projects)
         ? typedRow.projects[0]
@@ -469,34 +468,6 @@ export function IntakeRoomPanel({
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load() }, [load])
-
-  const reprocessTransferSlips = useCallback(async () => {
-    setBackfillLoading(true)
-    setActionMessage('กำลังวิเคราะห์สลิปย้อนหลัง…')
-    try {
-      let updated = 0
-      let skipped = 0
-      let failed = 0
-      let processed = 0
-      for (let batch = 0; batch < 20; batch += 1) {
-        const { data, error: invokeError } = await supabase.functions.invoke('reprocess-transfer-slips', { body: { limit: 10 } })
-        if (invokeError) throw invokeError
-        const result = data as { processed?: number; updated?: number; skipped?: number; failed?: number; estimated_remaining?: number; error?: string }
-        if (result.error) throw new Error(result.error)
-        processed += result.processed ?? 0
-        updated += result.updated ?? 0
-        skipped += result.skipped ?? 0
-        failed += result.failed ?? 0
-        if (!result.processed || !(result.estimated_remaining ?? 0)) break
-      }
-      setActionMessage(`วิเคราะห์สลิปย้อนหลังเสร็จ: อัปเดต ${updated} · ข้าม ${skipped} · ไม่สำเร็จ ${failed}`)
-      if (processed > 0) await load()
-    } catch (backfillError) {
-      setActionMessage(`วิเคราะห์สลิปย้อนหลังไม่สำเร็จ: ${userError(backfillError)}`)
-    } finally {
-      setBackfillLoading(false)
-    }
-  }, [load])
 
   const visible = useMemo(() => {
     const matchesQueueView = (item: IntakeFlowItem) => {
@@ -630,6 +601,9 @@ export function IntakeRoomPanel({
         <StandardDataTable
           key={`intake-room-table-${inputChannelTab}-${queueView}`}
           rows={visible}
+          emptyText={visible.length === 0
+            ? (globalScope?.localTestData ? 'ไม่พบข้อมูลตามตัวกรองปัจจุบัน · ล้างตัวกรองเพื่อดูชุด Local Test Data' : 'ไม่พบข้อมูลตามตัวกรองปัจจุบัน · ล้างตัวกรองหรือเลือกช่วงวันที่ใหม่')
+            : 'ไม่พบข้อมูล'}
           getRowId={(row) => row.id}
           exportFileName="intake-room-queue"
           hideBuiltInToolbarActions
@@ -653,9 +627,6 @@ export function IntakeRoomPanel({
                 </IconButton>
               </Tooltip>
               : null}
-              <Tooltip title={backfillLoading ? 'กำลังแยกสลิปย้อนหลัง…' : 'แยกสลิปย้อนหลัง'}>
-                <span><IconButton size="small" color="default" onClick={() => void reprocessTransferSlips()} disabled={backfillLoading}><HistoryOutlined fontSize="small" /></IconButton></span>
-              </Tooltip>
               {!globalScope && <FormControl size="small" sx={{ minWidth: 150 }}>
                 <Select displayEmpty value={channelFilter} onChange={(event) => setChannelFilter(event.target.value as typeof channelFilter)}>
                   <MenuItem value="all">ทุกช่องทาง</MenuItem>

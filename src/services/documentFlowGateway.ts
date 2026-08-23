@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase'
+import { localOmniTasks, localQueuePage } from './documentFlowLocalFixture'
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const queryChunkSize = 100
@@ -39,6 +40,7 @@ export type DocumentFlowScope = {
   sender?: string
   fileKind?: 'all' | 'image_or_scan' | 'pdf' | 'document' | 'unknown'
   project?: string
+  localTestData?: boolean
 }
 
 export type OmniFilterTaskRow = {
@@ -100,9 +102,14 @@ export type IntakeContextMessage = {
   attachment?: { bucket: string; path: string; contentType: string | null; label: string } | null
 }
 
-const dateRange = (date?: string) => date
-  ? { from: new Date(`${date}T00:00:00`).toISOString(), to: new Date(`${date}T23:59:59.999`).toISOString() }
-  : { from: null, to: null }
+// received_date is a Bangkok business date, not the machine/browser timezone.
+// Use an exclusive next-day bound so rows with fractional timestamps cannot be
+// lost at the end of the selected day.
+const dateRange = (date?: string) => {
+  if (!date) return { from: null as string | null, to: null as string | null }
+  const start = new Date(`${date}T00:00:00+07:00`)
+  return { from: start.toISOString(), to: new Date(start.getTime() + 24 * 60 * 60 * 1000).toISOString() }
+}
 
 /**
  * The only client-side gateway for the Document Flow domain.
@@ -110,7 +117,8 @@ const dateRange = (date?: string) => date
  * screen or issuing workflow commands to a business table themselves.
  */
 export const documentFlowGateway = {
-  async loadQueuePage(cursor?: { updatedAt: string; id: string } | null, limit = 100, flow?: 'filter' | 'posting' | null, scope: DocumentFlowScope = {}) {
+  async loadQueuePage(cursor?: { updatedAt: string; id: string } | null, limit = 100, flow?: 'intake' | 'filter' | 'posting' | null, scope: DocumentFlowScope = {}) {
+    if (scope.localTestData) return localQueuePage(scope, flow ?? null)
     const range = dateRange(scope.date)
     return supabase.rpc('document_flow_queue_page_for_flow', {
       target_limit: Math.max(1, Math.min(limit, 100)),
@@ -128,6 +136,7 @@ export const documentFlowGateway = {
   },
 
   async loadQueueFacets(scope: DocumentFlowScope = {}) {
+    if (scope.localTestData) return { data: [], error: null }
     const range = dateRange(scope.date)
     return supabase.rpc('document_flow_queue_facets', {
       target_channel: scope.channel ?? 'all',
@@ -141,20 +150,11 @@ export const documentFlowGateway = {
   },
 
   async loadIntakeQueue(filters: DocumentFlowScope = {}) {
+    // Use the central queue RPC so source_received_at falls back to the
+    // original line message timestamp exactly like the tab count query.
+    const page = await this.loadQueuePage(null, 2000, 'intake', filters)
+    const documentQuery = { data: page.data?.items ?? [], error: page.error }
     const { from: start, to: end } = dateRange(filters.date)
-    let documentQuery = supabase
-      .from('document_flow_items')
-      .select('id,intake_id,review_case_id,source_message_id,source_channel,source_room_name,source_sender_name,source_received_at,source_file_kind,source_attachment_count,current_room,current_flow,state,route_target,document_type,vendor_name,confidence,issue_codes,last_error,total_amount,data_review_status,data_review_note,projects(name),version,created_at,updated_at')
-      .eq('current_flow', 'intake')
-      .order('updated_at', { ascending: false })
-      .limit(2000)
-    if (filters?.channel === 'hr') documentQuery = documentQuery.limit(0)
-    else if (filters?.channel && filters.channel !== 'all') documentQuery = documentQuery.eq('source_channel', filters.channel)
-    if (start && end) documentQuery = documentQuery.gte('source_received_at', start).lte('source_received_at', end)
-    if (filters.room?.trim()) documentQuery = documentQuery.ilike('source_room_name', `%${filters.room.trim()}%`)
-    if (filters.sender?.trim()) documentQuery = documentQuery.ilike('source_sender_name', `%${filters.sender.trim()}%`)
-    if (filters.fileKind && filters.fileKind !== 'all') documentQuery = documentQuery.eq('source_file_kind', filters.fileKind)
-    if (filters.project?.trim()) documentQuery = documentQuery.ilike('projects.name', `%${filters.project.trim()}%`)
 
     let employeeQuery = supabase
       .from('employee_intakes')
@@ -163,8 +163,8 @@ export const documentFlowGateway = {
       .order('updated_at', { ascending: false })
       .limit(2000)
     if (filters?.channel && ['line', 'telegram', 'web_chat'].includes(filters.channel)) employeeQuery = employeeQuery.eq('channel', filters.channel)
-    if (filters?.channel === 'unknown') employeeQuery = employeeQuery.limit(0)
-    if (start && end) employeeQuery = employeeQuery.gte('source_started_at', start).lte('source_started_at', end)
+    if (filters?.channel === 'unknown' || filters.localTestData) employeeQuery = employeeQuery.limit(0)
+    if (start && end) employeeQuery = employeeQuery.gte('source_started_at', start).lt('source_started_at', new Date(end).toISOString())
     if (filters.room?.trim()) employeeQuery = employeeQuery.ilike('external_chat_id', `%${filters.room.trim()}%`)
     if (filters.sender?.trim()) employeeQuery = employeeQuery.ilike('external_user_id', `%${filters.sender.trim()}%`)
     return Promise.all([
@@ -174,6 +174,7 @@ export const documentFlowGateway = {
   },
 
   async loadOmniFilterTasks(filters: DocumentFlowScope = {}) {
+    if (filters.localTestData) return localOmniTasks(filters)
     const { from: start, to: end } = dateRange(filters.date)
     let query = supabase
       .from('omni_filter_tasks')
@@ -188,7 +189,7 @@ export const documentFlowGateway = {
       .order('updated_at', { ascending: false })
       .limit(500)
     if (filters?.channel && filters.channel !== 'all') query = query.eq('omni_intake_sources.source_channel', filters.channel)
-    if (start && end) query = query.gte('omni_intake_sources.occurred_at', start).lte('omni_intake_sources.occurred_at', end)
+    if (start && end) query = query.gte('omni_intake_sources.occurred_at', start).lt('omni_intake_sources.occurred_at', end)
     if (filters.room?.trim()) query = query.ilike('omni_intake_sources.source_room_name', `%${filters.room.trim()}%`)
     if (filters.sender?.trim()) query = query.ilike('omni_intake_sources.source_sender_name', `%${filters.sender.trim()}%`)
     if (filters.fileKind && filters.fileKind !== 'all') {
@@ -206,7 +207,7 @@ export const documentFlowGateway = {
     ).order('occurred_at', { ascending: false }).limit(500)
     if (filters.channel && filters.channel !== 'all' && filters.channel !== 'telegram' && filters.channel !== 'unknown') query = query.eq('source_channel', filters.channel)
     if (filters.channel === 'telegram' || filters.channel === 'unknown') query = query.limit(0)
-    if (start && end) query = query.gte('occurred_at', start).lte('occurred_at', end)
+    if (start && end) query = query.gte('occurred_at', start).lt('occurred_at', end)
     if (filters.room?.trim()) query = query.ilike('source_room_name', `%${filters.room.trim()}%`)
     if (filters.sender?.trim()) query = query.ilike('source_sender_name', `%${filters.sender.trim()}%`)
     if (filters.fileKind === 'unknown') query = query.eq('attachment_count', 0)

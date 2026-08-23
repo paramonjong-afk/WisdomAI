@@ -212,6 +212,7 @@ export function DocumentFlowsPage() {
     sender: searchParams.get('source_sender') || '',
     fileKind: (searchParams.get('file_kind') as DocumentFlowScope['fileKind']) || 'all',
     project: searchParams.get('project') || '',
+    localTestData: searchParams.get('local_test_data') === '1',
   }))
   const [items, setItems] = useState<FlowItem[]>([])
   const [omniTasks, setOmniTasks] = useState<OmniFilterTaskRow[]>([])
@@ -257,7 +258,7 @@ export function DocumentFlowsPage() {
   }, [])
 
   const clearGlobalScope = useCallback(() => {
-    setGlobalScope({ channel: 'all', date: '', room: '', sender: '', fileKind: 'all', project: '' })
+    setGlobalScope((current) => ({ channel: 'all', date: '', room: '', sender: '', fileKind: 'all', project: '', localTestData: current.localTestData }))
   }, [])
 
   const selectTodayScope = useCallback(() => {
@@ -267,6 +268,14 @@ export function DocumentFlowsPage() {
   const activeGlobalFilterCount = useMemo(() => [
     globalScope.channel !== 'all', Boolean(globalScope.date) && !isDefaultTodayScope, Boolean(globalScope.room), Boolean(globalScope.sender), globalScope.fileKind !== 'all', Boolean(globalScope.project),
   ].filter(Boolean).length, [globalScope, isDefaultTodayScope])
+  const activeGlobalFilterLabels = useMemo(() => [
+    globalScope.channel !== 'all' ? `ช่องทาง: ${globalScope.channel}` : null,
+    globalScope.date && !isDefaultTodayScope ? `วันที่รับเข้า: ${globalScope.date}` : null,
+    globalScope.room ? `ห้อง: ${globalScope.room}` : null,
+    globalScope.sender ? `ผู้ส่ง: ${globalScope.sender}` : null,
+    globalScope.fileKind !== 'all' ? `ชนิดไฟล์: ${globalScope.fileKind}` : null,
+    globalScope.project ? `โครงการ: ${globalScope.project}` : null,
+  ].filter((value): value is string => Boolean(value)), [globalScope, isDefaultTodayScope])
   const setVisibleIntakeCount = useCallback((count: number) => setCounts((current) => current.intake === count ? current : { ...current, intake: count }), [])
 
   useEffect(() => {
@@ -279,6 +288,7 @@ export function DocumentFlowsPage() {
       ['source_sender', globalScope.sender?.trim() || undefined],
       ['file_kind', globalScope.fileKind !== 'all' ? globalScope.fileKind : undefined],
       ['project', globalScope.project?.trim() || undefined],
+      ['local_test_data', globalScope.localTestData ? '1' : undefined],
     ]
     values.forEach(([key, value]) => { if (value) next.set(key, value); else next.delete(key) })
     setSearchParams(next, { replace: true })
@@ -677,7 +687,7 @@ export function DocumentFlowsPage() {
     <Paper variant="outlined">
       <Stack sx={{ px: 1 }}>
         <Tabs value={flow === 'omni_filter' ? 'omni_filter' : 'documents'} onChange={(_event, value) => { if (value === 'omni_filter') setFlow('omni_filter'); else setFlow(queueView); setStatus('all'); setTypeFilter('all'); setDestinationDepartment('all') }} variant="scrollable">
-          <Tab value="documents" label={`คิวเอกสาร (${counts.intake + counts.filter + counts.taskTypes})`} />
+          <Tab value="documents" label={`คิวเอกสาร (${flow === 'filter' ? counts.filter : flow === 'task_types' ? counts.taskTypes : counts.intake})`} />
           <Tab value="omni_filter" label={`ข้อความและบริบท (${counts.omniFilter})`} />
         </Tabs>
       </Stack>
@@ -691,7 +701,8 @@ export function DocumentFlowsPage() {
         </Select>
       </FormControl>
     </Stack>}
-    {activeGlobalFilterCount > 0 && <Stack direction="row" spacing={1} sx={{ alignItems: 'center', px: .5 }}><Chip size="small" color="primary" label={`ตัวกรอง ${activeGlobalFilterCount} รายการ`} onClick={() => setGlobalFilterOpen(true)} /><Typography variant="caption" color="text.secondary">ใช้กับทุก Tap</Typography><Button size="small" onClick={clearGlobalScope}>ล้าง</Button></Stack>}
+    {globalScope.localTestData && <Alert severity="info" action={<Stack direction="row" spacing={.5}><Button size="small" onClick={() => { void load() }}>Reload</Button><Button size="small" onClick={clearGlobalScope}>Reset</Button></Stack>}>LOCAL TEST DATA · วันที่ 22–23/8/2569 · 5 รายการ · ไม่ใช่ข้อมูล Production</Alert>}
+    {activeGlobalFilterCount > 0 && <Stack direction="row" spacing={1} sx={{ alignItems: 'center', px: .5, flexWrap: 'wrap' }}>{activeGlobalFilterLabels.map((label) => <Chip key={label} size="small" color="primary" label={label} onClick={() => setGlobalFilterOpen(true)} />)}<Typography variant="caption" color="text.secondary">ผลลัพธ์นับจากตัวกรองเดียวกับตาราง</Typography><Button size="small" onClick={clearGlobalScope}>ล้างตัวกรอง</Button></Stack>}
     {flow === 'intake_room' && <IntakeRoomPanel tableToolsRef={intakeTableToolsRef} globalScope={globalScope} onVisibleCountChange={setVisibleIntakeCount} />}
     {flow === 'omni_filter' && (
       <StandardDataTable

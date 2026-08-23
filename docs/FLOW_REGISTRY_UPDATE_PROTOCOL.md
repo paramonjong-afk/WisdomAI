@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Intake Local Test Fixture และ Filter Consistency v1.0 — 23/8/2569
+
+- **เหตุผล:** แก้กรณีจำนวนหัว Tab ไม่ตรงกับแถวตาราง และทำให้ทดสอบ Intake ใน Local ได้โดยไม่ปะปนข้อมูล Production
+- **ผลกระทบ:** `documentFlowLocalFixture`, `documentFlowGateway`, Document Flow/Intake UI และ dev-only `local_test_data=1`; ไม่เปลี่ยน schema, สิทธิ์ Production หรือข้อมูลจริง
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** fixture contract, Bangkok date predicate, Local browser smoke สำหรับ count/filter/empty/clear/reload และ 2 มุมมอง, typecheck/lint/build
+- **Rollback:** เอา `local_test_data=1` ออกจาก URL; fixture เป็นโค้ด Local read-only จึงไม่มีข้อมูลฐานข้อมูลให้ย้อน
+
 ## ล่าสุด: Document Flow Intake Backfill Entry Removed v1.0 — 23/8/2569
 
 - **เหตุผล:** ปุ่ม/เมนู “แยกสลิปย้อนหลัง” บน Intake ทำให้ผู้ใช้สับสนและไม่อยู่ใน Flow ใหม่ จึงต้องถอดออกจากหน้าใช้งานโดยไม่แตะข้อมูลสลิปหรือ Audit เดิม
