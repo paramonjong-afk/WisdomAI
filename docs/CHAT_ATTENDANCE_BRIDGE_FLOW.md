@@ -151,6 +151,8 @@ flowchart LR
 
 ข้อความ MSG แสดงช่าง, เข้า/ออก, วันเวลา, โครงการ/ไซต์, รหัสรายการเดิม, ผลตรวจซ้ำ และสถานะส่ง/ผู้รับ/เวลาส่ง งานทุกชิ้นใช้ `chat_attendance_approval_jobs` เป็น ledger กลางและใช้ `request_code` เดิมเพื่อกันซ้ำ หากไม่มีห้องหรือผู้รับจะค้าง `pending_send`; หาก insert ข้อความล้มเหลวจะเป็น `send_failed` และยังไม่ถือว่างานปิด ผู้จัดการ/HR รับงานแล้วจึงเลือกอนุมัติ, Reject หรือขอข้อมูลเพิ่มได้ โดยทุกจุดเขียน `chat_attendance_approval_events` และ `attendance_audit_logs`.
 
+ปลายทางของ Program Loop มีเฉพาะห้องต้นทาง/ห้องงานของรายการ, ห้อง HR หลัก และห้องเงินสำรองจ่ายตามการตั้งค่าระบบ โดยใช้ `request_code`/`event_key` เดิมร่วมกันทุกปลายทาง ห้อง 00 ของ Codex เป็นช่องติดตามและสรุประดับระบบเท่านั้น ไม่ถูกสร้างเป็น Web Chat room, ไม่รับ MSG และไม่ถูกใช้เป็นปลายทางหรือทำ duplicate notification
+
 ข้อความที่สร้างโดยระบบถูกติด `message_class=system_confirmation` และ Omni intake ข้ามข้อความ class นี้ จึงไม่สร้างรายการลงเวลา/Intake ซ้ำจากการยืนยันของระบบ
 
 ## Chat command / voice path (v1.1)
