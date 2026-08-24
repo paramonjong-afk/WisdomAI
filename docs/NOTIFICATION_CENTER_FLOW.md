@@ -31,7 +31,7 @@ flowchart LR
 ## States และการกระทำ
 
 - `unread` มาจากการไม่มีคู่ `profile_id + notification_key` ใน `notification_read_states`.
-- `read` เกิดจากการ upsert แบบ idempotent; การกดซ้ำไม่สร้างรายการซ้ำ.
+- `read` เกิดจากการ upsert แบบ idempotent; การกดซ้ำไม่สร้างรายการซ้ำ และไม่ลดจำนวนงานที่ต้องทำเพราะไม่ได้ปิดงานต้นทาง.
 - `actionable` เป็นเหตุการณ์ชนิด `incident/repeat/approval_required/review_required`, สถานะ failed/pending/queued/review/blocked หรือมี error; แยกชนิดงานออกจากสถานะ Delivery เพื่อไม่ให้ข้อความ incident ที่ส่งสำเร็จถูกนับเป็นข้อมูลทั่วไป ผู้ใช้ต้องเปิด Module ต้นทางเพื่อดำเนินงานจริง.
 - `informational` เป็นข้อมูล/ผลสำเร็จ ไม่สร้าง Job ใหม่และไม่ปิด Job เดิม.
 - Filter `all/unread/actionable/system` และ Module เก็บใน URL เพื่อ refresh/back/forward ได้สอดคล้องกัน.
@@ -57,3 +57,4 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- | --- |
 | v1.0 | 24/8/2569 | รวมเหตุการณ์และงานที่ต้องทำไว้จุดเดียวโดยไม่สร้างข้อมูลซ้ำ | เพิ่มกระดิ่ง, `/notifications`, URL filter, read state และ deep link | ไม่มี; ใช้ schema/RPC เดิม | Contract, typecheck, lint, build, Local fixture และ Cloudflare Admin smoke | คืน route/page เดิมและซ่อนกระดิ่ง; เก็บ read state และเหตุการณ์ต้นทางไว้ ไม่ลบข้อมูล |
 | v1.1 | 24/8/2569 | Production UAT พบ incident/repeat ถูกตีความจาก Delivery status จึงไม่ขึ้นคิวงาน | แยก business event type ออกจาก delivery status และนับเหตุการณ์ที่ต้องจัดการถูกต้อง | ไม่มี | Contract, typecheck, lint, build และ Cloudflare count/filter smoke | ย้อน classifier v1.1; ไม่กระทบ event/read state ต้นทาง |
+| v1.2 | 24/8/2569 | การอ่านแจ้งเตือนไม่ใช่การปิดงานและต้องไม่ลด actionable count | แยก unread count ออกจากงานที่ต้องทำทั้งหมด | ไม่มี | อ่านหนึ่งรายการแล้ว unread ลด แต่งานต้องทำและ filter count คงเดิมหลัง refresh | ย้อน count projection; ไม่กระทบ source/read state |

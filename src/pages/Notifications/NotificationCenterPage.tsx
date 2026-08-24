@@ -39,7 +39,7 @@ export function NotificationCenterPage() {
     if (!user?.id || item.read || localFixture) return
     try {
       await runWithMutationAttempt({ module: 'Notifications', action: 'บันทึกสถานะอ่านแจ้งเตือน', actorProfileId: user.id, companyId: currentCompany?.company_id ?? null, request: { notification_key: item.id }, operation: async () => supabase.from('notification_read_states').upsert({ profile_id: user.id, notification_key: item.id, read_at: new Date().toISOString() }) })
-      setSnapshot((current) => current ? { ...current, items: current.items.map((row) => row.id === item.id ? { ...row, read: true } : row), unreadCount: Math.max(0, current.unreadCount - 1), actionableCount: item.kind === 'actionable' ? Math.max(0, current.actionableCount - 1) : current.actionableCount } : current)
+      setSnapshot((current) => current ? { ...current, items: current.items.map((row) => row.id === item.id ? { ...row, read: true } : row), unreadCount: Math.max(0, current.unreadCount - 1) } : current)
     } catch {
       setError('บันทึกสถานะอ่านแล้วไม่สำเร็จ กรุณาลองใหม่')
     }

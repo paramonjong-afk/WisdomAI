@@ -67,7 +67,7 @@ const eventToNotification = (row: Row, readKeys: Set<string>): CenterNotificatio
 export async function loadNotificationSnapshot(options: { companyId: string; profileId: string; localFixture?: boolean }): Promise<NotificationSnapshot> {
   if (options.localFixture && import.meta.env.DEV) {
     const items = fixtureItems().map((item) => ({ ...item, overdue: isOverdue(item.slaAt) }))
-    return { items, unreadCount: items.filter((item) => !item.read).length, actionableCount: items.filter((item) => item.kind === 'actionable' && !item.read).length, lastUpdated: new Date().toISOString(), warning: 'LOCAL FIXTURE: ไม่เรียกข้อมูล Production' }
+    return { items, unreadCount: items.filter((item) => !item.read).length, actionableCount: items.filter((item) => item.kind === 'actionable').length, lastUpdated: new Date().toISOString(), warning: 'LOCAL FIXTURE: ไม่เรียกข้อมูล Production' }
   }
   const [feedResult, readResult] = await Promise.all([
     supabase.rpc('get_communication_event_feed', { target_company_id: options.companyId, target_limit: 100 }),
@@ -76,5 +76,5 @@ export async function loadNotificationSnapshot(options: { companyId: string; pro
   if (feedResult.error) throw feedResult.error
   const readKeys = new Set(asRows(readResult.data).map((row) => stringValue(row, 'notification_key')))
   const items = asRows(feedResult.data).map((row) => eventToNotification(row, readKeys))
-  return { items, unreadCount: items.filter((item) => !item.read).length, actionableCount: items.filter((item) => item.kind === 'actionable' && !item.read).length, lastUpdated: new Date().toISOString(), warning: readResult.error ? 'อ่านสถานะอ่านแล้วไม่สำเร็จ' : null }
+  return { items, unreadCount: items.filter((item) => !item.read).length, actionableCount: items.filter((item) => item.kind === 'actionable').length, lastUpdated: new Date().toISOString(), warning: readResult.error ? 'อ่านสถานะอ่านแล้วไม่สำเร็จ' : null }
 }
