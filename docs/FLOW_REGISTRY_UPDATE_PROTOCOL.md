@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## 2026-08-24 — Release Incident Playbook v1.0 / Release Parity v1.2
+
+- **เหตุผล:** หลายห้องสนทนาพยายามแก้ deploy ด้วย local `CLOUDFLARE_API_TOKEN` ซ้ำ แม้ Production ใช้ Cloudflare Git Integration ทำให้เสียเวลาและรายงาน blocker ไม่ตรงเส้นทางจริง
+- **ผลกระทบ:** ทุก Codex thread ต้องใช้ playbook กลาง: clean commit → GitHub main → verify workflow → Cloudflare Git Integration → revision parity → authenticated runtime smoke; manual Token เป็น fallback เท่านั้น
+- **Migration:** ไม่มี; ไม่แก้ข้อมูลธุรกิจหรือฐานข้อมูล
+- **Verification:** release contract test, typecheck, lint, build, GitHub workflow, Cloudflare `release.json` และ Chat/Intake runtime smoke
+- **Rollback:** revert playbook/AGENTS/release docs; Production revision และข้อมูลเดิมไม่เปลี่ยน
+
 ## 2026-08-24 — Program Development room boundary hardening v1.2
 
 - **เหตุผล:** ข้อความธุรกิจเก่าในห้อง `00 | Program Development` ถูกนำไปแสดงเป็น Operational Task Card ทำให้เห็นงานค้างที่ไม่ใช่งานพัฒนา

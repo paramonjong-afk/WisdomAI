@@ -1,10 +1,13 @@
 ```mermaid
 flowchart TD
-  A[Clean committed source] --> P[Production preflight<br/>Account Token + Pages access + Env]
-  P -->|ผ่าน| B[Vite build creates client bundle + release.json + release.js]
-  P -->|ไม่ผ่าน| X[Block deploy<br/>ไม่สร้าง artifact/ไม่แตะ Production]
+  A[Clean tested commit] --> P[Push GitHub main]
+  P --> V[GitHub Verify Build]
+  V -->|ผ่าน| B[Vite bundle + release.json + release.js]
+  V -->|ไม่ผ่าน| X[Fix and push a new commit]
   B --> C[Vercel Production deploy]
-  B --> D[Cloudflare Pages deploy]
+  B --> D[Cloudflare Git Integration deploy]
+  R[Manual Wrangler + Account Token] --> S[Emergency fallback only<br/>when Git Integration unavailable]
+  S --> B
   C --> E[Smart Entry probes health and release revision]
   D --> E
   E --> F{Cloudflare revision equals Vercel revision?}
@@ -48,15 +51,15 @@ flowchart TD
 - ถ้าไม่มี host ที่ผ่านเงื่อนไข: แสดงปุ่มลองใหม่ ไม่ redirect วน และต้องแก้ deployment ก่อนเปิด fallback
 - การกู้คืนคือ deploy Cloudflare จาก commit เดียวกับ Vercel แล้วตรวจ `release.json` อีกครั้ง; ไม่ต้องเปลี่ยน database หรือข้อมูลธุรกิจ
 
-## Cloudflare Production preflight
+## Cloudflare Production release path
 
-- ใช้ **Account API Token** ที่มี `Pages Write` สำหรับบัญชีเจ้าของโครงการเท่านั้น ไม่ใช้ User API Token แม้ endpoint ตรวจ User Token จะตอบว่า valid
-- คำสั่งกลางคือ `npm run deploy:cloudflare`; ถ้าไม่ได้ตั้ง `CLOUDFLARE_API_TOKEN` สคริปต์จะรับค่าแบบ secure prompt และไม่เขียน Token ลง Git, `.env`, log หรือไฟล์ชั่วคราว
-- ต้องกำหนด `CLOUDFLARE_ACCOUNT_ID`; สคริปต์ตรวจทั้ง `/accounts/{id}/tokens/verify` และสิทธิ์อ่าน Pages project ก่อน build/deploy
-- โหลดค่า frontend จาก `.env` ก่อนและ `.env.local` เป็น override; ค่าที่ส่งผ่าน process/CI มีลำดับสูงสุด เพื่อป้องกัน build ที่ไม่มี `VITE_SUPABASE_URL` แล้วเกิดหน้าขาว
-- Working tree ต้องสะอาด เพื่อให้ artifact ตรงกับ commit ที่ระบุและไม่รวมงาน Module อื่นโดยไม่ตั้งใจ
-- ก่อน deploy ต้องผ่าน lint, typecheck, build และตรวจ `dist/release.json` ว่า revision ตรง HEAD และ host เป็น `cloudflare`
-- หลัง deploy ต้องตรวจ revision URL, remote `release.json` และ `/login` HTTP 200; จากนั้นจึงทำ authenticated UAT หน้า Module ที่เปลี่ยน
+- เส้นทางหลักคือ clean release commit → GitHub `main` → GitHub verification → Cloudflare Git Integration; อ่านขั้นตอนเต็มจาก `docs/RELEASE_INCIDENT_PLAYBOOK.md`
+- Working tree ต้องสะอาดและ release commit ต้องไม่ตามหลัง GitHub `main`; ถ้า workspace หลักมีงานอื่นค้าง ให้ใช้ clean clone/worktree โดยไม่ reset หรือลบงานเดิม
+- ก่อน push ต้องผ่าน targeted tests, lint, typecheck และ build จาก commit เดียวกัน
+- หลัง push ต้องตรวจ workflow ของ commit นั้น, remote `release.json` และ authenticated UAT หน้า Module/ปลายทาง/Intake/Audit ที่เปลี่ยน
+- `npm run deploy:cloudflare` และ **Account API Token** ที่มี `Pages Write` เป็น emergency fallback เท่านั้นเมื่อ Git Integration ใช้ไม่ได้และได้รับอนุมัติ
+- หาก fallback Token ตอบ `401` ให้หยุด retry Token เดิมและรายงาน credential blocker; ถ้า Git Integration ยังปกติให้ใช้เส้นทางหลักต่อ ไม่ถือ local Token เป็น blocker ของ Production
+- Token/Environment อยู่ใน GitHub/Cloudflare Secret; ห้ามเขียนลง Git, log, เอกสาร หรือข้อความสนทนา
 
 ## Audit and owner
 
@@ -70,3 +73,4 @@ flowchart TD
 |---|---|---|---|---|---|---|
 | v1.0 | 23/8/2569 | แก้ปัญหา Vercel/Cloudflare แสดง frontend คนละรุ่นโดยไม่ชัดเจน | เพิ่ม manifest, parity gate, ป้าย host/revision และ no-cache header ของ Cloudflare | ไม่มี schema/data migration | release/smart-entry tests, lint/build, ตรวจ manifest และ deployment ทั้งสอง host | rollback ทั้งสอง host ไป revision เดียวกัน หรือ revert parity gate ชั่วคราว; ข้อมูลผู้ใช้ไม่ถูกกระทบ |
 | v1.1 | 23/8/2569 | ป้องกัน User Token ผ่าน verify แต่ deploy Pages ไม่ได้ และป้องกัน clean worktree build โดยไม่มี `.env` จนหน้าขาว | เพิ่มคำสั่ง deploy กลาง, Account Token/Pages preflight, environment/release/runtime gates | ไม่มี | contract test, lint, typecheck, build และ Cloudflare revision smoke | ใช้ revision ก่อนหน้าที่ผ่าน smoke test หรือ deploy commit เดิมผ่านคำสั่งกลาง; ไม่กระทบฐานข้อมูล |
+| v1.2 | 24/8/2569 | ยุติความสับสนที่ทุกห้องพยายามใช้ local Token ซ้ำ ทั้งที่ Production ใช้ Git Integration | กำหนด GitHub main/Git verification/Cloudflare Git Integration เป็นเส้นทางหลัก และ Token เป็น emergency fallback เท่านั้น | ไม่มี | release playbook contract, GitHub workflow, Cloudflare revision และ authenticated runtime smoke | revert เอกสาร/contract และใช้ release revision ก่อนหน้า; ไม่กระทบข้อมูลธุรกิจ |
