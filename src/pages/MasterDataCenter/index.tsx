@@ -7,6 +7,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
 import { documentFlowGateway } from '../../services/documentFlowGateway'
+import { emptyMasterSourceEvidence, loadMasterSourceEvidence } from '../../services/masterDataSourceGateway'
 import { userError } from '../../utils/userError'
 import { candidateAccount, groupDuplicateCandidates, isNameMismatch, mismatchStage, reviewFilterMatches, type MasterCandidate, type MasterReviewFilter, type MasterSourceEvidence } from './masterDataReview'
 
@@ -17,7 +18,7 @@ const candidateStatus: Record<string, string> = { provisional: 'ข้อมู�
 const accountStatus: Record<string, string> = { verified: 'ยืนยันแล้ว', unverified: 'รอตรวจ', inactive: 'ปิดใช้งาน', archived: 'เก็บถาวร' }
 const entityLabel: Record<string, string> = { employee: 'พนักงาน', vendor: 'ผู้ขาย', customer: 'ลูกค้า', project: 'โครงการ', work_package: 'งานย่อย', bank_account: 'บัญชีธนาคาร' }
 const dateTime = (value: string | null) => value ? new Date(value).toLocaleString('th-TH') : '-'
-const emptyEvidence = (): MasterSourceEvidence => ({ documentId: null, intakeId: null, messageId: null, sourceRoom: null, sourceChannel: null, attachmentId: null, fileName: null, bucket: null, path: null, receivedAt: null, ocrRawText: null, extractedName: null, extractedAccount: null, aiConfidence: null, modelVersion: null, auditId: null })
+const emptyEvidence = emptyMasterSourceEvidence
 
 export function MasterDataCenterPage() {
   usePageTitle('ศูนย์ข้อมูลกลาง')
@@ -44,31 +45,9 @@ export function MasterDataCenterPage() {
     const rows = (candidateResult.data ?? []) as Candidate[]
     setCandidates(rows)
     setAccounts((accountResult.data ?? []) as BankAccount[])
-    const nextEvidence: Record<string, MasterSourceEvidence> = {}
-    rows.forEach((row) => {
-      const data = row.candidate_data ?? {}
-      nextEvidence[row.id] = {
-        ...emptyEvidence(),
-        documentId: typeof data.document_id === 'string' ? data.document_id : null,
-        intakeId: typeof data.intake_id === 'string' ? data.intake_id : null,
-        messageId: typeof data.message_id === 'string' ? data.message_id : null,
-        sourceRoom: typeof data.source_room === 'string' ? data.source_room : null,
-        sourceChannel: typeof data.source_channel === 'string' ? data.source_channel : null,
-        attachmentId: typeof data.attachment_id === 'string' ? data.attachment_id : null,
-        fileName: typeof data.file_name === 'string' ? data.file_name : null,
-        bucket: typeof data.storage_bucket === 'string' ? data.storage_bucket : null,
-        path: typeof data.storage_path === 'string' ? data.storage_path : null,
-        receivedAt: typeof data.received_at === 'string' ? data.received_at : row.created_at,
-        ocrRawText: typeof data.ocr_raw_text === 'string' ? data.ocr_raw_text : null,
-        extractedName: typeof data.ocr_name === 'string' ? data.ocr_name : (typeof data.recipient_name === 'string' ? data.recipient_name : row.display_name),
-        extractedAccount: typeof data.ocr_account_last4 === 'string' ? data.ocr_account_last4 : (typeof data.account_last4 === 'string' ? data.account_last4 : null),
-        aiConfidence: typeof data.ai_confidence === 'number' ? data.ai_confidence : row.confidence,
-        modelVersion: typeof data.model_version === 'string' ? data.model_version : null,
-        auditId: typeof data.audit_id === 'string' ? data.audit_id : null,
-      }
-    })
-    setEvidence(nextEvidence)
-    setError('')
+    const sourceResult = await loadMasterSourceEvidence(rows)
+    setEvidence(sourceResult.data)
+    setError(sourceResult.error ? `โหลด Source Reference ไม่ครบ: ${userError(sourceResult.error)}` : '')
   }, [companyId])
 
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer) }, [load])
@@ -115,7 +94,7 @@ export function MasterDataCenterPage() {
       { id: 'name', label: 'ข้อมูลใหม่ / ชื่อ', minWidth: 240, render: (row) => <Stack spacing={0.25}><Typography variant="body2">{row.display_name}</Typography>{isNameMismatch(row, evidence[row.id] ?? null) && <Chip size="small" color="error" label={`ผิดที่ ${mismatchStage(row, evidence[row.id] ?? null)}`} />}</Stack> },
       { id: 'bank', label: 'บัญชีจากหลักฐาน', minWidth: 230, render: (row) => row.entity_type === 'bank_account' ? `•••• ${candidateAccount(row) ?? '-'}` : '-' },
       { id: 'duplicate', label: 'Duplicate Group', minWidth: 180, render: (row) => { const group = duplicateGroups.find((item) => item.candidateIds.includes(row.id)); return group ? <Chip size="small" color="warning" label={`${group.candidateIds.length} ต้นทาง`} /> : 'ไม่ซ้ำ' } },
-      { id: 'source', label: 'Source Reference', minWidth: 280, render: (row) => { const source = evidence[row.id] ?? emptyEvidence(); return <Stack spacing={0.2}><Typography variant="caption">Document/Intake: {source.documentId ?? source.intakeId ?? '-'}</Typography><Typography variant="caption">Room: {source.sourceRoom ?? '-'} · Message: {source.messageId ?? row.source_id ?? '-'}</Typography><Typography variant="caption">เข้า: {dateTime(source.receivedAt ?? row.created_at)}</Typography></Stack> } },
+      { id: 'source', label: 'Source Reference', minWidth: 300, render: (row) => { const source = evidence[row.id] ?? emptyEvidence(); return <Stack spacing={0.2}><Typography variant="caption">Document/Intake: {source.documentId ?? source.intakeId ?? 'ไม่พบ mapping'}</Typography><Typography variant="caption">Room: {source.sourceRoom ?? 'ไม่พบห้อง'} · Message: {source.messageId ?? 'ไม่พบ Message ID'}</Typography><Typography variant="caption">เข้า: {dateTime(source.receivedAt ?? row.created_at)}</Typography>{!source.sourceResolved && <Chip size="small" color="warning" label="Source ไม่ครบ" />}</Stack> } },
       { id: 'confidence', label: 'ความมั่นใจ AI', minWidth: 130, render: (row) => row.confidence == null ? '-' : `${Math.round(row.confidence * 100)}%` },
       { id: 'created', label: 'พบเมื่อ', minWidth: 170, render: (row) => dateTime(row.created_at) },
       { id: 'status', label: 'สถานะ', minWidth: 150, render: (row) => <Chip size="small" color={['confirmed', 'approved'].includes(row.status) ? 'success' : row.status === 'locked' ? 'primary' : row.status === 'rejected' ? 'error' : row.status === 'archived' ? 'default' : 'warning'} label={candidateStatus[row.status] ?? row.status} /> },

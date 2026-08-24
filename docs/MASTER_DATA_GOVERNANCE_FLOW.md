@@ -7,7 +7,10 @@ Create one company-scoped master-data path for people, vendors, customers, proje
 ```mermaid
 flowchart LR
   A[Intake / LINE / document / Admin input] --> B[Master-data candidate]
-  B --> C{Duplicate / confidence / completeness}
+  B --> S[Source Reference Gateway\nCandidate → Transaction → Message]
+  S --> S2[Document Flow + Attachment\nEvent + Master Audit]
+  S2 --> C
+  C{Duplicate / confidence / completeness}
   C -->|Known approved value| D[Link evidence to existing master]
   C -->|Needs a decision| E[Admin review inbox]
   C -->|Invalid or duplicate| F[Reject with reason + audit]
@@ -26,6 +29,8 @@ flowchart LR
 - Inputs: extracted name/account facts from transfer evidence, AI/document classification, and authorised Admin entry.
 - Outputs: candidate rows, verified aliases and bank accounts, links to the existing person/vendor/customer master, and append-only audit.
 - Existing source documents, Intake IDs, transactions and document-flow rows remain canonical; a master candidate stores only a reference to evidence and never duplicates or deletes it.
+- The table and review Drawer consume the same `MasterSourceEvidence` object. For financial candidates, `source_id` is a Transaction ID and must be resolved through `financial_transactions.source_message_id`; it must never be labelled as a Message ID.
+- The Source Reference Gateway then joins the Message ID to `document_flow_items`, `line_attachments`, `document_flow_events` and `master_data_audit`. Missing links are shown explicitly as incomplete evidence rather than guessed or replaced with another identifier.
 
 ## States, permissions and safeguards
 
@@ -50,3 +55,4 @@ flowchart LR
 |---|---|---|---|---|---|
 | v1.0 | 22/8/2569 | Establish central candidate, verified account, audit and retention foundations without replacing existing employee/vendor/project data | `20260821211435_master_data_governance.sql` | Schema/RLS/RPC, UI, lint/build/test and protected production route | Disable the Master Data UI/RPCs; source records, existing master records and audits remain |
 | v1.1 | 22/8/2569 | Link an approved bank candidate to the active employee/technician master only for one exact normalized name match; ambiguous accounts remain safely unlinked | `20260821212940_master_bank_account_person_link.sql` | Function/backfill and RLS/schema verification | Restore previous review function; no source evidence or person record is deleted |
+| v1.2 | 24/8/2569 | Correct misleading Message IDs and resolve the complete source chain consistently in both table and Drawer | No migration; read-only gateway over existing source records | Source resolver regression including missing-source case, typecheck/lint/build, `/master-data` Admin smoke | Revert the source gateway/UI mapping; raw source, candidates and audit are unchanged |

@@ -16,6 +16,7 @@ export type MasterSourceEvidence = {
   documentId: string | null
   intakeId: string | null
   messageId: string | null
+  transactionId: string | null
   sourceRoom: string | null
   sourceChannel: string | null
   attachmentId: string | null
@@ -29,6 +30,60 @@ export type MasterSourceEvidence = {
   aiConfidence: number | null
   modelVersion: string | null
   auditId: string | null
+  sourceResolved: boolean
+  missingReasons: string[]
+}
+
+export type MasterSourceLookup = {
+  transaction?: { id: string; source_message_id: string | null } | null
+  flow?: { id: string; intake_id: string | null; source_message_id: string | null; source_channel: string | null; source_room_name: string | null; source_received_at: string | null } | null
+  message?: { id: string; line_group_id: string | null; file_name: string | null; occurred_at: string | null } | null
+  attachment?: { id: string; message_id: string; storage_bucket: string; storage_path: string; content_type: string | null } | null
+  event?: { id: string } | null
+  audit?: { id: number } | null
+}
+
+export const emptyMasterSourceEvidence = (): MasterSourceEvidence => ({
+  documentId: null, intakeId: null, messageId: null, transactionId: null, sourceRoom: null, sourceChannel: null,
+  attachmentId: null, fileName: null, bucket: null, path: null, receivedAt: null, ocrRawText: null,
+  extractedName: null, extractedAccount: null, aiConfidence: null, modelVersion: null, auditId: null,
+  sourceResolved: false, missingReasons: [],
+})
+
+export function candidateEvidenceFallback(candidate: MasterCandidate): MasterSourceEvidence {
+  const data = candidate.candidate_data ?? {}
+  const string = (key: string) => typeof data[key] === 'string' && data[key] ? data[key] as string : null
+  return {
+    ...emptyMasterSourceEvidence(), documentId: string('document_id'), intakeId: string('intake_id'), messageId: string('message_id'),
+    transactionId: candidate.source_table === 'financial_transactions' ? candidate.source_id : string('transaction_id'),
+    sourceRoom: string('source_room'), sourceChannel: string('source_channel'), attachmentId: string('attachment_id'),
+    fileName: string('file_name'), bucket: string('storage_bucket'), path: string('storage_path'), receivedAt: string('received_at') ?? candidate.created_at,
+    ocrRawText: string('ocr_raw_text'), extractedName: string('ocr_name') ?? string('recipient_name') ?? candidate.display_name,
+    extractedAccount: string('ocr_account_last4') ?? string('account_last4'), aiConfidence: typeof data.ai_confidence === 'number' ? data.ai_confidence : candidate.confidence,
+    modelVersion: string('model_version'), auditId: string('audit_id'), sourceResolved: Boolean(string('message_id') || string('document_id') || string('intake_id')), missingReasons: [],
+  }
+}
+
+export function resolveCandidateSourceEvidence(candidate: MasterCandidate, lookup: MasterSourceLookup): MasterSourceEvidence {
+  const base = candidateEvidenceFallback(candidate)
+  const messageId = lookup.transaction?.source_message_id ?? (candidate.source_table === 'line_messages' ? candidate.source_id : null) ?? base.messageId
+  const missingReasons = [
+    !messageId && 'ไม่พบ Message ID จาก source mapping',
+    messageId && !lookup.flow && 'ไม่พบ Document Flow ที่ผูกกับ Message ID',
+    messageId && !lookup.attachment && 'ไม่พบไฟล์แนบที่ผูกกับ Message ID',
+    !lookup.audit && 'ยังไม่มี Master Data Audit',
+  ].filter((value): value is string => Boolean(value))
+  return {
+    ...base, transactionId: lookup.transaction?.id ?? base.transactionId, messageId: messageId ?? null,
+    documentId: lookup.flow?.id ?? base.documentId, intakeId: lookup.flow?.intake_id ?? base.intakeId,
+    sourceRoom: lookup.flow?.source_room_name ?? lookup.message?.line_group_id ?? base.sourceRoom,
+    sourceChannel: lookup.flow?.source_channel ?? (lookup.message ? 'line' : base.sourceChannel),
+    attachmentId: lookup.attachment?.id ?? base.attachmentId, fileName: lookup.message?.file_name ?? base.fileName,
+    bucket: lookup.attachment?.storage_bucket ?? base.bucket, path: lookup.attachment?.storage_path ?? base.path,
+    receivedAt: lookup.flow?.source_received_at ?? lookup.message?.occurred_at ?? base.receivedAt,
+    auditId: lookup.audit ? String(lookup.audit.id) : lookup.event?.id ?? base.auditId,
+    sourceResolved: Boolean(messageId && (lookup.flow || lookup.message)), missingReasons,
+  }
 }
 
 export type DuplicateGroup = {

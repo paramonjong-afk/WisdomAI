@@ -874,6 +874,12 @@
 
 - **เหตุผล:** ข้อมูลบุคคล ผู้ขาย ลูกค้า โครงการ งานย่อย และบัญชีธนาคารต้องใช้ซ้ำข้าม Module โดยไม่ให้ AI เขียนทับข้อมูลที่ยืนยันแล้ว หรือปล่อยข้อมูลรอตรวจค้างถาวร
 - **ผลกระทบ:** เพิ่มศูนย์ข้อมูลกลาง `/master-data`, candidate inbox, account evidence registry, customer master, audit และกติกา archive; employee/vendor/project/work package เดิมยังเป็น source-of-truth
+
+### Master Data Source Reference v1.2 — 24/8/2569
+
+- ตารางและ Drawer ใช้ Source Reference object เดียวกัน โดย resolve `master_data_candidates.source_id` ตามชนิด source ก่อนเสมอ
+- Candidate จาก `financial_transactions` ต้องผ่าน Transaction ID → Message ID → Document Flow/Intake → Attachment/Event/Audit; ห้ามนำ Transaction ID ไปแสดงเป็น Message ID
+- Source ที่หาไม่ครบแสดงเหตุผลและค้างตรวจ โดยไม่แก้ raw data ไม่เดา identifier และไม่สร้าง candidate เพิ่ม
 - **Migration:** `20260821211435_master_data_governance.sql`; สลิปโอนที่พบชื่อผู้รับและเลขท้ายบัญชีสร้าง candidate อัตโนมัติ, Admin/Manager ยืนยันหรือปฏิเสธผ่าน RPC กลาง
 - **การตรวจสอบ:** apply migration, RLS/RPC/schema query, TypeScript, lint, build, document-pipeline test, deploy และตรวจ protected production route
 - **Rollback:** ปิด UI/trigger/RPC ใหม่ได้โดยไม่ลบสลิป, master เดิม, candidate, account evidence หรือ audit ที่เกิดแล้ว
