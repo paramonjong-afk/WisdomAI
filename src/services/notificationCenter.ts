@@ -69,7 +69,7 @@ export async function loadNotificationSnapshot(options: { companyId: string; pro
     return { items, unreadCount: items.filter((item) => !item.read).length, actionableCount: items.filter((item) => item.kind === 'actionable' && !item.read).length, lastUpdated: new Date().toISOString(), warning: 'LOCAL FIXTURE: ไม่เรียกข้อมูล Production' }
   }
   const [feedResult, readResult] = await Promise.all([
-    supabase.from('communication_event_feed').select('event_id,company_id,occurred_at,event_type,status,title,message,source_type,source_id,error_message,related_work_key').eq('company_id', options.companyId).order('occurred_at', { ascending: false }).limit(100),
+    supabase.rpc('get_communication_event_feed', { target_company_id: options.companyId, target_limit: 100 }),
     supabase.from('notification_read_states').select('notification_key').eq('profile_id', options.profileId),
   ])
   if (feedResult.error) throw feedResult.error
