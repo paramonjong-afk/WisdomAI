@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## 2026-08-24 — Master Data v1.3.1 search/count reconciliation
+
+- **เหตุผล:** Production UAT พบว่า Message ID search ลดตารางเหลือ 1 แถว แต่ป้ายจำนวนยังแสดงผลก่อน search
+- **ผลกระทบ:** `StandardDataTable` รายงานจำนวนหลัง built-in search ให้หน้า Master Data; Review Queue และ Confirmed Data Reports ใช้จำนวนเดียวกับรายการที่มองเห็น
+- **Migration:** ไม่มี; ไม่เปลี่ยน Raw/OCR, classification, permissions หรือ audit
+- **Verification:** regression contract, typecheck, lint, build และ Admin smoke บน `/master-data`
+- **Rollback:** revert commit ของ v1.3.1; ข้อมูล Production ไม่ได้รับผลกระทบ
+
 ## ล่าสุด: Web Chat Operational Core Local-first v1.0 — 23/8/2569
 
 - **เหตุผล:** ทำให้ Web Chat มี Task Card/Thread/Evidence/Action มาตรฐานเดียวกันทุกข้อความสำคัญ โดยไม่ให้ข้อความ System Result วนกลับเป็นงานใหม่ และไม่ปะปนหลายรายการในห้องเดียว

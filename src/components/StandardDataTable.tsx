@@ -60,6 +60,8 @@ type StandardDataTableProps<Row> = {
   hideToolbar?: boolean
   flatToolbar?: boolean
   onToolsReady?: (tools: StandardDataTableTools) => void
+  /** Reports the row count after the built-in search predicate is applied. */
+  onFilteredRowCountChange?: (count: number) => void
 }
 
 type PersistedStandardDataTableState = {
@@ -96,6 +98,7 @@ export function StandardDataTable<Row>({
   hideToolbar,
   flatToolbar,
   onToolsReady,
+  onFilteredRowCountChange,
 }: StandardDataTableProps<Row>) {
   const {profile,currentCompany}=useAuth()
   const location=useLocation()
@@ -158,6 +161,9 @@ export function StandardDataTable<Row>({
     if (!keyword || !getSearchText) return rows
     return rows.filter((row) => getSearchText(row).toLowerCase().includes(keyword))
   }, [getSearchText, rows, search])
+  useEffect(() => {
+    onFilteredRowCountChange?.(filteredRows.length)
+  }, [filteredRows.length, onFilteredRowCountChange])
   const exportColumns=useMemo(()=>visibleColumns.filter(column=>column.exportable!==false),[visibleColumns])
   const exportCellValue=(column:StandardTableColumn<Row>,row:Row)=>{const value=column.exportValue?column.exportValue(row):column.render(row);return typeof value==='string'||typeof value==='number'?value:''}
   const openColumnMenu = (anchorEl: HTMLElement | null) => setColumnMenuAnchor(anchorEl)

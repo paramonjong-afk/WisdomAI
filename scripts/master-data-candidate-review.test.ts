@@ -4,6 +4,7 @@ import { groupDuplicateCandidates, isAccountNameMismatch, isNameMismatch, resolv
 import { classifyMasterCandidate, masterReviewBucket } from '../src/services/masterDataClassification.ts'
 
 const page = readFileSync('src/pages/MasterDataCenter/index.tsx', 'utf8')
+const standardTable = readFileSync('src/components/StandardDataTable.tsx', 'utf8')
 const migration = readFileSync('supabase/migrations/20260823060000_master_data_candidate_review_actions.sql', 'utf8')
 const classificationMigration = readFileSync('supabase/migrations/20260824010000_master_data_classification_review.sql', 'utf8')
 const evidence: MasterSourceEvidence = {
@@ -60,6 +61,9 @@ assert.match(page, /ปิดการตรวจสอบ/)
 assert.match(page, /เปิดแก้ไขแบบควบคุม/)
 assert.match(page, /Version \/ controlled correction/)
 for (const token of ['Auto Classification', 'Auto Verified', 'Review Queue', 'Unknown/Needs Review', 'Confirmed Data Reports', 'Admin Correction', 'correct_master_data_candidate']) assert.match(page, new RegExp(token))
+assert.match(page, /onFilteredRowCountChange=\{setReviewVisibleCount\}/)
+assert.match(page, /onFilteredRowCountChange=\{setConfirmedVisibleCount\}/)
+assert.match(standardTable, /onFilteredRowCountChange\?\.\(filteredRows\.length\)/)
 assert.doesNotMatch(page, /source\.messageId \?\? row\.source_id/, 'table must not label Transaction ID as Message ID')
 assert.doesNotMatch(page, /onClick=\{\(\) => void review\(row/)
 for (const token of ['provisional', 'needs_review', 'confirmed', 'locked', 'master_data_candidate_versions', 'keep_existing', 'match_master', 'request_info', 'lock', 'controlled_correction', 'master_candidate_reason_required', 'candidate_']) assert.match(migration, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
