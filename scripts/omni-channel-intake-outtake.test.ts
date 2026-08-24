@@ -5,7 +5,9 @@ const flow = readFileSync('docs/OMNI_CHANNEL_INTAKE_OUTTAKE_FLOW.md', 'utf8')
 const intakeFlow = readFileSync('docs/INTAKE_CASE_FLOW.md', 'utf8')
 const registry = readFileSync('src/pages/FlowRegistry/index.tsx', 'utf8')
 const reviewMigration = readFileSync('supabase/migrations/20260822192231_omni_intake_review_actions.sql', 'utf8')
-const intakeRoom = readFileSync('src/pages/IntakeRoom.tsx', 'utf8')
+const documentFlows = readFileSync('src/pages/DocumentFlows/index.tsx', 'utf8')
+const documentFlowGateway = readFileSync('src/services/documentFlowGateway.ts', 'utf8')
+const hrChat = readFileSync('src/pages/Chat/index.tsx', 'utf8')
 const senderlessWebChatMigration = readFileSync('supabase/migrations/20260822193341_web_chat_omni_intake_senderless_messages.sql', 'utf8')
 const chatAttachmentPolicyMigration = readFileSync('supabase/migrations/20260822194037_chat_attachment_manager_storage_policy.sql', 'utf8')
 
@@ -39,8 +41,14 @@ if (!migration.includes("dedupe_status in ('primary','duplicate','possible_dupli
 for (const needle of ['review_decision', 'omni_intake_review_events', 'review_omni_intake_source', 'omni_intake_review_permission_denied']) {
   if (!reviewMigration.includes(needle)) throw new Error(`missing omni review contract: ${needle}`)
 }
-for (const needle of ['ข้อความและบริบท', 'loadOmniConversationContext', "reviewOmniSource('approved')", "reviewOmniSource('rejected')"]) {
-  if (!intakeRoom.includes(needle)) throw new Error(`missing Intake message context UI: ${needle}`)
+for (const needle of ['ข้อความและบริบท', 'omni_filter', 'hr_confirmation', 'Summary/System', 'Duplicate/Confirmed', 'Not HR/Low confidence']) {
+  if (!documentFlows.includes(needle)) throw new Error(`missing DocumentFlows omni/HR gate UI: ${needle}`)
+}
+for (const needle of ['loadOmniConversationContext', 'reviewOmniIntakeSource', "review_omni_intake_source"]) {
+  if (!documentFlowGateway.includes(needle)) throw new Error(`missing Omni context/review gateway contract: ${needle}`)
+}
+for (const needle of ['ยืนยัน Candidate', 'ขอข้อมูลเพิ่ม', 'ปฏิเสธ', 'act_hr_intake_item']) {
+  if (!hrChat.includes(needle)) throw new Error(`missing HR intake review action UI: ${needle}`)
 }
 if (senderlessWebChatMigration.includes('new.sender_profile_id is null or')) throw new Error('Web Chat Intake must not skip senderless messages')
 for (const needle of ['omni_register_chat_message_trigger', "coalesce(sender_row.display_name, 'ไม่ระบุผู้ส่ง')", 'for chat_row in select * from public.chat_messages where deleted_at is null']) {

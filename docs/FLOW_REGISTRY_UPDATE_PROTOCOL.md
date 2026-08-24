@@ -184,6 +184,7 @@
 - **Migration:** ไม่มี schema/data migration; เปลี่ยนเฉพาะ client routing และ fallback
 - **การตรวจสอบ:** auth-routing test, targeted/full lint, build, route guard, ตรวจ manifest/route จริง และตรวจทางเข้า Web Chat จาก Sidebar/ทางลัด
 - **Rollback:** คืน `getPostLoginDestination` เป็น `/`, ยกเลิก AppLauncher redirect และคืน Login post-auth fallback เป็น `/`; ข้อมูลลงเวลา ห้องแชต และ audit ไม่ถูกลบ
+- **Local fixture note:** DEV-only `local_test_data=1` leaves `ProtectedRoute` and the role gate open for local UAT pages and does not change the Production login guard or role boundary.
 
 ## ล่าสุด: Mobile Launcher Dual Entry v1.0 — 23/8/2569
 

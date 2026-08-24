@@ -39,6 +39,10 @@ Summary cards show received, under review, waiting, forwarded, SLA breach (>24 h
 
 The route remains admin-only through the existing router. Supabase RLS/company scope controls row visibility. Auto-refresh runs every 30 seconds and can be disabled. Rollback is to remove the dashboard component/service and retain the original registry cards; no business data is mutated.
 
+## Local UAT
+
+In development only, `/flow-registry?local_test_data=1` bypasses the repository's existing local-test guards, including `ProtectedRoute` and the role gate, then dynamically loads `flowRegistryLocalFixture`. The screen is marked `LOCAL FIXTURE`, never queries Supabase, and production builds do not activate this loader. The fixture covers canonical rows, module/status/source/owner filters, destinations, exceptions, SLA, drill-down evidence/audit, count reconciliation, and simulated refresh.
+
 ## Change record
 
 - Version: v1.0

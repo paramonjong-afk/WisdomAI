@@ -7,7 +7,7 @@ import HourglassEmptyOutlinedIcon from '@mui/icons-material/HourglassEmptyOutlin
 import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined'
 import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl, InputLabel, MenuItem, Select, Stack, TextField, Typography } from '@mui/material'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link as RouterLink } from 'react-router-dom'
+import { Link as RouterLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { loadFlowRegistrySnapshot, type FlowRegistryFilters, type FlowRegistryModule, type FlowRegistryNode, type FlowRegistryRecord, type FlowRegistrySnapshot, type FlowRegistryStatusFilter } from '../../services/flowRegistryGateway'
 
@@ -50,10 +50,12 @@ function FlowNode({ node, onClick }: { node: FlowRegistryNode; onClick: () => vo
 }
 
 export function FlowRegistryDashboard() {
+  const location = useLocation()
   const { currentCompany } = useAuth()
-  const companyId = currentCompany?.company_id ?? ''
+  const localTestMode = import.meta.env.DEV && new URLSearchParams(location.search).get('local_test_data') === '1'
+  const companyId = localTestMode ? 'local-fixture-company' : currentCompany?.company_id ?? ''
   const today = isoForDate(new Date())
-  const [fromDate, setFromDate] = useState(today)
+  const [fromDate, setFromDate] = useState(() => localTestMode ? isoForDate(new Date(Date.now() - 2 * 24 * 60 * 60_000)) : today)
   const [toDate, setToDate] = useState(today)
   const [module, setModule] = useState<FlowRegistryFilters['module']>('all')
   const [status, setStatus] = useState<FlowRegistryStatusFilter>('all')
@@ -72,13 +74,18 @@ export function FlowRegistryDashboard() {
     setError('')
     setSnapshot(null)
     try {
-      setSnapshot(await loadFlowRegistrySnapshot(filters))
+      if (localTestMode) {
+        const { loadLocalFlowRegistrySnapshot } = await import('../../services/flowRegistryLocalFixture')
+        setSnapshot(await loadLocalFlowRegistrySnapshot(filters))
+      } else {
+        setSnapshot(await loadFlowRegistrySnapshot(filters))
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'อ่านข้อมูล Flow ไม่สำเร็จ')
     } finally {
       setLoading(false)
     }
-  }, [companyId, filters])
+  }, [companyId, filters, localTestMode])
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0)
@@ -94,20 +101,26 @@ export function FlowRegistryDashboard() {
     if (!snapshot || !selectedLabel) return []
     const node = snapshot.nodes.find((item) => item.label === selectedLabel)
     if (node) return snapshot.records.filter((record) => nodePredicate(node.key, record)).slice(0, 100)
+    const exception = snapshot.exceptions.find((item) => item.label === selectedLabel)
+    if (exception?.key === 'duplicate') return snapshot.records.filter((record) => record.error === 'possible_duplicate' || record.stage === 'ตรวจซ้ำ').slice(0, 100)
+    if (exception?.key === 'rejected') return snapshot.records.filter((record) => record.error === 'rejected').slice(0, 100)
+    if (exception?.key === 'waiting_info') return snapshot.records.filter((record) => record.status === 'waiting').slice(0, 100)
+    if (exception?.key === 'delivery_failed') return snapshot.records.filter((record) => record.error?.includes('failed')).slice(0, 100)
+    if (exception?.key === 'retry') return snapshot.records.filter((record) => record.nextAction.toLowerCase().includes('retry')).slice(0, 100)
     return snapshot.records.filter((record) => record.destination === selectedLabel || record.destination.includes(selectedLabel)).slice(0, 100)
   }, [selectedLabel, snapshot])
 
   return <Stack spacing={1.5}>
     <PaperLike sx={{ p: { xs: 1.5, md: 2 }, background: 'linear-gradient(135deg, #2b2525 0%, #513d39 52%, #a65940 100%)', color: 'common.white', overflow: 'hidden', position: 'relative' }}>
       <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5} sx={{ alignItems: { lg: 'center' }, justifyContent: 'space-between' }}>
-        <Box><Typography variant="overline" sx={{ letterSpacing: 1.4, opacity: 0.8 }}>WISDOM POWER · COMMAND CENTER</Typography><Typography variant="h5" sx={{ fontWeight: 900 }}>Flow Registry Live Dashboard</Typography><Typography variant="body2" sx={{ mt: 0.25, opacity: 0.82 }}>เห็นเส้นทางจริงจาก Intake → ปลายทาง → ปิดงาน ตาม company และสิทธิ์ปัจจุบัน</Typography></Box>
-        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexWrap: 'wrap' }}><Chip label={`บริษัท: ${currentCompany?.company_name ?? 'ยังไม่เลือก'}`} sx={{ color: 'common.white', borderColor: 'rgba(255,255,255,.45)' }} variant="outlined" /><Chip label={autoRefresh ? 'Auto refresh 30s' : 'Manual refresh'} onClick={() => setAutoRefresh((value) => !value)} sx={{ color: 'common.white', borderColor: 'rgba(255,255,255,.45)', cursor: 'pointer' }} variant="outlined" /><Button size="small" variant="contained" onClick={() => void load()} startIcon={<RefreshOutlinedIcon />} sx={{ bgcolor: 'rgba(255,255,255,.18)', color: 'common.white', '&:hover': { bgcolor: 'rgba(255,255,255,.28)' } }}>รีเฟรช</Button></Stack>
+        <Box><Typography variant="overline" sx={{ letterSpacing: 1.4, opacity: 0.8 }}>WISDOM POWER · COMMAND CENTER</Typography><Typography variant="h5" sx={{ fontWeight: 900 }}>Flow Registry Live Dashboard</Typography><Typography variant="body2" sx={{ mt: 0.25, opacity: 0.82 }}>{localTestMode ? 'Local fixture สำหรับทดสอบ UI เท่านั้น ไม่เรียกข้อมูล Production' : 'เห็นเส้นทางจริงจาก Intake → ปลายทาง → ปิดงาน ตาม company และสิทธิ์ปัจจุบัน'}</Typography></Box>
+        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexWrap: 'wrap' }}><Chip label={localTestMode ? 'LOCAL FIXTURE' : `บริษัท: ${currentCompany?.company_name ?? 'ยังไม่เลือก'}`} color={localTestMode ? 'warning' : 'default'} sx={{ color: 'common.white', borderColor: 'rgba(255,255,255,.45)' }} variant="outlined" /><Chip label={autoRefresh ? 'Auto refresh 30s' : 'Manual refresh'} onClick={() => setAutoRefresh((value) => !value)} sx={{ color: 'common.white', borderColor: 'rgba(255,255,255,.45)', cursor: 'pointer' }} variant="outlined" /><Button size="small" variant="contained" onClick={() => void load()} startIcon={<RefreshOutlinedIcon />} sx={{ bgcolor: 'rgba(255,255,255,.18)', color: 'common.white', '&:hover': { bgcolor: 'rgba(255,255,255,.28)' } }}>รีเฟรช</Button></Stack>
       </Stack>
     </PaperLike>
 
     <PaperLike sx={{ p: 1.25 }}>
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ alignItems: { md: 'center' }, flexWrap: 'wrap' }}>
-        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}><FilterAltOutlinedIcon color="primary" /><Typography variant="subtitle2" sx={{ fontWeight: 900 }}>ตัวกรองข้อมูลจริง</Typography></Stack>
+        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}><FilterAltOutlinedIcon color="primary" /><Typography variant="subtitle2" sx={{ fontWeight: 900 }}>{localTestMode ? 'ตัวกรอง Local fixture' : 'ตัวกรองข้อมูลจริง'}</Typography></Stack>
         <TextField size="small" type="date" label="ตั้งแต่" value={fromDate} onChange={(event) => setFromDate(event.target.value)} slotProps={{ inputLabel: { shrink: true } }} sx={{ minWidth: 160 }} />
         <TextField size="small" type="date" label="ถึง" value={toDate} onChange={(event) => setToDate(event.target.value)} slotProps={{ inputLabel: { shrink: true } }} sx={{ minWidth: 160 }} />
         <FormControl size="small" sx={{ minWidth: 145 }}><InputLabel>Module</InputLabel><Select value={module} label="Module" onChange={(event) => setModule(event.target.value as FlowRegistryModule | 'all')}><MenuItem value="all">ทุก Module</MenuItem><MenuItem value="omni">Omni / Intake</MenuItem><MenuItem value="attendance">ลงเวลา / HR</MenuItem><MenuItem value="advance">เงินสำรองจ่าย</MenuItem></Select></FormControl>
