@@ -81,7 +81,9 @@ try {
   if (-not $env:CLOUDFLARE_API_TOKEN) { throw 'Cloudflare Account API Token was not provided.' }
 
   $headers = @{ Authorization = "Bearer $($env:CLOUDFLARE_API_TOKEN)" }
-  $verifyUrl = "https://api.cloudflare.com/client/v4/accounts/$AccountId/tokens/verify"
+  # User API tokens verify through the user endpoint; project access is checked
+  # separately below against the requested account and Pages project.
+  $verifyUrl = "https://api.cloudflare.com/client/v4/user/tokens/verify"
   $tokenCheck = Invoke-RestMethod -Method Get -Uri $verifyUrl -Headers $headers
   if (-not $tokenCheck.success -or $tokenCheck.result.status -ne 'active') {
     throw 'Cloudflare Account API Token is not active for this account.'
