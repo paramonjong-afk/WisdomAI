@@ -34,6 +34,7 @@ type Row = Record<string, unknown>
 const stringValue = (row: Row, key: string) => typeof row[key] === 'string' ? row[key] as string : ''
 const asRows = (data: unknown) => Array.isArray(data) ? data as Row[] : []
 const isOverdue = (slaAt: string | null) => Boolean(slaAt && new Date(slaAt).getTime() < Date.now())
+const actionableEventTypes = new Set(['incident', 'repeat', 'approval_required', 'review_required'])
 
 const fixtureItems = (): CenterNotification[] => {
   const now = Date.now()
@@ -52,8 +53,8 @@ const eventToNotification = (row: Row, readKeys: Set<string>): CenterNotificatio
   const status = stringValue(row, 'status').toLowerCase()
   const error = stringValue(row, 'error_message')
   const eventType = stringValue(row, 'event_type') || 'system_event'
-  const actionable = Boolean(error || ['failed', 'pending', 'queued', 'review', 'blocked'].some((value) => status.includes(value)))
-  const priority: NotificationPriority = error || status.includes('failed') ? 'urgent' : actionable ? 'review' : status.includes('success') || status.includes('done') ? 'success' : 'info'
+  const actionable = Boolean(actionableEventTypes.has(eventType) || error || ['failed', 'pending', 'queued', 'review', 'blocked'].some((value) => status.includes(value)))
+  const priority: NotificationPriority = error || eventType === 'incident' || status.includes('failed') ? 'urgent' : actionable ? 'review' : status.includes('success') || status.includes('done') || status.includes('completed') ? 'success' : 'info'
   return {
     id: stringValue(row, 'event_id'), type: eventType, module: stringValue(row, 'source_type') || 'System', title: stringValue(row, 'title') || eventType,
     detail: stringValue(row, 'message') || error || status, owner: stringValue(row, 'related_work_key') || 'ระบบ', slaAt: null,
