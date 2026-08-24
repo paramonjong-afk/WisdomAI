@@ -32,7 +32,7 @@ assert.deepEqual(classifyOperationalMessage(systemResult), {
   status: 'completed', duplicate: false, failed: false, important: false,
 })
 
-const cards = buildOperationalTaskCards([hr, finance, duplicate, failed, systemResult, development], 'program_development_primary', now)
+const cards = buildOperationalTaskCards([hr, finance, duplicate, failed, systemResult, development], 'hr_primary', now)
 assert.equal(cards.length, 5)
 assert.equal(cards[0]?.threadKey, 'thread:message-hr-1')
 assert.equal(cards[0]?.attendanceId, 'ATT-2026-001')
@@ -42,6 +42,10 @@ assert.equal(cards[1]?.documentId, 'DOC-2026-009')
 assert.equal(cards[1]?.evidence[0]?.kind, 'file')
 assert.equal(cards[4]?.module, 'Development')
 assert.notEqual(cards[0]?.threadKey, cards[1]?.threadKey)
+
+const developmentRoomCards = buildOperationalTaskCards([hr, finance, duplicate, failed, systemResult, development], 'program_development_primary', now)
+assert.equal(developmentRoomCards.length, 1, 'development room must not create business Operational Core cards')
+assert.equal(developmentRoomCards[0]?.sourceMessageId, development.id)
 
 const ownerCard = cards[0]!
 const unauthorized = applyOperationalAction(ownerCard, 'close', { id: 'other-user', role: 'employee' }, now)
@@ -67,5 +71,5 @@ const read = markOperationalTaskRead(cards[1]!, { id: 'finance-1', role: 'financ
 assert.equal(read.card.unread, false)
 
 const summary = dailyOperationalSummary(cards, new Date('2026-08-23T12:00:00.000Z'))
-assert.deepEqual(summary, { received: 2, forwarded: 0, pending: 3, closed: 0, duplicate: 1, failed: 1, unread: 5, slaBreached: 0 })
+assert.deepEqual(summary, { received: 2, forwarded: 0, pending: 3, closed: 0, duplicate: 1, failed: 1, unread: 5, slaBreached: 2 })
 console.log('web chat operational core local tests passed: classification, cards, threads, evidence, permissions, actions, idempotency, read state, summary')

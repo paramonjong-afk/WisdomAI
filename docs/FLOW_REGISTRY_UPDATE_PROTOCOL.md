@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## 2026-08-24 — Program Development room boundary hardening v1.2
+
+- **เหตุผล:** ข้อความธุรกิจเก่าในห้อง `00 | Program Development` ถูกนำไปแสดงเป็น Operational Task Card ทำให้เห็นงานค้างที่ไม่ใช่งานพัฒนา
+- **ผลกระทบ:** non-development message ใน `program_development_primary` ยังคงอยู่ใน Chat และ Audit แต่ไม่สร้าง Operational Card/ยอดค้าง; ห้องนี้แสดงเฉพาะ Command Inbox
+- **Migration:** ไม่มี; ไม่แก้ `chat_messages`, development tasks, ธุรกิจจริง หรือ Audit เดิม
+- **Verification:** Operational Core/Program Development contract tests, typecheck, lint, build และ authenticated Cloudflare Chat smoke
+- **Rollback:** revert classifier/UI guard; ไม่มีข้อมูลต้อง rollback
+
 ## 2026-08-24 — Master Data v1.3.1 search/count reconciliation
 
 - **เหตุผล:** Production UAT พบว่า Message ID search ลดตารางเหลือ 1 แถว แต่ป้ายจำนวนยังแสดงผลก่อน search

@@ -2737,8 +2737,9 @@ export function ChatPage() {
               <Divider sx={{ mb: 1 }} />
 
               <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, overflowY: 'auto', overflowX: 'hidden', px: { xs: 0.25, sm: 0.75 }, py: 0.75, borderRadius: 1.5, bgcolor: 'action.hover', scrollbarGutter: 'stable' }}>
-                <Card variant="outlined" sx={{ mb: 1, borderColor: 'primary.main', bgcolor: 'background.paper' }}>
-                  <CardContent sx={{ py: 1, px: 1.25, '&:last-child': { pb: 1 } }}>
+                {!isProgramDevelopmentRoom && (
+                  <Card variant="outlined" sx={{ mb: 1, borderColor: 'primary.main', bgcolor: 'background.paper' }}>
+                    <CardContent sx={{ py: 1, px: 1.25, '&:last-child': { pb: 1 } }}>
                     <Stack spacing={0.8}>
                       <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
                         <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
@@ -2833,8 +2834,9 @@ export function ChatPage() {
                         </Card>
                       )}
                     </Stack>
-                  </CardContent>
-                </Card>
+                    </CardContent>
+                  </Card>
+                )}
                 {isProgramDevelopmentRoom && (
                   <Card variant="outlined" sx={{ mb: 1, borderColor: 'secondary.main', bgcolor: 'background.paper' }}>
                     <CardContent sx={{ py: 1, px: 1.25, '&:last-child': { pb: 1 } }}>

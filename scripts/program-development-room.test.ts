@@ -27,6 +27,7 @@ assert.match(flow, /never create a new task/)
 for (const action of ['Command Inbox', 'รับงาน', 'ส่งต่อ Codex', 'ส่งต่อ Module', 'เริ่มทำ', 'ขอข้อมูล', 'ปิดงาน', 'ดูผลลัพธ์']) {
   assert.match(chatPage, new RegExp(action))
 }
+assert.match(chatPage, /!isProgramDevelopmentRoom/, 'Program Development room must not render the shared Operational Core panel')
 
 type Room = { key: string; owner: string; members: Set<string> }
 const rooms = new Map<string, Room>()
