@@ -1,7 +1,6 @@
-import NotificationsNoneOutlinedIcon from '@mui/icons-material/NotificationsNoneOutlined'
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined'
 import TimerOutlinedIcon from '@mui/icons-material/TimerOutlined'
-import { AppBar, Avatar, Badge, Box, Chip, Divider, IconButton, ListSubheader, MenuItem, Paper, TextField, Toolbar, Tooltip, Typography } from '@mui/material'
+import { AppBar, Avatar, Box, Chip, Divider, IconButton, ListSubheader, MenuItem, Paper, TextField, Toolbar, Tooltip, Typography } from '@mui/material'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
@@ -9,6 +8,7 @@ import { logAppEvent, updateAppStatus } from '../lib/telemetry'
 import { releaseHostLabel, releaseInfo, releaseLabel } from '../lib/releaseInfo'
 import { navigationItems } from '../utils/navigation'
 import { isPlatformAdmin as resolvePlatformAdmin } from '../utils/permissions'
+import { NotificationBell } from '../components/NotificationBell'
 
 const mobileNavigationItems = navigationItems.filter(
   (item) => item.path === '/time-tracking' || item.path === '/my-profile',
@@ -152,11 +152,7 @@ export function TopBar() {
             sx={{ mr: 1, cursor: 'pointer', display: { xs: 'none', md: 'inline-flex' }, fontVariantNumeric: 'tabular-nums' }}
           />
         </Tooltip>
-        <Tooltip title="Notifications">
-          <IconButton aria-label="Notifications" onClick={() => navigate('/notifications')} sx={{ mr: 1, display: { xs: 'none', sm: 'inline-flex' } }}>
-            <Badge color="error" variant="dot"><NotificationsNoneOutlinedIcon /></Badge>
-          </IconButton>
-        </Tooltip>
+        <NotificationBell />
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
           <Tooltip title="ข้อมูลส่วนตัว">
             <IconButton aria-label="ข้อมูลส่วนตัว" onClick={() => navigate('/my-profile')} sx={{ p: 0 }}>
