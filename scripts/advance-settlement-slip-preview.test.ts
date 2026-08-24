@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { isExpiredPreviewUrlError, isImageContentType, normalizePreviewFile, previewLoadMessage, previewSignedUrlErrorMessage } from '../src/pages/AdvanceSettlements/advanceSlipPreview.ts'
+import { advanceAuditAttemptLabel, buildAdvanceAuditTimeline } from '../src/pages/AdvanceSettlements/advanceAuditTimeline.ts'
 
 const page = readFileSync('src/pages/AdvanceSettlements/index.tsx', 'utf8')
 const helper = readFileSync('src/pages/AdvanceSettlements/advanceSlipPreview.ts', 'utf8')
@@ -39,6 +40,16 @@ assert.equal(isExpiredPreviewUrlError(localFixture.find((item) => item.id === 'f
 assert.equal(isImageContentType(localFixture.find((item) => item.id === 'fixture-pdf')?.contentType), false)
 assert.equal(isExpiredPreviewUrlError(localFixture.find((item) => item.id === 'fixture-permission')?.reason ?? ''), true)
 
+const auditTimeline = buildAdvanceAuditTimeline([
+  { id: 'setup-2', action: 'confirmation_room_setup', reason: 'retry room setup', created_at: '2026-08-23T11:03:21Z' },
+  { id: 'created', action: 'auto_create_from_holder_registry', reason: null, created_at: '2026-08-21T14:20:50Z' },
+  { id: 'setup-1', action: 'confirmation_room_setup', reason: 'initial room setup', created_at: '2026-08-23T10:56:40Z' },
+])
+assert.deepEqual(auditTimeline.map((audit) => audit.id), ['created', 'setup-1', 'setup-2'], 'timeline should stay chronological')
+assert.equal(advanceAuditAttemptLabel(auditTimeline[1]), 'ครั้งแรก · รวม 2 ครั้ง', 'first lifecycle attempt should remain visible')
+assert.equal(advanceAuditAttemptLabel(auditTimeline[2]), 'Retry #1 · ครั้งที่ 2/2', 'repeated room setup should be marked as a retry')
+assert.equal(auditTimeline.length, 3, 'retry decoration must not delete audit history')
+
 for (const needle of [
   'documentFlowGateway.preview',
   'signedPreviewUrl',
@@ -55,6 +66,7 @@ for (const needle of [
   'ปิดงาน',
   'คลิกแต่ละขั้นเพื่อดู Audit รายละเอียด',
   'Timeline อัตโนมัติ (รายการเดิม)',
+  'advanceAuditAttemptLabel',
   'ปิดรายละเอียด Audit',
 ]) {
   assert.match(page, new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `AdvanceSettlements page should contain ${needle}`)
