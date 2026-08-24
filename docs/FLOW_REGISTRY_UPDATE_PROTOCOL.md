@@ -881,6 +881,16 @@
 - ตารางและ Drawer ใช้ Source Reference object เดียวกัน โดย resolve `master_data_candidates.source_id` ตามชนิด source ก่อนเสมอ
 - Candidate จาก `financial_transactions` ต้องผ่าน Transaction ID → Message ID → Document Flow/Intake → Attachment/Event/Audit; ห้ามนำ Transaction ID ไปแสดงเป็น Message ID
 - Source ที่หาไม่ครบแสดงเหตุผลและค้างตรวจ โดยไม่แก้ raw data ไม่เดา identifier และไม่สร้าง candidate เพิ่ม
+
+### Master Data Classification & Review v1.3 — 24/8/2569
+
+- Classification กลางแยก Vendor, Employee/Technician, Customer, Company/Internal และ Unknown/Needs Review จากหลักฐานอย่างน้อยสองกลุ่ม; ห้ามใช้ชื่ออย่างเดียว
+- `auto_verified` เป็นสถานะ Data Review ที่ยังไม่ Final/Locked และห้ามนำไปปิดบัญชี ตัดยอด ตัดเงินสำรอง ปิดค่าแรง หรือปิด Job
+- Review Queue แยก pending/duplicate/mismatch/conflict/unknown; Confirmed Reports แยกตามประเภทพร้อม reviewer/date/source
+- Admin correction แก้เฉพาะ derived candidate data แล้ว append before/after, actor, time, reason, Source Reference และ Version; Raw/OCR ไม่เปลี่ยนและรายการกลับ `admin_reviewed` เพื่อรอตรวจซ้ำ
+- **Migration:** `20260824010000_master_data_classification_review.sql`
+- **Verification:** five-type fixture, auto-verify gate, conflict/unknown/duplicate, confirmed report, correction audit/version, Source parity, typecheck/lint/build และ Cloudflare Admin smoke
+- **Rollback:** ปิด trigger/RPC/UI classification และเปลี่ยน `auto_verified/admin_reviewed` กลับ `needs_review`; ห้ามลบ audit/version/source evidence ที่สร้างแล้ว
 - **Migration:** `20260821211435_master_data_governance.sql`; สลิปโอนที่พบชื่อผู้รับและเลขท้ายบัญชีสร้าง candidate อัตโนมัติ, Admin/Manager ยืนยันหรือปฏิเสธผ่าน RPC กลาง
 - **การตรวจสอบ:** apply migration, RLS/RPC/schema query, TypeScript, lint, build, document-pipeline test, deploy และตรวจ protected production route
 - **Rollback:** ปิด UI/trigger/RPC ใหม่ได้โดยไม่ลบสลิป, master เดิม, candidate, account evidence หรือ audit ที่เกิดแล้ว

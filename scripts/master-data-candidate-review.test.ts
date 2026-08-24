@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { groupDuplicateCandidates, isAccountNameMismatch, isNameMismatch, resolveCandidateSourceEvidence, reviewFilterMatches, type MasterCandidate, type MasterSourceEvidence } from '../src/pages/MasterDataCenter/masterDataReview.ts'
+import { classifyMasterCandidate, masterReviewBucket } from '../src/services/masterDataClassification.ts'
 
 const page = readFileSync('src/pages/MasterDataCenter/index.tsx', 'utf8')
 const migration = readFileSync('supabase/migrations/20260823060000_master_data_candidate_review_actions.sql', 'utf8')
+const classificationMigration = readFileSync('supabase/migrations/20260824010000_master_data_classification_review.sql', 'utf8')
 const evidence: MasterSourceEvidence = {
   documentId: 'doc-1', intakeId: 'intake-1', messageId: 'msg-1', transactionId: 'tx-1', sourceRoom: 'ไซต์ A', sourceChannel: 'LINE', attachmentId: 'att-1', fileName: 'slip.jpg', bucket: 'line-attachments', path: 'company/slip.jpg', receivedAt: '2026-08-23T08:00:00Z', ocrRawText: 'โอนให้สมนึก', extractedName: 'สมหนึก', extractedAccount: '1234', aiConfidence: 0.82, modelVersion: 'ocr-v2', auditId: 'audit-1', sourceResolved: true, missingReasons: [],
 }
@@ -34,6 +36,21 @@ const missing = resolveCandidateSourceEvidence(rows[0], { transaction: { id: 'tx
 assert.equal(missing.messageId, null, 'transaction id must never be shown as Message ID')
 assert.equal(missing.sourceResolved, false)
 assert.ok(missing.missingReasons.includes('ไม่พบ Message ID จาก source mapping'))
+const classifiedFixture = (id: string, entity_type: string, candidate_data: Record<string, unknown>, confidence = 0.97): MasterCandidate => ({ ...candidate(id, evidence.receivedAt!), entity_type, candidate_data, confidence })
+const vendor = classifyMasterCandidate(classifiedFixture('vendor-1', 'vendor', { tax_id: '0105550000001' }), evidence)
+const employee = classifyMasterCandidate(classifiedFixture('employee-1', 'employee', { project_id: 'project-1' }), evidence)
+const customer = classifyMasterCandidate(classifiedFixture('customer-1', 'customer', { customer_tax_id: '0105550000002' }), evidence)
+const internal = classifyMasterCandidate(classifiedFixture('internal-1', 'project', { project_id: 'project-1' }), evidence)
+const unknown = classifyMasterCandidate(classifiedFixture('unknown-1', 'bank_account', { account_last4: '4321' }), evidence)
+const conflict = classifyMasterCandidate(classifiedFixture('conflict-1', 'employee', { matched_master_type: 'vendor', matched_master_id: 'vendor-1', project_id: 'project-1' }), evidence)
+assert.deepEqual([vendor.type, employee.type, customer.type, internal.type, unknown.type], ['vendor', 'employee_technician', 'customer', 'company_internal', 'unknown_review'])
+assert.equal(vendor.autoVerified, true, 'high-confidence classification with two independent evidence sources may be auto verified')
+assert.equal(unknown.autoVerified, false, 'a name/account alone must not choose a destination')
+assert.equal(conflict.type, 'unknown_review', 'conflicting master/entity signals must return to review')
+assert.ok(conflict.conflicts.some((item) => item.startsWith('destination_conflict:')))
+assert.equal(masterReviewBucket(vendor, true, false), 'duplicate')
+assert.equal(masterReviewBucket(conflict, false, false), 'conflict')
+assert.equal(masterReviewBucket(unknown, false, false), 'unknown_review')
 assert.match(page, /<Drawer anchor="right"/)
 assert.match(page, /ยืนยันข้อเสนอ/)
 assert.match(page, /คงข้อมูลเดิม/)
@@ -42,8 +59,10 @@ assert.match(page, /ขอข้อมูลเพิ่ม/)
 assert.match(page, /ปิดการตรวจสอบ/)
 assert.match(page, /เปิดแก้ไขแบบควบคุม/)
 assert.match(page, /Version \/ controlled correction/)
+for (const token of ['Auto Classification', 'Auto Verified', 'Review Queue', 'Unknown/Needs Review', 'Confirmed Data Reports', 'Admin Correction', 'correct_master_data_candidate']) assert.match(page, new RegExp(token))
 assert.doesNotMatch(page, /source\.messageId \?\? row\.source_id/, 'table must not label Transaction ID as Message ID')
 assert.doesNotMatch(page, /onClick=\{\(\) => void review\(row/)
 for (const token of ['provisional', 'needs_review', 'confirmed', 'locked', 'master_data_candidate_versions', 'keep_existing', 'match_master', 'request_info', 'lock', 'controlled_correction', 'master_candidate_reason_required', 'candidate_']) assert.match(migration, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+for (const token of ['auto_verified', 'admin_reviewed', 'classification_type', 'classification_evidence', 'classification_conflicts', 'candidate_auto_classified', 'candidate_admin_corrected', 'master_data_candidate_versions', 'before_data', 'after_data', 'target_reason']) assert.match(classificationMigration, new RegExp(token))
 
 console.log('master data candidate local fixture passed: new-data summary, duplicate grouping, mismatch and source audit references')

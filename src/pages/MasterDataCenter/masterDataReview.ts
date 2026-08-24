@@ -9,6 +9,15 @@ export type MasterCandidate = {
   source_table: string | null
   source_id: string | null
   duplicate_of: string | null
+  reviewed_by?: string | null
+  reviewed_at?: string | null
+  review_reason?: string | null
+  classification_type?: string | null
+  classification_confidence?: number | null
+  classification_evidence?: unknown[] | null
+  classification_conflicts?: unknown[] | null
+  classification_version?: string | null
+  classified_at?: string | null
   created_at: string
 }
 
@@ -93,7 +102,7 @@ export type DuplicateGroup = {
   candidateIds: string[]
 }
 
-export type MasterReviewFilter = 'all' | 'duplicate' | 'name_mismatch' | 'account_name_mismatch' | 'pending_review'
+export type MasterReviewFilter = 'all' | 'duplicate' | 'name_mismatch' | 'account_name_mismatch' | 'conflict' | 'unknown_review' | 'pending_review'
 
 const normalize = (value: string | null | undefined) => (value ?? '').trim().toLocaleLowerCase('th-TH').replace(/\s+/g, '')
 
