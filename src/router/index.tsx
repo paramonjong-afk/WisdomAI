@@ -31,7 +31,7 @@ const WorkforcePage = lazyWithReload(() => import('../pages/Workforce').then((mo
 const WorkforceSetupPage = lazyWithReload(() => import('../pages/WorkforceSetup').then((module) => ({ default: module.WorkforceSetupPage })))
 const ContractorsPage = lazyWithReload(() => import('../pages/Contractors').then((module) => ({ default: module.ContractorsPage })))
 const ApprovalsPage = lazyWithReload(() => import('../pages/Approvals').then((module) => ({ default: module.ApprovalsPage })))
-const NotificationsPage = lazyWithReload(() => import('../pages/Notifications').then((module) => ({ default: module.NotificationsPage })))
+const NotificationCenterPage = lazyWithReload(() => import('../pages/Notifications/NotificationCenterPage').then((module) => ({ default: module.NotificationCenterPage })))
 const ReportsPage = lazyWithReload(() => import('../pages/Reports').then((module) => ({ default: module.ReportsPage })))
 const AdvancePaymentReportPage = lazyWithReload(() => import('../pages/Reports/AdvancePaymentReport').then((module) => ({ default: module.AdvancePaymentReportPage })))
 const ImageReviewPage = lazyWithReload(() => import('../pages/ImageReview').then((module) => ({ default: module.ImageReviewPage })))
@@ -87,7 +87,7 @@ export const router = createBrowserRouter([
               { path: 'workforce-setup', element: managerOnly(<WorkforceSetupPage />) },
               { path: 'contractors', element: managerOnly(<ContractorsPage />) },
               { path: 'approvals', element: managerOnly(<ApprovalsPage />) },
-              { path: 'notifications', element: deferred(<NotificationsPage />) },
+              { path: 'notifications', element: deferred(<NotificationCenterPage />) },
               { path: 'reports', element: managerOnly(<ReportsPage />) },
               { path: 'advance-payment-report', element: managerOnly(<AdvancePaymentReportPage />) },
               { path: 'image-review', element: managerOnly(<ImageReviewPage />) },
