@@ -2,6 +2,7 @@ import { AddBusinessOutlined, LinkOutlined, VisibilityOutlined } from '@mui/icon
 import { Alert, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material'
 import { useMemo, useState } from 'react'
 import { buildMasterAutoCorrection, masterAutoRoute, type AutoInputField } from '../../services/masterDataAutoInput'
+import { advanceFundingRoute, type MasterRecordingMode } from '../../services/masterDataAdvanceFunding'
 import { classifyMasterCandidate, classificationLabel } from '../../services/masterDataClassification'
 import {
   autoSelectedProjectId,
@@ -26,8 +27,11 @@ type Props = {
   workPackages: MasterWorkPackageOption[]
   saving: boolean
   reason: string
+  recordingMode: MasterRecordingMode
+  advanceBlockers: string[]
   message?: { severity: 'success' | 'error' | 'info'; text: string; incidentId?: string; persisted?: boolean } | null
   onAction: (action: ProjectGateAction, payload: Record<string, unknown>) => Promise<void>
+  onRecordingModeChange: (mode: MasterRecordingMode) => void
   onOpenSource: () => void
   onCreateWorkPackage: (input: { projectId: string; parentId: string | null; name: string; description: string }) => Promise<MasterWorkPackageOption | null>
 }
@@ -48,7 +52,7 @@ function AutoFieldHint({ value, source, confidence, status }: Pick<AutoInputFiel
   </Stack>
 }
 
-export function MasterDataProjectGatePanel({ candidate, source, projects, workPackages, saving, reason, message, onAction, onOpenSource, onCreateWorkPackage }: Props) {
+export function MasterDataProjectGatePanel({ candidate, source, projects, workPackages, saving, reason, recordingMode, advanceBlockers, message, onAction, onRecordingModeChange, onOpenSource, onCreateWorkPackage }: Props) {
   const matches = useMemo(() => findProjectMatches(candidate, source, projects), [candidate, projects, source])
   const [selectedProjectId, setSelectedProjectId] = useState(() => autoSelectedProjectId(candidate, matches))
   const [selectedWorkPackageId, setSelectedWorkPackageId] = useState(() => typeof candidate.candidate_data.work_package_id === 'string' ? candidate.candidate_data.work_package_id : '')
@@ -62,7 +66,7 @@ export function MasterDataProjectGatePanel({ candidate, source, projects, workPa
   const gate = projectGateStatus(candidate)
   const classification = useMemo(() => classifyMasterCandidate(candidate, source), [candidate, source])
   const autoCorrection = useMemo(() => buildMasterAutoCorrection(candidate, source, classification), [candidate, classification, source])
-  const route = useMemo(() => masterAutoRoute(autoCorrection.classification_type.value, classification.confidence, classification.conflicts), [autoCorrection.classification_type.value, classification.confidence, classification.conflicts])
+  const route = useMemo(() => recordingMode === 'employee_advance_funding' ? { ...advanceFundingRoute, requiresReview: true } : masterAutoRoute(autoCorrection.classification_type.value, classification.confidence, classification.conflicts), [autoCorrection.classification_type.value, classification.confidence, classification.conflicts, recordingMode])
   const reasonMissing = reason.trim().length < 3
   const selectedProject = projects.find((project) => project.id === selectedProjectId)
   const availableWorkPackages = workPackages.filter((item) => item.project_id === selectedProjectId)
@@ -88,10 +92,14 @@ export function MasterDataProjectGatePanel({ candidate, source, projects, workPa
   return <Paper variant="outlined" sx={{ p: 1.25, borderColor: 'primary.main' }}>
     <Stack spacing={1.25}>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'center' } }}>
-        <Typography sx={{ fontWeight: 800, flex: 1 }}>1. ความสัมพันธ์กับ Project · Project-first Gate</Typography>
-        <Chip size="small" color={gate === 'linked_existing_project' || gate === 'awaiting_new_project' || gate === 'confirmed' ? 'success' : 'warning'} label={projectGateStatusLabel[gate]} />
+        <Typography sx={{ fontWeight: 800, flex: 1 }}>1. รูปแบบการบันทึกและข้อมูลที่ต้องเติม</Typography>
+        <Chip size="small" color={recordingMode === 'employee_advance_funding' || gate === 'linked_existing_project' || gate === 'awaiting_new_project' || gate === 'confirmed' ? 'success' : 'warning'} label={recordingMode === 'employee_advance_funding' ? 'เงินทดลองจ่าย · ไม่บังคับ Project' : projectGateStatusLabel[gate]} />
       </Stack>
-      <Typography variant="body2">ระบบค้น Project เดิมจากชื่อ ลูกค้า ไซต์ เลขอ้างอิง ผู้รับผิดชอบ และห้องต้นทางก่อนเสมอ ถ้าไม่พบจึงสร้าง Project Candidate รอเปิดโครงการ</Typography>
+      <Select size="small" value={recordingMode} onChange={(event) => onRecordingModeChange(event.target.value as MasterRecordingMode)}>
+        <MenuItem value="project_scoped">ค่าใช้จ่าย/ข้อมูลที่ต้องผูก Project</MenuItem>
+        <MenuItem value="employee_advance_funding">เติมเงินทดลองจ่าย/เงินสำรองจ่ายให้พนักงาน</MenuItem>
+      </Select>
+      <Typography variant="body2">{recordingMode === 'employee_advance_funding' ? 'บันทึกบุคคลและบัญชีก่อน ส่งบัญชีตรวจสลิป แล้วจึงส่งเงินสำรองจ่าย ส่วน Project จะผูกตอนนำเงินไปใช้หรือกระทบยอด' : 'Project-first Gate: ระบบค้น Project เดิมจากชื่อ ลูกค้า ไซต์ เลขอ้างอิง ผู้รับผิดชอบ และห้องต้นทางก่อนเสมอ ถ้าไม่พบจึงสร้าง Project Candidate รอเปิดโครงการ'}</Typography>
       {message && <Alert severity={message.severity} sx={{ position: 'fixed', top: { xs: 112, sm: 136 }, right: { xs: 12, sm: 28 }, width: { xs: 'calc(100% - 24px)', sm: 624 }, maxWidth: 'calc(100vw - 24px)', zIndex: 1400, boxShadow: 6 }}>
         <Typography variant="subtitle2">{message.severity === 'error' ? 'บันทึกไม่สำเร็จ · ข้อมูลยังไม่เปลี่ยน' : message.persisted ? 'ตรวจสอบการบันทึกในฐานข้อมูลแล้ว' : 'สถานะการดำเนินการ'}</Typography>
         <Typography variant="body2">{message.text}</Typography>
@@ -125,7 +133,7 @@ export function MasterDataProjectGatePanel({ candidate, source, projects, workPa
         <Typography variant="body2"><strong>ทำต่อ:</strong> {route.nextAction}{route.requiresReview ? ' · ต้องตรวจโดยคน' : ' · หลักฐานครบตามเกณฑ์ Auto'}</Typography>
       </Paper>
 
-      <Typography variant="subtitle2">Project เดิม ({projects.length} โครงการ)</Typography>
+      {recordingMode === 'project_scoped' ? <><Typography variant="subtitle2">Project เดิม ({projects.length} โครงการ)</Typography>
       <Select size="small" displayEmpty value={selectedProjectId} onChange={(event) => { setSelectedProjectId(event.target.value); setSelectedWorkPackageId('') }}>
         <MenuItem value="">ยังไม่พบ/เลือก Project เดิม</MenuItem>
         {projects.map((project) => {
@@ -146,7 +154,12 @@ export function MasterDataProjectGatePanel({ candidate, source, projects, workPa
         <Button fullWidth startIcon={<LinkOutlined />} variant="contained" disabled={!selectedProject || !selectedWorkPackage || saving || reasonMissing} onClick={() => selectedProject && selectedWorkPackage && void onAction('link_existing_project', { project_id: selectedProject.id, project_name: selectedProject.name, work_package_id: selectedWorkPackage.id, work_package_name: selectedWorkPackage.name, work_package_code: selectedWorkPackage.code, match_evidence: selectedMatch?.evidence ?? ['admin_selected'] })}>ผูก Project และเนื้องาน</Button>
         <Button fullWidth startIcon={<AddBusinessOutlined />} variant="outlined" disabled={saving} onClick={() => setProjectDialogOpen(true)}>เพิ่ม Project Candidate</Button>
       </Stack>
-      <Typography variant="caption" color="text.secondary">Project Candidate ไม่ใช่ Project จริงและยังใช้ปิดบัญชี/ตัดยอดไม่ได้ · Raw/OCR ไม่ถูกเขียนทับ · ทุกการบันทึกมี Version/Audit</Typography>
+      <Typography variant="caption" color="text.secondary">Project Candidate ไม่ใช่ Project จริงและยังใช้ปิดบัญชี/ตัดยอดไม่ได้ · Raw/OCR ไม่ถูกเขียนทับ · ทุกการบันทึกมี Version/Audit</Typography></> : <Alert severity={advanceBlockers.length ? 'warning' : 'success'}>
+        <Typography variant="subtitle2">เส้นทาง: Accounting Pending Queue → Advance Finance</Typography>
+        <Typography variant="body2">ประเภทข้อมูลจะบันทึกเป็น Employee/Technician และไม่สร้าง Project Candidate ปลอม</Typography>
+        <Typography variant="body2">Project: รอจัดสรรภายหลังเมื่อมีค่าใช้จ่าย/การปิดยอด</Typography>
+        {advanceBlockers.length > 0 && <Typography variant="body2">ข้อมูลที่ยังขาด: {advanceBlockers.join(', ')}</Typography>}
+      </Alert>}
     </Stack>
 
     <Dialog open={projectDialogOpen} onClose={() => setProjectDialogOpen(false)} fullWidth maxWidth="sm">

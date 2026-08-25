@@ -1,5 +1,16 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Master Data Employee Advance Funding v2.3 — 26/8/2569
+
+- **เหตุผล:** รายการเติมเงินทดลองจ่ายเป็นการมอบเงินให้พนักงานถือไว้ก่อนเกิดค่าใช้จ่าย จึงยังไม่มี Project ที่ถูกต้อง; การบังคับ Project ทำให้ผู้ใช้ต้องสร้าง Project เทียมและรายการค้างใน Master Data
+- **ผลกระทบ:** `/master-data` เพิ่ม recording mode `เติมเงินทดลองจ่าย`; ยืนยัน Master เป็น `Employee/Technician`, เก็บ Project เป็น `awaiting allocation`, สร้าง/reopen Accounting Pending task ก่อน แล้วผูก Money Lineage ไป Advance Finance โดยยังไม่ posting/ตัดยอด/ปิด Job
+- **Validation/Idempotency:** ใช้เฉพาะ candidate จาก `financial_transactions` ที่ไม่ซ้ำ มีจำนวนเงิน ผู้รับ/บัญชี และ Document Flow จริง; `event_key` เดิม replay ผลเดิม, การกดซ้ำไม่สร้าง task/lineage/audit ซ้ำ และ identity ที่คลุมเครือไม่ถูกเดา
+- **Data/Audit:** Raw/OCR/Source Reference read-only; RPC append Master Audit, Candidate Version และ Document Flow Event พร้อม before/after, actor, reason, source และ route
+- **Read projection:** หลังยืนยัน รายงานและ Drawer ใช้ `classification_type` ที่ persist แล้วเป็น source of truth; `employee_technician` ต้องแสดงเป็น `Employee/Technician` และห้ามถูก context เดิมทับกลับเป็น Company/Internal
+- **Migration:** `20260826190500_master_data_employee_advance_funding.sql`; SECURITY DEFINER ใช้ fixed empty `search_path`, company/manager guard และ revoke `PUBLIC`/`anon`
+- **Verification:** advance-funding contract, migration/schema/privilege checks, targeted/full lint, typecheck, build, Local fixture/browser persistence, Accounting queue และ authenticated Production revision parity
+- **Rollback:** deploy UI ก่อนหน้า, revoke RPC และ restore Project-gate function; คง Raw/OCR, Master account, Candidate, Accounting task, Money Lineage, Version และ Audit เพื่อ recovery
+
 ## ล่าสุด: Employee Multiple LINE Accounts v2.9 — 26/8/2569
 
 - **เหตุผล:** พนักงานอาจมี LINE ส่วนตัวมากกว่าหนึ่งบัญชี แต่ schema เดิมบังคับหนึ่งบัญชีต่อพนักงาน

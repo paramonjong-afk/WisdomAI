@@ -10,14 +10,14 @@ export type MasterClassification = {
   conflicts: string[]
   reason: string
   autoVerified: boolean
-  version: 'master-data-rules-v1'
+  version: string
 }
 
 const value = (data: Record<string, unknown>, ...keys: string[]) => keys.map((key) => data[key]).find((item) => typeof item === 'string' && item.trim()) as string | undefined
 const normalized = (input: string | undefined) => (input ?? '').trim().toLocaleLowerCase('th-TH')
 const mappedType = (input: string | undefined): MasterClassificationType | null => {
   if (['vendor', 'supplier'].includes(normalized(input))) return 'vendor'
-  if (['employee', 'technician', 'worker'].includes(normalized(input))) return 'employee_technician'
+  if (['employee', 'technician', 'worker', 'employee_technician'].includes(normalized(input))) return 'employee_technician'
   if (normalized(input) === 'customer') return 'customer'
   if (['company', 'internal', 'project', 'work_package'].includes(normalized(input))) return 'company_internal'
   return null
@@ -37,6 +37,27 @@ export function classifyMasterCandidate(candidate: MasterCandidate, source: Mast
   if (value(data, 'project_id', 'site_id', 'project_name', 'site_name')) evidence.push('project_site')
   if (context) evidence.push('message_context')
   if (source.sourceResolved) evidence.push('source_reference')
+
+  const persistedType = mappedType(candidate.classification_type ?? undefined)
+  if (persistedType && ['auto_verified', 'admin_reviewed', 'confirmed', 'locked'].includes(candidate.status)) {
+    const persistedEvidence = Array.isArray(candidate.classification_evidence)
+      ? candidate.classification_evidence.filter((item): item is string => typeof item === 'string')
+      : []
+    const persistedConflicts = Array.isArray(candidate.classification_conflicts)
+      ? candidate.classification_conflicts.filter((item): item is string => typeof item === 'string')
+      : []
+    const confidence = Math.min(1, Math.max(0, candidate.classification_confidence ?? candidate.confidence ?? 0))
+    const mergedEvidence = [...new Set([...persistedEvidence, ...evidence])]
+    return {
+      type: persistedType,
+      confidence,
+      evidence: mergedEvidence,
+      conflicts: persistedConflicts,
+      reason: `ใช้ประเภท ${persistedType} ที่บันทึกและตรวจแล้ว`,
+      autoVerified: candidate.status === 'auto_verified' && confidence >= 0.95 && persistedConflicts.length === 0 && source.sourceResolved,
+      version: candidate.classification_version || 'master-data-rules-v1',
+    }
+  }
 
   if (explicit) signals.add(explicit)
   if (direct && candidate.entity_type !== 'bank_account') signals.add(direct)
