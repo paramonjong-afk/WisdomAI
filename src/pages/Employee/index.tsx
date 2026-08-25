@@ -517,7 +517,7 @@ export function EmployeePage() {
 
     const intakePeopleQuery = !currentCompany?.company_id
       ? Promise.resolve({ data: [], error: null })
-      : supabase.from('employee_people').select('id,source_intake_id,employee_code,full_name,phone,employment_type,position,start_date,employee_status,created_at').eq('company_id', currentCompany.company_id).eq('employee_status','preboarding').order('created_at', { ascending: false }).limit(500)
+      : supabase.from('employee_people').select('id,source_intake_id,employee_code,full_name,phone,employment_type,position,start_date,employee_status,created_at').eq('company_id', currentCompany.company_id).eq('employee_status','preboarding').is('profile_id', null).order('created_at', { ascending: false }).limit(500)
     const intakePersonDocumentsQuery = !currentCompany?.company_id
       ? Promise.resolve({ data: [], error: null })
       : supabase.from('employee_person_documents').select('id,employee_person_id,document_type,link_status').eq('company_id', currentCompany.company_id).order('created_at')

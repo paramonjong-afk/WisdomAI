@@ -51,6 +51,7 @@ flowchart LR
 | Version | Date | Rationale | Impact | Migration | Verification | Rollback |
 | --- | --- | --- | --- | --- | --- | --- |
 | v2.4 | 25/8/2569 | ให้ทะเบียนพนักงานเบื้องต้นปรากฏร่วมกับงานพนักงานและชี้ข้อมูลที่ Admin ต้องเติม โดยไม่สร้างบุคคลซ้ำ | `/employees`, `create-employee`, Auth/Profile/Membership/Employment linking และ Workforce Audit | ไม่มี schema migration | contract test, typecheck, lint, build, dry-run, authenticated Production smoke และตรวจ person/profile/audit | revert UI/Edge commit; บัญชีที่สร้างแล้วใช้ recovery ตาม Audit โดยไม่ลบ Intake/Document ต้นฉบับ |
+| v2.4.1 | 25/8/2569 | ป้องกันทะเบียนที่ผูกบัญชีสำเร็จแล้วค้างในรายการและเสนอปุ่มสร้างบัญชีซ้ำ | `/employees` กรองกลุ่มเตรียมเริ่มงานด้วย `profile_id is null`; พนักงานที่ผูกแล้วอยู่ตารางหลักเพียงจุดเดียว | ไม่มี | contract, typecheck, lint, build และ authenticated Production smoke หลังสร้างบัญชี | revert UI query ได้โดยไม่กระทบข้อมูลหรือ Audit |
 
 ## Employee Master ก่อนข้อมูลครบ — v1.1 (25/8/2569)
 
