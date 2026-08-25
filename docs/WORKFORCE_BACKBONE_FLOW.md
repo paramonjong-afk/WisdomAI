@@ -3,6 +3,11 @@
 ```mermaid
 flowchart TD
   A[Intake / Admin / พนักงาน ส่งข้อมูล HR] --> B[Workforce source tables]
+  L[LINE รูป/ไฟล์] --> A1{เป็นเอกสารบุคคลหรือไม่}
+  A1 -->|ใช่| A2[Restricted HR Intake\nรอ HR/Admin ยืนยัน]
+  A1 -->|ไม่ใช่/ไม่ชัด| A3[Intake Manual Review]
+  A2 --> B[Workforce source tables]
+  A3 --> B
   B --> C{เป็นงานที่ HR ต้องรู้หรือไม่}
   C -->|ใช่| D[HR Chat Event Stream]
   D --> E[ห้อง HR ใน Web Chat]
@@ -271,8 +276,33 @@ flowchart LR
 - Failure/retry: ข้อมูลไม่ครบหรือสิทธิ์ไม่ผ่านจะไม่เปลี่ยนสถานะ; การกดซ้ำ idempotent และเติมเฉพาะลิงก์เอกสารที่ยังไม่มี
 - Owner: HR/Admin; Integration: Edge Function `review-employee-intake`, RPC `approve_employee_intake`, Employee Master และ Storage
 
+### LINE Employee Document Intake (v2.0, 25/8/2569)
+
+```mermaid
+flowchart LR
+  A[LINE Image Raw] --> B[HR Document Classification]
+  B -->|มั่นใจ| C[Private Bundle\nawaiting_purpose]
+  B -->|ไม่มั่นใจ| D[Manual Review]
+  C --> E[HR/Admin เลือก New / Update / Archive]
+  E --> F[Extract allowlisted fields]
+  F --> G[Pending Review]
+  G -->|Approve| H[Employee Master / Preboarding]
+  G -->|Reject / ขอข้อมูล| I[เปิด Intake ต่อ]
+  A --> J[Audit + Retry by original message id]
+```
+
+- รับบัตรประชาชน ใบขับขี่ ทะเบียนบ้าน วุฒิการศึกษา หลักฐานบัญชี และรูปพนักงานจาก LINE โดยเก็บ Raw ต้นฉบับก่อนเสมอ
+- เอกสารมั่นใจตั้งแต่ 65% ถูกรวมตามบริษัท ห้อง ผู้ส่ง และช่วง 10 นาที ไปยัง HR Intake แบบ private; ต่ำกว่านั้นค้าง Manual Review
+- ระบบยังไม่สร้าง Auth/Profile/Employee จน HR/Admin เลือกวัตถุประสงค์ ตรวจ field ที่อ่านได้ และอนุมัติผ่าน Flow เดิม
+- เก็บเฉพาะข้อมูลที่จำเป็นและเลขระบุ 4 ตัวท้าย; เอกสารและ Audit แยกตามบริษัทด้วย RLS
+- Reprocess ใช้ LINE message ID เดิมและ idempotency key จึงกู้รายการเก่าได้โดยไม่สร้าง Intake/ไฟล์ซ้ำ
+- Failure/retry: Raw ไม่ถูกลบ, การ copy/DB fail ถูกบันทึกใน ingestion, และเรียก recovery action ซ้ำได้อย่างปลอดภัย
+- Owner: HR/Admin ดูแลการตัดสินใจ; Platform Integration ดูแล classifier/routing/retry
+- Migration: `20260825194500_line_hr_document_intake_routing.sql`; rollback ปิด route/trigger โดยคง Raw, private document และ Audit ไว้
+
 | Version | วันที่ | เหตุผล/ผลกระทบ | Migration | Verification | Rollback |
 |---|---|---|---|---|---|
+| v2.0 | 25/8/2569 | จำแนกเอกสารบุคคลจาก LINE แล้วส่งเข้า Restricted HR Intake แบบ bundle/idempotent พร้อม recovery จาก message ID เดิม | `20260825194500_line_hr_document_intake_routing.sql` | LINE/Employee/Omni contract, typecheck, targeted lint, build, migration dry-run และ authenticated HR smoke | ปิด route/trigger โดยคง Raw, Intake, private document และ Audit |
 | v1.9 | 22/8/2569 | ซ่อม Intake ที่สร้างพนักงานแล้วแต่ไม่เปลี่ยนเป็น approved และทำให้เอกสารที่อนุมัติแสดงในทะเบียนพนักงาน | `20260822001621_employee_intake_approval_document_link.sql` | RPC reconciliation, document-link count, RLS, lint/build/test และหน้าพนักงาน | ปิด UI registry/คืน RPC เก่าได้; ไม่ลบ Employee Master, Intake หรือไฟล์ต้นฉบับ |
 | v2.0 | 22/8/2569 | กำหนดเส้นชัยของ HR Intake ที่อนุมัติ: ออกจาก Intake Room ไป Employee Master `preboarding`/คิว HR Onboarding; จำนวน Intake ไม่รวม approved/cancelled | `20260822005245_employee_intake_approved_exit_to_onboarding.sql` | ตรวจ reconcile, count/query, หน้า Intake และหน้า Employee | คืน query/count เดิมได้; ไม่ลบ Employee Master, เอกสาร หรือ Audit |
 

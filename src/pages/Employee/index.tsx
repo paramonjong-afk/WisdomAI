@@ -167,7 +167,7 @@ const emptyEmployment: EmploymentForm = {
 }
 const employmentLabels:Record<string,string>={daily:'รายวัน',monthly:'รายเดือน',temporary:'ชั่วคราว',contractor:'ผู้รับเหมา'}
 const intakeDocumentLabels: Record<string, string> = {
-  thai_national_id: 'บัตรประชาชน', house_registration: 'ทะเบียนบ้าน',
+  thai_national_id: 'บัตรประชาชน', driving_license: 'ใบขับขี่', house_registration: 'ทะเบียนบ้าน',
   education_certificate: 'วุฒิการศึกษา', bank_evidence: 'หลักฐานบัญชีธนาคาร',
   portrait: 'รูปถ่าย', other: 'เอกสารอื่น', unknown: 'รอระบุประเภท',
 }
