@@ -7,7 +7,7 @@
   "owner_room": "program-general",
   "branch": "codex/auto-checkpoint-guard",
   "base_commit": "aba6406d23ae431bfd7d3b3969784b6de2816e45",
-  "checkpoint_commit": "1aa85ff4915648b08f16f781bf0d1def19608ece",
+  "checkpoint_commit": "fb9458dd2c5b558e85142160d49b33e4ab2239ed",
   "remote": "origin",
   "owned_paths": [
     ".task-checkpoints/AUTO-CHECKPOINT-GUARD-20260825/**",
@@ -63,6 +63,6 @@
       "exit_code": 0
     }
   ],
-  "updated_at": "2026-08-25T11:42:45.099Z",
+  "updated_at": "2026-08-25T11:42:46.579Z",
   "actor": "codex-program-general"
 }

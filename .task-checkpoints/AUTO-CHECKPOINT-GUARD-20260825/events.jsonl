@@ -10,3 +10,4 @@
 {"task_id":"AUTO-CHECKPOINT-GUARD-20260825","event":"checkpoint_test_failed","at":"2026-08-25T11:39:28.646Z","actor":"codex-program-general","details":{"blocker":"One or more configured checkpoint tests failed. See the terminal output and tests in manifest.json."}}
 {"task_id":"AUTO-CHECKPOINT-GUARD-20260825","event":"handoff_updated","at":"2026-08-25T11:40:30.759Z","actor":"codex-program-general","details":{"status":"completed","next_action":"Review the pushed branch and merge only after repository owner approval; do not auto-deploy or auto-merge."}}
 {"task_id":"AUTO-CHECKPOINT-GUARD-20260825","event":"checkpoint_prepared","at":"2026-08-25T11:42:45.102Z","actor":"codex-program-general","details":{"tests":["passed","passed","passed","passed"]}}
+{"task_id":"AUTO-CHECKPOINT-GUARD-20260825","event":"checkpoint_committed","at":"2026-08-25T11:42:46.581Z","actor":"codex-program-general","details":{"checkpoint_commit":"fb9458dd2c5b558e85142160d49b33e4ab2239ed"}}
