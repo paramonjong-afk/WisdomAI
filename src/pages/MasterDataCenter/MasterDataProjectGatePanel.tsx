@@ -45,7 +45,7 @@ export function MasterDataProjectGatePanel({ candidate, source, projects, saving
         <Chip size="small" color={gate === 'linked_existing_project' || gate === 'awaiting_new_project' || gate === 'confirmed' ? 'success' : 'warning'} label={projectGateStatusLabel[gate]} />
       </Stack>
       <Typography variant="body2">ต้องผูก Project เดิม หรือบันทึก Project Candidate ที่ข้อมูลขั้นต่ำครบ ก่อนยืนยันรายการออกจากคิว</Typography>
-      {message && <Alert severity={message.severity}>{message.text}</Alert>}
+      {message && <Alert severity={message.severity} sx={message.severity === 'error' ? { position: 'fixed', top: { xs: 112, sm: 136 }, right: { xs: 12, sm: 28 }, width: { xs: 'calc(100% - 24px)', sm: 624 }, maxWidth: 'calc(100vw - 24px)', zIndex: 1400, boxShadow: 6 } : undefined}>{message.text}</Alert>}
       {reasonMissing && <Alert severity="info">ระบุเหตุผลอย่างน้อย 3 ตัวอักษรด้านล่างเพื่อเปิดใช้ปุ่มบันทึก/ตัดสินใจ</Alert>}
 
       <Paper variant="outlined" sx={{ p: 1 }}>

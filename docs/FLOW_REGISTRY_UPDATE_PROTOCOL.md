@@ -1045,6 +1045,8 @@
 - Notification Center v1.1 (24/8/2569): Production UAT now classifies `incident`, `repeat`, approval and review event types as actionable independently from delivery status, so a successfully delivered incident notification remains in the work queue. No migration or source mutation; rollback restores the v1.0 classifier.
 - Notification Center v1.2 (24/8/2569): unread and actionable counts are independent. Marking a notification read changes only user read state; the work remains actionable until its source Module closes it. No migration or source mutation; rollback restores the prior count projection.
 
+- Master Data account-last4 confirmation v1.7 (25/8/2569): `/master-data` normalizes full/formatted account evidence to a four-digit derived Master Account value inside `correct_master_data_candidate` and `review_master_data_candidate`. Invalid short values fail atomically with an inline Drawer reason; Raw/OCR/Source Reference remain unchanged. Migration `20260825211200_fix_master_data_account_last4_confirmation.sql`; rollback restores the previous RPC definitions without changing candidate versions, audit or source evidence.
+
 ## ล่าสุด: LINE Employee Document → Restricted HR Intake v3.9 — 25/8/2569
 
 - **เหตุผล:** รูปบัตร/เอกสารพนักงานจาก LINE เคยถูกจำแนกเป็นสรุปงานหรือ `other` ทำให้ HR ไม่เห็นรายการ แม้ Raw และไฟล์ต้นฉบับถูกเก็บแล้ว

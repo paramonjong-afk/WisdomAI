@@ -16,7 +16,7 @@ import { buildMasterReviewProjection, localReviewReceipt, validatePersistedCorre
 import { userError } from '../../utils/userError'
 import { MasterDataProjectGatePanel, type ProjectGateAction } from './MasterDataProjectGatePanel'
 import { MasterDataReviewActions, MasterDataReviewProgress } from './MasterDataReviewWorkflow'
-import { candidateAccount, groupDuplicateCandidates, isNameMismatch, mismatchStage, reviewFilterMatches, type MasterCandidate, type MasterReviewFilter, type MasterSourceEvidence } from './masterDataReview'
+import { candidateAccount, groupDuplicateCandidates, isNameMismatch, mismatchStage, normalizeAccountLast4, reviewFilterMatches, type MasterCandidate, type MasterReviewFilter, type MasterSourceEvidence } from './masterDataReview'
 
 type Candidate = MasterCandidate & { archive_after: string }
 type BankAccount = { id: string; owner_name: string; owner_type: string; bank_name: string | null; account_last4: string; verification_status: string; verified_at: string | null; created_at: string }
@@ -26,6 +26,14 @@ const accountStatus: Record<string, string> = { verified: 'ยืนยันแ
 const entityLabel: Record<string, string> = { employee: 'พนักงาน', vendor: 'ผู้ขาย', customer: 'ลูกค้า', project: 'โครงการ', work_package: 'งานย่อย', bank_account: 'บัญชีธนาคาร' }
 const dateTime = (value: string | null) => value ? new Date(value).toLocaleString('th-TH') : '-'
 const emptyEvidence = emptyMasterSourceEvidence
+const masterReviewError = (error: unknown) => {
+  const message = error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error ?? '')
+  const generic = userError(error)
+  if (message.includes('master_candidate_account_last4_invalid') || message.includes('master_bank_accounts_account_last4_check')) {
+    return 'ยืนยันไม่ได้: เลขบัญชีจากหลักฐานต้องมีอย่างน้อย 4 หลัก ระบบจะเก็บใน Master Data เฉพาะ 4 ตัวท้าย กรุณาตรวจช่องเลขท้ายบัญชีแล้วบันทึก Correction อีกครั้ง'
+  }
+  return generic
+}
 
 export function MasterDataCenterPage() {
   usePageTitle('ศูนย์ข้อมูลกลาง')
@@ -107,7 +115,7 @@ export function MasterDataCenterPage() {
     setSavingId(candidate.id); setDrawerMessage(null); setError('')
     try {
       const { data: reviewedData, error: rpcError } = await supabase.rpc('review_master_data_candidate', { target_candidate_id: candidate.id, target_event_key: crypto.randomUUID(), target_action: action, target_reason: reviewReason.trim() || null })
-      if (rpcError) { setDrawerMessage({ severity: 'error', text: userError(rpcError) }); return }
+      if (rpcError) { setDrawerMessage({ severity: 'error', text: masterReviewError(rpcError) }); return }
       const reviewed = reviewedData && typeof reviewedData === 'object' ? reviewedData as Candidate : null
       const refreshedRows = await load()
       const persisted = refreshedRows.find((row) => row.id === candidate.id) ?? null
@@ -143,6 +151,7 @@ export function MasterDataCenterPage() {
   }
   const correctCandidate = async () => {
     if (!selected || reviewReason.trim().length < 3) { setDrawerMessage({ severity: 'error', text: 'กรุณาระบุเหตุผลการแก้ไขอย่างน้อย 3 ตัวอักษรใน Drawer' }); return }
+    if (selected.entity_type === 'bank_account' && !normalizeAccountLast4(correction.account_last4)) { setDrawerMessage({ severity: 'error', text: 'กรุณาระบุเลขบัญชีอย่างน้อย 4 หลัก ระบบจะบันทึกเฉพาะ 4 ตัวท้ายใน Master Data' }); return }
     if (localTestData) {
       const now = new Date().toISOString()
       const eventKey = `local-correction-${selected.id}-${Date.parse(now)}`
@@ -154,7 +163,7 @@ export function MasterDataCenterPage() {
     try {
       const eventKey = crypto.randomUUID()
       const { data: correctedData, error: correctionError } = await supabase.rpc('correct_master_data_candidate', { target_candidate_id: selected.id, target_event_key: eventKey, target_correction: correction, target_reason: reviewReason.trim() })
-      if (correctionError) { setDrawerMessage({ severity: 'error', text: userError(correctionError) }); return }
+      if (correctionError) { setDrawerMessage({ severity: 'error', text: masterReviewError(correctionError) }); return }
       const corrected = correctedData && typeof correctedData === 'object' ? correctedData as Candidate : null
       const refreshedRows = await load()
       const persisted = refreshedRows.find((row) => row.id === selected.id) ?? null

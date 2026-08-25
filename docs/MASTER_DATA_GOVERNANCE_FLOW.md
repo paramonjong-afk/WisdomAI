@@ -20,7 +20,10 @@ flowchart LR
   CMD -->|DB commit + refetch matches| V[Append Version + Audit\nreturn Admin Reviewed]
   CMD -->|RPC error / null result / stale refetch| ER[Keep Drawer open\nshow persisted-state error]
   V --> E
-  E -->|Confirm| G[Confirmed Data]
+  E -->|Confirm bank account| N4[Normalize derived account value\nto final 4 digits]
+  N4 -->|valid 4 digits| G[Confirmed Data]
+  N4 -->|missing / fewer than 4 digits| ER
+  E -->|Confirm non-bank data| G
   E -->|Reject / request info| F[Hold with reason + audit]
   G --> R[Reports: Vendor / Employee-Technician\nCustomer / Company-Internal]
   G --> H[Employee / vendor / customer / project / bank-account reference]
@@ -66,6 +69,7 @@ Create one company-scoped master-data path for people, vendors, customers, proje
 - Master account state: `verified`, `unverified`, `inactive`, `archived`.
 - Only a company Admin/Manager may approve, reject, archive, restore or edit a candidate/master account. Direct browser table writes are not allowed.
 - Account numbers are stored only as a protected value in the central account registry; standard screens expose bank name, account owner and last four digits. Full account values must not be rendered in ordinary tables.
+- Bank-account approval normalizes the derived candidate value before writing `master_bank_accounts.account_last4`: a full or formatted value such as `0856872573` becomes `2573`. Raw message, image, OCR and Source Reference remain unchanged. Fewer than four digits are rejected before any candidate/account/audit state changes, and the Drawer shows the blocking reason without closing.
 - Exact normalized matches may create a pending candidate automatically. They do not replace a verified account or enable payment automatically.
 - On approval, an account fact is linked to an employee/profile only when exactly one active person has the same normalized name. Unknown or ambiguous names remain a verified-but-unlinked account for Admin resolution; no person is guessed.
 - Duplicate candidates are preserved as audit evidence and marked rejected/linked instead of being deleted.
@@ -88,6 +92,7 @@ Create one company-scoped master-data path for people, vendors, customers, proje
 
 | Version | Date | Rationale / impact | Migration | Verification | Rollback |
 |---|---|---|---|---|---|
+| v1.7 | 25/8/2569 | Fix Production confirmation rollback caused by writing a full OCR account number into the four-digit Master Account field; keep the failure visible inside the Drawer | `20260825211200_fix_master_data_account_last4_confirmation.sql`; normalize only the derived Master projection in correction/approval/match RPCs | Regression contract for full/formatted/short values, local RPC migration checks, typecheck/lint/build, rollback-only Production persistence probe and authenticated `/master-data` smoke | Restore the v1.6 correction/review RPC bodies and remove the UI-specific error mapping; do not alter Raw/OCR, existing versions or audit |
 | v1.0 | 22/8/2569 | Establish central candidate, verified account, audit and retention foundations without replacing existing employee/vendor/project data | `20260821211435_master_data_governance.sql` | Schema/RLS/RPC, UI, lint/build/test and protected production route | Disable the Master Data UI/RPCs; source records, existing master records and audits remain |
 | v1.1 | 22/8/2569 | Link an approved bank candidate to the active employee/technician master only for one exact normalized name match; ambiguous accounts remain safely unlinked | `20260821212940_master_bank_account_person_link.sql` | Function/backfill and RLS/schema verification | Restore previous review function; no source evidence or person record is deleted |
 | v1.2 | 24/8/2569 | Correct misleading Message IDs and resolve the complete source chain consistently in both table and Drawer | No migration; read-only gateway over existing source records | Source resolver regression including missing-source case, typecheck/lint/build, `/master-data` Admin smoke | Revert the source gateway/UI mapping; raw source, candidates and audit are unchanged |
