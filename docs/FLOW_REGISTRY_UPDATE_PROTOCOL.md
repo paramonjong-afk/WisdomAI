@@ -1,5 +1,14 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Employee LINE Account Link v2.8 — 26/8/2569
+
+- **เหตุผล:** Drawer แสดง LINE ที่ผูกแล้วได้ แต่ Admin ยังเลือก Candidate และยืนยันการผูกให้พนักงานไม่ได้
+- **ผลกระทบ:** `/employees` เพิ่ม Dialog ผูก/เปลี่ยน/ยกเลิก LINE; sync Employee LINE, Attendance Identity, LINE Sender และ Workforce Audit ใน transaction เดียว
+- **Data/Permission:** Manager/Admin บริษัทปัจจุบันเท่านั้น; Candidate ผิดบริษัทหรือผูกคนอื่นถูกปฏิเสธ; เปลี่ยนบัญชีเดิมต้องยืนยันและมีเหตุผล
+- **Migration:** `20260826180000_employee_admin_line_account_link.sql`; ไม่ลบ Sender/ข้อความ/ประวัติเดิม
+- **Verification:** contract, migration dry-run/apply, duplicate/idempotency/permission, typecheck, lint, build และ authenticated Production Drawer/Audit
+- **Rollback:** revert UI/revoke RPC; unlink รายบุคคลพร้อมเหตุผลเพื่อปิด identity โดยคง Audit และ Raw LINE
+
 ## ล่าสุด: Evidence Split Review Standard + Master Data v2.2 — 26/8/2569
 
 - **เหตุผล:** Drawer ที่เปิดหลักฐานด้วย Browser Tab ใหม่ทำให้ผู้ใช้หลุดจากงานเดิมและเสี่ยงเสีย form/Tab/scroll state รวมทั้งผล Signed URL เก่าอาจกลับมาหลังเลือก Candidate ใหม่

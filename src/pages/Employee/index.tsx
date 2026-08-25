@@ -61,6 +61,7 @@ type EmployeePersonDocument = {
 }
 type EmployeeDocumentAccess = EmployeePersonDocument & { storage_bucket: string; storage_path: string }
 type EmployeeLineAccount = { id: string; profile_id: string; line_user_id: string; verified_at: string; active: boolean; line_senders: { display_name: string | null } | null }
+type EmployeeLineCandidate = { line_user_id: string; display_name: string | null; picture_url: string | null; profile_id: string | null; updated_at: string }
 type EmployeeBankAccount = { id: string; profile_id: string | null; employee_person_id: string | null; bank_name: string | null; account_last4: string; verification_status: string; verified_at: string | null }
 type EmployeeContact = { employee_person_id: string; phone: string | null }
 type EmployeeSiteOption = { id: string; name: string; work_policy_id: string | null; projects: { name: string } | null }
@@ -349,6 +350,12 @@ export function EmployeePage() {
   const [intakeEmployeePeople, setIntakeEmployeePeople] = useState<EmployeeIntakeMaster[]>([])
   const [employeeDocumentsByProfile, setEmployeeDocumentsByProfile] = useState<Record<string, EmployeePersonDocument[]>>({})
   const [employeeLineAccountsByProfile, setEmployeeLineAccountsByProfile] = useState<Record<string, EmployeeLineAccount[]>>({})
+  const [employeeLineCandidates, setEmployeeLineCandidates] = useState<EmployeeLineCandidate[]>([])
+  const [lineLinkEmployee, setLineLinkEmployee] = useState<Employee | null>(null)
+  const [lineLinkCandidateId, setLineLinkCandidateId] = useState('')
+  const [lineLinkReason, setLineLinkReason] = useState('ยืนยันโดย Admin จากประวัติชื่อและการสนทนา LINE')
+  const [lineLinkReplace, setLineLinkReplace] = useState(false)
+  const [lineLinkSaving, setLineLinkSaving] = useState(false)
   const [employeeBankAccountsByProfile, setEmployeeBankAccountsByProfile] = useState<Record<string, EmployeeBankAccount[]>>({})
   const [employeeContactsByProfile, setEmployeeContactsByProfile] = useState<Record<string, EmployeeContact>>({})
   const [employeeDrawerTab, setEmployeeDrawerTab] = useState(0)
@@ -556,7 +563,10 @@ export function EmployeePage() {
     const bankAccountsQuery = !currentCompany?.company_id
       ? Promise.resolve({ data: [], error: null })
       : supabase.from('master_bank_accounts').select('id,profile_id,employee_person_id,bank_name,account_last4,verification_status,verified_at').eq('company_id', currentCompany.company_id).neq('verification_status', 'archived').order('updated_at', { ascending: false })
-    const [profileResult,employmentResult,assignmentResult,readinessResult,membershipResult,intakePeopleResult,intakePersonDocumentsResult,employeeIntakesResult,employeePersonProfilesResult,siteResult,lineAccountsResult,bankAccountsResult]=await Promise.all([
+    const lineCandidatesQuery = !currentCompany?.company_id || !canManage
+      ? Promise.resolve({ data: [], error: null })
+      : supabase.from('line_senders').select('line_user_id,display_name,picture_url,profile_id,updated_at').eq('company_id', currentCompany.company_id).order('updated_at', { ascending: false }).limit(500)
+    const [profileResult,employmentResult,assignmentResult,readinessResult,membershipResult,intakePeopleResult,intakePersonDocumentsResult,employeeIntakesResult,employeePersonProfilesResult,siteResult,lineAccountsResult,bankAccountsResult,lineCandidatesResult]=await Promise.all([
       query,
       supabase.from('employee_employment_records').select('profile_id,employee_code,employment_type,job_title,department,employment_status,attendance_policy,work_policy_id').eq('company_id',currentCompany?.company_id ?? ''),
       supabase.from('employee_site_assignments').select('id,profile_id,site_id,starts_on,ends_on,is_primary,project_sites(name,projects(name))').eq('company_id',currentCompany?.company_id ?? '').eq('active',true),
@@ -569,8 +579,9 @@ export function EmployeePage() {
       supabase.from('project_sites').select('id,name,work_policy_id,projects(name)').eq('company_id',currentCompany?.company_id ?? '').eq('active',true).order('name'),
       lineAccountsQuery,
       bankAccountsQuery,
+      lineCandidatesQuery,
     ])
-    if (profileResult.error||employmentResult.error||assignmentResult.error||readinessResult.error||membershipResult.error||intakePeopleResult.error||intakePersonDocumentsResult.error||employeeIntakesResult.error||employeePersonProfilesResult.error||siteResult.error||lineAccountsResult.error||bankAccountsResult.error) {
+    if (profileResult.error||employmentResult.error||assignmentResult.error||readinessResult.error||membershipResult.error||intakePeopleResult.error||intakePersonDocumentsResult.error||employeeIntakesResult.error||employeePersonProfilesResult.error||siteResult.error||lineAccountsResult.error||bankAccountsResult.error||lineCandidatesResult.error) {
       setErrorMessage(profileResult.error
         ? userError(profileResult.error)
         : employmentResult.error
@@ -595,6 +606,8 @@ export function EmployeePage() {
                   ? userError(lineAccountsResult.error)
                 : bankAccountsResult.error
                   ? userError(bankAccountsResult.error)
+                : lineCandidatesResult.error
+                  ? userError(lineCandidatesResult.error)
               : 'โหลดข้อมูลพนักงานไม่สำเร็จ')
     } else {
       const employmentMap=new Map((employmentResult.data??[]).map(row=>[row.profile_id,row]))
@@ -648,6 +661,7 @@ export function EmployeePage() {
         lineByProfile.set(account.profile_id, current)
       }
       setEmployeeLineAccountsByProfile(Object.fromEntries(lineByProfile))
+      setEmployeeLineCandidates((lineCandidatesResult.data ?? []) as EmployeeLineCandidate[])
       const profileByPersonId = new Map((employeePersonProfilesResult.data ?? []).map((person) => [person.id, person.profile_id]))
       const bankByProfile = new Map<string, EmployeeBankAccount[]>()
       for (const account of (bankAccountsResult.data ?? []) as EmployeeBankAccount[]) {
@@ -668,6 +682,70 @@ export function EmployeePage() {
     }
     setLoading(false)
   }, [canManage, currentCompany, user])
+
+  const openLineLink = (employee: Employee) => {
+    const existing = employeeLineAccountsByProfile[employee.id]?.find((account) => account.active)
+    setLineLinkEmployee(employee)
+    setLineLinkCandidateId(existing?.line_user_id ?? '')
+    setLineLinkReason('ยืนยันโดย Admin จากประวัติชื่อและการสนทนา LINE')
+    setLineLinkReplace(Boolean(existing))
+  }
+
+  const saveLineLink = async () => {
+    if (!lineLinkEmployee || !lineLinkCandidateId || lineLinkReason.trim().length < 3) return
+    const existing = employeeLineAccountsByProfile[lineLinkEmployee.id]?.find((account) => account.active)
+    const candidate = employeeLineCandidates.find((item) => item.line_user_id === lineLinkCandidateId)
+    if (!candidate) {
+      setErrorMessage('ไม่พบ LINE Candidate ที่เลือก กรุณารีเฟรชข้อมูลแล้วลองใหม่')
+      return
+    }
+    if (candidate.profile_id && candidate.profile_id !== lineLinkEmployee.id) {
+      setErrorMessage('LINE Candidate นี้มี Profile เจ้าของอยู่แล้ว กรุณาตรวจสอบพนักงานคนนั้นก่อนเปลี่ยนการผูก')
+      return
+    }
+    setLineLinkSaving(true)
+    setErrorMessage('')
+    try {
+      const { data, error } = await supabase.rpc('admin_link_employee_line_account', {
+        target_profile_id: lineLinkEmployee.id,
+        target_line_user_id: lineLinkCandidateId,
+        replace_existing: Boolean(existing && existing.line_user_id !== lineLinkCandidateId && lineLinkReplace),
+        link_reason: lineLinkReason.trim(),
+      })
+      if (error) throw error
+      await loadEmployees()
+      setLineLinkEmployee(null)
+      setMessage(data?.status === 'already_linked'
+        ? 'บัญชี LINE นี้ผูกกับพนักงานอยู่แล้ว ไม่มีการสร้างข้อมูลซ้ำ'
+        : `ผูก LINE ${candidate.display_name || lineLinkCandidateId.slice(-8)} กับ ${lineLinkEmployee.full_name || lineLinkEmployee.email} สำเร็จ และบันทึก Audit แล้ว`)
+    } catch (error) {
+      const friendly = toFriendlyError({ error, module: 'employee_line_link', fallback: 'ผูกบัญชี LINE ไม่สำเร็จ' })
+      setErrorMessage(`${userError(friendly)}\nแนวทางแก้: ${friendly.action}`)
+    } finally {
+      setLineLinkSaving(false)
+    }
+  }
+
+  const unlinkLineAccount = async (employee: Employee) => {
+    const reason = window.prompt('ระบุเหตุผลที่ยกเลิกการผูก LINE (อย่างน้อย 3 ตัวอักษร)')?.trim() ?? ''
+    if (reason.length < 3) return
+    setLineLinkSaving(true)
+    setErrorMessage('')
+    try {
+      const { error } = await supabase.rpc('admin_unlink_employee_line_account', {
+        target_profile_id: employee.id,
+        unlink_reason: reason,
+      })
+      if (error) throw error
+      await loadEmployees()
+      setMessage(`ยกเลิกการผูก LINE ของ ${employee.full_name || employee.email} แล้ว และเก็บประวัติ Audit ไว้`)
+    } catch (error) {
+      const friendly = toFriendlyError({ error, module: 'employee_line_unlink', fallback: 'ยกเลิกการผูก LINE ไม่สำเร็จ' })
+      setErrorMessage(`${userError(friendly)}\nแนวทางแก้: ${friendly.action}`)
+    } finally {
+      setLineLinkSaving(false)
+    }
+  }
 
   const assignSiteFromDrawer = async () => {
     if (!employeeDrawer || !drawerSiteId) return
@@ -2488,7 +2566,11 @@ export function EmployeePage() {
                 <Box>
                   <Typography variant="subtitle2">บัญชี LINE</Typography>
                   {lineAccounts.length === 0 ? <Alert severity="warning" sx={{ mt: 1 }}>ยังไม่พบบัญชี LINE ที่ยืนยันกับพนักงานรายนี้</Alert> : <Stack spacing={0.75} sx={{ mt: 1 }}>{lineAccounts.map((account) => <Paper key={account.id} variant="outlined" sx={{ p: 1 }}><Typography sx={{ fontWeight: 700 }}>{account.line_senders?.display_name || 'ไม่พบชื่อแสดงผล LINE'}</Typography><Typography variant="caption" color="text.secondary">{account.active ? 'ใช้งานอยู่' : 'ปิดใช้งาน'} · ยืนยัน {new Date(account.verified_at).toLocaleString('th-TH')}</Typography></Paper>)}</Stack>}
-                  <Button size="small" sx={{ mt: 1 }} component="a" href="/line-monitor">ตรวจ LINE / Candidate</Button>
+                  {canManage && <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1 }}>
+                    <Button variant="contained" onClick={() => openLineLink(employeeDrawer)}>{lineAccounts.some((account) => account.active) ? 'เปลี่ยนบัญชี LINE' : 'ผูกบัญชี LINE'}</Button>
+                    {lineAccounts.some((account) => account.active) && <Button color="warning" variant="outlined" disabled={lineLinkSaving} onClick={() => void unlinkLineAccount(employeeDrawer)}>ยกเลิกการผูก</Button>}
+                  </Stack>}
+                  <Button size="small" sx={{ mt: 1 }} component="a" href="/line-monitor">ตรวจประวัติ LINE / Candidate ทั้งหมด</Button>
                 </Box>
                 <Divider />
                 <Box>
@@ -2510,6 +2592,49 @@ export function EmployeePage() {
           })()}
         </Box>
       </Drawer>
+
+      <Dialog open={Boolean(lineLinkEmployee)} onClose={() => !lineLinkSaving && setLineLinkEmployee(null)} fullWidth maxWidth="sm">
+        <DialogTitle>ผูกบัญชี LINE · {lineLinkEmployee?.full_name || lineLinkEmployee?.email}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Alert severity="info">เลือกจาก LINE ที่ระบบเคยรับข้อความในบริษัทนี้ ระบบจะไม่เดาจากชื่อและจะบันทึกผู้ยืนยันพร้อม Audit</Alert>
+            <TextField
+              select fullWidth label="LINE Candidate" value={lineLinkCandidateId}
+              onChange={(event) => setLineLinkCandidateId(event.target.value)}
+              helperText={`พบ ${employeeLineCandidates.length} บัญชีในบริษัท · บัญชีที่ผูกกับคนอื่นเลือกไม่ได้`}
+            >
+              {employeeLineCandidates.map((candidate) => {
+                const linkedToOther = Boolean(candidate.profile_id && candidate.profile_id !== lineLinkEmployee?.id)
+                return <MenuItem key={candidate.line_user_id} value={candidate.line_user_id} disabled={linkedToOther}>
+                  {candidate.display_name || 'ไม่พบชื่อแสดงผล'} · ID …{candidate.line_user_id.slice(-8)}{linkedToOther ? ' · ผูกกับพนักงานอื่นแล้ว' : candidate.profile_id === lineLinkEmployee?.id ? ' · บัญชีปัจจุบัน' : ''}
+                </MenuItem>
+              })}
+            </TextField>
+            {lineLinkEmployee && employeeLineAccountsByProfile[lineLinkEmployee.id]?.some((account) => account.active && account.line_user_id !== lineLinkCandidateId) && (
+              <TextField select fullWidth label="ยืนยันการเปลี่ยนบัญชีเดิม" value={lineLinkReplace ? 'yes' : 'no'} onChange={(event) => setLineLinkReplace(event.target.value === 'yes')}>
+                <MenuItem value="no">ยังไม่เปลี่ยน</MenuItem>
+                <MenuItem value="yes">ยืนยันเปลี่ยนเป็น LINE ที่เลือก</MenuItem>
+              </TextField>
+            )}
+            <TextField multiline minRows={2} fullWidth label="เหตุผล / หลักฐานที่ใช้ยืนยัน" value={lineLinkReason} onChange={(event) => setLineLinkReason(event.target.value)} helperText="เช่น ตรวจจากชื่อเล่น เบอร์โทร และประวัติสนทนาแล้ว" />
+            {lineLinkCandidateId && <Paper variant="outlined" sx={{ p: 1.5 }}>
+              <Typography variant="body2"><strong>พนักงาน:</strong> {lineLinkEmployee?.full_name || lineLinkEmployee?.email}</Typography>
+              <Typography variant="body2"><strong>LINE:</strong> {employeeLineCandidates.find((item) => item.line_user_id === lineLinkCandidateId)?.display_name || 'ไม่พบชื่อแสดงผล'}</Typography>
+              <Typography variant="caption" color="text.secondary">ระบบตรวจ LINE ซ้ำ, บริษัท, Attendance Identity และบัญชีเดิมอีกครั้งในฐานข้อมูลก่อนบันทึก</Typography>
+            </Paper>}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button disabled={lineLinkSaving} onClick={() => setLineLinkEmployee(null)}>ยกเลิก</Button>
+          <Button
+            variant="contained"
+            disabled={lineLinkSaving || !lineLinkCandidateId || lineLinkReason.trim().length < 3 || Boolean(lineLinkEmployee && employeeLineAccountsByProfile[lineLinkEmployee.id]?.some((account) => account.active && account.line_user_id !== lineLinkCandidateId) && !lineLinkReplace)}
+            onClick={() => void saveLineLink()}
+          >
+            {lineLinkSaving ? <CircularProgress size={20} color="inherit" /> : 'ตรวจและยืนยันการผูก LINE'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={Boolean(employeeDocumentPreview)}

@@ -53,6 +53,40 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- | --- |
 | v2.6 | 26/8/2569 | ให้เอกสารใน Drawer เปิดตรวจได้จริงโดยไม่เผย bucket/path หรือทำ Storage เป็น public | `/employees`, Workforce Audit, private Storage signed URL และ Intake recovery | `20260826000100_employee_document_secure_preview.sql` | contract, migration dry-run/apply, RLS/RPC check, typecheck, lint, build และ authenticated Drawer preview/Audit smoke | revert UI/RPC และ revoke function; เอกสาร/Raw/link เดิมไม่เปลี่ยน และ Audit ที่เกิดแล้วคงไว้ |
 
+## Employee LINE Account Link v2.8 — 26/8/2569
+
+```mermaid
+flowchart TD
+  A[Admin เปิด Drawer > บัญชี/ติดต่อ] --> B[โหลด LINE Sender ของบริษัท]
+  B --> C[เลือก Candidate + ระบุหลักฐาน]
+  C --> D{มี LINE เดิมหรือไม่}
+  D -->|ไม่มี| E[ตรวจ Company/Employee/Duplicate]
+  D -->|มี| F{Admin ยืนยันเปลี่ยนหรือไม่}
+  F -->|ไม่| G[คงข้อมูลเดิมและแจ้งให้ยืนยัน]
+  F -->|ใช่| E
+  E -->|ไม่ผ่าน| H[แจ้งสาเหตุและคง Dialog]
+  E -->|ผ่าน| I[ผูก Employee LINE Account]
+  I --> J[Sync Attendance Identity]
+  J --> K[Sync LINE Sender Profile]
+  K --> L[บันทึก Workforce Audit]
+  L --> M[Refetch Drawer และแสดงบัญชีที่ยืนยัน]
+  M --> N[Webhook/ลงเวลาใช้ Identity เดียวกัน]
+```
+
+- **Input:** พนักงานในบริษัทปัจจุบัน, LINE Sender/Candidate ที่ระบบเคยรับจริง, เหตุผล/หลักฐาน และคำยืนยันเปลี่ยนบัญชีเดิม
+- **Output/State:** `employee_line_accounts`, `attendance_channel_identities` และ `line_senders.profile_id` ตรงกัน; กดซ้ำบัญชีเดิมคืน `already_linked` โดยไม่สร้าง Audit ซ้ำ
+- **Role/Permission:** Company Manager/Admin เท่านั้น; RPC ตรวจ Login, current company, active member, Candidate company และการผูกกับคนอื่นซ้ำภายใน transaction
+- **Integration:** Employee Drawer → LINE Sender → Employee LINE Master → Attendance Identity → LINE Webhook → Workforce Audit
+- **Failure/Retry:** Candidate หาย/ผิดบริษัท/ผูกคนอื่น/มีบัญชีเดิมแต่ไม่ยืนยันเปลี่ยน จะไม่แก้ข้อมูล; retry บัญชีเดิมเป็น idempotent; ยกเลิกต้องมีเหตุผลและเก็บ Audit
+- **Audit/Recovery:** เก็บ old/new LINE ID, display name, actor, reason และ source; ยกเลิกปิดทั้ง Employee/Attendance identity แต่ไม่ลบ Sender หรือประวัติ
+- **Owner:** HR/Admin เป็นผู้ยืนยันตัวบุคคล; LINE Intake เป็นเจ้าของ Sender; Workforce เป็นเจ้าของ link/audit; Attendance ใช้ identity ที่ผ่านการยืนยันแล้ว
+
+### Change record
+
+| Version | Date | Rationale | Impact | Migration | Verification | Rollback |
+| --- | --- | --- | --- | --- | --- | --- |
+| v2.8 | 26/8/2569 | Drawer เห็นข้อมูล LINE แต่ยังผูก Candidate ให้พนักงานไม่ได้ | `/employees`, Employee LINE Master, Attendance Identity, LINE Sender และ Workforce Audit | `20260826180000_employee_admin_line_account_link.sql` | migration dry-run/apply, duplicate/idempotency/permission contracts, tests, typecheck, lint, build และ authenticated Production smoke | revert UI และ revoke RPC; ใช้ `admin_unlink_employee_line_account` พร้อมเหตุผลเพื่อคืนสถานะรายบุคคล โดยไม่ลบ Sender/Audit |
+
 ## Employee Drawer Information Hub v2.7 — 26/8/2569
 
 ```mermaid
