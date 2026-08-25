@@ -1,5 +1,14 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Employee Drawer Information Hub v2.7 — 26/8/2569
+
+- **เหตุผล:** Drawer เดิมเรียงทุก Section ต่อกันและไม่ดึง LINE/บัญชีธนาคาร ทำให้ยาวและแยกข้อมูลพร้อม/ขาดได้ยาก
+- **ผลกระทบ:** `/employees` แบ่ง 4 Tabs: ภาพรวม, การจ้างงาน, บัญชี/ติดต่อ, เอกสาร; แสดงจำนวนข้อมูลขาดและ Next Action; อ่าน LINE/Bank ที่ผูกกับ Employee จริงในบริษัทปัจจุบัน
+- **Data/Permission:** read-only projection ภายใต้ RLS เดิม; ข้อมูล Candidate/คลุมเครือไม่ auto-link และต้องไปยืนยันใน Line Monitor/Master Data/Intake
+- **Migration:** ไม่มี schema migration
+- **Verification:** Employee contract, Employee Intake, Storage tenant, LINE tenant, typecheck, lint, build และ authenticated Production Drawer ทุก Tab
+- **Rollback:** revert Tabs/query mapping; Master, Candidate, Raw, Document และ Audit ไม่เปลี่ยน
+
 ## ล่าสุด: Master Data Two-Tab + Work Scope v2.1 — 26/8/2569
 
 - **เหตุผล:** ขั้นตอนเดิมทำให้ผู้ใช้สับสนและบันทึก Correction ซ้ำทั้งที่ข้อมูลตรงกัน; Source Reference รวม UUID/Audit ไว้บรรทัดเดียวอ่านยาก และ Project เดิมยังไม่ระบุเนื้องาน

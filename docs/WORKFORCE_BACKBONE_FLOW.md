@@ -53,6 +53,41 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- | --- |
 | v2.6 | 26/8/2569 | ให้เอกสารใน Drawer เปิดตรวจได้จริงโดยไม่เผย bucket/path หรือทำ Storage เป็น public | `/employees`, Workforce Audit, private Storage signed URL และ Intake recovery | `20260826000100_employee_document_secure_preview.sql` | contract, migration dry-run/apply, RLS/RPC check, typecheck, lint, build และ authenticated Drawer preview/Audit smoke | revert UI/RPC และ revoke function; เอกสาร/Raw/link เดิมไม่เปลี่ยน และ Audit ที่เกิดแล้วคงไว้ |
 
+## Employee Drawer Information Hub v2.7 — 26/8/2569
+
+```mermaid
+flowchart TD
+  A[Admin เปิด Drawer พนักงาน] --> B[โหลด Profile/Employment/Site/Document]
+  B --> C[โหลด LINE ที่ยืนยันแล้วในบริษัท]
+  B --> D[โหลดบัญชีธนาคาร Master ที่ผูก Profile/Employee Person]
+  B --> E[สรุปข้อมูลขาด]
+  E --> F[Tab ภาพรวม + ขั้นตอนถัดไป]
+  E --> G[Tab การจ้างงาน + Site]
+  E --> H[Tab บัญชี/ติดต่อ]
+  E --> I[Tab เอกสาร]
+  H -->|ไม่พบ LINE| J[Line Monitor / Candidate Review]
+  H -->|ไม่พบบัญชี| K[Master Data Candidate Review]
+  J --> L[Admin/พนักงานยืนยันก่อนผูก Master]
+  K --> L
+  I -->|เอกสารขาด| M[HR Intake ค้นหา/แนบย้อนหลัง]
+  L --> N[Refetch Drawer และลดจำนวนข้อมูลขาด]
+  M --> N
+```
+
+- **Input:** Profile, Employment, active Site Assignment, Employee Person/Document, company-scoped LINE Account และ verified Bank Master
+- **Output/State:** Drawer 4 แท็บพร้อมจำนวนข้อมูลขาดและ Next Action; เป็น projection อ่านข้อมูลจริง ไม่มีการ auto-link หรือแก้ Master จากการเปิดหน้า
+- **Role/Permission:** ใช้ RLS เดิมของบริษัท; Manager เห็นข้อมูลบริษัทปัจจุบันเท่านั้น; LINE และบัญชีธนาคารที่ยังไม่ยืนยันไม่ถูกแสดงเป็นข้อเท็จจริงของพนักงาน
+- **Integration:** Employee → LINE Monitor/Account Link, Master Data Center, HR Intake, Workforce Setup และ Reports
+- **Failure/Retry:** query ใดล้มเหลวให้แจ้งโหลดข้อมูลพนักงานไม่สำเร็จและไม่แสดงว่า “ครบ”; Candidate คลุมเครือคงรอตรวจ ห้ามเดาจากชื่อ; refetch หลังยืนยันเพื่อแสดงสถานะจริง
+- **Audit/Idempotency:** Drawer เป็น read-only projection; การผูก LINE/Bank/Document ใช้ Flow ปลายทางและ Audit/idempotency ของแต่ละระบบ
+- **Owner:** HR/Admin จัดการข้อมูลขาด; LINE Monitor, Master Data และ Intake เป็นเจ้าของการยืนยันข้อมูลต้นทาง; Workforce เป็นเจ้าของสรุปความพร้อม
+
+### Change record
+
+| Version | Date | Rationale | Impact | Migration | Verification | Rollback |
+| --- | --- | --- | --- | --- | --- | --- |
+| v2.7 | 26/8/2569 | Drawer ยาวและไม่เห็น LINE/บัญชีธนาคาร ทำให้ Admin ไม่รู้ว่าข้อมูลใดพร้อมหรือยังขาด | `/employees` แบ่ง 4 Tabs, อ่าน LINE/Bank company-scoped, สรุป missing และลิงก์ไป Flow เจ้าของข้อมูล | ไม่มี schema migration | contract, tenant tests, typecheck, lint, build และ authenticated Production smoke ครบ 4 Tabs | revert UI/query; LINE/Bank/Document/Employment Master และ Audit ไม่เปลี่ยน |
+
 ## Employee Preboarding Visible List v2.4 — 25/8/2569
 
 ```mermaid
