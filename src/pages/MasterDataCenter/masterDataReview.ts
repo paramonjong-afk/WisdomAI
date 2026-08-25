@@ -42,23 +42,39 @@ export type MasterSourceEvidence = {
   aiConfidence: number | null
   modelVersion: string | null
   auditId: string | null
+  auditCount: number
+  attachmentContentType: string | null
+  transferSenderName: string | null
+  transferSenderBank: string | null
+  transferSenderAccountLast4: string | null
+  transferRecipientName: string | null
+  transferRecipientBank: string | null
+  transferRecipientAccountLast4: string | null
+  transferAmount: number | null
+  transferAt: string | null
+  bankReference: string | null
+  paymentPartyConfidence: number | null
   sourceResolved: boolean
   missingReasons: string[]
 }
 
 export type MasterSourceLookup = {
-  transaction?: { id: string; source_message_id: string | null } | null
+  transaction?: { id: string; source_message_id: string | null; sender_name: string | null; sender_bank_name: string | null; sender_account_last4: string | null; recipient_name: string | null; recipient_bank_name: string | null; recipient_account_last4: string | null; amount_total: number | null; transfer_at: string | null; bank_reference: string | null; payment_party_confidence: number | null } | null
   flow?: { id: string; intake_id: string | null; source_message_id: string | null; source_channel: string | null; source_room_name: string | null; source_sender_name: string | null; source_received_at: string | null } | null
   message?: { id: string; line_group_id: string | null; file_name: string | null; occurred_at: string | null } | null
   attachment?: { id: string; message_id: string; storage_bucket: string; storage_path: string; content_type: string | null } | null
   event?: { id: string } | null
   audit?: { id: number } | null
+  auditCount?: number
 }
 
 export const emptyMasterSourceEvidence = (): MasterSourceEvidence => ({
   documentId: null, intakeId: null, messageId: null, transactionId: null, sourceRoom: null, sourceChannel: null, sourceSender: null,
   attachmentId: null, fileName: null, bucket: null, path: null, receivedAt: null, ocrRawText: null,
-  extractedName: null, extractedAccount: null, aiConfidence: null, modelVersion: null, auditId: null,
+  extractedName: null, extractedAccount: null, aiConfidence: null, modelVersion: null, auditId: null, auditCount: 0,
+  attachmentContentType: null, transferSenderName: null, transferSenderBank: null, transferSenderAccountLast4: null,
+  transferRecipientName: null, transferRecipientBank: null, transferRecipientAccountLast4: null, transferAmount: null,
+  transferAt: null, bankReference: null, paymentPartyConfidence: null,
   sourceResolved: false, missingReasons: [],
 })
 
@@ -72,7 +88,13 @@ export function candidateEvidenceFallback(candidate: MasterCandidate): MasterSou
     fileName: string('file_name'), bucket: string('storage_bucket'), path: string('storage_path'), receivedAt: string('received_at') ?? candidate.created_at,
     ocrRawText: string('ocr_raw_text'), extractedName: string('ocr_name') ?? string('recipient_name') ?? candidate.display_name,
     extractedAccount: string('ocr_account_last4') ?? string('account_last4'), aiConfidence: typeof data.ai_confidence === 'number' ? data.ai_confidence : candidate.confidence,
-    modelVersion: string('model_version'), auditId: string('audit_id'), sourceResolved: Boolean(string('message_id') || string('document_id') || string('intake_id')), missingReasons: [],
+    modelVersion: string('model_version'), auditId: string('audit_id'), auditCount: Number(data.audit_count ?? 0) || 0,
+    attachmentContentType: string('attachment_content_type'), transferSenderName: string('sender_name'), transferSenderBank: string('sender_bank_name'),
+    transferSenderAccountLast4: normalizeAccountLast4(data.sender_account_last4), transferRecipientName: string('recipient_name'),
+    transferRecipientBank: string('recipient_bank_name') ?? string('bank_name'), transferRecipientAccountLast4: normalizeAccountLast4(data.recipient_account_last4) ?? normalizeAccountLast4(data.account_last4),
+    transferAmount: typeof data.amount_total === 'number' ? data.amount_total : null, transferAt: string('transfer_at'), bankReference: string('bank_reference'),
+    paymentPartyConfidence: typeof data.payment_party_confidence === 'number' ? data.payment_party_confidence : null,
+    sourceResolved: Boolean(string('message_id') || string('document_id') || string('intake_id')), missingReasons: [],
   }
 }
 
@@ -94,7 +116,17 @@ export function resolveCandidateSourceEvidence(candidate: MasterCandidate, looku
     attachmentId: lookup.attachment?.id ?? base.attachmentId, fileName: lookup.message?.file_name ?? base.fileName,
     bucket: lookup.attachment?.storage_bucket ?? base.bucket, path: lookup.attachment?.storage_path ?? base.path,
     receivedAt: lookup.flow?.source_received_at ?? lookup.message?.occurred_at ?? base.receivedAt,
-    auditId: lookup.audit ? String(lookup.audit.id) : lookup.event?.id ?? base.auditId,
+    auditId: lookup.audit ? String(lookup.audit.id) : lookup.event?.id ?? base.auditId, auditCount: lookup.auditCount ?? base.auditCount,
+    attachmentContentType: lookup.attachment?.content_type ?? base.attachmentContentType,
+    transferSenderName: lookup.transaction?.sender_name ?? base.transferSenderName,
+    transferSenderBank: lookup.transaction?.sender_bank_name ?? base.transferSenderBank,
+    transferSenderAccountLast4: normalizeAccountLast4(lookup.transaction?.sender_account_last4) ?? base.transferSenderAccountLast4,
+    transferRecipientName: lookup.transaction?.recipient_name ?? base.transferRecipientName,
+    transferRecipientBank: lookup.transaction?.recipient_bank_name ?? base.transferRecipientBank,
+    transferRecipientAccountLast4: normalizeAccountLast4(lookup.transaction?.recipient_account_last4) ?? base.transferRecipientAccountLast4,
+    transferAmount: lookup.transaction?.amount_total ?? base.transferAmount, transferAt: lookup.transaction?.transfer_at ?? base.transferAt,
+    bankReference: lookup.transaction?.bank_reference ?? base.bankReference,
+    paymentPartyConfidence: lookup.transaction?.payment_party_confidence ?? base.paymentPartyConfidence,
     sourceResolved: Boolean(messageId && (lookup.flow || lookup.message)), missingReasons,
   }
 }
@@ -161,4 +193,14 @@ export function mismatchStage(candidate: MasterCandidate, evidence: MasterSource
   if (!evidence?.extractedName) return 'ยังไม่มี OCR/source เพียงพอ'
   if (normalize(evidence.extractedName) !== normalize(candidate.display_name)) return 'OCR / mapping'
   return 'ไม่พบชื่อผิดจาก source ที่โหลดได้'
+}
+
+export function masterDataRequiresCorrection(candidate: MasterCandidate, evidence: MasterSourceEvidence | null, classificationConflicts: string[] = [], classificationType = candidate.classification_type ?? '') {
+  const data = candidate.candidate_data ?? {}
+  const masterName = typeof data.master_name === 'string' ? data.master_name : ''
+  const masterAccount = normalizeAccountLast4(data.master_account_last4)
+  const proposedAccount = candidateAccount(candidate) ?? normalizeAccountLast4(evidence?.extractedAccount)
+  const nameConflict = Boolean(masterName && normalize(masterName) !== normalize(candidate.display_name)) || isNameMismatch(candidate, evidence)
+  const accountConflict = Boolean(masterAccount && proposedAccount && masterAccount !== proposedAccount)
+  return classificationType === 'unknown_review' || classificationConflicts.length > 0 || nameConflict || accountConflict
 }

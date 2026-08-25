@@ -22,6 +22,16 @@ export type MasterProjectOption = {
   property_type?: string | null
 }
 
+export type MasterWorkPackageOption = {
+  id: string
+  project_id: string
+  parent_id: string | null
+  code: string | null
+  name: string
+  description: string | null
+  status: string
+}
+
 export type MasterProjectCandidateDraft = {
   project_name: string
   customer_owner_name: string
@@ -143,7 +153,7 @@ export function applyLocalProjectGate(
   const beforeData = { ...candidate.candidate_data }
   const nextData = { ...candidate.candidate_data }
   if (action === 'link_existing_project') {
-    Object.assign(nextData, { project_gate_status: 'linked_existing_project', project_id: payload.project_id, project_name: payload.project_name, project_match_evidence: payload.match_evidence, project_gate_updated_at: now, project_gate_updated_by: actorId })
+    Object.assign(nextData, { project_gate_status: 'linked_existing_project', project_id: payload.project_id, project_name: payload.project_name, project_match_evidence: payload.match_evidence, work_package_id: payload.work_package_id, work_package_name: payload.work_package_name, work_package_code: payload.work_package_code, project_gate_updated_at: now, project_gate_updated_by: actorId })
   } else if (action === 'save_project_candidate') {
     Object.assign(nextData, { ...payload, project_gate_status: 'awaiting_new_project', project_candidate_id: payload.project_candidate_id ?? `local-project-candidate-${candidate.id}`, project_candidate_status: 'awaiting_open_project', project_gate_updated_at: now, project_gate_updated_by: actorId })
   } else if (action === 'request_information') {

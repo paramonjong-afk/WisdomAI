@@ -77,15 +77,15 @@ assert.deepEqual(masterAutoRoute('vendor', 0.98, []), {
 assert.equal(masterAutoRoute('vendor', 0.98, ['account_conflict']).destination, 'Master Data Review')
 assert.equal(masterAutoRoute('employee_technician', 0.7, []).requiresReview, true)
 
-assert.deepEqual(masterReviewStepLabels, ['ความสัมพันธ์', 'ตรวจและแก้ข้อมูล', 'ยืนยันและส่งต่อ'])
+assert.deepEqual(masterReviewStepLabels, ['ตรวจและเติมข้อมูล', 'สรุปและยืนยัน'])
 
 const page = readFileSync('src/pages/MasterDataCenter/index.tsx', 'utf8')
 const panel = readFileSync('src/pages/MasterDataCenter/MasterDataProjectGatePanel.tsx', 'utf8')
 const migration = readFileSync('supabase/migrations/20260825220000_master_data_auto_input_three_step.sql', 'utf8')
-for (const token of ['correct_master_data_candidate_v2', 'save_master_data_project_gate_v2', 'validatePersistedCorrection', 'validatePersistedProjectGate', 'await load()']) assert.match(page, new RegExp(token))
+for (const token of ['correct_master_data_candidate_v2', 'save_master_data_project_gate_v3', 'validatePersistedCorrection', 'validatePersistedProjectGate', 'await load()']) assert.match(page, new RegExp(token))
 for (const token of ['เพิ่ม Project Candidate', 'วันเริ่มโครงการ', 'Auto Input', 'ข้อมูลขัดแย้ง', 'Admin บันทึกแล้ว', 'ไม่เขียนทับค่าที่ Admin บันทึก', 'รหัสเหตุการณ์', 'Raw/OCR ไม่ถูกเขียนทับ']) assert.match(panel, new RegExp(token))
 for (const token of ['detected_start_date', 'confirmed_start_date', 'start_date_source', 'auto_fill_evidence', 'candidate_auto_input_recorded', 'candidate_project_auto_input_recorded', 'master_candidate_event_key_conflict', "notify pgrst,'reload schema'"]) assert.match(migration, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 assert.doesNotMatch(migration, /delete\s+from\s+public\.(master_data_candidates|financial_transactions|line_messages|document_flow_items)/i)
 assert.doesNotMatch(migration, /update\s+public\.(financial_transactions|line_messages|document_flow_items)/i)
 
-console.log('master data Auto Input passed: persisted Admin classification precedence, separate AI suggestion, 3-step flow, provenance/confidence, conflict gate, route and Raw/OCR preservation')
+console.log('master data Auto Input passed: persisted Admin classification precedence, separate AI suggestion, 2-tab flow, provenance/confidence, conflict gate, route and Raw/OCR preservation')

@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase'
 import { candidateEvidenceFallback, emptyMasterSourceEvidence, resolveCandidateSourceEvidence } from '../pages/MasterDataCenter/masterDataReview'
 import type { MasterCandidate } from '../pages/MasterDataCenter/masterDataReview'
 
-type FinancialSource = { id: string; source_message_id: string | null }
+type FinancialSource = { id: string; source_message_id: string | null; sender_name: string | null; sender_bank_name: string | null; sender_account_last4: string | null; recipient_name: string | null; recipient_bank_name: string | null; recipient_account_last4: string | null; amount_total: number | null; transfer_at: string | null; bank_reference: string | null; payment_party_confidence: number | null }
 type FlowSource = { id: string; intake_id: string | null; source_message_id: string | null; source_channel: string | null; source_room_name: string | null; source_sender_name: string | null; source_received_at: string | null }
 type MessageSource = { id: string; line_group_id: string | null; file_name: string | null; occurred_at: string | null }
 type AttachmentSource = { id: string; message_id: string; storage_bucket: string; storage_path: string; content_type: string | null }
@@ -25,7 +25,7 @@ export async function loadMasterSourceEvidence(candidates: MasterCandidate[]) {
   const directMessageIds = unique(candidates.filter((candidate) => candidate.source_table === 'line_messages').map((candidate) => candidate.source_id))
 
   const transactions = transactionIds.length
-    ? await batch<FinancialSource>(transactionIds, (ids) => supabase.from('financial_transactions').select('id,source_message_id').in('id', ids))
+    ? await batch<FinancialSource>(transactionIds, (ids) => supabase.from('financial_transactions').select('id,source_message_id,sender_name,sender_bank_name,sender_account_last4,recipient_name,recipient_bank_name,recipient_account_last4,amount_total,transfer_at,bank_reference,payment_party_confidence').in('id', ids))
     : { data: [] as FinancialSource[], error: null }
   if (transactions.error) return { data: fallback, error: transactions.error }
   const transactionById = new Map(transactions.data.map((row) => [row.id, row]))
@@ -55,6 +55,8 @@ export async function loadMasterSourceEvidence(candidates: MasterCandidate[]) {
   events.data.forEach((row) => { if (!eventByItem.has(row.item_id)) eventByItem.set(row.item_id, row) })
   const auditByCandidate = new Map<string, AuditSource>()
   audits.data.forEach((row) => { if (!auditByCandidate.has(row.candidate_id)) auditByCandidate.set(row.candidate_id, row) })
+  const auditCountByCandidate = new Map<string, number>()
+  audits.data.forEach((row) => auditCountByCandidate.set(row.candidate_id, (auditCountByCandidate.get(row.candidate_id) ?? 0) + 1))
 
   const resolved = Object.fromEntries(candidates.map((candidate) => {
     const transaction = candidate.source_table === 'financial_transactions' && candidate.source_id ? transactionById.get(candidate.source_id) : null
@@ -64,7 +66,7 @@ export async function loadMasterSourceEvidence(candidates: MasterCandidate[]) {
     const attachment = messageId ? attachmentByMessage.get(messageId) : null
     const event = flow ? eventByItem.get(flow.id) : null
     const audit = auditByCandidate.get(candidate.id)
-    return [candidate.id, resolveCandidateSourceEvidence(candidate, { transaction, flow, message, attachment, event, audit })]
+    return [candidate.id, resolveCandidateSourceEvidence(candidate, { transaction, flow, message, attachment, event, audit, auditCount: auditCountByCandidate.get(candidate.id) ?? 0 })]
   }))
   return { data: resolved, error: null }
 }

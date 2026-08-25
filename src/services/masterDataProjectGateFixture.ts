@@ -1,5 +1,5 @@
 import type { MasterCandidate, MasterSourceEvidence } from '../pages/MasterDataCenter/masterDataReview'
-import type { MasterProjectOption } from './masterDataProjectGate'
+import type { MasterProjectOption, MasterWorkPackageOption } from './masterDataProjectGate'
 
 export type ProjectGateFixtureCandidate = MasterCandidate & { archive_after: string }
 
@@ -7,6 +7,10 @@ export function createMasterDataProjectGateFixture() {
   const projects: MasterProjectOption[] = [
     { id: 'fixture-project-panthong', name: 'พานทอง', code: 'PT-01', status: 'active', project_name: 'บ้านพักอาศัย', province: 'ชลบุรี', location_detail: 'อำเภอพานทอง', property_type: 'บ้านพักอาศัย' },
     { id: 'fixture-project-nuanchan', name: 'นวลจันทร์ บ้านพักอาศัย', code: 'NC-01', status: 'active', project_name: 'บ้านพักอาศัย', province: 'กรุงเทพมหานคร', location_detail: 'นวลจันทร์', property_type: 'บ้านพักอาศัย' },
+  ]
+  const workPackages: MasterWorkPackageOption[] = [
+    { id: 'fixture-work-panthong-electrical', project_id: 'fixture-project-panthong', parent_id: null, code: 'PT-EL', name: 'งานระบบไฟฟ้า', description: 'เนื้องานทดสอบ', status: 'active' },
+    { id: 'fixture-work-nuanchan-structure', project_id: 'fixture-project-nuanchan', parent_id: null, code: 'NC-ST', name: 'งานโครงสร้าง', description: 'เนื้องานทดสอบ', status: 'active' },
   ]
   const candidates: ProjectGateFixtureCandidate[] = Array.from({ length: 53 }, (_, index) => {
     const number = String(index + 1).padStart(3, '0')
@@ -35,7 +39,9 @@ export function createMasterDataProjectGateFixture() {
   const evidence = Object.fromEntries(candidates.map((candidate, index): [string, MasterSourceEvidence] => [candidate.id, {
     documentId: `fixture-document-${String(index + 1).padStart(3, '0')}`, intakeId: `fixture-intake-${String(index + 1).padStart(3, '0')}`, messageId: `fixture-message-${String(index + 1).padStart(3, '0')}`, transactionId: candidate.source_id,
     sourceRoom: index === 0 ? 'โครงการ บ้านพักอาศัย พานทอง จ.ชลบุรี' : 'ห้องทดสอบ Master Data', sourceChannel: 'local_fixture', sourceSender: index === 0 ? 'หัวหน้าช่างพานทอง' : 'Admin Fixture', attachmentId: `fixture-attachment-${index + 1}`, fileName: `fixture-${index + 1}.jpg`, bucket: null, path: null,
-    receivedAt: candidate.created_at, ocrRawText: index === 0 ? 'ค่าใช้จ่ายโครงการพานทอง' : `หลักฐานทดสอบ ${index + 1}`, extractedName: candidate.display_name, extractedAccount: String(candidate.candidate_data.account_last4), aiConfidence: candidate.confidence, modelVersion: 'fixture-ocr-v1', auditId: `fixture-audit-${index + 1}`, sourceResolved: true, missingReasons: [],
+    receivedAt: candidate.created_at, ocrRawText: index === 0 ? 'ค่าใช้จ่ายโครงการพานทอง' : `หลักฐานทดสอบ ${index + 1}`, extractedName: candidate.display_name, extractedAccount: String(candidate.candidate_data.account_last4), aiConfidence: candidate.confidence, modelVersion: 'fixture-ocr-v1', auditId: String(index + 1), auditCount: 1,
+    attachmentContentType: 'image/jpeg', transferSenderName: `ผู้โอนทดสอบ ${index + 1}`, transferSenderBank: 'KBank', transferSenderAccountLast4: '1111', transferRecipientName: candidate.display_name, transferRecipientBank: 'ธนาคารทดสอบ', transferRecipientAccountLast4: String(candidate.candidate_data.account_last4), transferAmount: 100 + index, transferAt: candidate.created_at, bankReference: `FIXTURE-${index + 1}`, paymentPartyConfidence: 0.95,
+    sourceResolved: true, missingReasons: [],
   }]))
-  return { candidates, evidence, projects, dataset: 'master-data-project-first-v1', count: candidates.length }
+  return { candidates, evidence, projects, workPackages, dataset: 'master-data-project-first-v1', count: candidates.length }
 }
