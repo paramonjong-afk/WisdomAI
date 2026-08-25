@@ -20,6 +20,7 @@ import { parseFunctionError, toFriendlyError, type StandardErrorPayload } from '
 import { createAttemptStore, createSignature, generateAttemptId, globalMutationAttemptStore, summarizePreflight, toPreflightResult, type OperationAttemptRecord, type OperationIssue } from '../../utils/operation-center'
 import { summarizeCreateEmployeeIssues, validateCreateEmployeePayload } from '../../utils/create-employee-validation'
 import { invokeHrMutation } from '../../services/hrMutationGateway'
+import { documentFlowGateway } from '../../services/documentFlowGateway'
 
 type Employee = {
   id: string
@@ -47,8 +48,12 @@ type EmployeeIntakeMaster = {
   employment_type: string
   employee_status: string
   created_at: string
+  phone: string | null
+  position: string | null
+  start_date: string | null
   documents: Array<{ id: string; employee_person_id: string; document_type: string; link_status: string }>
 }
+type IntakeEmployeeDraft = { full_name: string; phone: string; employment_type: string; position: string; start_date: string }
 type WorkPolicyOption = { id: string; name: string; active: boolean }
 type CreateEmployeeError = StandardErrorPayload & { request_id?: string }
 type CreateEmployeeErrorCode =
@@ -330,6 +335,9 @@ export function EmployeePage() {
   const canCreate = canManage
   const [employees, setEmployees] = useState<Employee[]>([])
   const [intakeEmployeePeople, setIntakeEmployeePeople] = useState<EmployeeIntakeMaster[]>([])
+  const [intakeDraftPerson, setIntakeDraftPerson] = useState<EmployeeIntakeMaster | null>(null)
+  const [intakeDraft, setIntakeDraft] = useState<IntakeEmployeeDraft>({ full_name: '', phone: '', employment_type: 'unknown', position: '', start_date: '' })
+  const [intakeDraftSaving, setIntakeDraftSaving] = useState(false)
   const [names, setNames] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState('')
@@ -504,7 +512,7 @@ export function EmployeePage() {
 
     const intakePeopleQuery = !currentCompany?.company_id
       ? Promise.resolve({ data: [], error: null })
-      : supabase.from('employee_people').select('id,source_intake_id,employee_code,full_name,employment_type,employee_status,created_at').eq('company_id', currentCompany.company_id).order('created_at', { ascending: false }).limit(500)
+      : supabase.from('employee_people').select('id,source_intake_id,employee_code,full_name,phone,employment_type,position,start_date,employee_status,created_at').eq('company_id', currentCompany.company_id).eq('employee_status','preboarding').order('created_at', { ascending: false }).limit(500)
     const intakePersonDocumentsQuery = !currentCompany?.company_id
       ? Promise.resolve({ data: [], error: null })
       : supabase.from('employee_person_documents').select('id,employee_person_id,document_type,link_status').eq('company_id', currentCompany.company_id).order('created_at')
@@ -582,6 +590,36 @@ export function EmployeePage() {
       syncBusyRef.current = false
     }
   }, [refreshProfile, loadEmployees])
+
+  const openIntakeDraft = (person: EmployeeIntakeMaster) => {
+    setIntakeDraftPerson(person)
+    setIntakeDraft({ full_name: person.full_name ?? '', phone: person.phone ?? '', employment_type: person.employment_type ?? 'unknown', position: person.position ?? '', start_date: person.start_date ?? '' })
+    setErrorMessage('')
+  }
+
+  const saveIntakeDraft = async (approveAfterSave = false) => {
+    if (!intakeDraftPerson?.source_intake_id) { setErrorMessage('รายการนี้ไม่มี Intake อ้างอิง จึงยังอัปเดตผ่านกระบวนการกลางไม่ได้'); return }
+    if (!intakeDraft.full_name.trim()) { setErrorMessage('กรุณาระบุชื่อพนักงาน'); return }
+    setIntakeDraftSaving(true); setErrorMessage('')
+    try {
+      const result = await documentFlowGateway.reviewEmployeeIntake({ intakeId: intakeDraftPerson.source_intake_id, action: 'update_preboarding', draft: { ...intakeDraft, full_name: intakeDraft.full_name.trim(), phone: intakeDraft.phone.trim(), position: intakeDraft.position.trim() } })
+      if (result.error || result.data?.ok === false) { const parsed = await parseFunctionError(result.error ?? result.data); throw parsed.payload ?? result.error ?? new Error('บันทึกข้อมูลก่อนเริ่มงานไม่สำเร็จ') }
+      const remaining = Array.isArray(result.data?.remaining_fields) ? result.data.remaining_fields : []
+      const labels: Record<string,string> = { phone: 'เบอร์โทร', employment_type: 'ประเภทการจ้าง', position: 'ตำแหน่ง', start_date: 'วันที่เริ่มงาน' }
+      if (approveAfterSave) {
+        if (remaining.length > 0) throw new Error(`ข้อมูลยังไม่ครบ: ${remaining.map((field: string) => labels[field] ?? field).join(', ')}`)
+        const approval = await documentFlowGateway.reviewEmployeeIntake({ intakeId: intakeDraftPerson.source_intake_id, action: 'approve' })
+        if (approval.error || approval.data?.ok === false) { const parsed = await parseFunctionError(approval.error ?? approval.data); throw parsed.payload ?? approval.error ?? new Error('อนุมัติส่งเข้า Onboarding ไม่สำเร็จ') }
+        setMessage('บันทึกและยืนยันข้อมูลครบแล้ว · ส่งเข้าสู่ Onboarding สำเร็จ โดยยังไม่เปิด Login ลงเวลา หรือค่าแรง')
+      } else {
+        setMessage(remaining.length === 0 ? 'บันทึกแล้ว · ข้อมูลครบ พร้อมให้ Admin ยืนยันขั้นสุดท้าย' : `บันทึกร่างแล้ว · ยังขาด ${remaining.map((field: string) => labels[field] ?? field).join(', ')}`)
+      }
+      setIntakeDraftPerson(null); await loadEmployees()
+    } catch (error) {
+      const friendly = toFriendlyError({ error, module: 'employee_preboarding', fallback: 'บันทึกข้อมูลก่อนเริ่มงานไม่สำเร็จ' })
+      setErrorMessage(`${friendly.message} · แนวทาง: ${friendly.action}`)
+    } finally { setIntakeDraftSaving(false) }
+  }
 
   const navigate = useNavigate()
   const copyText = async (text: string, fallbackMessage: string) => {
@@ -1748,13 +1786,14 @@ export function EmployeePage() {
                 <Typography variant="body2" color="text.secondary">รายการที่อนุมัติแล้วออกจาก Intake และอยู่ที่นี่เพื่อให้ HR ตั้งค่าก่อนเริ่มงาน โดยเอกสารต้นทางเชื่อมกับทะเบียนพนักงานแล้ว</Typography>
               </Box>
               <TableContainer>
-                <Table size="small"><TableHead><TableRow><TableCell>พนักงาน</TableCell><TableCell>สถานะ</TableCell><TableCell>เอกสารแนบ</TableCell></TableRow></TableHead><TableBody>
+                <Table size="small"><TableHead><TableRow><TableCell>พนักงาน</TableCell><TableCell>สถานะ</TableCell><TableCell>เอกสารแนบ</TableCell><TableCell align="right">จัดการ</TableCell></TableRow></TableHead><TableBody>
                   {intakeEmployeePeople.map((person) => <TableRow key={person.id}>
                     <TableCell><Typography sx={{ fontWeight: 700 }}>{person.full_name}</Typography><Typography variant="caption" color="text.secondary">{person.employee_code} · {employmentLabels[person.employment_type] ?? person.employment_type}</Typography></TableCell>
                     <TableCell><Chip size="small" color={person.employee_status === 'active' ? 'success' : 'warning'} label={person.employee_status === 'preboarding' ? 'รอตั้งค่าก่อนเริ่มงาน' : person.employee_status} /></TableCell>
                     <TableCell><Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
                       {person.documents.length === 0 ? <Typography variant="caption" color="text.secondary">ยังไม่มีเอกสารแนบ</Typography> : person.documents.map((document) => <Chip key={document.id} size="small" color={document.link_status === 'available' ? 'success' : 'default'} label={intakeDocumentLabels[document.document_type] ?? document.document_type} />)}
                     </Stack></TableCell>
+                    <TableCell align="right"><Button size="small" variant="outlined" onClick={() => openIntakeDraft(person)}>เพิ่ม / อัปเดตข้อมูล</Button></TableCell>
                   </TableRow>)}
                 </TableBody></Table>
               </TableContainer>
@@ -2477,6 +2516,22 @@ export function EmployeePage() {
           <Button disabled={accountSaving} onClick={() => setAccountEmployee(null)}>ยกเลิก</Button>
           <Button variant="contained" disabled={accountSaving || !accountEmail.trim() || accountPassword.length < 10 || accountPassword !== accountPasswordConfirm} onClick={() => void saveEmployeeAccount()}>{accountSaving ? <CircularProgress size={20} color="inherit" /> : 'บันทึกบัญชี'}</Button>
         </DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(intakeDraftPerson)} onClose={() => !intakeDraftSaving && setIntakeDraftPerson(null)} fullWidth maxWidth="sm">
+        <DialogTitle>เพิ่ม / อัปเดตข้อมูลก่อนเริ่มงาน</DialogTitle>
+        <DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
+          <Alert severity="info">รายการนี้เป็นประวัติเบื้องต้น ยังไม่เปิด Login ลงเวลา หรือคิดค่าแรง จนกว่า Admin จะยืนยันขั้นสุดท้าย</Alert>
+          <TextField required label="ชื่อพนักงาน" value={intakeDraft.full_name} onChange={(e) => setIntakeDraft((v) => ({ ...v, full_name: e.target.value }))} />
+          <TextField required label="เบอร์โทร" value={intakeDraft.phone} onChange={(e) => setIntakeDraft((v) => ({ ...v, phone: e.target.value }))} />
+          <TextField required select label="ประเภทการจ้าง" value={intakeDraft.employment_type} onChange={(e) => setIntakeDraft((v) => ({ ...v, employment_type: e.target.value }))}>
+            <MenuItem value="unknown" disabled>ยังไม่ระบุ</MenuItem><MenuItem value="daily">รายวัน</MenuItem><MenuItem value="monthly">รายเดือน</MenuItem><MenuItem value="temporary">ชั่วคราว</MenuItem><MenuItem value="contractor">ผู้รับเหมา</MenuItem>
+          </TextField>
+          <TextField required label="ตำแหน่ง" value={intakeDraft.position} onChange={(e) => setIntakeDraft((v) => ({ ...v, position: e.target.value }))} />
+          <TextField required type="date" label="วันที่เริ่มงาน" value={intakeDraft.start_date} onChange={(e) => setIntakeDraft((v) => ({ ...v, start_date: e.target.value }))} slotProps={{ inputLabel: { shrink: true } }} />
+          <Typography variant="caption" color="text.secondary">เอกสารที่เชื่อมแล้ว: {intakeDraftPerson?.documents.length ?? 0} รายการ · Intake และ Audit เดิมจะถูกเก็บครบ</Typography>
+        </Stack></DialogContent>
+        <DialogActions sx={{ flexWrap: 'wrap' }}><Button disabled={intakeDraftSaving} onClick={() => setIntakeDraftPerson(null)}>ยกเลิก</Button><Button variant="outlined" disabled={intakeDraftSaving || !intakeDraft.full_name.trim()} onClick={() => void saveIntakeDraft()}>{intakeDraftSaving ? <CircularProgress size={20} color="inherit" /> : 'บันทึกร่าง'}</Button><Button variant="contained" disabled={intakeDraftSaving || !intakeDraft.full_name.trim() || !intakeDraft.phone.trim() || intakeDraft.employment_type === 'unknown' || !intakeDraft.position.trim() || !intakeDraft.start_date} onClick={() => { if (window.confirm('ยืนยันว่าข้อมูลครบและส่งเข้าสู่ Onboarding ขั้นถัดไปใช่ไหม')) void saveIntakeDraft(true) }}>บันทึกและยืนยันข้อมูลครบ</Button></DialogActions>
       </Dialog>
 
       <Dialog

@@ -29,7 +29,7 @@ flowchart LR
   K --> M[คิวแผนกปลายทาง]
 ```
 
-## Employee Intake สองขั้น — v1.4 (25/8/2569)
+## Employee Intake สองขั้น — v1.5 (25/8/2569)
 
 ```mermaid
 flowchart TD
@@ -43,7 +43,10 @@ flowchart TD
   F --> I[Audit: ผู้ทำ / Intake / จำนวนเอกสาร / ช่องที่ขาด]
   G --> J{ข้อมูลบังคับครบหรือยัง?}
   H --> J
-  J -->|ยังขาด| K[information_required\nส่งรายการที่ขาดกลับ HR]
+  J -->|ยังขาด| K[คิว HR Onboarding\nเพิ่ม/อัปเดตข้อมูล]
+  K --> K2[ตรวจชื่อ โทร ประเภทจ้าง\nตำแหน่ง วันที่เริ่มงาน]
+  K2 --> K3[บันทึกร่างผ่าน Edge + RPC\nคำนวณ missing_fields + Audit]
+  K3 --> J
   J -->|ครบ| L[pending_review\nรออนุมัติสุดท้าย]
   L --> M[Admin/Company Manager ยืนยัน]
   M --> N[approved → Onboarding Readiness]
@@ -60,11 +63,14 @@ flowchart TD
 - การกดซ้ำใช้ `source_intake_id` และ unique document link เป็น idempotency key; ไม่สร้างพนักงานหรือเอกสารซ้ำ และทุกการสร้าง/เชื่อมเขียน Workforce Audit
 - Failure แสดงสาเหตุเฉพาะ: ไม่มีชื่อ, ไม่มีเอกสาร, สถานะปิดแล้ว, ข้อมูลยังไม่ครบ หรือสิทธิ์ไม่พอ; ผู้ใช้แก้ข้อมูลแล้ว retry รายการเดิมได้
 - Owner: HR/Admin เป็นเจ้าของการเติมข้อมูลและอนุมัติ; Platform Admin เป็นเจ้าของ schema/RPC และ recovery
+- หน้า `/employees` เป็นจุดทำงานของ HR: ปุ่ม `เพิ่ม / อัปเดตข้อมูล` เปิดร่างเดิมจาก Employee Master, ตรวจค่าก่อนส่ง, บันทึกผ่าน Edge Function/RPC กลาง และอ่านผล `remaining_fields` กลับมาแสดง ห้ามเขียนตารางตรงจากหน้าเว็บ
+- Retry ใช้ `source_intake_id` เดิม จึงอัปเดตพนักงานเดิมและเขียน Audit ใหม่โดยไม่สร้าง Employee/เอกสารซ้ำ; ถ้าล้มเหลว transaction จะ rollback ทั้ง Employee, Intake state และ Audit
 
 ### Change record
 
 | Version | Date | Rationale | Impact | Migration | Verification | Rollback |
 | --- | --- | --- | --- | --- | --- | --- |
+| v1.5 | 25/8/2569 | ให้ HR เติมข้อมูลที่ขาดจากคิว Onboarding ได้จริงโดยไม่ย้อนกลับไปแก้ฐานข้อมูล | เพิ่มฟอร์มร่าง, validation, readiness projection และ audit; ยังคงไม่มี Profile/Login/ลงเวลา/ค่าแรง | `20260825212911_employee_intake_preboarding_update.sql` | contract, typecheck, lint, build, migration dry-run/apply, Edge และ authenticated `/employees` smoke | ซ่อนปุ่ม/ฟอร์มและคืน Edge/RPC; ข้อมูลร่างล่าสุดและ Audit คงไว้เพื่อ recovery |
 | v1.4 | 25/8/2569 | ให้เริ่มทะเบียนพนักงานจากเอกสารที่ยืนยันได้โดยไม่เดาข้อมูลที่ขาด | เพิ่มปุ่มสร้างประวัติเบื้องต้น, preview ทุกไฟล์, final approval gate และ audit; ไม่เปิดสิทธิ์ใช้งาน | `20260825203000_employee_intake_preboarding_draft.sql` | contract, intake routing, typecheck, lint, build, linked dry-run/apply และ authenticated UI/Data smoke | revert UI/Edge/RPC; เปลี่ยนประวัติเบื้องต้นเป็น archived ได้โดยเก็บ Intake/เอกสาร/Audit เพื่อ recovery ห้ามลบ Raw |
 
 ## หลักข้อมูล

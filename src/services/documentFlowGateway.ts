@@ -477,10 +477,11 @@ export const documentFlowGateway = {
 
   async reviewEmployeeIntake(input: {
     intakeId: string
-    action: 'create_preboarding' | 'approve' | 'request_more' | 'cancel' | 'revert_approval'
+    action: 'create_preboarding' | 'update_preboarding' | 'approve' | 'request_more' | 'cancel' | 'revert_approval'
+    draft?: { full_name: string; phone: string; employment_type: string; position: string; start_date: string }
   }) {
     return supabase.functions.invoke('review-employee-intake', {
-      body: { action: input.action, intake_id: input.intakeId },
+      body: { action: input.action, intake_id: input.intakeId, draft: input.draft },
     })
   },
 }

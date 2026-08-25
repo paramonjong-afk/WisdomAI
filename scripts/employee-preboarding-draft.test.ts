@@ -2,10 +2,12 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 const migration = readFileSync('supabase/migrations/20260825203000_employee_intake_preboarding_draft.sql', 'utf8')
+const updateMigration = readFileSync('supabase/migrations/20260825212911_employee_intake_preboarding_update.sql', 'utf8')
 const telegram = readFileSync('supabase/functions/telegram-admin/index.ts', 'utf8')
 const reviewer = readFileSync('supabase/functions/review-employee-intake/index.ts', 'utf8')
 const gateway = readFileSync('src/services/documentFlowGateway.ts', 'utf8')
 const intakeRoom = readFileSync('src/pages/IntakeRoom.tsx', 'utf8')
+const employeePage = readFileSync('src/pages/Employee/index.tsx', 'utf8')
 
 assert.match(migration, /create_employee_preboarding_from_intake/)
 assert.match(migration, /employment_type in \('unknown','daily','monthly','temporary','contractor'\)/)
@@ -29,5 +31,14 @@ assert.doesNotMatch(gateway, /employeeIntakePreview[\s\S]{0,300}limit\(1\)/)
 assert.match(intakeRoom, /result\.data\.map\(async \(file, index\)/)
 assert.match(intakeRoom, /actionMenuRow\.source === 'employee_intake' \|\| actionMenuRow\.review_case_id/)
 assert.match(intakeRoom, /ยังไม่เปิด Login\/ลงเวลา\/ค่าแรง/)
+assert.match(updateMigration, /update_employee_preboarding_from_intake/)
+assert.match(updateMigration, /remaining_fields text\[\]/)
+assert.match(updateMigration, /employee_preboarding_updated/)
+assert.match(updateMigration, /revoke all on function public\.update_employee_preboarding_from_intake[\s\S]*to service_role/)
+assert.match(updateMigration, /cardinality\(next_missing\)=0 then 'pending_review'/)
+assert.match(reviewer, /action\?: 'create_preboarding' \| 'update_preboarding'/)
+assert.match(employeePage, /เพิ่ม \/ อัปเดตข้อมูล/)
+assert.match(employeePage, /action: 'update_preboarding'/)
+assert.match(employeePage, /บันทึกและยืนยันข้อมูลครบ/)
 
 console.log('employee preboarding draft checks passed')

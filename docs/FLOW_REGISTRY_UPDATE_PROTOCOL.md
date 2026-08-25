@@ -1058,6 +1058,14 @@
 - **Verification:** `test:line-hr-document-routing`, `test:employee-intake`, `test:line-webhook-intake`, typecheck, lint, build, migration dry-run และ authenticated HR Intake smoke
 - **Rollback:** ปิด route ใน Edge Function และ trigger `zz_route_hr_image_review_to_intake`; ห้ามลบ Raw, Intake, private document หรือ Audit ที่เกิดแล้ว
 
+## ล่าสุด: Employee Preboarding Draft Update v1.5 — 25/8/2569
+
+- **เหตุผล:** คิว HR Onboarding แสดงประวัติเบื้องต้นและเอกสารแล้ว แต่ไม่มี Action สำหรับเติมข้อมูลที่ขาด ทำให้ HR ไปต่อไม่ได้
+- **ผลกระทบ:** `/employees` เพิ่มปุ่ม/ฟอร์มแก้ร่าง; Edge Function และ RPC กลางตรวจสิทธิ์บริษัท รูปแบบข้อมูล สถานะ และคำนวณ `missing_fields` ก่อนเปลี่ยน `information_required` เป็น `pending_review`
+- **Migration:** `20260825212911_employee_intake_preboarding_update.sql`; service-role only และ transaction เดียวกับ Workforce Audit
+- **การตรวจสอบ:** contract, typecheck, lint, build, migration dry-run/apply, Edge smoke, จำนวน Employee/Document ไม่เพิ่มซ้ำ และ authenticated `/employees` UI
+- **Rollback:** ซ่อน Action และคืน Edge/RPC ก่อนหน้า; เก็บ Employee draft, Intake, Document link และ Audit เดิมทั้งหมด
+
 ## LINE HR recovery service authentication v4.0 — 25/8/2569
 
 - **เหตุผล:** Supabase Function ใช้ server secret รุ่นใหม่ แต่ CLI ใช้ legacy service-role JWT ทำให้ exact string comparison ปฏิเสธคำสั่ง recovery ที่มีสิทธิ์จริงด้วย `401`
