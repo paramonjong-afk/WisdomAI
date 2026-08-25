@@ -43,6 +43,10 @@ flowchart LR
 5. Audit, error, retry/recovery และ rollback ถูกกำหนดและตรวจได้
 6. รัน migration (ถ้ามี), test, lint, build และตรวจหน้าจอจริงแล้ว
 
+## Release completion gate
+
+งานที่ต้องขึ้น Production ต้องทำตาม `docs/RELEASE_INCIDENT_PLAYBOOK.md`: ใช้ GitHub `main` → GitHub verification → Cloudflare Git Integration เป็นเส้นทางหลัก ตรวจ `release.json` ให้ตรง commit และทำ authenticated runtime smoke ของหน้า/ปลายทาง/Intake/Audit ก่อนปิดงาน ห้ามถือว่า local Token `401`, push สำเร็จ หรือ CI ผ่านอย่างเดียวเป็นผล deploy สุดท้าย
+
 ## ขั้นตอนเมื่อพบจุดติดขัด
 
 ห้ามรอให้ผู้ใช้พบปัญหาเอง ให้รายงานทันทีในรูปแบบนี้:

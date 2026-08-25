@@ -599,3 +599,7 @@ do $$ declare row_value record; begin
 end $$;
 
 notify pgrst,'reload schema';
+
+;
+
+

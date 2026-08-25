@@ -1,13 +1,14 @@
 ```mermaid
 flowchart TD
-  A[Web Chat raw message / System summary] --> G0[HR Intake Raw Ledger\nstatus pending]
+  A[Web Chat raw message / System summary] --> G0[HR Intake Raw Ledger]
   G0 --> G1{Intake classification}
-  G1 -->|System / Daily summary| G2[Context only]
+  G1 -->|Null sender / System / Daily summary| G2[Context only]
   G1 -->|Duplicate| G3[Duplicate link]
   G1 -->|Already confirmed| G4[Link existing bundle]
   G1 -->|Not HR / Low confidence| G5[Review queue]
   G1 -->|Complete HR facts| G6[HR Confirmation Candidate]
   G6 --> B[Existing attendance approval job]
+  LB[Legacy approval job without bundle] --> B
   B --> C[Bundle key\ncompany + employee + Bangkok date + project]
   C --> D[Attach source item idempotently]
   D --> E[Central validation]
@@ -59,6 +60,8 @@ flowchart TD
 
 - `pending`: รับ Raw แล้ว ยังไม่ตีความเป็นงาน
 - `context`: System Confirmation และ Daily Summary เป็นบริบท ไม่สร้างงานใหม่
+- ข้อความที่ระบบสร้าง (`sender_profile_id` ว่าง แม้ legacy row จะยังเป็น `user_message`) เป็น context และไม่สร้าง Operational Task/Omni source ใหม่
+- ข้อความพัฒนา/UAT ที่มี keyword ชัดเจนและไม่มีคำ HR/ลงเวลา ถูกจัด `not_hr` อัตโนมัติพร้อมเหตุผล; ข้อความกำกวมยังคง `pending|low_confidence` เพื่อให้คนตรวจ
 - `duplicate`: source/content ซ้ำและมี `duplicate_of_id`
 - `already_confirmed`: ผูกกับ bundle/job ที่ยืนยันแล้ว ไม่สร้างซ้ำ
 - `not_hr`: ไม่เกี่ยว HR รอผู้รับผิดชอบตรวจ
@@ -133,6 +136,7 @@ Gate บันทึก `raw_message_id`, channel, room, source reference, conte
 - ถ้า child job ตัวใดล้มเหลว transaction ต้อง rollback ทั้ง action; bundle ไม่อ้างว่า recorded และ event เก็บ error/retry context
 - System Confirmation ใช้ unique bundle/message projection; trigger เดิมแบบหนึ่งข้อความต่อ job ถูกแทนด้วย bundle projection
 - Legacy open jobs ถูก reconcile ผ่าน function เดียวกันโดยไม่แก้ attendance ที่บันทึกแล้ว
+- Migration reconciliation เปลี่ยนเฉพาะ Raw `pending` ที่พิสูจน์ได้ว่าเป็นข้อความจากระบบเป็น `context` พร้อม audit และเติม Bundle link ให้ approval job เดิมที่ยังไม่มี link แบบ idempotent
 
 ## Audit events
 
@@ -147,6 +151,8 @@ Gate บันทึก `raw_message_id`, channel, room, source reference, conte
 
 | Version | Date | Rationale | Impact | Migration | Verification | Rollback |
 | --- | --- | --- | --- | --- | --- | --- |
-| v1.2 | 23/8/2569 | ทำ Bundle พร้อมใช้งานจริงด้วย Evidence, Task Card, Owner, Next Action, SLA, Escalation และ Daily Summary | เพิ่ม Evidence ledger/RLS, operational approval-close gate, assignment/escalation/summary RPC และ Task Card ในห้อง HR | `20260823120020_hr_confirmation_operational_readiness.sql` local-only; ห้าม Production จนผ่าน local runtime/browser UAT | fixture/contract/integration, RLS/idempotency, typecheck/lint/build และ browser Local; Cloudflare smoke ภายหลัง | ปิด operational triggers/RPC/UI, เก็บ Evidence/Audit เดิมเพื่อย้อนตรวจ และคืนการอ่าน Bundle v1.1 โดยไม่ลบ Raw/Attendance |
-| v1.1 | 23/8/2569 | ปรับ trigger ให้เรียก wrapper แบบปลอด recursion และเติม classification metadata ให้ local HR fixture/omni projection | Trigger sync, fixture classification reason/rule/model metadata และ confirmation retry guard คงที่ | `20260823060547_hr_confirmation_bundle.sql` local-only; ห้าม Production จนผ่าน local runtime/UAT และอนุมัติ | `test:hr-confirmation-bundle`, `scripts/document-flow-filter-consistency.test.ts`, `npm.cmd run lint`, `npm.cmd run build` | คืน trigger call เดิมและตัด metadata enrichment ออก; ledger/audit และ raw เดิมไม่ต้องลบ |
-| v1.0 | 23/8/2569 | เพิ่ม Intake Gate เก็บ Raw pending ก่อนคัด และรวม attendance/HR summary เป็นชุดต่อช่าง/วัน/โครงการ | Raw/gate audit + Bundle ledger, child mapping, approval RPC, System Confirmation projection และ HR queue | `20260823060547_hr_confirmation_bundle.sql` local-only; ห้าม Production จนผ่าน local runtime/UAT และอนุมัติ | Local fixture เห็น Raw จำนวนมากเหลือเฉพาะ candidate, normal/missing/duplicate/conflict/reject/idempotency/RLS, typecheck/lint/build, Cloudflare ภายหลัง | ปิด gate/bundle trigger/RPC/UI และคืน individual confirmation projection; เก็บ Raw/ledger/audit และ attendance เดิม ห้ามลบ |
+| v1.4 | 25/8/2569 | ปิด Raw pending ที่เป็นข้อความพัฒนา/UAT ชัดเจนโดยไม่กลบข้อความ HR ที่กำกวม | deterministic non-HR classification พร้อม confidence/reason/audit; ไม่ลบ Raw | `20260825073707_classify_obvious_non_hr_intake.sql` | HR contract, linked dry-run/apply, Gate count และ authenticated Cloudflare smoke | คืน classifier ก่อนหน้า; เก็บ not_hr audit ไว้และสามารถให้ผู้รับผิดชอบ reclassify ผ่าน RPC ได้ |
+| v1.3 | 25/8/2569 | แก้ Production ที่ System attendance notifications ถูกนับเป็น Raw pending และ approval job เก่าขาด Bundle | กรอง null-sender/system output เป็น context, หยุด Omni loop, reconcile Raw พร้อม audit และ backfill Bundle link โดยไม่แตะ attendance | `20260825065812_reconcile_hr_intake_system_outputs.sql` | HR/Operational contract tests, linked dry-run/apply, counts ก่อน-หลัง, typecheck/lint/build และ authenticated Cloudflare smoke | คืน trigger classifier เดิม; Raw ที่ reconcile คง audit/context ไว้เพื่อไม่สร้างงานซ้ำ และไม่ rollback attendance/bundle evidence |
+| v1.2 | 23/8/2569 | ทำ Bundle พร้อมใช้งานจริงด้วย Evidence, Task Card, Owner, Next Action, SLA, Escalation และ Daily Summary | เพิ่ม Evidence ledger/RLS, operational approval-close gate, assignment/escalation/summary RPC และ Task Card ในห้อง HR | Production migration `20260823122137_hr_confirmation_operational_readiness.sql` | fixture/contract/integration, RLS/idempotency, typecheck/lint/build และ linked migration dry-run | ปิด operational triggers/RPC/UI, เก็บ Evidence/Audit เดิมเพื่อย้อนตรวจ และคืนการอ่าน Bundle v1.1 โดยไม่ลบ Raw/Attendance |
+| v1.1 | 23/8/2569 | ปรับ trigger ให้เรียก wrapper แบบปลอด recursion และเติม classification metadata ให้ local HR fixture/omni projection | Trigger sync, fixture classification reason/rule/model metadata และ confirmation retry guard คงที่ | Production migration `20260823122113_hr_confirmation_bundle.sql` | `test:hr-confirmation-bundle`, `scripts/document-flow-filter-consistency.test.ts`, lint, typecheck, build และ linked migration dry-run | คืน trigger call เดิมและตัด metadata enrichment ออก; ledger/audit และ raw เดิมไม่ต้องลบ |
+| v1.0 | 23/8/2569 | เพิ่ม Intake Gate เก็บ Raw pending ก่อนคัด และรวม attendance/HR summary เป็นชุดต่อช่าง/วัน/โครงการ | Raw/gate audit + Bundle ledger, child mapping, approval RPC, System Confirmation projection และ HR queue | Production migration `20260823122113_hr_confirmation_bundle.sql` | Local fixture เห็น Raw จำนวนมากเหลือเฉพาะ candidate, normal/missing/duplicate/conflict/reject/idempotency/RLS, typecheck/lint/build และ linked migration dry-run | ปิด gate/bundle trigger/RPC/UI และคืน individual confirmation projection; เก็บ Raw/ledger/audit และ attendance เดิม ห้ามลบ |

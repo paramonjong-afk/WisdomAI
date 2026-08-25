@@ -254,3 +254,7 @@ do $$ declare bundle_value record; begin
 end $$;
 
 notify pgrst,'reload schema';
+
+;
+
+

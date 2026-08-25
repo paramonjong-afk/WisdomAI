@@ -1,4 +1,4 @@
-name: Deploy Cloudflare Pages
+name: Verify Cloudflare Pages Build
 
 on:
   push:
@@ -10,14 +10,14 @@ permissions:
   contents: read
 
 jobs:
-  build-and-deploy:
+  verify-build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -52,9 +52,5 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist --project-name ${{ secrets.CLOUDFLARE_PAGES_PROJECT }} --branch main
+      - name: Cloudflare deployment handoff
+        run: echo "Cloudflare Pages deploys this revision through the connected Git integration."

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 
 const migration = fs.readFileSync('supabase/migrations/20260823035207_program_development_room.sql', 'utf8')
-const actionsMigration = fs.readFileSync('supabase/migrations/20260823050000_program_development_actions.sql', 'utf8')
+const actionsMigration = fs.readFileSync('supabase/migrations/20260823043451_program_development_actions.sql', 'utf8')
 const flow = fs.readFileSync('docs/PROGRAM_DEVELOPMENT_ROOM_FLOW.md', 'utf8')
 const chatPage = fs.readFileSync('src/pages/Chat/index.tsx', 'utf8')
 
@@ -27,6 +27,7 @@ assert.match(flow, /never create a new task/)
 for (const action of ['Command Inbox', 'รับงาน', 'ส่งต่อ Codex', 'ส่งต่อ Module', 'เริ่มทำ', 'ขอข้อมูล', 'ปิดงาน', 'ดูผลลัพธ์']) {
   assert.match(chatPage, new RegExp(action))
 }
+assert.match(chatPage, /!isProgramDevelopmentRoom/, 'Program Development room must not render the shared Operational Core panel')
 
 type Room = { key: string; owner: string; members: Set<string> }
 const rooms = new Map<string, Room>()

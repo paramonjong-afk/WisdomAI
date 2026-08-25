@@ -25,14 +25,17 @@ const finance = message({
 const duplicate = message({ id: 'message-duplicate', text_content: 'รายการเดิมซ้ำ ADV-2026-009' })
 const failed = message({ id: 'message-failed', text_content: 'ส่งไม่สำเร็จ retry ไปห้อง HR ATT-2026-404' })
 const systemResult = message({ id: 'message-system', message_class: 'system_result', text_content: 'SYSTEM RESULT: ลงเวลาสำเร็จ ATT-2026-001' })
+const legacySystemAttendance = message({ id: 'message-legacy-system', sender_profile_id: null, message_class: 'user_message', text_content: 'ลงเวลาเข้า ช่างสมชาย สถานะ: normal รหัสรายการ: ATT-LEGACY-001' })
 const development = message({ id: 'message-dev', room_id: 'room-dev', text_content: 'Bug: แนบรูปไม่ได้' })
 
 assert.deepEqual(classifyOperationalMessage(systemResult), {
   messageClass: 'context', module: 'General', ids: { advanceId: null, documentId: null, attendanceId: 'ATT-2026-001' },
   status: 'completed', duplicate: false, failed: false, important: false,
 })
+assert.equal(classifyOperationalMessage(legacySystemAttendance).messageClass, 'context')
+assert.equal(classifyOperationalMessage(legacySystemAttendance).important, false)
 
-const cards = buildOperationalTaskCards([hr, finance, duplicate, failed, systemResult, development], 'program_development_primary', now)
+const cards = buildOperationalTaskCards([hr, finance, duplicate, failed, systemResult, legacySystemAttendance, development], 'hr_primary', now)
 assert.equal(cards.length, 5)
 assert.equal(cards[0]?.threadKey, 'thread:message-hr-1')
 assert.equal(cards[0]?.attendanceId, 'ATT-2026-001')
@@ -42,6 +45,10 @@ assert.equal(cards[1]?.documentId, 'DOC-2026-009')
 assert.equal(cards[1]?.evidence[0]?.kind, 'file')
 assert.equal(cards[4]?.module, 'Development')
 assert.notEqual(cards[0]?.threadKey, cards[1]?.threadKey)
+
+const developmentRoomCards = buildOperationalTaskCards([hr, finance, duplicate, failed, systemResult, legacySystemAttendance, development], 'program_development_primary', now)
+assert.equal(developmentRoomCards.length, 1, 'development room must not create business Operational Core cards')
+assert.equal(developmentRoomCards[0]?.sourceMessageId, development.id)
 
 const ownerCard = cards[0]!
 const unauthorized = applyOperationalAction(ownerCard, 'close', { id: 'other-user', role: 'employee' }, now)
@@ -67,5 +74,5 @@ const read = markOperationalTaskRead(cards[1]!, { id: 'finance-1', role: 'financ
 assert.equal(read.card.unread, false)
 
 const summary = dailyOperationalSummary(cards, new Date('2026-08-23T12:00:00.000Z'))
-assert.deepEqual(summary, { received: 2, forwarded: 0, pending: 3, closed: 0, duplicate: 1, failed: 1, unread: 5, slaBreached: 0 })
+assert.deepEqual(summary, { received: 2, forwarded: 0, pending: 3, closed: 0, duplicate: 1, failed: 1, unread: 5, slaBreached: 2 })
 console.log('web chat operational core local tests passed: classification, cards, threads, evidence, permissions, actions, idempotency, read state, summary')

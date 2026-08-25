@@ -40,3 +40,7 @@ end $$;
 revoke all on function public.dispatch_program_development_task(uuid,text) from public,anon;
 grant execute on function public.dispatch_program_development_task(uuid,text) to authenticated;
 notify pgrst,'reload schema';
+
+;
+
+

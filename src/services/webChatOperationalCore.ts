@@ -117,13 +117,17 @@ const extractIds = (text: string) => ({
 })
 
 const isSystemContext = (message: OperationalMessage, text: string) => {
+  // Database-generated notifications have no sender. Older rows may still carry
+  // the default user_message class, so sender identity is the durable guard.
+  if (!message.sender_profile_id) return true
   if (message.message_class === 'system_confirmation' || message.message_class === 'system_result') return true
   return /(^|\b)(system\s+(?:result|confirmation)|ผลลัพธ์ระบบ|ยืนยันจากระบบ)(\b|:)/i.test(text)
 }
 
-const isDevelopment = (text: string, roomKey?: string | null) => roomKey === 'program_development_primary'
-  || /\b(requirement|bug|ui|flow|database|api|test|build|deploy)\b/i.test(text)
-  || /(บั๊ก|แก้ไขหน้า|ฐานข้อมูล|ทดสอบ|สร้างระบบ|deploy|ดีพลอย)/i.test(text)
+const hasDevelopmentIntent = (text: string) => /\b(requirement|bug|ui|flow|database|api|test|build|deploy)\b/i.test(text)
+  || /(ความต้องการ|ข้อกำหนด|บั๊ก|แก้ไขหน้า|ฐานข้อมูล|ทดสอบ|สร้างระบบ|deploy|ดีพลอย)/i.test(text)
+
+const isDevelopment = (text: string, roomKey?: string | null) => roomKey === 'program_development_primary' || hasDevelopmentIntent(text)
 
 const isAttendance = (text: string) => /(ลงเวลา|เข้างาน|ออกงาน|attendance|clock[-_ ]?(?:in|out)|กะงาน)/i.test(text)
 const isAdvance = (text: string) => /(advance|เบิก|สำรองจ่าย|เงินสำรอง|ค่าใช้จ่าย)/i.test(text)
@@ -202,6 +206,11 @@ export function classifyOperationalMessage(message: OperationalMessage, roomKey?
 }
 
 export function buildOperationalTaskCard(message: OperationalMessage, roomKey?: string | null, now = new Date()): OperationalTaskCard | null {
+  const text = normalizeText(message.text_content)
+  // The private development room is a command inbox, not a business work queue.
+  // Non-development messages remain visible in Chat but must not create an
+  // Operational Core card (or a misleading pending count) there.
+  if (roomKey === 'program_development_primary' && !hasDevelopmentIntent(text)) return null
   const classified = classifyOperationalMessage(message, roomKey)
   if (!classified.important) return null
   const createdAt = new Date(message.created_at)

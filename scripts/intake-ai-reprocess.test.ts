@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { strict as assert } from 'node:assert'
 
-const migration = readFileSync('supabase/migrations/20260823050000_intake_ai_reprocess_audit.sql', 'utf8')
+const migration = readFileSync('supabase/migrations/20260823052638_intake_ai_reprocess_audit.sql', 'utf8')
 const fn = readFileSync('supabase/functions/reprocess-transfer-slips/index.ts', 'utf8')
 const flow = readFileSync('docs/INTAKE_CASE_FLOW.md', 'utf8')
 

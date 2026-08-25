@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 const page = readFileSync('src/pages/AccountingDocuments/index.tsx', 'utf8')
 const migration = readFileSync('supabase/migrations/20260823111848_transfer_slip_drawer_review.sql', 'utf8')
-const lineageMigration = readFileSync('supabase/migrations/20260823115443_transfer_slip_money_lineage_routing.sql', 'utf8')
+const lineageMigration = readFileSync('supabase/migrations/20260823122135_transfer_slip_money_lineage_routing.sql', 'utf8')
 const edge = readFileSync('supabase/functions/reprocess-transfer-slips/index.ts', 'utf8')
 assert.match(page, /1\. รูปต้นฉบับและ AI/)
 assert.match(page, /2\. ตรวจและแก้ข้อมูล/)

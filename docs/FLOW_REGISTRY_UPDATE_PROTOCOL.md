@@ -1,5 +1,45 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: HR Intake Obvious Non-HR Classification v1.4 — 25/8/2569
+
+- **เหตุผล:** หลัง reconcile system output เหลือ Raw pending หนึ่งรายการที่เป็น UAT/งานพัฒนาชัดเจน ไม่ควรค้างใน HR Gate
+- **ผลกระทบ:** ข้อความ keyword พัฒนา/UAT ที่ไม่มีคำ HR/ลงเวลาเข้าสถานะ `not_hr` พร้อม confidence, reason และ audit; ข้อความกำกวมไม่ถูกกลบ
+- **Migration:** `20260825073707_classify_obvious_non_hr_intake.sql`; ไม่ลบ Raw/Chat/Attendance
+- **Verification:** HR contract, dry-run/apply, count ก่อน-หลัง และ authenticated Cloudflare `/chat`
+- **Rollback:** คืน trigger classifier เดิม; เก็บ audit ไว้และ reclassify รายการผ่าน RPC ได้โดยไม่ลบต้นฉบับ
+
+## ล่าสุด: HR Intake System Output Reconciliation v1.3 — 25/8/2569
+
+- **เหตุผล:** Production พบ system attendance notification ที่ไม่มี sender แต่ใช้ legacy `user_message` ถูกนับเป็น HR Raw pending และ Operational Task ผิดประเภท พร้อมทั้ง approval job ก่อนหน้า Bundle migration ไม่มี Bundle link
+- **ผลกระทบ:** null-sender/System Result/System Confirmation เป็น context-only, ไม่เข้า Omni ซ้ำ; Raw เดิมเปลี่ยนจาก pending เป็น context พร้อม audit และ approval job ที่ยังไม่มี item ถูก sync เข้า Bundle แบบ idempotent
+- **Migration:** `20260825065812_reconcile_hr_intake_system_outputs.sql`; ไม่มี delete/reset/drop และไม่แก้ attendance session เดิม
+- **Verification:** HR/Operational contract tests, migration dry-run/apply, count ก่อน-หลัง, typecheck/lint/build และ authenticated Cloudflare `/chat`
+- **Rollback:** คืน trigger/classifier ก่อนหน้า แต่เก็บ Raw audit/context และ Bundle evidence ที่ reconcile แล้วเพื่อไม่สร้างงานซ้ำ; attendance เดิมไม่ต้อง rollback
+
+## 2026-08-25 — Production migration baseline reconciliation v1.0
+
+- **เหตุผล:** Production มี migration ที่ถูกใช้จริงด้วย timestamp ใหม่ แต่ Repository ยังเก็บ SQL ชุดเดียวกันภายใต้ชื่อ local เก่า ทำให้ CLI เสนอ apply ซ้ำด้วย `--include-all`
+- **ผลกระทบ:** เปลี่ยนเฉพาะชื่อไฟล์ baseline และ reference ใน Flow/tests ให้ตรง migration history จริง; schema, RLS, RPC, ข้อมูลธุรกิจ และสถานะงานไม่เปลี่ยน
+- **Migration:** เก็บ 7 เวอร์ชัน Production จริง (`20260823043451`, `20260823052638`, `20260823122058`, `20260823122113`, `20260823122125`, `20260823122135`, `20260823122137`) และนำชื่อ local เก่าที่มี SQL ซ้ำ 6 ไฟล์ออก
+- **Verification:** ตรวจ normalized SQL เท่ากัน, targeted contracts, lint, typecheck, build, `supabase migration list --linked` และ `supabase db push --linked --dry-run`
+- **Rollback:** revert commit นี้เพื่อคืนชื่อเดิมได้ แต่ห้าม apply ชื่อเดิมขึ้น Production; ข้อมูลและ migration history ฝั่ง Productionไม่ต้องย้อน
+
+## 2026-08-24 — Release Incident Playbook v1.0 / Release Parity v1.2
+
+- **เหตุผล:** หลายห้องสนทนาพยายามแก้ deploy ด้วย local `CLOUDFLARE_API_TOKEN` ซ้ำ แม้ Production ใช้ Cloudflare Git Integration ทำให้เสียเวลาและรายงาน blocker ไม่ตรงเส้นทางจริง
+- **ผลกระทบ:** ทุก Codex thread ต้องใช้ playbook กลาง: clean commit → GitHub main → verify workflow → Cloudflare Git Integration → revision parity → authenticated runtime smoke; manual Token เป็น fallback เท่านั้น
+- **Migration:** ไม่มี; ไม่แก้ข้อมูลธุรกิจหรือฐานข้อมูล
+- **Verification:** release contract test, typecheck, lint, build, GitHub workflow, Cloudflare `release.json` และ Chat/Intake runtime smoke
+- **Rollback:** revert playbook/AGENTS/release docs; Production revision และข้อมูลเดิมไม่เปลี่ยน
+
+## 2026-08-24 — Program Development room boundary hardening v1.2
+
+- **เหตุผล:** ข้อความธุรกิจเก่าในห้อง `00 | Program Development` ถูกนำไปแสดงเป็น Operational Task Card ทำให้เห็นงานค้างที่ไม่ใช่งานพัฒนา
+- **ผลกระทบ:** non-development message ใน `program_development_primary` ยังคงอยู่ใน Chat และ Audit แต่ไม่สร้าง Operational Card/ยอดค้าง; ห้องนี้แสดงเฉพาะ Command Inbox
+- **Migration:** ไม่มี; ไม่แก้ `chat_messages`, development tasks, ธุรกิจจริง หรือ Audit เดิม
+- **Verification:** Operational Core/Program Development contract tests, typecheck, lint, build และ authenticated Cloudflare Chat smoke
+- **Rollback:** revert classifier/UI guard; ไม่มีข้อมูลต้อง rollback
+
 ## 2026-08-24 — Master Data v1.3.1 search/count reconciliation
 
 - **เหตุผล:** Production UAT พบว่า Message ID search ลดตารางเหลือ 1 แถว แต่ป้ายจำนวนยังแสดงผลก่อน search
@@ -20,7 +60,7 @@
 
 - **เหตุผล:** ทำ HR Confirmation Bundle ให้เป็นงานปฏิบัติการจริง ไม่ใช่เพียงรายการรออนุมัติ โดยต้องมี Evidence, Owner, Next Action, SLA/Escalation และ Daily Summary ครบ
 - **ผลกระทบ:** เพิ่ม `hr_confirmation_evidence`, Task Card fields บน Bundle, operational approve/close gate, assignment/escalation/daily-summary RPC และ UI ห้อง HR; Raw/Attendance เดิมไม่ถูกลบหรือเขียนซ้ำ
-- **Migration:** `20260823120020_hr_confirmation_operational_readiness.sql` แบบ Local-first; ไม่แตะ Production จนผ่าน local database/RLS/browser UAT
+- **Migration:** Production baseline `20260823122137_hr_confirmation_operational_readiness.sql`; linked dry-run ยืนยันว่า remote up to date
 - **การตรวจสอบ:** fixture/contract/integration, Evidence linkage, owner/company permission, idempotency, SLA escalation, close 100% gate, typecheck/lint/build และ Local browser; Cloudflare smoke ภายหลัง
 - **Rollback:** ปิด operational triggers/RPC/UI และกลับไปอ่าน Bundle v1.1; เก็บ Evidence/Audit เดิมเพื่อย้อนตรวจ ห้ามลบ Raw หรือ Attendance
 
@@ -52,7 +92,7 @@
 
 - **เหตุผล:** เก็บ Web Chat Raw เป็น pending ก่อนคัด System/Daily Summary เป็น context, แยก duplicate/already-confirmed/not-HR/low-confidence และรวมเฉพาะ Candidate ที่ครบเป็นชุดตามบริษัท+ช่าง+วันที่ Bangkok+โครงการ
 - **ผลกระทบ:** เพิ่ม Raw/Gate event ledger และ count ก่อน/หลัง พร้อม source/reason/duplicate link; เพิ่ม bundle/item/event ledger, validation คู่เข้าออก/ชื่อ/โครงการ/เวลา/duplicate/conflict, manager Action ยืนยัน/ขอข้อมูลเพิ่ม/ปฏิเสธ/ปิด 100%, System Confirmation หนึ่งข้อความต่อ bundle และใช้ approval RPC เดิมเขียน attendance
-- **Migration:** `20260823060547_hr_confirmation_bundle.sql` local-only ระหว่างพัฒนา; ห้าม Apply Production จน local database fixture/RLS/runtime ผ่านและได้รับอนุมัติ
+- **Migration:** Production baseline `20260823122113_hr_confirmation_bundle.sql`; linked dry-run ยืนยันว่า remote up to date
 - **การตรวจสอบ:** fixture Raw จำนวนมากเหลือเฉพาะ candidate, context/duplicate/already-confirmed/not-HR/low-confidence, bundle normal/missing/conflict/reject/idempotency/RLS, targeted/full tests, typecheck/lint/build และ Cloudflare read-only smoke ภายหลัง
 - **Rollback:** ปิด bundle trigger/RPC/UI และคืน individual confirmation projection; เก็บ ledger/audit และ attendance ที่บันทึกแล้ว ห้ามลบข้อมูลจริง
 
@@ -956,12 +996,12 @@
 
 - HR Confirmation Bundle trigger hardening v1.1: added a safe wrapper trigger for `chat_attendance_approval_jobs` and enriched the local HR fixture/omni projection with classification reason/rule/model metadata. Migration remains local-only; rollback restores the direct trigger call and removes the added fixture metadata while preserving raw/audit history.
 
-- Intake AI Reprocess and Classification Audit v3.8: added append-only classification history and reprocess batch accounting, with confidence-gated routing to Filter/Accounting and held/failed retry states. Migration `20260823050000_intake_ai_reprocess_audit.sql`; source function `supabase/functions/reprocess-transfer-slips/index.ts`. Raw sources and prior classifications remain unchanged; rollback is to disable the Edge Function and stop invoking batches.
+- Intake AI Reprocess and Classification Audit v3.8: added append-only classification history and reprocess batch accounting, with confidence-gated routing to Filter/Accounting and held/failed retry states. Production migration `20260823052638_intake_ai_reprocess_audit.sql`; source function `supabase/functions/reprocess-transfer-slips/index.ts`. Raw sources and prior classifications remain unchanged; rollback is to disable the Edge Function and stop invoking batches.
 
 - Flow Registry Active Dashboard v1.0: added `docs/FLOW_REGISTRY_DASHBOARD_FLOW.md`, read-only runtime source aggregation, filters, refresh, nodes, exception lane, and drill-down. No migration; rollback is UI/service removal.
 - General Work Room v1.0: added `docs/GENERAL_WORK_ROOM_FLOW.md` and Production baseline migration `20260823035220_general_work_room.sql`; canonical `general_work_primary`, company-scoped membership, safe classification/forwarding, audit, and pending destination retry path.
 - Advance Confirmation RPC hardening v1.1: Production applied `20260823041021_lock_advance_confirmation_room_rpc`; `ensure_advance_confirmation_room` now requires a manager when called with an authenticated session, and `EXECUTE` is revoked from `PUBLIC`/`anon` (retained for `authenticated`/`service_role`). Verify with the privilege query and retain the existing no-fallback room/audit/retry flow.
-- Program Development Command Inbox v1.1: add owner-only Action Cards in `/chat` for `program_development_primary`, task status transitions, Codex/developer dispatch, result drill-down, and System Result guard. Migration `20260823050000_program_development_actions.sql` adds the idempotent owner-checked dispatch RPC; rollback hides the cards and revokes the action RPC while retaining tasks/audit/messages.
+- Program Development Command Inbox v1.1: add owner-only Action Cards in `/chat` for `program_development_primary`, task status transitions, Codex/developer dispatch, result drill-down, and System Result guard. Production migration `20260823043451_program_development_actions.sql` adds the idempotent owner-checked dispatch RPC; rollback hides the cards and revokes the action RPC while retaining tasks/audit/messages.
 
 - Accounting Pending Queue v1.1 (23/8/2569): `/accounting-documents` now reads pending transfer-slip work from the existing accounting destination task projection and joins the source flow item/financial transaction for display. This is read-only UI behavior; no migration, raw overwrite, reprocess, or new task creation. Verify with Production count reconciliation, typecheck/lint/build, and authenticated page smoke. Rollback is removing the pending queue projection while leaving source items, tasks, financial transactions, and audit history intact.
 
@@ -971,7 +1011,7 @@
 
 - Accounting Transfer Slip Drawer Review v1.3 (23/8/2569): added a two-tab source/AI and manual-review Drawer. AI re-read is scoped by `document_flow_items.id`, preserves the Accounting route, and records model/rule/guidance audit; Admin corrections use the company-guarded idempotent `review_transfer_slip_details` RPC with required-field validation and before/after audit. Migration `20260823111848_transfer_slip_drawer_review.sql`; rollback disables the actions/RPC and restores the prior Edge Function while preserving raw source and audit history.
 
-- Accounting Transfer Slip Money Lineage v1.4 (23/8/2569): Drawer review now captures source fund, fund holder, payer, final beneficiary, project/site, fund balance and every transfer hop. `review_transfer_slip_money_lineage` validates and writes the reviewed projection atomically, then completes Accounting and creates idempotent HR, Inventory, Project, Accounting Posting or Advance continuation. Unmatched advance holders remain `recheck_required`; raw source/OCR is never overwritten. Migration `20260823115443_transfer_slip_money_lineage_routing.sql`; rollback revokes the new RPC/hides the routing card while retaining lineage and audit for recovery.
+- Accounting Transfer Slip Money Lineage v1.4 (23/8/2569): Drawer review now captures source fund, fund holder, payer, final beneficiary, project/site, fund balance and every transfer hop. `review_transfer_slip_money_lineage` validates and writes the reviewed projection atomically, then completes Accounting and creates idempotent HR, Inventory, Project, Accounting Posting or Advance continuation. Unmatched advance holders remain `recheck_required`; raw source/OCR is never overwritten. Production migration `20260823122135_transfer_slip_money_lineage_routing.sql`; rollback revokes the new RPC/hides the routing card while retaining lineage and audit for recovery.
 
 - Notification Center v1.0 (24/8/2569): added `docs/NOTIFICATION_CENTER_FLOW.md`, an Admin/manager-only bell and `/notifications` view over the tenant-guarded `get_communication_event_feed` RPC. Filters persist in URL; read state is user-scoped/idempotent and does not approve or close source work. No migration; rollback restores the previous page/bell while retaining source events and read-state audit.
 - Notification Center v1.1 (24/8/2569): Production UAT now classifies `incident`, `repeat`, approval and review event types as actionable independently from delivery status, so a successfully delivered incident notification remains in the work queue. No migration or source mutation; rollback restores the v1.0 classifier.
