@@ -1,6 +1,6 @@
 import { CompareArrowsOutlined, OpenInNewOutlined, RefreshOutlined } from '@mui/icons-material'
 import { Alert, Button, Chip, DialogContent, DialogTitle, Divider, Drawer, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
 import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
@@ -50,6 +50,7 @@ export function MasterDataCenterPage() {
   const [error, setError] = useState('')
   const [drawerMessage, setDrawerMessage] = useState<DrawerMessage | null>(null)
   const [savingId, setSavingId] = useState('')
+  const reviewActionInFlightRef = useRef(new Set<string>())
   const [filter, setFilter] = useState<MasterReviewFilter>('pending_review')
   const [selected, setSelected] = useState<Candidate | null>(null)
   const [reviewReason, setReviewReason] = useState('')
@@ -100,6 +101,14 @@ export function MasterDataCenterPage() {
 
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer) }, [load])
   const review = async (candidate: Candidate, action: MasterReviewAction) => {
+    if (reviewActionInFlightRef.current.has(candidate.id)) {
+      setDrawerMessage({ severity: 'info', text: 'กำลังบันทึกรายการนี้ กรุณารอผลยืนยันจากฐานข้อมูลก่อน' })
+      return
+    }
+    if (['confirmed', 'approved', 'locked'].includes(candidate.status)) {
+      setDrawerMessage({ severity: 'success', persisted: true, text: 'รายการนี้ยืนยันและบันทึกแล้ว ระบบปิดการยืนยันซ้ำ กรุณาไป “รายการถัดไป”' })
+      return
+    }
     if (reviewReason.trim().length < 3 && action !== 'archive') { setDrawerMessage({ severity: 'error', text: 'กรุณาระบุเหตุผลอย่างน้อย 3 ตัวอักษรใน Drawer' }); return }
     if (['approve', 'keep_existing', 'match_master', 'lock'].includes(action) && !isProjectGateReady(candidate)) { setDrawerMessage({ severity: 'error', text: 'ต้องผูก Project เดิมหรือบันทึก Project Candidate ให้ครบก่อนยืนยันรายการ' }); return }
     if (['approve', 'keep_existing', 'match_master', 'lock'].includes(action) && candidate.status !== 'admin_reviewed') { setDrawerMessage({ severity: 'error', text: 'ต้องบันทึกฉบับแก้ไขและส่งเข้ารอตรวจซ้ำก่อนยืนยันรายการ' }); return }
@@ -114,6 +123,7 @@ export function MasterDataCenterPage() {
       setDrawerMessage({ severity: 'success', text: ['confirmed', 'locked', 'rejected', 'archived'].includes(status) ? `Local fixture: ${candidateStatus[status] ?? status} แล้ว · คิวและตัวเลขรีเฟรชแล้ว` : `Local fixture: ${candidateStatus[status] ?? status} แล้ว · รายการยังอยู่คิวและยังไม่ยืนยัน Master Data` })
       return
     }
+    reviewActionInFlightRef.current.add(candidate.id)
     setSavingId(candidate.id); setDrawerMessage(null); setError('')
     const eventKey = crypto.randomUUID()
     try {
@@ -137,6 +147,7 @@ export function MasterDataCenterPage() {
     } catch (actionError) {
       setDrawerMessage({ severity: 'error', text: userError(actionError, 'ตรวจสอบการบันทึก Action ไม่สำเร็จ'), incidentId: eventKey, persisted: false })
     } finally {
+      reviewActionInFlightRef.current.delete(candidate.id)
       setSavingId('')
     }
   }

@@ -17,7 +17,7 @@ flowchart LR
   D -->|High confidence + 2 evidence\nno duplicate/conflict| AV[Auto Verified\nnot Final / not Locked]
   D -->|Unknown / duplicate / mismatch / conflict| E[Review Queue]
   AV --> E
-  E --> CMD[Drawer Action\nawait RPC + require returned Candidate]
+  E --> CMD[Drawer Action\none-shot client lock\nawait RPC + require returned Candidate]
   CMD -->|DB commit + refetch matches| V[Append Version + Audit\nreturn Admin Reviewed]
   CMD -->|RPC error / null result / stale refetch| ER[Keep Drawer open\nshow persisted-state error]
   V --> PAC[Persisted Admin classification\ncurrent Drawer value]
@@ -40,7 +40,7 @@ flowchart LR
   PE -.unlocks.-> U1
   PC -.unlocks.-> U1
   V -.evidence.-> U2
-  G -.terminal.-> U2
+  G -.terminal: disable confirm/repeat\nshow next item only.-> U2
   AV -.->|prohibited| X[No payment close / balance cut / Job close]
   G --> J{Unused and no active reference?}
   J -->|Yes| K[Inactive then archive]
@@ -82,6 +82,7 @@ Create one company-scoped master-data path for people, vendors, customers, proje
 - The Detail Drawer exposes one three-step operational path: `ความสัมพันธ์ → ตรวจและแก้ข้อมูล → ยืนยันและส่งต่อ`. The first step links an existing Project or opens a compact Project Candidate dialog, the second appends Admin correction/Auto Input provenance, and the third confirms only after read-back verification. The current state has one Primary Action; request-information/reject/archive/back/next actions live in the additional-actions menu. A disabled Primary Action lists every missing field or prerequisite inline rather than relying on a snackbar.
 - A saved Project Candidate shows its ID, status, actor, timestamp, version and Audit event. A correction shows append-only before/after plus Version/Audit. Terminal confirmation reloads the queue and counts from the same source, removes the confirmed row from `pending_review`, and can open the next pending item. Raw/OCR remains read-only throughout.
 - Drawer actions are successful only after the awaited RPC returns the same Candidate and a fresh company-scoped query confirms the expected status/gate/version. A null RPC payload, failed refetch or unchanged status keeps the Drawer open and shows an inline error; no optimistic success or automatic close is allowed.
+- A confirmation command is one-shot. The client locks the Candidate synchronously before the request, disables the action while the RPC is in flight, and ignores a second click. After a persisted `confirmed`/`approved`/`locked` status, the confirm action is removed, a `บันทึกแล้ว · ปิดการยืนยันซ้ำ` marker is shown, and the only primary action is `รายการถัดไป`/`กลับคิว`. The existing database review-state guard remains the final protection against a stale or repeated request.
 - Summary cards and the default Review Queue use one status projection. `คิวที่ต้องจัดการ = ข้อมูลใหม่ + รอตรวจ/รอข้อมูล + Auto Verified + แก้ไขโดย Admin`; conflicts remain an overlapping quality flag. A `request_info` decision stays in the queue and is labelled as not yet confirmed rather than appearing to complete Master Data.
 
 ## Retention, failure and retry
@@ -95,6 +96,7 @@ Create one company-scoped master-data path for people, vendors, customers, proje
 
 | Version | Date | Rationale / impact | Migration | Verification | Rollback |
 |---|---|---|---|---|---|
+| v2.0 | 25/8/2569 | Prevent rapid double-click/repeated Master Data confirmation and make the terminal state unambiguous; after persistence the confirmation control is removed and only next/back navigation remains | No migration; synchronous client lock plus existing database review-state guard, with no Raw/OCR/candidate/audit mutation | One-shot action regression, Master Data review contracts, lint, typecheck, build and authenticated terminal-Drawer smoke | Revert the client lock/status marker; database status guard and all saved Master Data/Audit remain unchanged |
 | v1.9 | 25/8/2569 | Prevent a later evidence-only AI result from displaying `Unknown/Needs Review` over an Admin-saved five-type classification; show the AI result as a separate suggestion with its reason/confidence | No migration or backfill; read projection uses `master-data-auto-input-v2` provenance for future corrections, with no Raw/OCR or current Production data mutation | Persisted-classification regression, targeted lint, typecheck, build and authenticated exact-row Drawer smoke | Revert the Auto Input precedence/display patch; saved candidate classification, Version/Audit and Raw/OCR remain unchanged |
 | v1.8 | 25/8/2569 | Reduce the crowded five-state presentation to three operational steps, add compact Project Candidate entry, derive start date and other reusable fields automatically with source/confidence, and prevent silent/non-persisted actions | `20260825220000_master_data_auto_input_three_step.sql` adds Auto Input provenance/date fields and idempotent v2 wrappers; no Raw/OCR mutation | Auto Input/project/step/source/account contracts, local migration checks, targeted/full lint, typecheck, build, responsive Local browser smoke and authenticated Production persistence smoke | Revert UI to v1.7 and call v1 RPCs; revoke v2 wrappers and stop writing new optional metadata columns. Preserve Project Candidate, Version, Audit and all Raw/OCR/source evidence |
 | v1.7 | 25/8/2569 | Fix Production confirmation rollback caused by writing a full OCR account number into the four-digit Master Account field; keep the failure visible inside the Drawer | `20260825211200_fix_master_data_account_last4_confirmation.sql`; normalize only the derived Master projection in correction/approval/match RPCs | Regression contract for full/formatted/short values, local RPC migration checks, typecheck/lint/build, rollback-only Production persistence probe and authenticated `/master-data` smoke | Restore the v1.6 correction/review RPC bodies and remove the UI-specific error mapping; do not alter Raw/OCR, existing versions or audit |

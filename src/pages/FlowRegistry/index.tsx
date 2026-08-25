@@ -103,10 +103,10 @@ const systemFlows = [
   },
   {
     title: 'Master Data Governance',
-    version: 'Master Data v1.9 · 25/8/2569',
+    version: 'Master Data v2.0 · 25/8/2569',
     icon: <AccountTreeOutlinedIcon color="primary" />,
     summary: 'ข้อมูลจากสลิปและเอกสารเข้า candidate inbox ก่อน Admin ยืนยันเป็นบัญชี/ข้อมูลหลัก ใช้ซ้ำข้ามระบบ และ archive แทนการลบเมื่อหมดอายุ',
-    bullets: ['อ่านจาก docs/MASTER_DATA_GOVERNANCE_FLOW.md', 'Project-first Gate ต้องผูก Project เดิมหรือสร้าง Project Candidate ที่ข้อมูลครบก่อนยืนยัน; ไม่สร้าง Project จริงอัตโนมัติ', 'ทะเบียนพนักงาน ผู้ขาย โครงการ และงานย่อยเดิมยังเป็น source-of-truth', 'Drawer ใช้ 3 ขั้นตอน + Primary Action เดียว; classification ที่ Admin บันทึกเป็นค่าหลัก และผล AI ที่ต่างกันเป็นข้อเสนอแยก', 'Auto Input พร้อมที่มา/ความมั่นใจ, วันเริ่มจากหลักฐานแรก และ Project/Correction Version/Audit โดยไม่เขียนทับ Raw/OCR'],
+    bullets: ['อ่านจาก docs/MASTER_DATA_GOVERNANCE_FLOW.md', 'Project-first Gate ต้องผูก Project เดิมหรือสร้าง Project Candidate ที่ข้อมูลครบก่อนยืนยัน; ไม่สร้าง Project จริงอัตโนมัติ', 'ทะเบียนพนักงาน ผู้ขาย โครงการ และงานย่อยเดิมยังเป็น source-of-truth', 'Drawer ใช้ 3 ขั้นตอน + Primary Action เดียว; classification ที่ Admin บันทึกเป็นค่าหลัก และผล AI ที่ต่างกันเป็นข้อเสนอแยก', 'ปุ่มยืนยันเป็น one-shot: ล็อกทันทีระหว่างบันทึก และหลังสำเร็จเหลือเฉพาะรายการถัดไป/กลับคิว', 'Auto Input พร้อมที่มา/ความมั่นใจ, วันเริ่มจากหลักฐานแรก และ Project/Correction Version/Audit โดยไม่เขียนทับ Raw/OCR'],
     path: '/master-data',
     action: 'ไปศูนย์ข้อมูลกลาง',
   },
