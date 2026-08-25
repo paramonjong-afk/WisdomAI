@@ -108,8 +108,14 @@ export type MasterReviewFilter = 'all' | 'duplicate' | 'name_mismatch' | 'accoun
 
 const normalize = (value: string | null | undefined) => (value ?? '').trim().toLocaleLowerCase('th-TH').replace(/\s+/g, '')
 
+export function normalizeAccountLast4(value: unknown) {
+  if (typeof value !== 'string') return null
+  const digits = value.replace(/\D/g, '')
+  return digits.length >= 4 ? digits.slice(-4) : null
+}
+
 export function candidateAccount(candidate: Pick<MasterCandidate, 'candidate_data'>) {
-  return typeof candidate.candidate_data.account_last4 === 'string' ? candidate.candidate_data.account_last4 : null
+  return normalizeAccountLast4(candidate.candidate_data.account_last4)
 }
 
 export function duplicateGroupKey(candidate: Pick<MasterCandidate, 'normalized_name' | 'candidate_data'>) {
@@ -138,7 +144,7 @@ export function isNameMismatch(candidate: MasterCandidate, evidence: MasterSourc
 }
 
 export function isAccountNameMismatch(candidate: MasterCandidate, evidence: MasterSourceEvidence | null) {
-  return isNameMismatch(candidate, evidence) && Boolean(candidateAccount(candidate) && evidence?.extractedAccount && candidateAccount(candidate) === evidence.extractedAccount)
+  return isNameMismatch(candidate, evidence) && Boolean(candidateAccount(candidate) && candidateAccount(candidate) === normalizeAccountLast4(evidence?.extractedAccount))
 }
 
 export function reviewFilterMatches(candidate: MasterCandidate, evidence: MasterSourceEvidence | null, duplicateIds: Set<string>, filter: MasterReviewFilter) {
