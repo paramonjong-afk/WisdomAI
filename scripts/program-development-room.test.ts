@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 
 const migration = fs.readFileSync('supabase/migrations/20260823035207_program_development_room.sql', 'utf8')
-const actionsMigration = fs.readFileSync('supabase/migrations/20260823050000_program_development_actions.sql', 'utf8')
+const actionsMigration = fs.readFileSync('supabase/migrations/20260823043451_program_development_actions.sql', 'utf8')
 const flow = fs.readFileSync('docs/PROGRAM_DEVELOPMENT_ROOM_FLOW.md', 'utf8')
 const chatPage = fs.readFileSync('src/pages/Chat/index.tsx', 'utf8')
 

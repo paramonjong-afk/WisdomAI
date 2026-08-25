@@ -5,7 +5,7 @@ import { classifyMasterCandidate, masterReviewBucket } from '../src/services/mas
 
 const page = readFileSync('src/pages/MasterDataCenter/index.tsx', 'utf8')
 const standardTable = readFileSync('src/components/StandardDataTable.tsx', 'utf8')
-const migration = readFileSync('supabase/migrations/20260823060000_master_data_candidate_review_actions.sql', 'utf8')
+const migration = readFileSync('supabase/migrations/20260823122058_master_data_candidate_review_actions.sql', 'utf8')
 const classificationMigration = readFileSync('supabase/migrations/20260824010000_master_data_classification_review.sql', 'utf8')
 const evidence: MasterSourceEvidence = {
   documentId: 'doc-1', intakeId: 'intake-1', messageId: 'msg-1', transactionId: 'tx-1', sourceRoom: 'ไซต์ A', sourceChannel: 'LINE', attachmentId: 'att-1', fileName: 'slip.jpg', bucket: 'line-attachments', path: 'company/slip.jpg', receivedAt: '2026-08-23T08:00:00Z', ocrRawText: 'โอนให้สมนึก', extractedName: 'สมหนึก', extractedAccount: '1234', aiConfidence: 0.82, modelVersion: 'ocr-v2', auditId: 'audit-1', sourceResolved: true, missingReasons: [],

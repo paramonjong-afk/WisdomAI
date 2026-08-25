@@ -42,5 +42,5 @@ Provide one private Web Chat room for the system owner to send development requi
 | Version | Date | Change | Migration | Rollback |
 |---|---|---|---|---|
 | v1.0 | 23/8/2569 | Add owner-only canonical development room, task/audit/dispatch queue, status transitions, and System Result guard | `20260823035207_program_development_room.sql` (Production baseline) | Disable the route trigger/RPCs and hide the room; retain chat, tasks, and audit for recovery |
-| v1.1 | 23/8/2569 | Add owner-visible Command Inbox Action Cards for task transitions, Codex/Module dispatch and result drill-down; System Result remains display-only | `20260823050000_program_development_actions.sql` | Hide Action Cards and revoke the action RPC; retain chat, tasks, dispatch records and audit |
+| v1.1 | 23/8/2569 | Add owner-visible Command Inbox Action Cards for task transitions, Codex/Module dispatch and result drill-down; System Result remains display-only | `20260823043451_program_development_actions.sql` | Hide Action Cards and revoke the action RPC; retain chat, tasks, dispatch records and audit |
 | v1.2 | 24/8/2569 | Keep non-development messages as Chat-only context and hide the shared Operational Core panel in this private room so business work cannot appear as a pending development task | None | Revert the room filter/UI guard; no data rollback is required |

@@ -63,4 +63,6 @@ create policy "Managers read Intake classification history" on public.document_f
   );
 
 comment on table public.document_flow_classification_history is
-  'Append-only AI/manual classification history for Intake reprocessing; original source and prior state remain intact.';
+  'Append-only AI/manual classification history for Intake reprocessing; original source and prior state remain intact.';;
+
+

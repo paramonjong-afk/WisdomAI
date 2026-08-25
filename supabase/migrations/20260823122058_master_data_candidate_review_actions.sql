@@ -67,3 +67,7 @@ $$;
 revoke all on function public.review_master_data_candidate(uuid,text,text,text) from public,anon;
 grant execute on function public.review_master_data_candidate(uuid,text,text,text) to authenticated;
 notify pgrst,'reload schema';
+
+;
+
+

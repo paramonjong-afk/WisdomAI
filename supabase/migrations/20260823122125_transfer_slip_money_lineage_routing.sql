@@ -216,3 +216,7 @@ $$;
 revoke all on function public.review_transfer_slip_money_lineage(uuid,text,text,text,text,text,text,text,text,numeric,timestamptz,text,text,text,text,text,text,text,uuid,uuid,text,numeric,numeric,numeric,numeric,jsonb,text) from public,anon;
 grant execute on function public.review_transfer_slip_money_lineage(uuid,text,text,text,text,text,text,text,text,numeric,timestamptz,text,text,text,text,text,text,text,uuid,uuid,text,numeric,numeric,numeric,numeric,jsonb,text) to authenticated;
 notify pgrst,'reload schema';
+
+;
+
+

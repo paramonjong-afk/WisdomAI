@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 
-const migration = fs.readFileSync('supabase/migrations/20260823060547_hr_confirmation_bundle.sql', 'utf8')
-const operationalMigration = fs.readFileSync('supabase/migrations/20260823120020_hr_confirmation_operational_readiness.sql', 'utf8')
+const migration = fs.readFileSync('supabase/migrations/20260823122113_hr_confirmation_bundle.sql', 'utf8')
+const operationalMigration = fs.readFileSync('supabase/migrations/20260823122137_hr_confirmation_operational_readiness.sql', 'utf8')
 const flow = fs.readFileSync('docs/HR_CONFIRMATION_BUNDLE_FLOW.md', 'utf8')
 const chatPage = fs.readFileSync('src/pages/Chat/index.tsx', 'utf8')
 
