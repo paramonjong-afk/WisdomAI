@@ -6,6 +6,7 @@ type CreateEmployeeBody = {
   fullName?: string
   role?: 'employee' | 'manager'
   dryRun?: boolean
+  sourceEmployeePersonId?: string
 }
 
 const cors = {
@@ -147,6 +148,39 @@ Deno.serve(async (request) => {
     const password = body.password ?? ''
     const fullName = body.fullName?.trim() ?? ''
     const role = body.role === 'manager' ? 'manager' : 'employee'
+    const sourceEmployeePersonId = body.sourceEmployeePersonId?.trim() || null
+
+    let sourcePerson: {
+      id: string
+      employee_code: string
+      full_name: string
+      employment_type: string
+      position: string | null
+      start_date: string | null
+      source_intake_id: string | null
+    } | null = null
+    if (sourceEmployeePersonId) {
+      stage = 'ตรวจทะเบียนพนักงานเตรียมเริ่มงาน'
+      const { data, error } = await admin.from('employee_people')
+        .select('id,employee_code,full_name,employment_type,position,start_date,source_intake_id,profile_id,employee_status')
+        .eq('id', sourceEmployeePersonId).eq('company_id', companyId).maybeSingle()
+      if (error) throw error
+      if (!data || data.profile_id || data.employee_status !== 'preboarding') {
+        return sendRequestError(makeError(
+          'ทะเบียนพนักงานนี้ถูกผูกบัญชีแล้วหรือไม่อยู่ในสถานะเตรียมเริ่มงาน',
+          'DUPLICATE_RECORD',
+          'รีเฟรชรายชื่อแล้วเปิดรายการพนักงานล่าสุด ห้ามสร้างบัญชีซ้ำ',
+        ), 409)
+      }
+      if (data.full_name.trim() !== fullName) {
+        return sendRequestError(makeError(
+          'ชื่อในบัญชีไม่ตรงกับทะเบียนพนักงานต้นทาง',
+          'INVALID_NAME',
+          'ใช้ชื่อจากทะเบียนพนักงาน หรือแก้ทะเบียนให้ถูกต้องก่อนสร้างบัญชี',
+        ), 400)
+      }
+      sourcePerson = data
+    }
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return sendRequestError(makeError(
@@ -178,7 +212,7 @@ Deno.serve(async (request) => {
       company_id: companyId,
       membership_role: role === 'manager' ? 'manager' : 'employee',
       employment_defaults: {
-        employment_type: 'daily',
+        employment_type: sourcePerson?.employment_type === 'unknown' ? 'daily' : sourcePerson?.employment_type ?? 'daily',
         employment_status: 'preboarding',
         daily_rate: 0,
         monthly_salary: 0,
@@ -271,8 +305,11 @@ Deno.serve(async (request) => {
     stage = 'สร้างข้อมูลพนักงาน'
     const { error: employmentError } = await actorClient.from('employee_employment_records').upsert({
       company_id: companyId, profile_id: created.user.id,
-      employee_code: `EMP-${created.user.id.replaceAll('-', '').slice(0, 8).toUpperCase()}`,
-      employment_type: 'daily', employment_status: 'preboarding',
+      employee_code: sourcePerson?.employee_code ?? `EMP-${created.user.id.replaceAll('-', '').slice(0, 8).toUpperCase()}`,
+      employment_type: sourcePerson?.employment_type === 'unknown' ? 'daily' : sourcePerson?.employment_type ?? 'daily',
+      job_title: sourcePerson?.position ?? null,
+      hired_on: sourcePerson?.start_date ?? null,
+      employment_status: 'preboarding',
       daily_rate: 0, monthly_salary: 0, overtime_hourly_rate: 0,
     }, { onConflict: 'company_id,profile_id' })
     if (employmentError) {
@@ -281,6 +318,46 @@ Deno.serve(async (request) => {
       await admin.from('profiles').delete().eq('id', created.user.id)
       await admin.auth.admin.deleteUser(created.user.id)
       throw employmentError
+    }
+
+    if (sourcePerson) {
+      stage = 'ผูกบัญชีกับทะเบียนพนักงานเดิม'
+      const { data: linkedPerson, error: linkError } = await admin.from('employee_people').update({
+        profile_id: created.user.id,
+        updated_at: new Date().toISOString(),
+      }).eq('id', sourcePerson.id).eq('company_id', companyId).is('profile_id', null).select('id').maybeSingle()
+      if (linkError || !linkedPerson) {
+        await admin.from('employee_employment_records').delete().eq('company_id', companyId).eq('profile_id', created.user.id)
+        await admin.from('user_company_preferences').delete().eq('profile_id', created.user.id)
+        await admin.from('company_members').delete().eq('company_id', companyId).eq('profile_id', created.user.id)
+        await admin.from('profiles').delete().eq('id', created.user.id)
+        await admin.auth.admin.deleteUser(created.user.id)
+        if (linkError) throw linkError
+        throw new Error('employee_preboarding_profile_link_conflict')
+      }
+      const { error: auditError } = await admin.from('employee_workforce_audit_logs').insert({
+        company_id: companyId,
+        profile_id: created.user.id,
+        actor_profile_id: authData.user.id,
+        entity_type: 'employee_person',
+        entity_id: sourcePerson.id,
+        action: 'employee_preboarding_account_linked',
+        reason: 'Admin สร้างบัญชี Login จากทะเบียนเตรียมเริ่มงานเดิม โดยยังคงสถานะ preboarding จนกว่าจะตั้งค่าครบ',
+        new_values: {
+          source_intake_id: sourcePerson.source_intake_id,
+          employee_code: sourcePerson.employee_code,
+          profile_id: created.user.id,
+        },
+      })
+      if (auditError) {
+        await admin.from('employee_people').update({ profile_id: null, updated_at: new Date().toISOString() }).eq('id', sourcePerson.id).eq('profile_id', created.user.id)
+        await admin.from('employee_employment_records').delete().eq('company_id', companyId).eq('profile_id', created.user.id)
+        await admin.from('user_company_preferences').delete().eq('profile_id', created.user.id)
+        await admin.from('company_members').delete().eq('company_id', companyId).eq('profile_id', created.user.id)
+        await admin.from('profiles').delete().eq('id', created.user.id)
+        await admin.auth.admin.deleteUser(created.user.id)
+        throw auditError
+      }
     }
 
     return Response.json({

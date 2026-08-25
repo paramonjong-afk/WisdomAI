@@ -342,6 +342,7 @@ export function EmployeePage() {
   const [intakeDraftPerson, setIntakeDraftPerson] = useState<EmployeeIntakeMaster | null>(null)
   const [intakeDraft, setIntakeDraft] = useState<IntakeEmployeeDraft>({ full_name: '', phone: '', employment_type: 'unknown', position: '', start_date: '' })
   const [intakeDraftSaving, setIntakeDraftSaving] = useState(false)
+  const [preboardingAccountPerson, setPreboardingAccountPerson] = useState<EmployeeIntakeMaster | null>(null)
   const [names, setNames] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState('')
@@ -848,7 +849,10 @@ export function EmployeePage() {
     }
     setCreateEmployeeAttempt(attemptRecord)
     try {
-      const result = await invokeHrMutation<CreateEmployeeSuccess | CreateEmployeeError>('create-employee', newEmployee)
+      const result = await invokeHrMutation<CreateEmployeeSuccess | CreateEmployeeError>('create-employee', {
+        ...newEmployee,
+        sourceEmployeePersonId: preboardingAccountPerson?.id,
+      })
       console.log('[create-employee] result', result)
       if (result.error || ('error' in (result.data ?? {}))) {
         const serverDataError = result.data && 'error' in result.data
@@ -894,6 +898,7 @@ export function EmployeePage() {
         if (committed) {
           setMessage(`เพิ่มพนักงาน ${newEmployee.fullName} สำเร็จ กรุณาส่งอีเมลและรหัสผ่านชั่วคราวให้พนักงานด้วยช่องทางส่วนตัว`)
           setCreateOpen(false)
+          setPreboardingAccountPerson(null)
           setNewEmployee({ fullName: '', email: '', password: '', role: 'employee' })
           setDryRunResult(null)
           setDryRunResultError('')
@@ -916,6 +921,7 @@ export function EmployeePage() {
       } else {
         setMessage(`สร้างบัญชี ${newEmployee.fullName} สำเร็จ กรุณาส่งอีเมลและรหัสผ่านชั่วคราวให้พนักงานด้วยช่องทางส่วนตัว`)
         setCreateOpen(false)
+        setPreboardingAccountPerson(null)
         setNewEmployee({ fullName: '', email: '', password: '', role: 'employee' })
         setCreateEmployeeAction('')
         setCreateEmployeeErrorCode('')
@@ -938,6 +944,7 @@ export function EmployeePage() {
       if (committed) {
         setMessage(`เพิ่มพนักงาน ${newEmployee.fullName} สำเร็จ กรุณาส่งอีเมลและรหัสผ่านชั่วคราวให้พนักงานด้วยช่องทางส่วนตัว`)
         setCreateOpen(false)
+        setPreboardingAccountPerson(null)
         setNewEmployee({ fullName: '', email: '', password: '', role: 'employee' })
         setDryRunResult(null)
         setDryRunResultError('')
@@ -1055,7 +1062,11 @@ export function EmployeePage() {
       return
     }
     try {
-      const result = await invokeHrMutation<CreateEmployeeDryRunSuccess | CreateEmployeeSuccess>('create-employee', { ...newEmployee, dryRun: true })
+      const result = await invokeHrMutation<CreateEmployeeDryRunSuccess | CreateEmployeeSuccess>('create-employee', {
+        ...newEmployee,
+        dryRun: true,
+        sourceEmployeePersonId: preboardingAccountPerson?.id,
+      })
       if (result.error || ('error' in (result.data ?? {}))) {
         const serverDataError = result.data && 'error' in result.data
           ? toStandardErrorPayload(result.data)
@@ -1808,36 +1819,6 @@ export function EmployeePage() {
               <Chip size="small" label={`ลาออก: ${resignedEmployees.length}`} color="warning" variant={employeeListFilter === 'resigned' ? 'filled' : 'outlined'} />
             </Stack>
           </Paper>
-          {canManage && intakeEmployeePeople.length > 0 && <Paper variant="outlined" sx={{ p: 2 }}>
-            <Stack spacing={1.25}>
-              <Box>
-                <Typography sx={{ fontWeight: 800 }}>คิว HR Onboarding จาก Intake ({intakeEmployeePeople.length})</Typography>
-                <Typography variant="body2" color="text.secondary">รายการที่อนุมัติแล้วออกจาก Intake และอยู่ที่นี่เพื่อให้ HR ตั้งค่าก่อนเริ่มงาน โดยเอกสารต้นทางเชื่อมกับทะเบียนพนักงานแล้ว</Typography>
-              </Box>
-              <TableContainer>
-                <Table size="small"><TableHead><TableRow><TableCell>พนักงาน</TableCell><TableCell>สถานะ</TableCell><TableCell>เอกสารแนบ</TableCell><TableCell align="right">จัดการ</TableCell></TableRow></TableHead><TableBody>
-                  {intakeEmployeePeople.map((person) => <TableRow key={person.id}>
-                    <TableCell><Typography sx={{ fontWeight: 700 }}>{person.full_name}</Typography><Typography variant="caption" color="text.secondary">{person.employee_code} · {employmentLabels[person.employment_type] ?? person.employment_type}</Typography></TableCell>
-                    <TableCell><Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
-                      <Chip
-                        size="small"
-                        color={person.intake_status === 'approved' ? 'success' : person.intake_status === 'pending_review' ? 'info' : 'warning'}
-                        label={person.intake_status === 'approved' ? 'ข้อมูลครบและยืนยันแล้ว' : person.intake_status === 'pending_review' ? 'ข้อมูลครบ · รอ Admin ยืนยัน' : person.missing_fields.length > 0 ? 'รอข้อมูลเพิ่ม' : 'รอตรวจข้อมูล'}
-                      />
-                      {person.intake_status === 'approved' && <Typography variant="caption" color="text.secondary">ขั้นตอนถัดไป: ตั้งค่าการจ้างงานและสิทธิ์</Typography>}
-                    </Stack></TableCell>
-                    <TableCell><Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
-                      {person.documents.length === 0 ? <Typography variant="caption" color="text.secondary">ยังไม่มีเอกสารแนบ</Typography> : person.documents.map((document) => <Chip key={document.id} size="small" color={document.link_status === 'available' ? 'success' : 'default'} label={intakeDocumentLabels[document.document_type] ?? document.document_type} />)}
-                    </Stack></TableCell>
-                    <TableCell align="right">{person.intake_status === 'approved'
-                      ? <Chip size="small" color="success" variant="outlined" label="จบขั้นข้อมูลแล้ว" />
-                      : <Button size="small" variant="outlined" onClick={() => openIntakeDraft(person)}>เพิ่ม / อัปเดตข้อมูล</Button>}
-                    </TableCell>
-                  </TableRow>)}
-                </TableBody></Table>
-              </TableContainer>
-            </Stack>
-          </Paper>}
           <StandardDataTable
             rows={visibleEmployees}
             getRowId={(employee) => employee.id}
@@ -1899,6 +1880,42 @@ export function EmployeePage() {
             },
           ]}
           />
+          {canManage && intakeEmployeePeople.length > 0 && <Paper variant="outlined" sx={{ p: 2, borderColor: 'warning.light' }}>
+            <Stack spacing={1.25}>
+              <Box>
+                <Typography sx={{ fontWeight: 800 }}>พนักงานเตรียมเริ่มงาน ({intakeEmployeePeople.length})</Typography>
+                <Typography variant="body2" color="text.secondary">สร้างทะเบียนเบื้องต้นแล้ว แต่ยังไม่เปิด Login ลงเวลา หรือคำนวณค่าแรง จนกว่า Admin จะตั้งค่าครบ</Typography>
+              </Box>
+              <TableContainer>
+                <Table size="small"><TableHead><TableRow><TableCell>พนักงาน</TableCell><TableCell>ความพร้อม</TableCell><TableCell>เอกสารแนบ</TableCell><TableCell align="right">จัดการ</TableCell></TableRow></TableHead><TableBody>
+                  {intakeEmployeePeople.map((person) => {
+                    const intakeMissing = person.missing_fields.map((field) => ({ phone: 'เบอร์โทร', employment_type: 'ประเภทการจ้าง', position: 'ตำแหน่ง', start_date: 'วันเริ่มงาน' }[field] ?? field))
+                    const operationalMissing = person.intake_status === 'approved' ? ['อีเมล / บัญชี Login', 'ค่าจ้าง', 'ตารางเวลาทำงาน', 'ไซต์งาน', 'สิทธิ์ใช้งาน'] : []
+                    const missing = Array.from(new Set([...intakeMissing, ...operationalMissing]))
+                    return <TableRow key={person.id}>
+                      <TableCell><Typography sx={{ fontWeight: 700 }}>{person.full_name}</Typography><Typography variant="caption" color="text.secondary">{person.employee_code} · {employmentLabels[person.employment_type] ?? person.employment_type}</Typography></TableCell>
+                      <TableCell><Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', maxWidth: 430 }}>
+                        <Chip size="small" color="warning" label="เตรียมเริ่มงาน" />
+                        {missing.map((label) => <Chip key={label} size="small" color="error" variant="outlined" label={`ขาด: ${label}`} />)}
+                      </Stack></TableCell>
+                      <TableCell><Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                        {person.documents.length === 0 ? <Chip size="small" color="error" variant="outlined" label="ขาด: เอกสารแนบ" /> : person.documents.map((document) => <Chip key={document.id} size="small" color={document.link_status === 'available' ? 'success' : 'default'} label={intakeDocumentLabels[document.document_type] ?? document.document_type} />)}
+                      </Stack></TableCell>
+                      <TableCell align="right">{person.intake_status === 'approved'
+                        ? <Button size="small" variant="contained" onClick={() => {
+                          setPreboardingAccountPerson(person)
+                          setNewEmployee({ fullName: person.full_name, email: '', password: '', role: 'employee' })
+                          setCreateOpen(true)
+                          clearCreateDiagnostics()
+                        }}>สร้างบัญชี / ตั้งค่าสิทธิ์</Button>
+                        : <Button size="small" variant="outlined" onClick={() => openIntakeDraft(person)}>กรอกข้อมูลที่ขาด</Button>}
+                      </TableCell>
+                    </TableRow>
+                  })}
+                </TableBody></Table>
+              </TableContainer>
+            </Stack>
+          </Paper>}
         </Stack>
       ))}
 
@@ -2596,6 +2613,7 @@ export function EmployeePage() {
         onClose={() => {
           if (creating) return
           setCreateOpen(false)
+          setPreboardingAccountPerson(null)
           setCreateEmployeeAction('')
           setCreateEmployeeErrorCode('')
           setCreateEmployeeRawError('')
@@ -2607,11 +2625,13 @@ export function EmployeePage() {
         fullWidth
         maxWidth="sm"
       >
-        <DialogTitle>เพิ่มพนักงานใหม่</DialogTitle>
+        <DialogTitle>{preboardingAccountPerson ? 'สร้างบัญชีจากทะเบียนเตรียมเริ่มงาน' : 'เพิ่มพนักงานใหม่'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <Alert severity="info">
-              ระบบจะยืนยันอีเมลให้พร้อมใช้งานทันที กรุณาส่งรหัสผ่านชั่วคราวให้พนักงานเป็นการส่วนตัว
+              {preboardingAccountPerson
+                ? `ระบบจะผูกบัญชีกับทะเบียน ${preboardingAccountPerson.employee_code} เดิม ไม่สร้างประวัติพนักงานซ้ำ และยังคงสถานะเตรียมเริ่มงานจนตั้งค่าครบ`
+                : 'ระบบจะยืนยันอีเมลให้พร้อมใช้งานทันที กรุณาส่งรหัสผ่านชั่วคราวให้พนักงานเป็นการส่วนตัว'}
             </Alert>
             {!!createEmployeePreflightIssues.filter((issue) => issue.blocking).length && (
               <Alert severity="error" sx={{ whiteSpace: 'pre-wrap' }}>
@@ -2740,6 +2760,7 @@ export function EmployeePage() {
             disabled={creating}
             onClick={() => {
               setCreateOpen(false)
+              setPreboardingAccountPerson(null)
               setCreateEmployeeAction('')
               setCreateEmployeeErrorCode('')
               setCreateEmployeeRawError('')

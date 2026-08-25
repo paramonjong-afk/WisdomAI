@@ -22,6 +22,36 @@ flowchart TD
   K -->|ครบ + Admin อนุมัติ| B
 ```
 
+## Employee Preboarding Visible List v2.4 — 25/8/2569
+
+```mermaid
+flowchart LR
+  A[HR Intake อนุมัติเอกสารเบื้องต้น] --> B[สร้าง Employee Person\nสถานะ preboarding]
+  B --> C[แสดงใต้รายชื่อพนักงาน\nพนักงานเตรียมเริ่มงาน]
+  C --> D[แสดงช่องขาดสีแดง\nLogin ค่าจ้าง เวลา ไซต์ สิทธิ์]
+  D --> E[Admin สร้างบัญชีจากทะเบียนเดิม]
+  E --> F[ตรวจ company + person + ชื่อ + duplicate]
+  F --> G[สร้าง Auth/Profile/Membership/Employment]
+  G --> H[ผูก employee_people.profile_id\nและบันทึก Audit]
+  H --> I[อยู่สถานะ preboarding\nจน Admin ตั้งค่าครบ]
+  F -->|ไม่ผ่าน| J[ไม่เขียนข้อมูล/คืน Error ชัดเจน]
+  G -->|บางขั้นตอนไม่ผ่าน| K[Rollback บัญชีและข้อมูลที่สร้าง\nเก็บทะเบียน/เอกสารเดิม]
+```
+
+- **Input:** Employee Person จาก Intake ที่มีเอกสารและสถานะ `preboarding`; Admin ระบุอีเมล รหัสผ่านชั่วคราว และสิทธิ์บัญชี
+- **Output/State:** รายการแสดงในกลุ่ม “พนักงานเตรียมเริ่มงาน” พร้อมช่องขาดสีแดง; หลังสร้างบัญชีจะผูกกับทะเบียนเดิมและยังเป็น `preboarding` ไม่เปิดการลงเวลา/ค่าแรงโดยอัตโนมัติ
+- **Role/Permission:** เฉพาะ Platform Admin หรือ Company Admin/Executive/Manager ในบริษัทเดียวกัน; service role ใช้ภายใน Edge Function เท่านั้น
+- **Integration:** Supabase Auth, profiles, company_members, user_company_preferences, employee_employment_records และ employee_people
+- **Failure/Retry:** ตรวจทะเบียนถูกบริษัท ยังไม่ถูกผูก และชื่อเดียวกันก่อนเขียน; หากขั้นตอนใดล้มเหลวให้ลบข้อมูลบัญชีที่สร้างในรอบนั้น แต่เก็บ Intake/Employee Person/Document เดิมเพื่อ retry
+- **Audit/Idempotency:** `employee_people.profile_id is null` เป็น linking gate; บันทึก `employee_preboarding_account_linked`; กดซ้ำตอบ conflict และไม่สร้างบัญชีซ้ำ
+- **Owner:** HR/Admin เป็นผู้เติมและยืนยันข้อมูล; Workforce Module เป็นเจ้าของ validation, linking, rollback และ Audit
+
+### Change record
+
+| Version | Date | Rationale | Impact | Migration | Verification | Rollback |
+| --- | --- | --- | --- | --- | --- | --- |
+| v2.4 | 25/8/2569 | ให้ทะเบียนพนักงานเบื้องต้นปรากฏร่วมกับงานพนักงานและชี้ข้อมูลที่ Admin ต้องเติม โดยไม่สร้างบุคคลซ้ำ | `/employees`, `create-employee`, Auth/Profile/Membership/Employment linking และ Workforce Audit | ไม่มี schema migration | contract test, typecheck, lint, build, dry-run, authenticated Production smoke และตรวจ person/profile/audit | revert UI/Edge commit; บัญชีที่สร้างแล้วใช้ recovery ตาม Audit โดยไม่ลบ Intake/Document ต้นฉบับ |
+
 ## Employee Master ก่อนข้อมูลครบ — v1.1 (25/8/2569)
 
 - เอกสารจาก Intake สามารถสร้างตัวตนพนักงานระดับ `preboarding` เพื่อให้ HR เริ่มจัดแฟ้มและตามข้อมูลได้ โดยไม่สร้าง `profiles`, `company_members`, การมอบหมายไซต์ หรือข้อมูลค่าแรง
