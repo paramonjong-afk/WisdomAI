@@ -4,6 +4,7 @@ import fs from 'node:fs'
 const migration = fs.readFileSync('supabase/migrations/20260823122113_hr_confirmation_bundle.sql', 'utf8')
 const operationalMigration = fs.readFileSync('supabase/migrations/20260823122137_hr_confirmation_operational_readiness.sql', 'utf8')
 const reconcileMigration = fs.readFileSync('supabase/migrations/20260825065812_reconcile_hr_intake_system_outputs.sql', 'utf8')
+const nonHrMigration = fs.readFileSync('supabase/migrations/20260825073707_classify_obvious_non_hr_intake.sql', 'utf8')
 const flow = fs.readFileSync('docs/HR_CONFIRMATION_BUNDLE_FLOW.md', 'utf8')
 const chatPage = fs.readFileSync('src/pages/Chat/index.tsx', 'utf8')
 
@@ -63,6 +64,10 @@ for (const needle of [
   "'intake_reconciled'", 'system-context-reconcile:', 'sync_hr_confirmation_bundle_for_job(row_value.id)',
 ]) assert.ok(reconcileMigration.includes(needle), `missing HR reconciliation contract: ${needle}`)
 assert.doesNotMatch(reconcileMigration, /delete from public\.(hr_intake_raw_items|chat_messages|attendance_sessions)/i)
+for (const needle of ["then 'not_hr'", 'development_message_not_hr', "'intake_reconciled'", 'non-hr-reconcile:']) {
+  assert.ok(nonHrMigration.includes(needle), `missing non-HR intake contract: ${needle}`)
+}
+assert.doesNotMatch(nonHrMigration, /delete from public\.(hr_intake_raw_items|chat_messages|attendance_sessions)/i)
 for (const label of ['สรุป HR วันนี้', 'Owner:', 'Next:', 'SLA:', 'Evidence', 'รับงานนี้', 'Escalation L']) {
   assert.ok(chatPage.includes(label), `missing HR Task Card UI: ${label}`)
 }

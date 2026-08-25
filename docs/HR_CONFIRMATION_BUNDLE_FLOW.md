@@ -61,6 +61,7 @@ flowchart TD
 - `pending`: รับ Raw แล้ว ยังไม่ตีความเป็นงาน
 - `context`: System Confirmation และ Daily Summary เป็นบริบท ไม่สร้างงานใหม่
 - ข้อความที่ระบบสร้าง (`sender_profile_id` ว่าง แม้ legacy row จะยังเป็น `user_message`) เป็น context และไม่สร้าง Operational Task/Omni source ใหม่
+- ข้อความพัฒนา/UAT ที่มี keyword ชัดเจนและไม่มีคำ HR/ลงเวลา ถูกจัด `not_hr` อัตโนมัติพร้อมเหตุผล; ข้อความกำกวมยังคง `pending|low_confidence` เพื่อให้คนตรวจ
 - `duplicate`: source/content ซ้ำและมี `duplicate_of_id`
 - `already_confirmed`: ผูกกับ bundle/job ที่ยืนยันแล้ว ไม่สร้างซ้ำ
 - `not_hr`: ไม่เกี่ยว HR รอผู้รับผิดชอบตรวจ
@@ -150,6 +151,7 @@ Gate บันทึก `raw_message_id`, channel, room, source reference, conte
 
 | Version | Date | Rationale | Impact | Migration | Verification | Rollback |
 | --- | --- | --- | --- | --- | --- | --- |
+| v1.4 | 25/8/2569 | ปิด Raw pending ที่เป็นข้อความพัฒนา/UAT ชัดเจนโดยไม่กลบข้อความ HR ที่กำกวม | deterministic non-HR classification พร้อม confidence/reason/audit; ไม่ลบ Raw | `20260825073707_classify_obvious_non_hr_intake.sql` | HR contract, linked dry-run/apply, Gate count และ authenticated Cloudflare smoke | คืน classifier ก่อนหน้า; เก็บ not_hr audit ไว้และสามารถให้ผู้รับผิดชอบ reclassify ผ่าน RPC ได้ |
 | v1.3 | 25/8/2569 | แก้ Production ที่ System attendance notifications ถูกนับเป็น Raw pending และ approval job เก่าขาด Bundle | กรอง null-sender/system output เป็น context, หยุด Omni loop, reconcile Raw พร้อม audit และ backfill Bundle link โดยไม่แตะ attendance | `20260825065812_reconcile_hr_intake_system_outputs.sql` | HR/Operational contract tests, linked dry-run/apply, counts ก่อน-หลัง, typecheck/lint/build และ authenticated Cloudflare smoke | คืน trigger classifier เดิม; Raw ที่ reconcile คง audit/context ไว้เพื่อไม่สร้างงานซ้ำ และไม่ rollback attendance/bundle evidence |
 | v1.2 | 23/8/2569 | ทำ Bundle พร้อมใช้งานจริงด้วย Evidence, Task Card, Owner, Next Action, SLA, Escalation และ Daily Summary | เพิ่ม Evidence ledger/RLS, operational approval-close gate, assignment/escalation/summary RPC และ Task Card ในห้อง HR | Production migration `20260823122137_hr_confirmation_operational_readiness.sql` | fixture/contract/integration, RLS/idempotency, typecheck/lint/build และ linked migration dry-run | ปิด operational triggers/RPC/UI, เก็บ Evidence/Audit เดิมเพื่อย้อนตรวจ และคืนการอ่าน Bundle v1.1 โดยไม่ลบ Raw/Attendance |
 | v1.1 | 23/8/2569 | ปรับ trigger ให้เรียก wrapper แบบปลอด recursion และเติม classification metadata ให้ local HR fixture/omni projection | Trigger sync, fixture classification reason/rule/model metadata และ confirmation retry guard คงที่ | Production migration `20260823122113_hr_confirmation_bundle.sql` | `test:hr-confirmation-bundle`, `scripts/document-flow-filter-consistency.test.ts`, lint, typecheck, build และ linked migration dry-run | คืน trigger call เดิมและตัด metadata enrichment ออก; ledger/audit และ raw เดิมไม่ต้องลบ |

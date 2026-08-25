@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: HR Intake Obvious Non-HR Classification v1.4 — 25/8/2569
+
+- **เหตุผล:** หลัง reconcile system output เหลือ Raw pending หนึ่งรายการที่เป็น UAT/งานพัฒนาชัดเจน ไม่ควรค้างใน HR Gate
+- **ผลกระทบ:** ข้อความ keyword พัฒนา/UAT ที่ไม่มีคำ HR/ลงเวลาเข้าสถานะ `not_hr` พร้อม confidence, reason และ audit; ข้อความกำกวมไม่ถูกกลบ
+- **Migration:** `20260825073707_classify_obvious_non_hr_intake.sql`; ไม่ลบ Raw/Chat/Attendance
+- **Verification:** HR contract, dry-run/apply, count ก่อน-หลัง และ authenticated Cloudflare `/chat`
+- **Rollback:** คืน trigger classifier เดิม; เก็บ audit ไว้และ reclassify รายการผ่าน RPC ได้โดยไม่ลบต้นฉบับ
+
 ## ล่าสุด: HR Intake System Output Reconciliation v1.3 — 25/8/2569
 
 - **เหตุผล:** Production พบ system attendance notification ที่ไม่มี sender แต่ใช้ legacy `user_message` ถูกนับเป็น HR Raw pending และ Operational Task ผิดประเภท พร้อมทั้ง approval job ก่อนหน้า Bundle migration ไม่มี Bundle link
