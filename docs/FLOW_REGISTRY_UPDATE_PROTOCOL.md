@@ -1036,3 +1036,12 @@
 - **Migration:** `20260825194500_line_hr_document_intake_routing.sql`
 - **Verification:** `test:line-hr-document-routing`, `test:employee-intake`, `test:line-webhook-intake`, typecheck, lint, build, migration dry-run และ authenticated HR Intake smoke
 - **Rollback:** ปิด route ใน Edge Function และ trigger `zz_route_hr_image_review_to_intake`; ห้ามลบ Raw, Intake, private document หรือ Audit ที่เกิดแล้ว
+
+## LINE HR recovery service authentication v4.0 — 25/8/2569
+
+- **เหตุผล:** Supabase Function ใช้ server secret รุ่นใหม่ แต่ CLI ใช้ legacy service-role JWT ทำให้ exact string comparison ปฏิเสธคำสั่ง recovery ที่มีสิทธิ์จริงด้วย `401`
+- **ผลกระทบ:** เฉพาะ internal actions ใน `telegram-admin`; Telegram webhook secret, user permission, tenant RLS และ HR approval boundary ไม่เปลี่ยน
+- **กติกา:** exact server secret ผ่านได้ตามเดิม; legacy token ต้องมี claim `service_role` และผ่าน protected PostgREST verification ก่อนเรียก action ภายใน ผู้ใช้/anonymous/ปลอมถูกปฏิเสธ
+- **Migration:** ไม่มี schema migration
+- **Verification:** `test:line-hr-document-routing`, typecheck, lint, build, invalid credential smoke, valid legacy recovery และตรวจ Intake/เอกสาร/Audit/Telegram
+- **Rollback:** revert helper และ internal guards เป็น exact-key comparison; ไม่ลบ Raw, Intake, private document หรือ Audit

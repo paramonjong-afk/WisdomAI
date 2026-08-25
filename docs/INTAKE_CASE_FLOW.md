@@ -311,3 +311,12 @@ flowchart LR
 - **Migration:** `20260825194500_line_hr_document_intake_routing.sql`
 - **Verification:** contract tests ของ bundle/idempotency/reprocess, Employee Intake, LINE webhook, typecheck, lint, build, migration dry-run และ authenticated HR Intake smoke
 - **Rollback:** ปิดการ route ใน `line-webhook` และ trigger `zz_route_hr_image_review_to_intake`; คง Raw, Intake, เอกสาร private และ Audit ที่เกิดแล้วเพื่อกู้คืน ห้ามลบข้อมูลย้อนหลัง
+
+### Internal recovery authorization — v4.0 (25/8/2569)
+
+- Recovery action ยังคงรับเฉพาะ server credential; ผู้ใช้ทั่วไปและ anonymous ถูกปฏิเสธ `401` เหมือนเดิม
+- รองรับทั้ง secret key ที่ Function ใช้อยู่และ legacy service-role JWT ที่ Supabase CLI ส่งคืน โดย legacy JWT ต้องประกาศ role `service_role` และผ่านการตรวจลายเซ็นจริงกับ PostgREST ก่อนทำ mutation
+- การตรวจ role จาก payload เป็นเพียง prefilter; ห้ามถือว่า JWT ถูกต้องจนกว่า Supabase จะตอบรับ credential จาก protected REST request
+- ส่งซ้ำใช้ `source_bundle_key` และ external LINE message ID เดิม จึง reuse Intake/เอกสารเดิมและไม่สร้างพนักงานอัตโนมัติ
+- Verification: contract test, anonymous/invalid-token `401`, valid service-role recovery, จำนวนเอกสาร, Intake/Audit และ Telegram result
+- Rollback: คืน exact-key comparison ได้ แต่จะทำให้ legacy CLI recovery ใช้ไม่ได้; ข้อมูล Raw/Intake/เอกสาร/Audit ที่สร้างแล้วต้องคงไว้

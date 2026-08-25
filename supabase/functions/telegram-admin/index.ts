@@ -11,6 +11,26 @@ const siteUrl=Deno.env.get('WISDOMAI_SITE_URL')??'https://wisdomai-react.vercel.
 const admin=createClient(url,serviceKey,{auth:{persistSession:false}})
 const json=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json; charset=utf-8'}})
 
+const decodeJwtRole=(token:string)=>{
+  try{
+    const payload=token.split('.')[1]
+    if(!payload)return''
+    const normalized=payload.replaceAll('-','+').replaceAll('_','/').padEnd(Math.ceil(payload.length/4)*4,'=')
+    return String((JSON.parse(atob(normalized)) as {role?:unknown}).role??'')
+  }catch{return''}
+}
+
+async function isAuthorizedServiceRequest(request:Request){
+  const authorization=request.headers.get('authorization')??''
+  if(authorization===`Bearer ${serviceKey}`)return true
+  const token=authorization.startsWith('Bearer ')?authorization.slice(7).trim():''
+  if(!token||decodeJwtRole(token)!=='service_role')return false
+  const verification=await fetch(`${url}/rest/v1/employee_intakes?select=id&limit=0`,{
+    method:'GET',headers:{apikey:token,authorization:`Bearer ${token}`},
+  }).catch(()=>null)
+  return Boolean(verification?.ok)
+}
+
 type TelegramUpdate={
   update_id:number
   message?:{message_id:number;chat:{id:number|string;title?:string;type:string};from?:{id:number|string;username?:string;first_name?:string;last_name?:string};text?:string;voice?:{file_id:string;file_size?:number;mime_type?:string};location?:{latitude:number;longitude:number;horizontal_accuracy?:number};photo?:Array<{file_id:string;file_size?:number;width:number;height:number}>}
@@ -663,7 +683,7 @@ Deno.serve(async request=>{
   if(request.method!=='POST')return json({error:'Method not allowed'},405)
   const setupBody=await request.clone().json().catch(()=>({})) as {action?:string;company_id?:string;message_ids?:string[];intake_id?:string;request_id?:string}
   if(setupBody.action==='send_line_group_assignment_request'){
-    if(request.headers.get('authorization')!==`Bearer ${serviceKey}`)return json({error:'Unauthorized'},401)
+    if(!await isAuthorizedServiceRequest(request))return json({error:'Unauthorized'},401)
     try{return json({status:'processed',...(await sendLineGroupAssignmentRequest(setupBody.request_id??''))})}
     catch(error){
       if(setupBody.request_id)await admin.from('line_group_assignment_requests').update({notification_status:'failed',notification_error:error instanceof Error?error.message.slice(0,1000):'notification_failed',updated_at:new Date().toISOString()}).eq('id',setupBody.request_id).eq('status','pending')
@@ -671,27 +691,27 @@ Deno.serve(async request=>{
     }
   }
   if(setupBody.action==='preview_employee_intake'){
-    if(request.headers.get('authorization')!==`Bearer ${serviceKey}`)return json({error:'Unauthorized'},401)
+    if(!await isAuthorizedServiceRequest(request))return json({error:'Unauthorized'},401)
     try{return json({status:'previewed',...(await previewEmployeeIntake(setupBody.company_id??'',setupBody.intake_id??''))})}
     catch(error){return json({error:error instanceof Error?error.message:'employee_intake_preview_failed'},400)}
   }
   if(setupBody.action==='replay_employee_intake_reply'){
-    if(request.headers.get('authorization')!==`Bearer ${serviceKey}`)return json({error:'Unauthorized'},401)
+    if(!await isAuthorizedServiceRequest(request))return json({error:'Unauthorized'},401)
     try{return json({status:'replayed',...(await replayLatestEmployeeIntakeReply(setupBody.company_id??'',setupBody.intake_id??''))})}
     catch(error){return json({error:error instanceof Error?error.message:'employee_intake_reply_replay_failed'},400)}
   }
   if(setupBody.action==='repair_employee_intake_encoding'){
-    if(request.headers.get('authorization')!==`Bearer ${serviceKey}`)return json({error:'Unauthorized'},401)
+    if(!await isAuthorizedServiceRequest(request))return json({error:'Unauthorized'},401)
     try{return json({status:'repaired',...(await repairEmployeeIntakeEncoding(setupBody.company_id??'',setupBody.intake_id??''))})}
     catch(error){return json({error:error instanceof Error?error.message:'employee_intake_encoding_repair_failed'},400)}
   }
   if(setupBody.action==='send_employee_intake_summary'){
-    if(request.headers.get('authorization')!==`Bearer ${serviceKey}`)return json({error:'Unauthorized'},401)
+    if(!await isAuthorizedServiceRequest(request))return json({error:'Unauthorized'},401)
     try{return json({status:'sent',...(await sendEmployeeIntakeSummary(setupBody.company_id??'',setupBody.intake_id??''))})}
     catch(error){return json({error:error instanceof Error?error.message:'employee_intake_summary_failed'},400)}
   }
   if(setupBody.action==='import_line_employee_intake'){
-    if(request.headers.get('authorization')!==`Bearer ${serviceKey}`)return json({error:'Unauthorized'},401)
+    if(!await isAuthorizedServiceRequest(request))return json({error:'Unauthorized'},401)
     try{return json({status:'imported',...(await importLineEmployeeIntake(setupBody.company_id??'',setupBody.message_ids??[]))})}
     catch(error){return json({error:error instanceof Error?error.message:'line_intake_import_failed'},400)}
   }
