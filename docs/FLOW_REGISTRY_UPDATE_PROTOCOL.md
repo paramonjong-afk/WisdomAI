@@ -1121,3 +1121,11 @@
 - **Migration:** `20260825220000_master_data_auto_input_three_step.sql` เพิ่ม optional Project Candidate metadata และ v2 wrappers แบบ company-scoped/idempotent
 - **การตรวจสอบ:** `test:master-data-project-gate`, `test:master-data-review-step`, `test:master-data-candidate-review`, `test:master-data-account-last4`, `test:master-data-auto-input`, migration local checks, typecheck, lint, build และ Local/Production browser smoke ตาม role
 - **Rollback:** คืนหน้าและ RPC call ไป v1.7/ฟังก์ชัน v1, revoke v2 wrapper ได้โดยไม่ลบ metadata, Project Candidate, Version, Audit หรือหลักฐานต้นฉบับ
+
+## ล่าสุด: Master Data persisted classification precedence v1.9 — 25/8/2569
+
+- **เหตุผล:** Production Candidate ที่ Admin บันทึกเป็น `employee_technician` แล้วถูก Auto Input คำนวณจากหลักฐานล่าสุดเป็น `unknown_review` และแสดงเหมือนค่าประเภทยังไม่เคยบันทึก
+- **ผลกระทบ:** `/master-data` ใช้ classification ที่บันทึกใน Candidate สถานะ `admin_reviewed`/`confirmed`/`locked` เป็นค่าหลักใน Drawer พร้อมป้าย `Admin บันทึกแล้ว`; ผล AI ที่ต่างกันแสดงแยกเป็นข้อเสนอพร้อมเหตุผลและ confidence โดยไม่เขียนทับค่าปัจจุบัน
+- **Data/Audit:** ไม่มี migration และไม่มีการแก้ Candidate/Raw/OCR/Source Reference/Version/Audit; เป็นการแก้ projection ฝั่งอ่านเท่านั้น
+- **การตรวจสอบ:** `test:master-data-auto-input`, targeted lint, typecheck, build และ authenticated exact-row Drawer smoke สำหรับ Candidate ที่บันทึก `employee_technician` แต่ AI เสนอ `unknown_review`
+- **Rollback:** revert UI/service precedence patch; ค่าที่ Admin บันทึกและหลักฐานทั้งหมดคงอยู่เหมือนเดิม

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { buildMasterAutoCorrection, detectProjectStartDate, masterAutoRoute } from '../src/services/masterDataAutoInput.ts'
+import { autoInputAuditPayload, buildMasterAutoCorrection, detectProjectStartDate, masterAutoRoute } from '../src/services/masterDataAutoInput.ts'
 import { projectDraftAuditPayload, projectDraftFromCandidate, validateProjectDraft } from '../src/services/masterDataProjectGate.ts'
 import { createMasterDataProjectGateFixture } from '../src/services/masterDataProjectGateFixture.ts'
 import { masterReviewStepLabels } from '../src/services/masterDataReviewWorkflow.ts'
@@ -52,6 +52,25 @@ assert.equal(correction.display_name.status, 'conflict')
 assert.equal(correction.account_last4.status, 'conflict')
 assert.equal(correction.bank_name.status, 'ready')
 assert.equal(correction.tax_id.status, 'ready')
+
+const persistedAdminClassification = buildMasterAutoCorrection({
+  ...autoCandidate,
+  status: 'admin_reviewed',
+  classification_type: 'employee_technician',
+  candidate_data: { ...autoCandidate.candidate_data, classification_type: 'employee_technician', admin_corrected_at: '2026-08-25T13:51:53Z' },
+}, autoSource, {
+  ...vendorClassification,
+  type: 'unknown_review',
+  confidence: 0.9,
+  evidence: ['bank_account', 'source_reference'],
+  reason: 'หลักฐานยังไม่พอสำหรับระบุประเภทโดยไม่ใช้ชื่อเพียงอย่างเดียว',
+  autoVerified: false,
+})
+assert.equal(persistedAdminClassification.classification_type.value, 'employee_technician', 'saved Admin classification is the current source of truth')
+assert.equal(persistedAdminClassification.classification_type.status, 'persisted')
+assert.equal(persistedAdminClassification.classification_suggestion?.value, 'unknown_review', 'new AI result remains a separate suggestion')
+assert.equal(persistedAdminClassification.classification_suggestion?.status, 'missing')
+assert.equal(autoInputAuditPayload(persistedAdminClassification, masterAutoRoute('employee_technician', 0.9, [])).rule_version, 'master-data-auto-input-v2')
 assert.deepEqual(masterAutoRoute('vendor', 0.98, []), {
   destination: 'Accounting / Procurement', owner: 'บัญชีหรือจัดซื้อ', nextAction: 'ตรวจผู้ขายและบัญชีรับเงิน', requiresReview: false,
 })
@@ -64,9 +83,9 @@ const page = readFileSync('src/pages/MasterDataCenter/index.tsx', 'utf8')
 const panel = readFileSync('src/pages/MasterDataCenter/MasterDataProjectGatePanel.tsx', 'utf8')
 const migration = readFileSync('supabase/migrations/20260825220000_master_data_auto_input_three_step.sql', 'utf8')
 for (const token of ['correct_master_data_candidate_v2', 'save_master_data_project_gate_v2', 'validatePersistedCorrection', 'validatePersistedProjectGate', 'await load()']) assert.match(page, new RegExp(token))
-for (const token of ['เพิ่ม Project Candidate', 'วันเริ่มโครงการ', 'Auto Input', 'ข้อมูลขัดแย้ง', 'รหัสเหตุการณ์', 'Raw/OCR ไม่ถูกเขียนทับ']) assert.match(panel, new RegExp(token))
+for (const token of ['เพิ่ม Project Candidate', 'วันเริ่มโครงการ', 'Auto Input', 'ข้อมูลขัดแย้ง', 'Admin บันทึกแล้ว', 'ไม่เขียนทับค่าที่ Admin บันทึก', 'รหัสเหตุการณ์', 'Raw/OCR ไม่ถูกเขียนทับ']) assert.match(panel, new RegExp(token))
 for (const token of ['detected_start_date', 'confirmed_start_date', 'start_date_source', 'auto_fill_evidence', 'candidate_auto_input_recorded', 'candidate_project_auto_input_recorded', 'master_candidate_event_key_conflict', "notify pgrst,'reload schema'"]) assert.match(migration, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 assert.doesNotMatch(migration, /delete\s+from\s+public\.(master_data_candidates|financial_transactions|line_messages|document_flow_items)/i)
 assert.doesNotMatch(migration, /update\s+public\.(financial_transactions|line_messages|document_flow_items)/i)
 
-console.log('master data Auto Input passed: 3-step flow, earliest start date, provenance/confidence, conflict gate, route, idempotency tokens and Raw/OCR preservation')
+console.log('master data Auto Input passed: persisted Admin classification precedence, separate AI suggestion, 3-step flow, provenance/confidence, conflict gate, route and Raw/OCR preservation')

@@ -31,6 +31,7 @@ type Props = {
 
 const autoTone = (value: string, confidence: number | null, fieldStatus?: AutoInputField['status']) => {
   if (!value || fieldStatus === 'missing') return { color: 'default' as const, label: 'ยังไม่มีข้อมูล' }
+  if (fieldStatus === 'persisted') return { color: 'success' as const, label: 'Admin บันทึกแล้ว' }
   if (fieldStatus === 'conflict') return { color: 'error' as const, label: 'ข้อมูลขัดแย้ง' }
   if (fieldStatus === 'ready' || (fieldStatus == null && confidence != null && confidence >= 0.95)) return { color: 'success' as const, label: 'Auto พร้อมใช้' }
   return { color: 'warning' as const, label: 'Auto · โปรดตรวจ' }
@@ -97,6 +98,9 @@ export function MasterDataProjectGatePanel({ candidate, source, projects, saving
             ['ธนาคาร', autoCorrection.bank_name],
             ['เลขภาษี', autoCorrection.tax_id],
           ] as Array<[string, AutoInputField]>).map(([label, field]) => <Stack key={label} direction={{ xs: 'column', sm: 'row' }} spacing={0.5} sx={{ alignItems: { sm: 'center' } }}><Typography variant="body2" sx={{ minWidth: 100 }}>{label}: {field.value || '-'}</Typography><AutoFieldHint {...field} /></Stack>)}
+          {autoCorrection.classification_suggestion && <Alert severity="info" sx={{ py: 0.25 }}>
+            AI ล่าสุดเสนอ: {classificationLabel[autoCorrection.classification_suggestion.value]} · {autoCorrection.classification_suggestion.source} · {Math.round((autoCorrection.classification_suggestion.confidence ?? 0) * 100)}% (ไม่เขียนทับค่าที่ Admin บันทึก)
+          </Alert>}
         </Stack>
         <Divider sx={{ my: 0.75 }} />
         <Typography variant="body2"><strong>ปลายทางแนะนำ:</strong> {route.destination} · เจ้าของ {route.owner}</Typography>

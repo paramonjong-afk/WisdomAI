@@ -2,7 +2,7 @@ import type { MasterCandidate, MasterSourceEvidence } from '../pages/MasterDataC
 import { normalizeAccountLast4 } from '../pages/MasterDataCenter/masterDataReview.ts'
 import type { MasterClassification, MasterClassificationType } from './masterDataClassification.ts'
 
-export type AutoInputStatus = 'ready' | 'review' | 'conflict' | 'missing'
+export type AutoInputStatus = 'ready' | 'review' | 'conflict' | 'missing' | 'persisted'
 
 export type AutoInputField<T extends string = string> = {
   value: T
@@ -14,6 +14,7 @@ export type AutoInputField<T extends string = string> = {
 export type MasterAutoCorrection = {
   display_name: AutoInputField
   classification_type: AutoInputField<MasterClassificationType>
+  classification_suggestion: AutoInputField<MasterClassificationType> | null
   account_last4: AutoInputField
   bank_name: AutoInputField
   tax_id: AutoInputField
@@ -54,6 +55,13 @@ const status = (value: string, confidence: number | null, conflict = false): Aut
   if (confidence != null && confidence >= 0.95) return 'ready'
   return 'review'
 }
+const classificationTypes = new Set<MasterClassificationType>(['vendor', 'employee_technician', 'customer', 'company_internal', 'unknown_review'])
+const savedAdminClassification = (candidate: MasterCandidate): MasterClassificationType | null => {
+  if (!['admin_reviewed', 'confirmed', 'locked'].includes(candidate.status)) return null
+  const value = text(candidate.classification_type) || text(candidate.candidate_data?.classification_type)
+  if (!classificationTypes.has(value as MasterClassificationType) || value === 'unknown_review') return null
+  return value as MasterClassificationType
+}
 
 export function detectProjectStartDate(candidate: MasterCandidate, source: MasterSourceEvidence): DetectedProjectStart {
   const data = candidate.candidate_data ?? {}
@@ -85,9 +93,17 @@ export function buildMasterAutoCorrection(candidate: MasterCandidate, source: Ma
   const bank = first(data, ['bank_name', 'recipient_bank_name', 'ocr_bank_name'])
   const tax = first(data, ['tax_id', 'vendor_tax_id', 'customer_tax_id', 'ocr_tax_id'])
   const confidence = source.aiConfidence ?? candidate.confidence
+  const persistedClassification = savedAdminClassification(candidate)
+  const classificationField: AutoInputField<MasterClassificationType> = persistedClassification
+    ? { value: persistedClassification, source: 'Admin Correction ที่บันทึกแล้ว', confidence: null, status: 'persisted' }
+    : { value: classification.type, source: classification.reason, confidence: classification.confidence, status: status(classification.type === 'unknown_review' ? '' : classification.type, classification.confidence, classification.conflicts.length > 0) }
+  const classificationSuggestion = persistedClassification && persistedClassification !== classification.type
+    ? { value: classification.type, source: classification.reason, confidence: classification.confidence, status: status(classification.type === 'unknown_review' ? '' : classification.type, classification.confidence, classification.conflicts.length > 0) }
+    : null
   return {
     display_name: { value: displayName, source: sourceName ? 'OCR/หลักฐานต้นทาง' : 'Candidate เดิม', confidence, status: status(displayName, confidence, nameConflict) },
-    classification_type: { value: classification.type, source: classification.reason, confidence: classification.confidence, status: status(classification.type === 'unknown_review' ? '' : classification.type, classification.confidence, classification.conflicts.length > 0) },
+    classification_type: classificationField,
+    classification_suggestion: classificationSuggestion,
     account_last4: { value: account, source: accountFromSource ? 'OCR/บัญชีจากหลักฐาน' : accountFromCandidate ? 'Candidate เดิม' : '', confidence, status: status(account, confidence, accountConflict) },
     bank_name: { value: bank.value, source: bank.source, confidence, status: status(bank.value, confidence) },
     tax_id: { value: tax.value, source: tax.source, confidence, status: status(tax.value, confidence) },
@@ -108,8 +124,8 @@ export function masterAutoRoute(type: MasterClassificationType, confidence: numb
 export function autoInputAuditPayload(correction: MasterAutoCorrection, route: MasterAutoRoute) {
   return {
     generated_at: new Date().toISOString(),
-    rule_version: 'master-data-auto-input-v1',
-    fields: Object.fromEntries(Object.entries(correction).map(([key, field]) => [key, { source: field.source, confidence: field.confidence, status: field.status }])),
+    rule_version: 'master-data-auto-input-v2',
+    fields: Object.fromEntries(Object.entries(correction).filter((entry): entry is [string, AutoInputField] => Boolean(entry[1])).map(([key, field]) => [key, { source: field.source, confidence: field.confidence, status: field.status }])),
     suggested_destination: route.destination,
     suggested_owner: route.owner,
     suggested_next_action: route.nextAction,
