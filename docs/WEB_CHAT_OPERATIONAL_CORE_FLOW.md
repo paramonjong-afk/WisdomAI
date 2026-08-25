@@ -70,7 +70,6 @@ Every local task and action has an audit event key, actor, timestamp, and transi
 - Migration: none.
 - Verification: `npm run test:web-chat-operational-core`, `npm run test:program-development-room`, typecheck, lint, build, and authenticated Cloudflare Chat smoke.
 - Rollback: revert the classifier/UI change; no data rollback is required because this is a projection-only filter.
-
 - Version: v1.2
 - Date: 25/08/2569
 - Rationale: remove false Operational Cards created from legacy system attendance notifications with a null sender.

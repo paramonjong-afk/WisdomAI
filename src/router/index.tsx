@@ -44,6 +44,7 @@ const MutationAttemptCenterPage = lazyWithReload(() => import('../pages/Mutation
 const LineAccountLinkPage = lazyWithReload(() => import('../pages/LineAccountLink').then((module) => ({ default: module.LineAccountLinkPage })))
 const DocumentFlowsPage = lazyWithReload(() => import('../pages/DocumentFlows').then((module) => ({ default: module.DocumentFlowsPage })))
 const FlowRegistryPage = lazyWithReload(() => import('../pages/FlowRegistry').then((module) => ({ default: module.FlowRegistryPage })))
+const FlowControlCenterPage = lazyWithReload(() => import('../pages/FlowControlCenter').then((module) => ({ default: module.FlowControlCenterPage })))
 const MasterDataCenterPage = lazyWithReload(() => import('../pages/MasterDataCenter').then((module) => ({ default: module.MasterDataCenterPage })))
 const AppLauncherPage = lazyWithReload(() => import('../pages/AppLauncher').then((module) => ({ default: module.AppLauncherPage })))
 
@@ -107,6 +108,7 @@ export const router = createBrowserRouter([
               { path: 'solar', element: managerOnly(<SolarPage />) },
               { path: 'settings', element: adminOnly(<SettingsPage />) },
               { path: 'system-health', element: adminOnly(<SystemHealthPage />) },
+              { path: 'flow-control-center', element: managerOnly(<FlowControlCenterPage />) },
               { path: 'flow-registry', element: adminOnly(<FlowRegistryPage />) },
               { path: 'work-command-center', element: adminOnly(<WorkCommandCenterPage />) },
               { path: 'platform-control-center', element: platformOnly(<PlatformControlCenterPage />) },

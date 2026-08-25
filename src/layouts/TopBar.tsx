@@ -6,13 +6,10 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { logAppEvent, updateAppStatus } from '../lib/telemetry'
 import { releaseHostLabel, releaseInfo, releaseLabel } from '../lib/releaseInfo'
-import { navigationItems } from '../utils/navigation'
+import { navigationGroups } from '../utils/navigation'
 import { isPlatformAdmin as resolvePlatformAdmin } from '../utils/permissions'
 import { NotificationBell } from '../components/NotificationBell'
 
-const mobileNavigationItems = navigationItems.filter(
-  (item) => item.path === '/time-tracking' || item.path === '/my-profile',
-)
 
 export function TopBar() {
   const navigate = useNavigate()
@@ -21,6 +18,10 @@ export function TopBar() {
   const displayName = profile?.full_name || user?.email || 'Wisdom user'
   const role = profile?.role ?? 'employee'
   const isPlatformAdmin = resolvePlatformAdmin(profile)
+  const profileRole=(profile?.role??'employee') as 'admin'|'manager'|'employee'
+  const companyRole=currentCompany?.company_role
+  const mobileRole:typeof profileRole=profileRole==='admin'||companyRole==='company_admin'?'admin':profileRole==='manager'||['executive','manager','site_supervisor'].includes(companyRole??'')?'manager':'employee'
+  const mobileNavigationGroups=navigationGroups.map(group=>({...group,items:group.items.filter(item=>(!item.roles||item.roles.includes(mobileRole))&&(!item.platformOnly||isPlatformAdmin))})).filter(group=>group.items.length)
   const initials = displayName.slice(0, 2).toUpperCase()
 
   const handleSignOut = async () => {
@@ -73,17 +74,7 @@ export function TopBar() {
             position: 'absolute', zIndex: 2147483647, top: 52, left: 0,
             width: 'min(86vw, 320px)', maxHeight: '75vh', overflowY: 'auto', p: 1,
           }}>
-            {mobileNavigationItems.map((item) => <Box
-              component="a" key={item.path} href={item.path}
-              sx={{
-                display: 'block', minHeight: 48, px: 2, py: 1.5,
-                color: 'text.primary', textDecoration: 'none', borderRadius: 1,
-                fontWeight: item.path === '/time-tracking' ? 800 : 600,
-                bgcolor: item.path === '/time-tracking' ? 'action.selected' : 'transparent',
-              }}
-            >
-              {item.path === '/time-tracking' ? '⏱ ลงเวลาของฉัน' : '👤 ข้อมูลส่วนตัว'}
-            </Box>)}
+            {mobileNavigationGroups.map(group=><Box key={group.label} sx={{mb:1}}><Typography variant="overline" sx={{px:1.5,color:"text.secondary",fontWeight:800}}>{group.label}</Typography>{group.items.map(item=><Box component="a" key={item.path} href={item.path} sx={{display:"block",minHeight:44,px:2,py:1.25,color:"text.primary",textDecoration:"none",borderRadius:1,fontWeight:650,"&:hover":{bgcolor:"action.hover"}}}>{item.label}</Box>)}</Box>)}
             <Box
               component="button"
               type="button"

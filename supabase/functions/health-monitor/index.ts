@@ -19,6 +19,10 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
   status, headers: { ...corsHeaders, 'content-type': 'application/json; charset=utf-8' },
 })
 const since = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
+const bangkokTodayStart = () => {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()).reduce<Record<string, string>>((result, part) => ({ ...result, [part.type]: part.value }), {})
+  return new Date(`${parts.year}-${parts.month}-${parts.day}T00:00:00+07:00`).toISOString()
+}
 const p95 = (values: number[]) => {
   const sorted = values.filter(Number.isFinite).sort((left, right) => left - right)
   return sorted.length ? sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)] : null
@@ -298,13 +302,22 @@ Deno.serve(async (request) => {
         return { message: 'ความสัมพันธ์โครงการ–ไซต์ถูกต้อง' }
       }),
       check('attendance', 'ระบบลงเวลา', 'Attendance', async () => {
-        const [{ data: failedRows, error }, { data: staleRows, error: staleError }] = await Promise.all([
+        const [{ data: failedRows, error }, { data: openRows, error: openError }, { data: ruleRows, error: ruleError }] = await Promise.all([
           (()=>{let query=admin.from('attendance_notifications').select('id,company_id,updated_at,reason').eq('status','failed').gte('updated_at',since(24*60));if(actorCompanyId)query=query.eq('company_id',actorCompanyId);return query.order('updated_at',{ascending:false}).limit(100)})(),
-          (()=>{let query=admin.from('attendance_sessions').select('id,company_id,profile_id,site_id,clock_in_at,status').is('clock_out_at',null).lt('clock_in_at',since(18*60)).not('status','in','(rejected,duplicate)');if(actorCompanyId)query=query.eq('company_id',actorCompanyId);return query.order('clock_in_at',{ascending:true}).limit(100)})(),
+          (()=>{let query=admin.from('attendance_sessions').select('id,company_id,profile_id,site_id,clock_in_at,scheduled_end_at,status').is('clock_out_at',null).not('status','in','(rejected,duplicate)');if(actorCompanyId)query=query.eq('company_id',actorCompanyId);return query.order('clock_in_at',{ascending:true}).limit(500)})(),
+          (()=>{let query=admin.from('workforce_rule_settings').select('company_id,stale_after_shift_minutes').eq('singleton',true);if(actorCompanyId)query=query.eq('company_id',actorCompanyId);return query})(),
         ])
-        if (error || staleError) throw error ?? staleError
+        if (error || openError || ruleError) throw error ?? openError ?? ruleError
+        const staleMinutesByCompany = new Map((ruleRows ?? []).map(row => [row.company_id, Math.max(0, Number(row.stale_after_shift_minutes ?? 60))]))
+        const overdueAt = (row: { company_id: string; clock_in_at: string; scheduled_end_at?: string | null }) => {
+          if (row.scheduled_end_at) return new Date(row.scheduled_end_at).getTime() + (staleMinutesByCompany.get(row.company_id) ?? 60) * 60_000
+          return new Date(row.clock_in_at).getTime() + 18 * 60 * 60_000
+        }
+        const staleRows = (openRows ?? []).filter(row => Date.now() >= overdueAt(row))
+        const activeTodayRows = (openRows ?? []).filter(row => row.clock_in_at >= bangkokTodayStart() && Date.now() < overdueAt(row) && !['pending','needs_review'].includes(row.status))
         const failed = failedRows?.length ?? 0
         const stale = staleRows?.length ?? 0
+        const activeToday = activeTodayRows?.length ?? 0
         const total = failed + stale
         const staleProfiles = [...new Set((staleRows ?? []).map(row => row.profile_id).filter(Boolean))]
         const staleSites = [...new Set((staleRows ?? []).map(row => row.site_id).filter(Boolean))]
@@ -338,15 +351,18 @@ Deno.serve(async (request) => {
             site_name: site?.name ?? null,
             clock_in_at: row.clock_in_at,
             open_minutes: Math.max(0, Math.round((Date.now() - new Date(row.clock_in_at).getTime()) / 60_000)),
+            overdue_minutes: Math.max(0, Math.round((Date.now() - overdueAt(row)) / 60_000)),
+            overdue_basis: row.scheduled_end_at ? 'scheduled_end_plus_grace' : 'legacy_18h_fallback',
             status: row.status,
           }
         })
         return {
           status: total ? 'warning' : 'healthy',
-          message: total ? `แจ้งเตือนล้มเหลว ${failed} (24 ชม.) · ลงเวลาค้าง ${stale}` : 'ทำงานปกติ',
+          message: total ? `แจ้งเตือนล้มเหลว ${failed} (24 ชม.) · เกินเวลาตรวจสอบ ${stale} · กำลังทำงานวันนี้ ${activeToday}` : `ทำงานปกติ · กำลังทำงานวันนี้ ${activeToday}`,
           metadata: {
             failed_notifications_24h: failed,
-            stale_sessions_over_18h: stale,
+            overdue_attendance_sessions: stale,
+            active_sessions_today: activeToday,
             failed_by_company: countByCompany(failedRows ?? []),
             stale_by_company: countByCompany(staleRows ?? []),
             failed_notification_ids: (failedRows ?? []).slice(0, 20).map(row => row.id),

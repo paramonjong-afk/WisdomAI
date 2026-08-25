@@ -6,7 +6,12 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'WisdomAI-React-multi-project-v2/**', 'supabase/functions/**']),
+  globalIgnores([
+    'dist',
+    '.deploy-worktrees/**',
+    'WisdomAI-React-multi-project-v2/**',
+    'supabase/functions/**',
+  ]),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

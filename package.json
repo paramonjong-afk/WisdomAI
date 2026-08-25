@@ -115,6 +115,7 @@
     "test:general-work-room": "node --experimental-strip-types scripts/general-work-room.test.ts",
     "test:web-chat-operational-core": "node --experimental-strip-types scripts/web-chat-operational-core.test.ts",
     "test:flow-registry-dashboard": "node --experimental-strip-types scripts/flow-registry-dashboard.test.ts",
+    "test:flow-control-center": "node --experimental-strip-types scripts/flow-control-center.test.ts",
     "test:notification-center": "node --experimental-strip-types scripts/notification-center.test.ts",
     "test:master-data-candidate-review": "node --experimental-strip-types scripts/master-data-candidate-review.test.ts",
     "test:document-flow-backfill-removed": "node --experimental-strip-types scripts/document-flow-backfill-removed.test.ts",

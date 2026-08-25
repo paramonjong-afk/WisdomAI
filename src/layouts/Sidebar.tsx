@@ -1,3 +1,4 @@
+import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined'
 import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined'
 import EngineeringOutlinedIcon from '@mui/icons-material/EngineeringOutlined'
 import FormatListBulletedOutlinedIcon from '@mui/icons-material/FormatListBulletedOutlined'
@@ -46,6 +47,7 @@ const navigationIcons:Record<string,React.ReactNode>={
   '/platform-control-center':<HubOutlinedIcon/>,
   '/mutation-attempt-center':<HistoryOutlinedIcon/>,
   '/flow-registry':<HubOutlinedIcon/>,
+  '/flow-control-center':<AccountTreeOutlinedIcon/>,
 }
 
 function NavigationContent() {
@@ -73,7 +75,7 @@ function NavigationContent() {
         {navigationGroups.map((group)=>{
           const items=group.items.filter((item)=>(!item.roles||item.roles.includes(role))&&(!item.platformOnly||isPlatformAdmin))
           if(items.length===0)return null
-          const active=items.some((item)=>location.pathname===item.path)
+          const active=items.some((item)=>location.pathname===item.path.split('?')[0])
           return <Box component="details" key={group.label} open={active} sx={{
             mb:.5,'&[open] .group-arrow':{transform:'rotate(180deg)'},
           }}>
@@ -99,7 +101,7 @@ function NavigationContent() {
               '&.active:before':{content:'""',position:'absolute',left:0,top:8,bottom:8,width:3,borderRadius:2,bgcolor:'#FABFB2'},
             }}
           >
-            <ListItemIcon sx={{ minWidth:38,color:'inherit','& svg':{fontSize:21} }}>{navigationIcons[item.path]}</ListItemIcon>
+            <ListItemIcon sx={{ minWidth:38,color:'inherit','& svg':{fontSize:21} }}>{navigationIcons[item.path]??navigationIcons[item.path.split('?')[0]]}</ListItemIcon>
             <ListItemText primary={item.label} slotProps={{primary:{sx:{fontWeight:650,fontSize:14,lineHeight:1.35}}}} />
           </ListItemButton>
             ))}
