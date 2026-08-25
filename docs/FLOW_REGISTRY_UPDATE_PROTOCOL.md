@@ -1,5 +1,14 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Employee Intake Preboarding Draft v1.0 — 25/8/2569
+
+- **เหตุผล:** เอกสารบัตรประชาชนและเอกสารประกอบเข้าระบบแล้ว แต่ข้อมูลการจ้างยังไม่ครบ; HR ต้องเริ่มทะเบียนและเห็นไฟล์ทั้งหมดได้โดยไม่เดาข้อมูลหรือเปิดสิทธิ์เร็วเกินไป
+- **ผลกระทบ:** เพิ่ม Flow สองขั้น: สร้าง Employee Master `preboarding` แบบไม่มี Login/ลงเวลา/ค่าแรง แล้วคง Intake เป็น `information_required`; อนุมัติสุดท้ายได้เมื่อข้อมูลครบเท่านั้น; Preview แสดงเอกสารทุกไฟล์
+- **สิทธิ์/Audit:** Admin หรือ Company Manager บริษัทเดียวกันผ่าน Edge Function; RPC เปิดเฉพาะ service role; ใช้ Intake/document unique key กันซ้ำ และเขียน Workforce Audit
+- **Migration:** `20260825203000_employee_intake_preboarding_draft.sql`; timestamp ต่อท้าย Production history จริง, ไม่ใช้ `--include-all`, ไม่ reset/drop และไม่ลบข้อมูลเดิม
+- **Verification:** preboarding contract, employee intake, LINE HR routing, typecheck, lint, build, linked migration dry-run/apply, current Intake data reconciliation และ authenticated Cloudflare smoke
+- **Rollback:** revert frontend/Edge และปิด RPC; archive Employee Master ที่สร้างผิดได้โดยคง Intake, เอกสารต้นฉบับและ Audit เพื่อ recovery
+
 ## ล่าสุด: Master Data persistence/read-after-write v1.6 — 25/8/2569
 
 - **เหตุผล:** Production action ของ Message `928d5df9-275e-467d-be72-5016a4f4e966` บันทึก `request_info` จริง แต่ UI ไม่อธิบายว่าเป็นเพียงรอข้อมูลเพิ่ม และการนับ `ข้อมูลใหม่ 55` เทียบกับ `รอตรวจ 56` ใช้คนละความหมาย

@@ -107,6 +107,7 @@
     "test:telegram-attendance-fallback": "node --experimental-strip-types scripts/telegram-attendance-fallback.test.ts",
     "test:telegram-attendance-approval": "node --experimental-strip-types scripts/telegram-attendance-approval.test.ts",
     "test:employee-intake": "node --experimental-strip-types scripts/employee-multichannel-intake.test.ts",
+    "test:employee-preboarding-draft": "node --experimental-strip-types scripts/employee-preboarding-draft.test.ts",
     "test:line-hr-document-routing": "node --experimental-strip-types scripts/line-hr-document-routing.test.ts",
     "test:advance-report": "node --experimental-strip-types scripts/advance-report-contract.test.ts",
     "test:advance-confirmation": "node --experimental-strip-types scripts/advance-confirmation-contract.test.ts",

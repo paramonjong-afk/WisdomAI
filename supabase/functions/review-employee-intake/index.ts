@@ -11,7 +11,7 @@ const cors = {
 }
 
 type ReviewEmployeeIntakeBody = {
-  action?: 'approve' | 'request_more' | 'cancel' | 'revert_approval'
+  action?: 'create_preboarding' | 'approve' | 'request_more' | 'cancel' | 'revert_approval'
   intake_id?: string
 }
 
@@ -51,6 +51,18 @@ const mapError = (
     code: 'UNREADY_FOR_APPROVAL',
     action: 'กรุณารอข้อมูลครบก่อนแล้วลองอัปเดตอีกครั้ง',
     status: 409,
+  }
+  if (/employee_intake_candidate_name_required/i.test(message)) return {
+    message: 'ยังไม่พบชื่อพนักงานที่ยืนยันได้', code: 'CANDIDATE_NAME_REQUIRED',
+    action: 'ตรวจชื่อจากเอกสารหรือกรอกชื่อให้ถูกต้องก่อนสร้างประวัติเบื้องต้น', status: 409,
+  }
+  if (/employee_intake_document_required/i.test(message)) return {
+    message: 'ยังไม่มีเอกสารต้นฉบับที่เชื่อมกับ Intake', code: 'DOCUMENT_REQUIRED',
+    action: 'ตรวจการนำเข้าเอกสาร แล้วลองสร้างประวัติเบื้องต้นอีกครั้ง', status: 409,
+  }
+  if (/employee_intake_preboarding_not_actionable/i.test(message)) return {
+    message: 'รายการนี้ปิดหรืออนุมัติไปแล้ว จึงสร้างประวัติเบื้องต้นซ้ำไม่ได้', code: 'INVALID_STATE',
+    action: 'รีเฟรชและตรวจสถานะ Employee Master ของรายการนี้', status: 409,
   }
   if (/employee_intake_approval_denied/i.test(message)) return {
     message: 'สิทธิ์การอนุมัติไม่เพียงพอ',
@@ -142,8 +154,8 @@ Deno.serve(async (request) => {
     const action = body?.action
     const intakeId = body?.intake_id?.trim()
 
-    if (!action || !['approve', 'request_more', 'cancel', 'revert_approval'].includes(action)) {
-      return errorResponse('ข้อมูล action ไม่ถูกต้อง', 'INVALID_ACTION', 'เลือกการดำเนินการที่ถูกต้อง (approve / request_more / cancel / revert_approval)', 400)
+    if (!action || !['create_preboarding', 'approve', 'request_more', 'cancel', 'revert_approval'].includes(action)) {
+      return errorResponse('ข้อมูล action ไม่ถูกต้อง', 'INVALID_ACTION', 'เลือกการดำเนินการที่ถูกต้อง', 400)
     }
     if (!intakeId) {
       return errorResponse('ข้อมูล intake_id ไม่ครบ', 'INVALID_INTAKE_ID', 'เลือกรายการ HR Intake ก่อนกดยืนยัน', 400)
@@ -160,6 +172,27 @@ Deno.serve(async (request) => {
     }
     if (targetIntake.company_id !== companyId) {
       return errorResponse('ไม่พบสิทธิ์จัดการ intake นี้', 'INTAKE_NOT_FOUND', 'ตรวจสอบว่า intake นี้อยู่ในบริษัทที่คุณเลือกอยู่', 404)
+    }
+
+    if (action === 'create_preboarding') {
+      const { data: draft, error: draftError } = await admin.rpc('create_employee_preboarding_from_intake', {
+        target_intake_id: intakeId,
+        actor_profile_id: authData.user.id,
+      })
+      if (draftError) {
+        const mapped = mapError(draftError)
+        return errorResponse(mapped.message, mapped.code, mapped.action, mapped.status ?? 400)
+      }
+      return Response.json({
+        ok: true,
+        action: 'create_preboarding',
+        intake_id: intakeId,
+        employee_id: draft?.[0]?.employee_id ?? null,
+        employee_code: draft?.[0]?.employee_code ?? null,
+        result_status: draft?.[0]?.result_status ?? 'preboarding_created',
+        remaining_fields: draft?.[0]?.remaining_fields ?? [],
+        linked_document_count: draft?.[0]?.linked_document_count ?? 0,
+      }, { headers: { ...cors, 'content-type': 'application/json; charset=utf-8' } })
     }
 
     if (action === 'approve') {

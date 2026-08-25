@@ -29,6 +29,44 @@ flowchart LR
   K --> M[คิวแผนกปลายทาง]
 ```
 
+## Employee Intake สองขั้น — v1.4 (25/8/2569)
+
+```mermaid
+flowchart TD
+  A[LINE / Web Chat ส่งเอกสารพนักงานใหม่] --> B[เก็บ Raw + เอกสารทุกไฟล์ใน HR Intake]
+  B --> C[AI แยกประเภทและสกัดเฉพาะข้อมูลที่อนุญาต]
+  C --> D{มีชื่อที่ยืนยันได้และมีเอกสารอย่างน้อย 1 ไฟล์?}
+  D -->|ไม่| E[รอ HR ตรวจ / ขอข้อมูลเพิ่ม]
+  D -->|ใช่| F[HR/Admin สร้างประวัติเบื้องต้น]
+  F --> G[Employee Master: preboarding\nไม่มี Profile/Login]
+  F --> H[เชื่อมเอกสารทุกไฟล์แบบ idempotent]
+  F --> I[Audit: ผู้ทำ / Intake / จำนวนเอกสาร / ช่องที่ขาด]
+  G --> J{ข้อมูลบังคับครบหรือยัง?}
+  H --> J
+  J -->|ยังขาด| K[information_required\nส่งรายการที่ขาดกลับ HR]
+  J -->|ครบ| L[pending_review\nรออนุมัติสุดท้าย]
+  L --> M[Admin/Company Manager ยืนยัน]
+  M --> N[approved → Onboarding Readiness]
+  N --> O{Readiness ครบและเปิดใช้งานแยกแล้ว?}
+  O -->|ไม่| P[ยัง Login/ลงเวลา/คิดค่าแรงไม่ได้]
+  O -->|ใช่| Q[เปิดใช้งานตามสิทธิ์และไซต์]
+```
+
+- Input คือชุดเอกสารต้นฉบับจาก Intake; ระบบเก็บ Raw และทุกไฟล์ไว้เสมอ ไม่เลือกแสดงหรือผูกเพียงไฟล์แรก
+- การสร้างประวัติเบื้องต้นต้องมีชื่อที่ยืนยันได้และเอกสารอย่างน้อยหนึ่งไฟล์ แต่ยอมให้ประเภทการจ้างเป็น `unknown` ชั่วคราว
+- Output ขั้นแรกคือ `employee_people.employee_status=preboarding`, `profile_id=null` และทะเบียนเอกสารที่เชื่อมครบทุกไฟล์ จึงยังไม่มี Login, สิทธิ์ลงเวลา, ไซต์ หรือรายการค่าแรง
+- สถานะ Intake คง `information_required` ตราบใดที่ยังมี `missing_fields`; เปลี่ยนเป็น `pending_review` เมื่อข้อมูลครบ และเป็น `approved` หลังผู้มีสิทธิ์ยืนยันสุดท้ายเท่านั้น
+- สิทธิ์สร้าง/อนุมัติใช้ Admin ระดับระบบหรือ Company Admin/Executive/Manager ในบริษัทเดียวกัน ผ่าน Edge Function และ RPC service-role เท่านั้น
+- การกดซ้ำใช้ `source_intake_id` และ unique document link เป็น idempotency key; ไม่สร้างพนักงานหรือเอกสารซ้ำ และทุกการสร้าง/เชื่อมเขียน Workforce Audit
+- Failure แสดงสาเหตุเฉพาะ: ไม่มีชื่อ, ไม่มีเอกสาร, สถานะปิดแล้ว, ข้อมูลยังไม่ครบ หรือสิทธิ์ไม่พอ; ผู้ใช้แก้ข้อมูลแล้ว retry รายการเดิมได้
+- Owner: HR/Admin เป็นเจ้าของการเติมข้อมูลและอนุมัติ; Platform Admin เป็นเจ้าของ schema/RPC และ recovery
+
+### Change record
+
+| Version | Date | Rationale | Impact | Migration | Verification | Rollback |
+| --- | --- | --- | --- | --- | --- | --- |
+| v1.4 | 25/8/2569 | ให้เริ่มทะเบียนพนักงานจากเอกสารที่ยืนยันได้โดยไม่เดาข้อมูลที่ขาด | เพิ่มปุ่มสร้างประวัติเบื้องต้น, preview ทุกไฟล์, final approval gate และ audit; ไม่เปิดสิทธิ์ใช้งาน | `20260825203000_employee_intake_preboarding_draft.sql` | contract, intake routing, typecheck, lint, build, linked dry-run/apply และ authenticated UI/Data smoke | revert UI/Edge/RPC; เปลี่ยนประวัติเบื้องต้นเป็น archived ได้โดยเก็บ Intake/เอกสาร/Audit เพื่อ recovery ห้ามลบ Raw |
+
 ## หลักข้อมูล
 
 - `Intake Case` เป็นหัวชุดการสนทนา; ไม่สร้างเอกสารใหม่เมื่อย้ายห้อง

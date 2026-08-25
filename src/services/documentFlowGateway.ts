@@ -368,8 +368,6 @@ export const documentFlowGateway = {
       .select('storage_bucket,storage_path,mime_type,created_at')
       .eq('intake_id', intakeId)
       .order('created_at')
-      .limit(1)
-      .maybeSingle()
   },
 
   async loadProjectWorkPackages() {
@@ -479,7 +477,7 @@ export const documentFlowGateway = {
 
   async reviewEmployeeIntake(input: {
     intakeId: string
-    action: 'approve' | 'request_more' | 'cancel' | 'revert_approval'
+    action: 'create_preboarding' | 'approve' | 'request_more' | 'cancel' | 'revert_approval'
   }) {
     return supabase.functions.invoke('review-employee-intake', {
       body: { action: input.action, intake_id: input.intakeId },

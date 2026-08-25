@@ -15,7 +15,20 @@ flowchart TD
   F --> G[Reports / Payroll / เอกสาร / Dashboard]
   C -->|ไม่ใช่| F
   D --> H[Delivery ledger กันข้อความซ้ำ + retry]
+  A2 --> I[Employee Intake Gate]
+  I --> J[สร้าง Employee Master เบื้องต้น\npreboarding / no Login]
+  J --> K{ข้อมูลบังคับครบ?}
+  K -->|ไม่| I
+  K -->|ครบ + Admin อนุมัติ| B
 ```
+
+## Employee Master ก่อนข้อมูลครบ — v1.1 (25/8/2569)
+
+- เอกสารจาก Intake สามารถสร้างตัวตนพนักงานระดับ `preboarding` เพื่อให้ HR เริ่มจัดแฟ้มและตามข้อมูลได้ โดยไม่สร้าง `profiles`, `company_members`, การมอบหมายไซต์ หรือข้อมูลค่าแรง
+- เอกสารทุกใบเชื่อมผ่าน `employee_person_documents`; กดซ้ำไม่สร้างแถวซ้ำ และยังย้อนกลับไปยัง Intake/ไฟล์ต้นฉบับได้
+- ประเภทการจ้าง `unknown` ใช้ได้เฉพาะ Employee Master ขั้นต้น; ก่อนอนุมัติ Intake ต้องเป็น daily/monthly/temporary/contractor และข้อมูลบังคับต้องครบ
+- การเปิดใช้งานจริงยังต้องผ่าน Onboarding Readiness และ action แยก จึงไม่ทำให้บุคคลที่ข้อมูลไม่ครบลงเวลา/เข้าระบบ/คำนวณค่าแรงโดยอัตโนมัติ
+- Rollback: ปิด action/RPC และ archive Employee Master ที่สร้างผิดโดยคงเอกสารและ Audit; ไม่ reset/drop และไม่ลบ Raw Intake
 
 ## วัตถุประสงค์
 เอกสารนี้เป็น **แกนหลัง (backbone)** ของระบบงานบุคคลในโปรเจกต์:

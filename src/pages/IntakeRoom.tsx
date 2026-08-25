@@ -308,11 +308,15 @@ export function IntakeRoomPanel({
       if (item.source === 'employee_intake') {
         const result = await documentFlowGateway.employeeIntakePreview(item.id)
         if (requestId !== previewRequestRef.current) return
-        if (result.error || !result.data) { setPreviewMessage(result.error ? `เปิดไฟล์ไม่ได้: ${userError(result.error)}` : 'ไม่พบไฟล์ต้นฉบับของ Intake HR'); return }
-        const signed = await documentFlowGateway.signedPreviewUrl(result.data.storage_bucket, result.data.storage_path)
+        if (result.error || !result.data?.length) { setPreviewMessage(result.error ? `เปิดไฟล์ไม่ได้: ${userError(result.error)}` : 'ไม่พบไฟล์ต้นฉบับของ Intake HR'); return }
+        const signedFiles = await Promise.all(result.data.map(async (file, index) => {
+          const signed = await documentFlowGateway.signedPreviewUrl(file.storage_bucket, file.storage_path)
+          return signed.data?.signedUrl ? { url: signed.data.signedUrl, contentType: file.mime_type ?? null, label: `ไฟล์ ${index + 1}` } : null
+        }))
         if (requestId !== previewRequestRef.current) return
-        if (!signed.data?.signedUrl) { setPreviewMessage(`เปิดไฟล์ไม่ได้: ${userError(signed.error ?? new Error('สร้างลิงก์ไม่สำเร็จ'))}`); return }
-        setPreviewFiles([{ url: signed.data.signedUrl, contentType: result.data.mime_type ?? null, label: 'ไฟล์ 1' }]); setPreviewMessage(''); return
+        const available = signedFiles.filter((file): file is PreviewFile => Boolean(file))
+        if (!available.length) { setPreviewMessage('สร้างลิงก์เปิดเอกสาร HR ไม่สำเร็จ'); return }
+        setPreviewFiles(available); setPreviewMessage(''); return
       }
       const result = await documentFlowGateway.preview(item.id)
       if (requestId !== previewRequestRef.current) return
@@ -551,10 +555,11 @@ export function IntakeRoomPanel({
 
   const employeeIntakeTransition = useCallback(async (
     item: IntakeFlowItem,
-    action: 'approve' | 'request_more' | 'cancel' | 'revert_approval',
+    action: 'create_preboarding' | 'approve' | 'request_more' | 'cancel' | 'revert_approval',
   ): Promise<boolean> => {
     if (item.source !== 'employee_intake') return false
     const actionLabel = {
+      create_preboarding: 'สร้างประวัติพนักงานเบื้องต้น',
       approve: 'อนุมัติส่งต่อ HR',
       request_more: 'ขอข้อมูลเพิ่ม',
       cancel: 'ยกเลิก Intake HR',
@@ -575,7 +580,9 @@ export function IntakeRoomPanel({
       }
       const approvalStatus = action === 'approve' ? result.data?.result_status : undefined
       setActionMessage(
-        approvalStatus === 'approved_and_documents_linked'
+        action === 'create_preboarding'
+          ? `สร้างประวัติเบื้องต้นสำเร็จ · เชื่อมเอกสาร ${result.data?.linked_document_count ?? 0} รายการ · ยังไม่เปิด Login/ลงเวลา/ค่าแรง`
+          : approvalStatus === 'approved_and_documents_linked'
           ? 'อนุมัติสำเร็จ · สร้าง/อัปเดตทะเบียนพนักงานและเชื่อมเอกสารแนบแล้ว'
           : approvalStatus === 'already_approved'
             ? 'รายการนี้อนุมัติและมีทะเบียนพนักงานอยู่แล้ว · ตรวจสอบ/ซ่อมสถานะให้เรียบร้อย'
@@ -802,6 +809,12 @@ export function IntakeRoomPanel({
               </MenuItem>
               {actionMenuRow.source === 'employee_intake' ? <>
               <MenuItem
+                disabled={['approved', 'cancelled'].includes(actionMenuRow.state)}
+                onClick={() => { closeActionMenu(); void employeeIntakeTransition(actionMenuRow, 'create_preboarding') }}
+              >
+                สร้างประวัติเบื้องต้น
+              </MenuItem>
+              <MenuItem
                 disabled={actionMenuRow.state !== 'pending_review'}
                 onClick={() => { closeActionMenu(); void employeeIntakeTransition(actionMenuRow, 'approve') }}
               >
@@ -872,7 +885,11 @@ export function IntakeRoomPanel({
           </>}
           <TextField label="หมายเหตุการดำเนินการ" multiline minRows={2} value={drawerNote} onChange={(event) => setDrawerNote(event.target.value)} />
           {selectedItem.source === 'document_flow' && <><Button variant="contained" disabled={actionLoading || selectedItem.current_flow !== 'intake' || (selectedItem.issue_codes?.length ?? 0) > 0 || selectedItem.state === 'duplicate_hold'} onClick={() => void workflowTransition(selectedItem, 'route_filter', drawerNote || 'ยืนยันผ่าน Intake และส่งเข้า Filter').then((ok) => { if (ok) setSelectedItem(null) })}>ยืนยันผ่าน Intake และส่งเข้า Filter</Button><Typography variant="caption" color="text.secondary">หากมีปัญหา คุณภาพต่ำ หรือเอกสารซ้ำ ต้องแก้หรือเลือกต้นฉบับก่อนจึงจะส่งต่อได้</Typography></>}
-          {selectedItem.source === 'employee_intake' && <Button variant="contained" disabled={actionLoading || selectedItem.state !== 'pending_review'} onClick={() => void employeeIntakeTransition(selectedItem, 'approve').then((ok) => { if (ok) setSelectedItem(null) })}>อนุมัติส่งต่อ HR</Button>}
+          {selectedItem.source === 'employee_intake' && <Stack spacing={1}>
+            {!['approved','cancelled'].includes(selectedItem.state) && <Button variant="outlined" disabled={actionLoading} onClick={() => void employeeIntakeTransition(selectedItem, 'create_preboarding')}>สร้างประวัติพนักงานเบื้องต้น</Button>}
+            <Button variant="contained" disabled={actionLoading || selectedItem.state !== 'pending_review'} onClick={() => void employeeIntakeTransition(selectedItem, 'approve').then((ok) => { if (ok) setSelectedItem(null) })}>ยืนยันข้อมูลครบและส่งเข้า Onboarding</Button>
+            <Typography variant="caption" color="text.secondary">ประวัติเบื้องต้นยังไม่มี Login และยังลงเวลา/คิดค่าแรงไม่ได้ จนข้อมูลครบและผ่าน Readiness Gate</Typography>
+          </Stack>}
         </Stack>}
       </Drawer>
       </Paper>

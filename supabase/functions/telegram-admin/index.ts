@@ -611,7 +611,10 @@ async function sendEmployeeIntakeSummary(companyId:string,intakeId:string){
     [{text:'✅ อนุมัติสร้างประวัติพนักงาน',callback_data:`employee_intake:approve:${intakeId}`}],
     [{text:'✏️ แก้ไขข้อมูล',callback_data:`employee_intake:update:${intakeId}`}],
     [{text:'⛔ ยกเลิก',callback_data:`employee_intake:cancel:${intakeId}`}],
-  ]}:{force_reply:true,input_field_placeholder:'ส่งข้อมูลที่ยังขาด'}
+  ]}:{inline_keyboard:[
+    [{text:'🗂️ สร้างประวัติเบื้องต้น',callback_data:`employee_intake:preboard:${intakeId}`}],
+    [{text:'⛔ ยกเลิก',callback_data:`employee_intake:cancel:${intakeId}`}],
+  ]}
   return broadcastEmployeeIntake(companyId,intakeId,prompt,replyMarkup,ready?'review_ready':'missing_fields')
 }
 
@@ -814,7 +817,7 @@ Deno.serve(async request=>{
     if(chatError)throw chatError
 
     if(callback){
-      const intakeMatch=/^employee_intake:(new|approve|update|archive|cancel):([0-9a-f-]{36})$/.exec(callback.data??'')
+      const intakeMatch=/^employee_intake:(new|preboard|approve|update|archive|cancel):([0-9a-f-]{36})$/.exec(callback.data??'')
       if(intakeMatch){
         const action=intakeMatch[1],intakeId=intakeMatch[2]
         const {data:intake,error:intakeError}=await admin.from('employee_intakes').select('id,status,extracted_data').eq('id',intakeId).eq('company_id',actor.company_id).maybeSingle()
@@ -826,6 +829,19 @@ Deno.serve(async request=>{
           await sendEmployeeIntakeSummary(actor.company_id,intakeId)
           await admin.from('telegram_admin_events').update({status:'processed',processed_at:new Date().toISOString()}).eq('id',reserved!.id)
           return json({status:'employee_intake_already_ready'})
+        }
+        if(action==='preboard'){
+          const {data,error}=await admin.rpc('create_employee_preboarding_from_intake',{target_intake_id:intakeId,actor_profile_id:actor.profile_id})
+          if(error){
+            await answerCallback(callback.id,error.message.includes('candidate_name')?'ยังไม่มีชื่อที่ยืนยันได้':error.message.includes('document_required')?'ยังไม่พบเอกสารต้นฉบับ':'ไม่สามารถสร้างประวัติเบื้องต้นได้')
+            return json({status:'employee_preboarding_rejected'})
+          }
+          const result=data?.[0]
+          await answerCallback(callback.id,result?.result_status==='preboarding_reused'?'มีประวัติเบื้องต้นแล้ว':'สร้างประวัติเบื้องต้นแล้ว')
+          await finishCallbackMessage(callback,'สร้างประวัติเบื้องต้น',`รอข้อมูลเพิ่ม · ${result?.employee_code??''}`)
+          await sendEmployeeIntakeSummary(actor.company_id,intakeId)
+          await admin.from('telegram_admin_events').update({status:'processed',processed_at:new Date().toISOString()}).eq('id',reserved!.id)
+          return json({status:result?.result_status??'preboarding_created'})
         }
         if(action==='approve'){
           const extracted={...((intake.extracted_data??{}) as Record<string,unknown>)}
@@ -855,7 +871,7 @@ Deno.serve(async request=>{
           await answerCallback(callback.id,'กำลังอ่านเอกสาร')
           const analyzed=await analyzeEmployeeIntake(actor,intakeId)
           await finishCallbackMessage(callback,'พนักงานใหม่',analyzed.status==='pending_review'?'อ่านข้อมูลครบ รออนุมัติ':'กำลังรอข้อมูลเพิ่มเติม')
-          await sendText(chatId,employeeIntakeSummary(analyzed))
+          await sendEmployeeIntakeSummary(actor.company_id,intakeId)
         }else{
           const purpose=action==='update'?'update_employee':'archive_only'
           await admin.from('employee_intakes').update({purpose,status:'pending_review',submitted_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq('id',intakeId).eq('company_id',actor.company_id)
