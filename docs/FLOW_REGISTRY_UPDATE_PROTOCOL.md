@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Master Data persistence/read-after-write v1.6 — 25/8/2569
+
+- **เหตุผล:** Production action ของ Message `928d5df9-275e-467d-be72-5016a4f4e966` บันทึก `request_info` จริง แต่ UI ไม่อธิบายว่าเป็นเพียงรอข้อมูลเพิ่ม และการนับ `ข้อมูลใหม่ 55` เทียบกับ `รอตรวจ 56` ใช้คนละความหมาย
+- **ผลกระทบ:** ทุก Project/Correction/Review action ต้อง await RPC, ต้องได้ Candidate เดิมกลับมา และต้อง refetch แล้วยืนยันสถานะจากฐานข้อมูลก่อนแสดง success; null/stale/error คง Drawer ไว้พร้อมเหตุผล. Dashboard ใช้ projection เดียวและแยก 56 รายการเป็นข้อมูลใหม่ 55 + รอตรวจ/รอข้อมูล 1 อย่างตรวจสอบได้
+- **Data/Audit:** ไม่มี migration และไม่แก้ Raw/OCR/ข้อมูลธุรกิจย้อนหลัง; รายการจริงยังคง `needs_review` พร้อม Version/Audit จาก `request_info` และรอผู้ใช้ทำ Project → Correction → Confirm ต่อ
+- **Verification:** exact-row/audit/RPC evidence แบบ read-only, projection/persistence regression, rollback-only RPC probe, typecheck, targeted/full lint, build, Local browser และ authenticated Cloudflare smoke
+- **Rollback:** revert v1.6 frontend/service/projection; ข้อมูล Candidate, Version, Audit และ Source Reference ที่มีอยู่ไม่เปลี่ยน
+
 ## ล่าสุด: Master Data Project-first Gate v1.4 — 25/8/2569
 
 - **เหตุผล:** Drawer เดิมแก้ค่าได้แต่ validation อยู่หลัง Drawer และรายการยังค้างโดยไม่บอกว่าต้องจำแนก Project ก่อนยืนยัน

@@ -12,7 +12,7 @@ import { emptyMasterSourceEvidence, loadMasterSourceEvidence } from '../../servi
 import { applyLocalProjectGate, isProjectGateReady, projectGateStatus, type MasterProjectOption } from '../../services/masterDataProjectGate'
 import { createMasterDataProjectGateFixture } from '../../services/masterDataProjectGateFixture'
 import { loadMasterDataReviewReceipts } from '../../services/masterDataReviewReceipts'
-import { localReviewReceipt, type MasterReviewReceipt } from '../../services/masterDataReviewWorkflow'
+import { buildMasterReviewProjection, localReviewReceipt, validatePersistedCorrection, validatePersistedProjectGate, validatePersistedReviewAction, type MasterReviewAction, type MasterReviewReceipt } from '../../services/masterDataReviewWorkflow'
 import { userError } from '../../utils/userError'
 import { MasterDataProjectGatePanel, type ProjectGateAction } from './MasterDataProjectGatePanel'
 import { MasterDataReviewActions, MasterDataReviewProgress } from './MasterDataReviewWorkflow'
@@ -61,16 +61,16 @@ export function MasterDataCenterPage() {
       setReviewerNames({})
       setReviewReceipts(Object.fromEntries(fixture.candidates.map((candidate) => [candidate.id, localReviewReceipt(candidate)])))
       setError('')
-      return
+      return fixture.candidates as Candidate[]
     }
-    if (!companyId) return
+    if (!companyId) return [] as Candidate[]
     const [candidateResult, accountResult, projectResult] = await Promise.all([
       supabase.from('master_data_candidates').select('id,entity_type,display_name,normalized_name,candidate_data,confidence,status,source_table,source_id,duplicate_of,review_reason,reviewed_by,reviewed_at,classification_type,classification_confidence,classification_evidence,classification_conflicts,classification_version,classified_at,created_at,archive_after').eq('company_id', companyId).order('created_at', { ascending: false }).limit(500),
       supabase.from('master_bank_accounts').select('id,owner_name,owner_type,bank_name,account_last4,verification_status,verified_at,created_at').eq('company_id', companyId).neq('verification_status', 'archived').order('updated_at', { ascending: false }).limit(500),
       supabase.from('projects').select('id,name,code,status,project_name,developer_name,province,location_detail,property_type').eq('company_id', companyId).eq('status', 'active').order('name'),
     ])
     const loadError = candidateResult.error ?? accountResult.error ?? projectResult.error
-    if (loadError) { setError(userError(loadError)); return }
+    if (loadError) { setError(userError(loadError)); return [] as Candidate[] }
     const rows = (candidateResult.data ?? []) as Candidate[]
     setCandidates(rows)
     setAccounts((accountResult.data ?? []) as BankAccount[])
@@ -85,10 +85,11 @@ export function MasterDataCenterPage() {
     const receiptResult = await loadMasterDataReviewReceipts(rows.map((row) => row.id))
     setReviewReceipts(receiptResult.data)
     setError(sourceResult.error ? `โหลด Source Reference ไม่ครบ: ${userError(sourceResult.error)}` : receiptResult.error ? `โหลด Audit/Version ไม่ครบ: ${userError(receiptResult.error)}` : '')
+    return rows
   }, [companyId, localTestData])
 
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer) }, [load])
-  const review = async (candidate: Candidate, action: 'approve' | 'reject' | 'archive' | 'keep_existing' | 'match_master' | 'request_info' | 'lock' | 'controlled_correction') => {
+  const review = async (candidate: Candidate, action: MasterReviewAction) => {
     if (reviewReason.trim().length < 3 && action !== 'archive') { setDrawerMessage({ severity: 'error', text: 'กรุณาระบุเหตุผลอย่างน้อย 3 ตัวอักษรใน Drawer' }); return }
     if (['approve', 'keep_existing', 'match_master', 'lock'].includes(action) && !isProjectGateReady(candidate)) { setDrawerMessage({ severity: 'error', text: 'ต้องผูก Project เดิมหรือบันทึก Project Candidate ให้ครบก่อนยืนยันรายการ' }); return }
     if (['approve', 'keep_existing', 'match_master', 'lock'].includes(action) && candidate.status !== 'admin_reviewed') { setDrawerMessage({ severity: 'error', text: 'ต้องบันทึกฉบับแก้ไขและส่งเข้ารอตรวจซ้ำก่อนยืนยันรายการ' }); return }
@@ -97,21 +98,35 @@ export function MasterDataCenterPage() {
       const updated = { ...candidate, status, review_reason: reviewReason.trim() || null, reviewed_at: new Date().toISOString(), candidate_data: { ...candidate.candidate_data, ...(status === 'confirmed' || status === 'locked' ? { project_gate_resolution: projectGateStatus(candidate), project_gate_status: 'confirmed' } : {}), local_review_action: action } }
       const nextRows = candidates.map((row) => row.id === updated.id ? updated : row)
       setCandidates(nextRows)
+      setSelected(updated)
+      setReviewReceipts((current) => ({ ...current, [updated.id]: localReviewReceipt(updated) }))
       setReviewReason('')
-      const next = nextRows.find((row) => row.id !== updated.id && ['provisional', 'auto_verified', 'admin_reviewed', 'needs_review', 'pending_review', 'needs_more_info'].includes(row.status)) ?? null
-      if (next) { openCandidate(next); setDrawerMessage({ severity: 'success', text: `Local fixture: ${candidateStatus[status] ?? status} แล้ว และเปิดรายการถัดไป` }) } else { setSelected(null); setDrawerMessage(null) }
+      setDrawerMessage({ severity: 'success', text: ['confirmed', 'locked', 'rejected', 'archived'].includes(status) ? `Local fixture: ${candidateStatus[status] ?? status} แล้ว · คิวและตัวเลขรีเฟรชแล้ว` : `Local fixture: ${candidateStatus[status] ?? status} แล้ว · รายการยังอยู่คิวและยังไม่ยืนยัน Master Data` })
       return
     }
     setSavingId(candidate.id); setDrawerMessage(null); setError('')
-    const { data: reviewedData, error: rpcError } = await supabase.rpc('review_master_data_candidate', { target_candidate_id: candidate.id, target_event_key: crypto.randomUUID(), target_action: action, target_reason: reviewReason.trim() || null })
-    setSavingId('')
-    if (rpcError) { setDrawerMessage({ severity: 'error', text: userError(rpcError) }); return }
-    const reviewed = reviewedData as Candidate | null
-    const leavesQueue = reviewed ? ['confirmed', 'approved', 'locked', 'rejected', 'archived'].includes(reviewed.status) : ['approve', 'keep_existing', 'match_master', 'lock', 'reject', 'archive'].includes(action)
-    const next = leavesQueue ? candidates.find((row) => row.id !== candidate.id && ['provisional', 'auto_verified', 'admin_reviewed', 'needs_review', 'pending_review', 'needs_more_info'].includes(row.status)) ?? null : reviewed
-    setReviewReason('')
-    if (next) { openCandidate(next); setDrawerMessage({ severity: 'success', text: `${candidateStatus[reviewed?.status ?? ''] ?? 'บันทึกสำเร็จ'} · รีเฟรชคิวแล้วและเปิดรายการถัดไป` }) } else { setSelected(null); setDrawerMessage(null) }
-    await load()
+    try {
+      const { data: reviewedData, error: rpcError } = await supabase.rpc('review_master_data_candidate', { target_candidate_id: candidate.id, target_event_key: crypto.randomUUID(), target_action: action, target_reason: reviewReason.trim() || null })
+      if (rpcError) { setDrawerMessage({ severity: 'error', text: userError(rpcError) }); return }
+      const reviewed = reviewedData && typeof reviewedData === 'object' ? reviewedData as Candidate : null
+      const refreshedRows = await load()
+      const persisted = refreshedRows.find((row) => row.id === candidate.id) ?? null
+      const persistenceError = validatePersistedReviewAction(candidate.id, action, reviewed, persisted)
+      if (persistenceError || !persisted) { setDrawerMessage({ severity: 'error', text: persistenceError ?? 'ตรวจสอบสถานะหลังบันทึกไม่สำเร็จ' }); return }
+      setSelected(persisted)
+      setReviewReason('')
+      const terminal = ['confirmed', 'approved', 'locked', 'rejected', 'archived'].includes(persisted.status)
+      setDrawerMessage({
+        severity: 'success',
+        text: terminal
+          ? `${candidateStatus[persisted.status] ?? persisted.status} ในฐานข้อมูลแล้ว · คิวและตัวเลขรีเฟรชแล้ว`
+          : `${candidateStatus[persisted.status] ?? persisted.status} ในฐานข้อมูลแล้ว · รายการยังไม่ยืนยัน Master Data และยังอยู่คิว`,
+      })
+    } catch (actionError) {
+      setDrawerMessage({ severity: 'error', text: userError(actionError, 'ตรวจสอบการบันทึก Action ไม่สำเร็จ') })
+    } finally {
+      setSavingId('')
+    }
   }
   const openSource = async (candidate: Candidate) => {
     const source = evidence[candidate.id] ?? emptyEvidence()
@@ -136,14 +151,23 @@ export function MasterDataCenterPage() {
       setSelected(updated); setCandidates((current) => current.map((row) => row.id === updated.id ? updated : row)); setReviewReceipts((current) => ({ ...current, [updated.id]: localReviewReceipt(updated) })); setDrawerMessage({ severity: 'success', text: 'Local fixture: append ฉบับแก้ไข/Version/Audit แล้ว รายการเปลี่ยนเป็นรอตรวจซ้ำ' }); return
     }
     setSavingId(selected.id); setDrawerMessage(null); setError('')
-    const eventKey = crypto.randomUUID()
-    const beforeData = selected
-    const { data: correctedData, error: correctionError } = await supabase.rpc('correct_master_data_candidate', { target_candidate_id: selected.id, target_event_key: eventKey, target_correction: correction, target_reason: reviewReason.trim() })
-    setSavingId('')
-    if (correctionError) { setDrawerMessage({ severity: 'error', text: userError(correctionError) }); return }
-    if (correctedData) { const updated = correctedData as Candidate; setSelected(updated); setCandidates((current) => current.map((row) => row.id === updated.id ? updated : row)); setReviewReceipts((current) => ({ ...current, [updated.id]: { projectCandidate: current[updated.id]?.projectCandidate ?? null, correction: { version: null, actorId: updated.reviewed_by ?? null, timestamp: updated.reviewed_at ?? null, auditEventKey: eventKey, beforeData, afterData: updated } } })) }
-    setDrawerMessage({ severity: 'success', text: 'บันทึกฉบับแก้ไขแล้ว รายการยังอยู่ในคิวจนกว่าจะผ่าน Project-first Gate และกดยืนยันข้อเสนอ' })
-    await load()
+    try {
+      const eventKey = crypto.randomUUID()
+      const { data: correctedData, error: correctionError } = await supabase.rpc('correct_master_data_candidate', { target_candidate_id: selected.id, target_event_key: eventKey, target_correction: correction, target_reason: reviewReason.trim() })
+      if (correctionError) { setDrawerMessage({ severity: 'error', text: userError(correctionError) }); return }
+      const corrected = correctedData && typeof correctedData === 'object' ? correctedData as Candidate : null
+      const refreshedRows = await load()
+      const persisted = refreshedRows.find((row) => row.id === selected.id) ?? null
+      const persistenceError = validatePersistedCorrection(selected.id, corrected, persisted)
+      if (persistenceError || !persisted) { setDrawerMessage({ severity: 'error', text: persistenceError ?? 'ตรวจสอบ Correction หลังบันทึกไม่สำเร็จ' }); return }
+      setSelected(persisted)
+      setReviewReason('')
+      setDrawerMessage({ severity: 'success', text: 'บันทึก Correction/Version/Audit ในฐานข้อมูลแล้ว · รายการอยู่รอตรวจซ้ำและยังไม่ยืนยัน Master Data' })
+    } catch (actionError) {
+      setDrawerMessage({ severity: 'error', text: userError(actionError, 'ตรวจสอบ Correction ไม่สำเร็จ') })
+    } finally {
+      setSavingId('')
+    }
   }
   const saveProjectGate = async (action: ProjectGateAction, payload: Record<string, unknown>) => {
     if (!selected) return
@@ -156,17 +180,35 @@ export function MasterDataCenterPage() {
       return
     }
     setSavingId(selected.id); setDrawerMessage(null); setError('')
-    const eventKey = crypto.randomUUID()
-    const { data, error: gateError } = await supabase.rpc('save_master_data_project_gate', { target_candidate_id: selected.id, target_event_key: eventKey, target_action: action, target_payload: payload, target_reason: reviewReason.trim() })
-    setSavingId('')
-    if (gateError) { setDrawerMessage({ severity: 'error', text: userError(gateError) }); return }
-    const result = data && typeof data === 'object' ? data as { candidate?: Candidate; project_candidate?: { id: string; status: string; version_no: number; updated_by: string | null; updated_at: string } | null } : null
-    const updated = result?.candidate ?? null
-    if (updated) { setSelected(updated); setCandidates((current) => current.map((row) => row.id === updated.id ? updated : row)); if (result?.project_candidate) setReviewReceipts((current) => ({ ...current, [updated.id]: { correction: current[updated.id]?.correction ?? null, projectCandidate: { id: result.project_candidate!.id, status: result.project_candidate!.status, version: result.project_candidate!.version_no, actorId: result.project_candidate!.updated_by, timestamp: result.project_candidate!.updated_at, auditEventKey: eventKey } } })) }
-    setDrawerMessage({ severity: 'success', text: action === 'link_existing_project' ? 'ผูก Project เดิมแล้ว สามารถตรวจและยืนยันข้อเสนอได้' : action === 'save_project_candidate' ? 'บันทึก Project Candidate แล้ว โดยยังไม่ได้สร้าง Project จริงอัตโนมัติ' : action === 'request_information' ? 'ส่งรายการไปรอข้อมูลเพิ่มแล้ว' : 'ส่งรายการกลับคิวตรวจแล้ว' })
-    await load()
+    try {
+      const eventKey = crypto.randomUUID()
+      const { data, error: gateError } = await supabase.rpc('save_master_data_project_gate', { target_candidate_id: selected.id, target_event_key: eventKey, target_action: action, target_payload: payload, target_reason: reviewReason.trim() })
+      if (gateError) { setDrawerMessage({ severity: 'error', text: userError(gateError) }); return }
+      const result = data && typeof data === 'object' ? data as { candidate?: Candidate } : null
+      const rpcCandidate = result?.candidate ?? null
+      const refreshedRows = await load()
+      const persisted = refreshedRows.find((row) => row.id === selected.id) ?? null
+      const persistenceError = validatePersistedProjectGate(selected.id, action, rpcCandidate, persisted)
+      if (persistenceError || !persisted) { setDrawerMessage({ severity: 'error', text: persistenceError ?? 'ตรวจสอบ Project Gate หลังบันทึกไม่สำเร็จ' }); return }
+      setSelected(persisted)
+      setReviewReason('')
+      setDrawerMessage({
+        severity: 'success',
+        text: action === 'link_existing_project'
+          ? 'ผูก Project เดิมในฐานข้อมูลแล้ว · ขั้นถัดไปคือบันทึก Correction'
+          : action === 'save_project_candidate'
+            ? 'บันทึก Project Candidate ในฐานข้อมูลแล้ว · ยังไม่ได้สร้าง Project จริงหรือยืนยัน Master Data'
+            : action === 'request_information'
+              ? 'บันทึกรอข้อมูลเพิ่มแล้ว · รายการยังอยู่คิวและยังไม่ยืนยัน Master Data'
+              : 'บันทึกส่งกลับคิวตรวจแล้ว · รายการยังไม่ยืนยัน Master Data',
+      })
+    } catch (actionError) {
+      setDrawerMessage({ severity: 'error', text: userError(actionError, 'ตรวจสอบ Project Gate ไม่สำเร็จ') })
+    } finally {
+      setSavingId('')
+    }
   }
-  const pending = candidates.filter((item) => ['provisional', 'admin_reviewed', 'needs_review', 'pending_review', 'needs_more_info'].includes(item.status)).length
+  const reviewProjection = useMemo(() => buildMasterReviewProjection(candidates), [candidates])
   const duplicateGroups = useMemo(() => groupDuplicateCandidates(candidates), [candidates])
   const duplicateIds = useMemo(() => new Set(duplicateGroups.flatMap((group) => group.candidateIds)), [duplicateGroups])
   const classifications = useMemo(() => Object.fromEntries(candidates.map((candidate) => [candidate.id, classifyMasterCandidate(candidate, evidence[candidate.id] ?? emptyEvidence(), duplicateIds.has(candidate.id))])), [candidates, duplicateIds, evidence])
@@ -192,16 +234,14 @@ export function MasterDataCenterPage() {
     openCandidate(summaryRows[(currentIndex + 1 + summaryRows.length) % summaryRows.length])
   }
   const confirmedRows = useMemo(() => candidates.filter((candidate) => ['confirmed', 'approved', 'locked'].includes(candidate.status)).filter((candidate) => reportType === 'all' || classifications[candidate.id].type === reportType).filter((candidate) => !reportDate || candidate.reviewed_at?.slice(0, 10) === reportDate), [candidates, classifications, reportDate, reportType])
-  const conflictCount = candidates.filter((candidate) => classifications[candidate.id].conflicts.length > 0).length
-  const adminReviewed = candidates.filter((candidate) => candidate.status === 'admin_reviewed').length
-  const autoVerified = candidates.filter((candidate) => candidate.status === 'auto_verified' || classifications[candidate.id].autoVerified).length
-  const confirmedCount = candidates.filter((candidate) => ['confirmed', 'approved', 'locked'].includes(candidate.status)).length
+  const conflictCount = reviewProjection.active.filter((candidate) => classifications[candidate.id].conflicts.length > 0).length
 
   return <Stack spacing={2}>
     <PageHeader title="ศูนย์ข้อมูลกลาง" description="ข้อมูลจากสลิปและเอกสารจะเข้ารอตรวจ ก่อนยืนยันเป็นข้อมูลใช้ร่วมกันทุก Module · ไม่มีการลบข้อมูลที่มีการอ้างอิง" action={<Button startIcon={<RefreshOutlined />} onClick={() => void load()}>รีเฟรช</Button>} />
     {localTestData && <Alert severity="info">LOCAL TEST DATA · master-data-project-first-v1 · 53 รายการ · ไม่มีการอ่านหรือเขียน Production</Alert>}
     {error && <Alert severity="error">{error}</Alert>}
-    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><Metric label="ข้อมูลใหม่" value={`${candidates.filter((item) => ['provisional', 'pending_review'].includes(item.status)).length} รายการ`} /><Metric label="Auto Verified" value={`${autoVerified} รายการ`} /><Metric label="รอตรวจ" value={`${pending} รายการ`} /><Metric label="ขัดแย้ง" value={`${conflictCount} รายการ`} /><Metric label="ยืนยันแล้ว" value={`${confirmedCount} รายการ`} /><Metric label="แก้ไขโดย Admin" value={`${adminReviewed} รายการ`} /></Stack>
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><Metric label="คิวที่ต้องจัดการ" value={`${reviewProjection.active.length} รายการ`} /><Metric label="ข้อมูลใหม่" value={`${reviewProjection.incoming.length} รายการ`} /><Metric label="รอตรวจ/รอข้อมูล" value={`${reviewProjection.followUp.length} รายการ`} /><Metric label="Auto Verified" value={`${reviewProjection.autoVerified.length} รายการ`} /><Metric label="ขัดแย้ง" value={`${conflictCount} รายการ`} /><Metric label="ยืนยันแล้ว" value={`${reviewProjection.confirmed.length} รายการ`} /><Metric label="แก้ไขโดย Admin" value={`${reviewProjection.adminReviewed.length} รายการ`} /></Stack>
+    <Alert severity="info">สูตรคิวเดียวกัน: คิวที่ต้องจัดการ = ข้อมูลใหม่ + รอตรวจ/รอข้อมูล + Auto Verified + แก้ไขโดย Admin · ตารางและตัวกรอง “รอตรวจ” ใช้ชุดสถานะเดียวกัน</Alert>
     <Paper variant="outlined" sx={{ p: 1.5 }}><Typography variant="body2">มุมมองนี้สรุปข้อมูลใหม่เป็นกลุ่ม ไม่แสดง OCR ซ้ำเป็นหลายแถว ระบบไม่ auto-merge และการยืนยัน/ปฏิเสธยังบันทึก before/after, actor, เวลา และ source ลง Audit</Typography></Paper>
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'center' } }}><Typography variant="h6" sx={{ flex: 1 }}>Review Queue</Typography><Select size="small" value={filter} onChange={(event) => setFilter(event.target.value as MasterReviewFilter)}><MenuItem value="pending_review">รอตรวจ</MenuItem><MenuItem value="duplicate">ซ้ำ</MenuItem><MenuItem value="name_mismatch">ชื่อไม่ตรง</MenuItem><MenuItem value="account_name_mismatch">บัญชีตรงแต่ชื่อไม่ตรง</MenuItem><MenuItem value="conflict">ข้อมูลขัดแย้ง</MenuItem><MenuItem value="unknown_review">Unknown/Needs Review</MenuItem><MenuItem value="all">ทั้งหมด</MenuItem></Select><Chip label={`${reviewVisibleCount} กลุ่ม/รายการ`} /></Stack>
     <StandardDataTable rows={summaryRows} onFilteredRowCountChange={setReviewVisibleCount} getRowId={(row) => row.id} onRowClick={openCandidate} getSearchText={(row) => `${row.display_name} ${entityLabel[row.entity_type] ?? row.entity_type} ${classificationLabel[classifications[row.id].type]} ${candidateAccount(row) ?? ''} ${row.source_id ?? ''} ${evidence[row.id]?.messageId ?? ''}`} searchLabel="ค้นหาชื่อ บัญชี ประเภท Source ID หรือ Message ID" emptyText="ยังไม่มีข้อมูลตามตัวกรอง" minWidth={1460} columns={[

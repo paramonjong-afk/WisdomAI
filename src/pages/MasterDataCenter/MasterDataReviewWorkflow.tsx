@@ -4,14 +4,14 @@ import { useState } from 'react'
 import {
   masterReviewActiveStep,
   masterReviewBlockers,
+  masterReviewPersistenceNotice,
   masterReviewStage,
   masterReviewStepLabels,
   projectGateSummary,
+  type MasterReviewAction,
   type MasterReviewReceipt,
 } from '../../services/masterDataReviewWorkflow'
 import type { MasterCandidate } from './masterDataReview'
-
-type ReviewAction = 'approve' | 'reject' | 'archive' | 'keep_existing' | 'match_master' | 'request_info' | 'lock' | 'controlled_correction'
 
 type Props = {
   candidate: MasterCandidate
@@ -21,7 +21,7 @@ type Props = {
   hasNext: boolean
   actorName: (id: string | null) => string
   onCorrect: () => void
-  onReview: (action: ReviewAction) => void
+  onReview: (action: MasterReviewAction) => void
   onNext: () => void
   onClose: () => void
 }
@@ -35,6 +35,7 @@ export function MasterDataReviewProgress({ candidate, receipt, reason, actorName
   const stage = masterReviewStage(candidate)
   const blockers = masterReviewBlockers(candidate, reason)
   const terminal = stage === 'confirmed'
+  const persistedNotice = masterReviewPersistenceNotice(candidate)
   return <Stack spacing={1.25}>
     <Paper variant="outlined" sx={{ p: 1.25, position: 'sticky', top: 0, zIndex: 2, bgcolor: 'background.paper' }}>
       <Typography sx={{ fontWeight: 800, mb: 1 }}>ขั้นตอนตรวจและยืนยัน</Typography>
@@ -47,6 +48,12 @@ export function MasterDataReviewProgress({ candidate, receipt, reason, actorName
     {blockers.length > 0 && !terminal && <Alert severity="info">
       <Typography variant="subtitle2">เงื่อนไขที่ต้องครบก่อนทำขั้นตอนถัดไป</Typography>
       {blockers.map((item) => <Typography key={item} variant="body2">• {item}</Typography>)}
+    </Alert>}
+
+    {persistedNotice && <Alert severity={terminal ? 'success' : 'warning'}>
+      <Typography variant="subtitle2">สถานะที่บันทึกจริงล่าสุด</Typography>
+      <Typography variant="body2">{persistedNotice}</Typography>
+      <Typography variant="caption">เวลา: {dateTime(candidate.reviewed_at ?? null)} · เหตุผล: {candidate.review_reason ?? '-'}</Typography>
     </Alert>}
 
     {receipt.projectCandidate && <Paper variant="outlined" sx={{ p: 1.25, bgcolor: 'action.hover' }}>
@@ -86,7 +93,7 @@ export function MasterDataReviewActions({ candidate, reason, saving, hasNext, on
       : terminal
         ? { label: hasNext ? 'รายการถัดไป' : 'กลับคิว', disabled: false, run: hasNext ? onNext : onClose }
         : { label: 'เลือก Project เพื่อดำเนินการต่อ', disabled: true, run: () => undefined }
-  const menuAction = (action: ReviewAction) => { setAnchor(null); onReview(action) }
+  const menuAction = (action: MasterReviewAction) => { setAnchor(null); onReview(action) }
   return <Paper variant="outlined" sx={{ p: 1, position: 'sticky', bottom: 0, zIndex: 3, bgcolor: 'background.paper' }}>
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
         <Button fullWidth variant="contained" startIcon={terminal ? <NavigateNextOutlined /> : <CheckOutlined />} disabled={primary.disabled} onClick={primary.run}>{primary.label}</Button>

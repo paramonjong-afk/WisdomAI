@@ -1,3 +1,5 @@
+import { isMasterReviewOpen } from '../../services/masterDataReviewWorkflow.ts'
+
 export type MasterCandidate = {
   id: string
   entity_type: string
@@ -140,7 +142,7 @@ export function isAccountNameMismatch(candidate: MasterCandidate, evidence: Mast
 }
 
 export function reviewFilterMatches(candidate: MasterCandidate, evidence: MasterSourceEvidence | null, duplicateIds: Set<string>, filter: MasterReviewFilter) {
-  if (filter === 'pending_review') return ['provisional', 'auto_verified', 'admin_reviewed', 'needs_review', 'pending_review', 'needs_more_info'].includes(candidate.status)
+  if (filter === 'pending_review') return isMasterReviewOpen(candidate)
   if (filter === 'duplicate') return duplicateIds.has(candidate.id)
   if (filter === 'name_mismatch') return isNameMismatch(candidate, evidence)
   if (filter === 'account_name_mismatch') return isAccountNameMismatch(candidate, evidence)

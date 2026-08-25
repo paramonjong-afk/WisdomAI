@@ -11,6 +11,87 @@ export const masterReviewStepLabels = [
 
 export type MasterReviewStage = 'project_pending' | 'project_ready' | 'awaiting_rereview' | 'confirmed'
 
+export type MasterReviewAction = 'approve' | 'reject' | 'archive' | 'keep_existing' | 'match_master' | 'request_info' | 'lock' | 'controlled_correction'
+export type MasterProjectPersistenceAction = 'link_existing_project' | 'save_project_candidate' | 'request_information' | 'return_review'
+
+export const masterReviewOpenStatuses = ['provisional', 'pending_review', 'auto_verified', 'needs_review', 'needs_more_info', 'admin_reviewed'] as const
+
+export function isMasterReviewOpen(candidate: Pick<MasterCandidate, 'status'>) {
+  return masterReviewOpenStatuses.some((status) => status === candidate.status)
+}
+
+export function buildMasterReviewProjection<T extends Pick<MasterCandidate, 'status'>>(candidates: T[]) {
+  const active = candidates.filter(isMasterReviewOpen)
+  return {
+    active,
+    incoming: active.filter((candidate) => candidate.status === 'provisional' || candidate.status === 'pending_review'),
+    followUp: active.filter((candidate) => candidate.status === 'needs_review' || candidate.status === 'needs_more_info'),
+    autoVerified: active.filter((candidate) => candidate.status === 'auto_verified'),
+    adminReviewed: active.filter((candidate) => candidate.status === 'admin_reviewed'),
+    confirmed: candidates.filter((candidate) => ['confirmed', 'approved', 'locked'].includes(candidate.status)),
+  }
+}
+
+const expectedReviewStatuses: Record<MasterReviewAction, string[]> = {
+  approve: ['confirmed', 'approved'],
+  reject: ['rejected'],
+  archive: ['archived'],
+  keep_existing: ['confirmed', 'approved'],
+  match_master: ['confirmed', 'approved'],
+  request_info: ['needs_review', 'needs_more_info'],
+  lock: ['locked'],
+  controlled_correction: ['needs_review'],
+}
+
+export function validatePersistedReviewAction(
+  candidateId: string,
+  action: MasterReviewAction,
+  rpcCandidate: MasterCandidate | null,
+  refreshedCandidate: MasterCandidate | null,
+) {
+  if (!rpcCandidate || rpcCandidate.id !== candidateId) return 'RPC ไม่คืน Candidate ที่บันทึกจริง จึงยังไม่ถือว่าสำเร็จ'
+  if (!refreshedCandidate) return 'รีเฟรชแล้วไม่พบ Candidate เดิม จึงยังยืนยันการบันทึกไม่ได้'
+  if (!expectedReviewStatuses[action].includes(refreshedCandidate.status)) return `ฐานข้อมูลยังเป็นสถานะ ${refreshedCandidate.status} ซึ่งไม่ตรงกับ Action ${action}`
+  if (!refreshedCandidate.reviewed_at) return 'ฐานข้อมูลยังไม่มีเวลาที่บันทึก Action'
+  return null
+}
+
+export function validatePersistedCorrection(candidateId: string, rpcCandidate: MasterCandidate | null, refreshedCandidate: MasterCandidate | null) {
+  if (!rpcCandidate || rpcCandidate.id !== candidateId) return 'RPC ไม่คืน Candidate ฉบับแก้ไข จึงยังไม่ถือว่าสำเร็จ'
+  if (!refreshedCandidate) return 'รีเฟรชแล้วไม่พบ Candidate ฉบับแก้ไข'
+  if (refreshedCandidate.status !== 'admin_reviewed') return `ฐานข้อมูลยังเป็นสถานะ ${refreshedCandidate.status}; ต้องเป็น admin_reviewed`
+  if (!text(refreshedCandidate.candidate_data.admin_corrected_at)) return 'ฐานข้อมูลยังไม่มี admin_corrected_at/Correction Version'
+  return null
+}
+
+export function validatePersistedProjectGate(candidateId: string, action: MasterProjectPersistenceAction, rpcCandidate: MasterCandidate | null, refreshedCandidate: MasterCandidate | null) {
+  if (!rpcCandidate || rpcCandidate.id !== candidateId) return 'RPC ไม่คืน Candidate จาก Project Gate จึงยังไม่ถือว่าสำเร็จ'
+  if (!refreshedCandidate) return 'รีเฟรชแล้วไม่พบ Candidate หลังบันทึก Project Gate'
+  const data = refreshedCandidate.candidate_data
+  const expectedGate: Record<MasterProjectPersistenceAction, string> = {
+    link_existing_project: 'linked_existing_project',
+    save_project_candidate: 'awaiting_new_project',
+    request_information: 'awaiting_information',
+    return_review: 'review',
+  }
+  if (text(data.project_gate_status) !== expectedGate[action]) return `Project Gate ในฐานข้อมูลยังไม่เป็น ${expectedGate[action]}`
+  if (action === 'link_existing_project' && !text(data.project_id)) return 'ยังไม่พบ Project ID ที่ผูกในฐานข้อมูล'
+  if (action === 'save_project_candidate' && !text(data.project_candidate_id)) return 'ยังไม่พบ Project Candidate ID ในฐานข้อมูล'
+  return null
+}
+
+export function masterReviewPersistenceNotice(candidate: Pick<MasterCandidate, 'candidate_data' | 'status' | 'reviewed_at' | 'review_reason'>) {
+  if (!candidate.reviewed_at) return null
+  const gate = text(candidate.candidate_data.project_gate_status)
+  if (candidate.status === 'needs_review' && !gate) return 'บันทึก “ขอข้อมูลเพิ่ม” แล้ว แต่ยังไม่ได้เลือก Project, แก้ข้อมูล หรือยืนยัน Master Data รายการจึงยังอยู่คิวรอตรวจ'
+  if (candidate.status === 'needs_more_info' || gate === 'awaiting_information') return 'รายการอยู่สถานะรอข้อมูลเพิ่ม และยังไม่ใช่ Master Data ที่ยืนยันแล้ว'
+  if (gate === 'awaiting_new_project') return 'บันทึก Project Candidate แล้ว แต่ยังไม่ได้สร้าง Project จริงหรือยืนยัน Master Data'
+  if (gate === 'linked_existing_project') return 'ผูก Project เดิมแล้ว ขั้นถัดไปคือตรวจและบันทึก Correction'
+  if (candidate.status === 'admin_reviewed') return 'บันทึก Correction/Version แล้ว ขั้นถัดไปคือยืนยันข้อเสนอ'
+  if (['confirmed', 'approved', 'locked'].includes(candidate.status)) return 'ยืนยัน Master Data สำเร็จและนำออกจากคิวรอตรวจแล้ว'
+  return `Action ล่าสุดบันทึกเป็นสถานะ ${candidate.status}; รายการยังไม่ยืนยัน Master Data`
+}
+
 export type MasterProjectGateReceipt = {
   id: string
   status: string
