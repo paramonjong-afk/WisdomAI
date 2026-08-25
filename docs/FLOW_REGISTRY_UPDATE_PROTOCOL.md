@@ -1,5 +1,14 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Master Data Two-Tab + Work Scope v2.1 — 26/8/2569
+
+- **เหตุผล:** ขั้นตอนเดิมทำให้ผู้ใช้สับสนและบันทึก Correction ซ้ำทั้งที่ข้อมูลตรงกัน; Source Reference รวม UUID/Audit ไว้บรรทัดเดียวอ่านยาก และ Project เดิมยังไม่ระบุเนื้องาน
+- **ผลกระทบ:** `/master-data` เหลือ 2 Tab (`ตรวจและเติมข้อมูล`, `สรุปและยืนยัน`), ผูก Project เดิมพร้อม Work Package, เพิ่มเนื้องานที่ขาดได้, เปรียบเทียบผู้โอน/ผู้รับและ Master เดิม, ข้าม Correction เมื่อข้อมูลตรง และแสดง ID/Audit เป็นช่องอ่าน/คัดลอกได้
+- **Data/Audit:** `save_master_data_project_gate_v3` ตรวจ company/project/work-package จริง, ใช้ `event_key` กันซ้ำ และ append Work Scope ลง Version/Audit; Raw/OCR/Source เดิม read-only
+- **Migration:** `20260826173000_master_data_two_tab_work_scope.sql`; idempotent, RLS/company-scoped และต้อง Apply ก่อนปล่อย UI v2.1
+- **Verification:** contracts ของ 2 Tab, Project/Work Package, mismatch/direct-confirm, Source/Audit count, lint, typecheck, build, responsive Local browser, Production persistence probe และ authenticated Cloudflare smoke
+- **Rollback:** deploy UI v2.0/call Gate v2 ก่อน แล้ว revoke v3 wrapperได้; ห้ามลบ Work Package, Candidate, Version, Audit หรือ Raw/OCR/Source
+
 ## ล่าสุด: Secure Employee Document Viewer v2.6 — 26/8/2569
 
 - **เหตุผล:** Drawer แสดงเพียงชนิดเอกสารแต่เปิดต้นฉบับไม่ได้ ทำให้ HR ต้องย้อนค้นเองและตรวจหลักฐานไม่จบในจุดทำงาน

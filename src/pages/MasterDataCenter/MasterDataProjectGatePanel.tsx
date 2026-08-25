@@ -13,6 +13,7 @@ import {
   validateProjectDraft,
   type MasterProjectCandidateDraft,
   type MasterProjectOption,
+  type MasterWorkPackageOption,
 } from '../../services/masterDataProjectGate'
 import type { MasterCandidate, MasterSourceEvidence } from './masterDataReview'
 
@@ -22,11 +23,13 @@ type Props = {
   candidate: MasterCandidate
   source: MasterSourceEvidence
   projects: MasterProjectOption[]
+  workPackages: MasterWorkPackageOption[]
   saving: boolean
   reason: string
   message?: { severity: 'success' | 'error' | 'info'; text: string; incidentId?: string; persisted?: boolean } | null
   onAction: (action: ProjectGateAction, payload: Record<string, unknown>) => Promise<void>
   onOpenSource: () => void
+  onCreateWorkPackage: (input: { projectId: string; parentId: string | null; name: string; description: string }) => Promise<MasterWorkPackageOption | null>
 }
 
 const autoTone = (value: string, confidence: number | null, fieldStatus?: AutoInputField['status']) => {
@@ -45,11 +48,15 @@ function AutoFieldHint({ value, source, confidence, status }: Pick<AutoInputFiel
   </Stack>
 }
 
-export function MasterDataProjectGatePanel({ candidate, source, projects, saving, reason, message, onAction, onOpenSource }: Props) {
+export function MasterDataProjectGatePanel({ candidate, source, projects, workPackages, saving, reason, message, onAction, onOpenSource, onCreateWorkPackage }: Props) {
   const matches = useMemo(() => findProjectMatches(candidate, source, projects), [candidate, projects, source])
   const [selectedProjectId, setSelectedProjectId] = useState(() => autoSelectedProjectId(candidate, matches))
+  const [selectedWorkPackageId, setSelectedWorkPackageId] = useState(() => typeof candidate.candidate_data.work_package_id === 'string' ? candidate.candidate_data.work_package_id : '')
   const [draft, setDraft] = useState<MasterProjectCandidateDraft>(() => projectDraftFromCandidate(candidate, source))
   const [projectDialogOpen, setProjectDialogOpen] = useState(false)
+  const [workPackageDialogOpen, setWorkPackageDialogOpen] = useState(false)
+  const [workPackageName, setWorkPackageName] = useState('')
+  const [workPackageDescription, setWorkPackageDescription] = useState('')
   const validation = useMemo(() => validateProjectDraft(draft, source), [draft, source])
   const auditPayload = useMemo(() => projectDraftAuditPayload(candidate, source, draft), [candidate, draft, source])
   const gate = projectGateStatus(candidate)
@@ -58,13 +65,24 @@ export function MasterDataProjectGatePanel({ candidate, source, projects, saving
   const route = useMemo(() => masterAutoRoute(autoCorrection.classification_type.value, classification.confidence, classification.conflicts), [autoCorrection.classification_type.value, classification.confidence, classification.conflicts])
   const reasonMissing = reason.trim().length < 3
   const selectedProject = projects.find((project) => project.id === selectedProjectId)
+  const availableWorkPackages = workPackages.filter((item) => item.project_id === selectedProjectId)
+  const selectedWorkPackage = availableWorkPackages.find((item) => item.id === selectedWorkPackageId)
   const selectedMatch = matches.find((match) => match.project.id === selectedProjectId)
   const set = (key: keyof MasterProjectCandidateDraft, value: string) => setDraft((current) => ({ ...current, [key]: value }))
   const fieldEvidence = auditPayload.auto_fill_evidence
   const submitProjectCandidate = async () => {
     if (!validation.valid) return
-    await onAction('save_project_candidate', { ...draft, ...auditPayload })
+    await onAction('save_project_candidate', { ...draft, proposed_work_package_name: draft.work_type, ...auditPayload })
     setProjectDialogOpen(false)
+  }
+  const submitWorkPackage = async () => {
+    if (!selectedProject || workPackageName.trim().length < 2) return
+    const created = await onCreateWorkPackage({ projectId: selectedProject.id, parentId: null, name: workPackageName.trim(), description: workPackageDescription.trim() })
+    if (!created) return
+    setSelectedWorkPackageId(created.id)
+    setWorkPackageDialogOpen(false)
+    setWorkPackageName('')
+    setWorkPackageDescription('')
   }
 
   return <Paper variant="outlined" sx={{ p: 1.25, borderColor: 'primary.main' }}>
@@ -108,16 +126,24 @@ export function MasterDataProjectGatePanel({ candidate, source, projects, saving
       </Paper>
 
       <Typography variant="subtitle2">Project เดิม ({projects.length} โครงการ)</Typography>
-      <Select size="small" displayEmpty value={selectedProjectId} onChange={(event) => setSelectedProjectId(event.target.value)}>
+      <Select size="small" displayEmpty value={selectedProjectId} onChange={(event) => { setSelectedProjectId(event.target.value); setSelectedWorkPackageId('') }}>
         <MenuItem value="">ยังไม่พบ/เลือก Project เดิม</MenuItem>
         {projects.map((project) => {
           const match = matches.find((item) => item.project.id === project.id)
           return <MenuItem key={project.id} value={project.id}>{project.name}{project.code ? ` · ${project.code}` : ''}{match ? ` · ตรง ${match.score} หลักฐาน` : ''}</MenuItem>
         })}
       </Select>
+      {selectedProject && <>
+        <Typography variant="subtitle2">เนื้องาน / งานย่อยของ Project</Typography>
+        <Select size="small" displayEmpty value={selectedWorkPackageId} onChange={(event) => setSelectedWorkPackageId(event.target.value)}>
+          <MenuItem value="">เลือกเนื้องานก่อนผูก Project</MenuItem>
+          {availableWorkPackages.map((item) => <MenuItem key={item.id} value={item.id}>{item.name}{item.code ? ` · ${item.code}` : ''}</MenuItem>)}
+        </Select>
+        <Button size="small" variant="text" startIcon={<AddBusinessOutlined />} onClick={() => setWorkPackageDialogOpen(true)}>เพิ่มเนื้องานของ Project นี้</Button>
+      </>}
       {matches.length > 0 && <Alert severity="info">ระบบแนะนำ: {matches.slice(0, 3).map((match) => `${match.project.name} (${match.evidence.join(', ')})`).join(' · ')}</Alert>}
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-        <Button fullWidth startIcon={<LinkOutlined />} variant="contained" disabled={!selectedProject || saving || reasonMissing} onClick={() => selectedProject && void onAction('link_existing_project', { project_id: selectedProject.id, project_name: selectedProject.name, match_evidence: selectedMatch?.evidence ?? ['admin_selected'] })}>ผูก Project เดิม</Button>
+        <Button fullWidth startIcon={<LinkOutlined />} variant="contained" disabled={!selectedProject || !selectedWorkPackage || saving || reasonMissing} onClick={() => selectedProject && selectedWorkPackage && void onAction('link_existing_project', { project_id: selectedProject.id, project_name: selectedProject.name, work_package_id: selectedWorkPackage.id, work_package_name: selectedWorkPackage.name, work_package_code: selectedWorkPackage.code, match_evidence: selectedMatch?.evidence ?? ['admin_selected'] })}>ผูก Project และเนื้องาน</Button>
         <Button fullWidth startIcon={<AddBusinessOutlined />} variant="outlined" disabled={saving} onClick={() => setProjectDialogOpen(true)}>เพิ่ม Project Candidate</Button>
       </Stack>
       <Typography variant="caption" color="text.secondary">Project Candidate ไม่ใช่ Project จริงและยังใช้ปิดบัญชี/ตัดยอดไม่ได้ · Raw/OCR ไม่ถูกเขียนทับ · ทุกการบันทึกมี Version/Audit</Typography>
@@ -144,6 +170,12 @@ export function MasterDataProjectGatePanel({ candidate, source, projects, saving
         <Button onClick={() => setProjectDialogOpen(false)}>ยกเลิก</Button>
         <Button variant="contained" disabled={!validation.valid || saving || reasonMissing} onClick={() => void submitProjectCandidate()}>บันทึก Project Candidate</Button>
       </DialogActions>
+    </Dialog>
+
+    <Dialog open={workPackageDialogOpen} onClose={() => setWorkPackageDialogOpen(false)} fullWidth maxWidth="sm">
+      <DialogTitle>เพิ่มเนื้องาน · {selectedProject?.name}</DialogTitle>
+      <DialogContent dividers><Stack spacing={1.25}><Alert severity="info">เพิ่มเฉพาะเมื่อไม่มีเนื้องานเดิม ระบบจะบันทึกในรายการงานย่อยกลางและนำมาเลือกครั้งต่อไปได้</Alert><TextField autoFocus size="small" label="ชื่อเนื้องาน *" value={workPackageName} onChange={(event) => setWorkPackageName(event.target.value)} /><TextField size="small" multiline minRows={2} label="รายละเอียด" value={workPackageDescription} onChange={(event) => setWorkPackageDescription(event.target.value)} /></Stack></DialogContent>
+      <DialogActions><Button onClick={() => setWorkPackageDialogOpen(false)}>ยกเลิก</Button><Button variant="contained" disabled={!selectedProject || workPackageName.trim().length < 2 || saving} onClick={() => void submitWorkPackage()}>บันทึกเนื้องาน</Button></DialogActions>
     </Dialog>
   </Paper>
 }

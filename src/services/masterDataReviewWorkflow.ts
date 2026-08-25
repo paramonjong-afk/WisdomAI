@@ -1,11 +1,7 @@
 import type { MasterCandidate } from '../pages/MasterDataCenter/masterDataReview'
 import { isProjectGateReady, projectGateStatus } from './masterDataProjectGate.ts'
 
-export const masterReviewStepLabels = [
-  'ความสัมพันธ์',
-  'ตรวจและแก้ข้อมูล',
-  'ยืนยันและส่งต่อ',
-] as const
+export const masterReviewStepLabels = ['ตรวจและเติมข้อมูล', 'สรุปและยืนยัน'] as const
 
 export type MasterReviewStage = 'project_pending' | 'project_ready' | 'awaiting_rereview' | 'confirmed'
 
@@ -131,12 +127,12 @@ export function masterReviewActiveStep(candidate: Pick<MasterCandidate, 'candida
   return 0
 }
 
-export function masterReviewBlockers(candidate: Pick<MasterCandidate, 'candidate_data' | 'status'>, reason: string) {
+export function masterReviewBlockers(candidate: Pick<MasterCandidate, 'candidate_data' | 'status'>, reason: string, requiresCorrection = true) {
   const stage = masterReviewStage(candidate)
   const blockers: string[] = []
   if (stage === 'project_pending') blockers.push('ต้องผูก Project เดิม หรือบันทึก Project Candidate ที่ข้อมูลขั้นต่ำครบ')
   if (reason.trim().length < 3 && stage !== 'confirmed') blockers.push('เหตุผลอย่างน้อย 3 ตัวอักษร')
-  if (stage === 'project_ready') blockers.push('ต้องบันทึกฉบับแก้ไขเพื่อสร้าง Version/Audit ก่อนส่งตรวจซ้ำ')
+  if (stage === 'project_ready' && requiresCorrection) blockers.push('พบข้อมูลขาด/ขัดแย้ง ต้องบันทึกฉบับแก้ไขเพื่อสร้าง Version/Audit')
   if (stage === 'awaiting_rereview' && candidate.status !== 'admin_reviewed') blockers.push('สถานะต้องเป็น Admin แก้แล้ว/รอตรวจซ้ำ')
   return blockers
 }

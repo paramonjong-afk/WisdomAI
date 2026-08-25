@@ -1,12 +1,10 @@
 import { CheckOutlined, MoreHorizOutlined, NavigateNextOutlined } from '@mui/icons-material'
-import { Alert, Button, Chip, Divider, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Stack, Step, StepLabel, Stepper, Typography } from '@mui/material'
+import { Alert, Button, Chip, Divider, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Stack, Typography } from '@mui/material'
 import { useState } from 'react'
 import {
-  masterReviewActiveStep,
   masterReviewBlockers,
   masterReviewPersistenceNotice,
   masterReviewStage,
-  masterReviewStepLabels,
   projectGateSummary,
   type MasterReviewAction,
   type MasterReviewReceipt,
@@ -24,24 +22,27 @@ type Props = {
   onReview: (action: MasterReviewAction) => void
   onNext: () => void
   onClose: () => void
+  requiresCorrection: boolean
+  activeTab: number
+  onTabChange: (tab: number) => void
 }
 
-type ProgressProps = Pick<Props, 'candidate' | 'receipt' | 'reason' | 'actorName'>
+type ProgressProps = Pick<Props, 'candidate' | 'receipt' | 'reason' | 'actorName' | 'requiresCorrection'>
 
 const dateTime = (value: string | null) => value ? new Date(value).toLocaleString('th-TH') : '-'
 const value = (data: Record<string, unknown> | null, key: string) => data && data[key] != null ? String(data[key]) : '-'
 
-export function MasterDataReviewProgress({ candidate, receipt, reason, actorName }: ProgressProps) {
+export function MasterDataReviewProgress({ candidate, receipt, reason, actorName, requiresCorrection }: ProgressProps) {
   const stage = masterReviewStage(candidate)
-  const blockers = masterReviewBlockers(candidate, reason)
+  const blockers = masterReviewBlockers(candidate, reason, requiresCorrection)
   const terminal = stage === 'confirmed'
   const persistedNotice = masterReviewPersistenceNotice(candidate)
   return <Stack spacing={1.25}>
-    <Paper variant="outlined" sx={{ p: 1.25, position: 'sticky', top: 0, zIndex: 2, bgcolor: 'background.paper' }}>
-      <Typography sx={{ fontWeight: 800, mb: 1 }}>3 ขั้นตอนตรวจและยืนยัน</Typography>
-      <Stepper activeStep={masterReviewActiveStep(candidate)} alternativeLabel sx={{ '& .MuiStepLabel-label': { fontSize: { xs: '0.68rem', sm: '0.75rem' } } }}>
-        {masterReviewStepLabels.map((label) => <Step key={label}><StepLabel>{label}</StepLabel></Step>)}
-      </Stepper>
+    <Paper variant="outlined" sx={{ p: 1.25 }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} sx={{ alignItems: { sm: 'center' } }}>
+        <Typography sx={{ fontWeight: 800, flex: 1 }}>สถานะรายการ</Typography>
+        <Chip size="small" color={terminal ? 'success' : stage === 'project_pending' ? 'warning' : 'primary'} label={terminal ? 'ยืนยันแล้ว' : stage === 'project_pending' ? 'รอ Project' : stage === 'awaiting_rereview' ? 'รอตรวจซ้ำ' : requiresCorrection ? 'รอบันทึกข้อมูลที่แก้' : 'พร้อมยืนยัน'} />
+      </Stack>
       {projectGateSummary(candidate) && <Chip size="small" color="success" label={projectGateSummary(candidate)} sx={{ mt: 1 }} />}
     </Paper>
 
@@ -80,19 +81,23 @@ export function MasterDataReviewProgress({ candidate, receipt, reason, actorName
   </Stack>
 }
 
-export function MasterDataReviewActions({ candidate, reason, saving, hasNext, onCorrect, onReview, onNext, onClose }: Omit<Props, 'receipt' | 'actorName'>) {
+export function MasterDataReviewActions({ candidate, reason, saving, hasNext, requiresCorrection, activeTab, onTabChange, onCorrect, onReview, onNext, onClose }: Omit<Props, 'receipt' | 'actorName'>) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const stage = masterReviewStage(candidate)
-  const blockers = masterReviewBlockers(candidate, reason)
+  const blockers = masterReviewBlockers(candidate, reason, requiresCorrection)
   const isReasonMissing = reason.trim().length < 3
   const terminal = stage === 'confirmed'
-  const primary = stage === 'project_ready'
-    ? { label: 'บันทึกการแก้ไขและส่งตรวจซ้ำ', disabled: saving || isReasonMissing, run: onCorrect }
-    : stage === 'awaiting_rereview'
-      ? { label: 'ยืนยันข้อเสนอ', disabled: saving || isReasonMissing, run: () => onReview('approve') }
+  const primary = stage === 'project_ready' && activeTab === 0 && requiresCorrection
+    ? { label: 'บันทึกข้อมูลที่แก้และส่งตรวจซ้ำ', disabled: saving || isReasonMissing, run: onCorrect }
+    : (stage === 'project_ready' || stage === 'awaiting_rereview') && activeTab === 0
+      ? { label: 'ไปสรุปและยืนยัน', disabled: false, run: () => onTabChange(1) }
+      : (stage === 'project_ready' && !requiresCorrection) || stage === 'awaiting_rereview'
+        ? { label: 'ยืนยันข้อมูล', disabled: saving || isReasonMissing, run: () => onReview('approve') }
       : terminal
         ? { label: hasNext ? 'รายการถัดไป' : 'กลับคิว', disabled: false, run: hasNext ? onNext : onClose }
-        : { label: 'เลือก Project เพื่อดำเนินการต่อ', disabled: true, run: () => undefined }
+        : activeTab === 1
+          ? { label: 'กลับไปเลือก Project', disabled: false, run: () => onTabChange(0) }
+          : { label: 'เลือก Project เพื่อดำเนินการต่อ', disabled: true, run: () => undefined }
   const menuAction = (action: MasterReviewAction) => { setAnchor(null); onReview(action) }
   return <Paper variant="outlined" sx={{ p: 1, position: 'sticky', bottom: 0, zIndex: 3, bgcolor: 'background.paper' }}>
       {terminal && <Chip size="small" color="success" icon={<CheckOutlined />} label="บันทึกแล้ว · ปิดการยืนยันซ้ำ" sx={{ mb: 1 }} />}
@@ -104,8 +109,8 @@ export function MasterDataReviewActions({ candidate, reason, saving, hasNext, on
       <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}>
         <MenuItem disabled={isReasonMissing || saving} onClick={() => menuAction('request_info')}><ListItemText>ขอข้อมูลเพิ่ม</ListItemText></MenuItem>
         <MenuItem disabled={isReasonMissing || saving} onClick={() => menuAction('reject')}><ListItemText>ไม่ใช่ประเภทนี้</ListItemText></MenuItem>
-        {stage === 'awaiting_rereview' && <MenuItem disabled={isReasonMissing || saving} onClick={() => menuAction('keep_existing')}><ListItemText>คงข้อมูลเดิม</ListItemText></MenuItem>}
-        {stage === 'awaiting_rereview' && <MenuItem disabled={isReasonMissing || saving} onClick={() => menuAction('match_master')}><ListItemText>จับคู่ Master เดิม</ListItemText></MenuItem>}
+        {(stage === 'awaiting_rereview' || stage === 'project_ready') && <MenuItem disabled={isReasonMissing || saving} onClick={() => menuAction('keep_existing')}><ListItemText>คงข้อมูลเดิม</ListItemText></MenuItem>}
+        {(stage === 'awaiting_rereview' || stage === 'project_ready') && <MenuItem disabled={isReasonMissing || saving} onClick={() => menuAction('match_master')}><ListItemText>จับคู่ Master เดิม</ListItemText></MenuItem>}
         <Divider />
         <MenuItem disabled={saving} onClick={() => menuAction('archive')}><ListItemIcon><MoreHorizOutlined fontSize="small" /></ListItemIcon><ListItemText>Archive</ListItemText></MenuItem>
         <MenuItem disabled={!hasNext} onClick={() => { setAnchor(null); onNext() }}><ListItemText>รายการถัดไป</ListItemText></MenuItem>
