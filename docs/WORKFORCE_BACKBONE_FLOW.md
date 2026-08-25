@@ -35,7 +35,10 @@ flowchart LR
   C --> E[ตรวจรูปแบบ/สิทธิ์บริษัท]
   D --> E
   E --> F[admin_update_employee_phone]
-  F --> G[employee_people.phone]
+  F --> J{มี employee_people แล้ว?}
+  J -->|ไม่มี| K[สร้างหรือเชื่อม legacy projection]
+  J -->|มี| G[employee_people.phone]
+  K --> G
   F --> H[Workforce Audit]
   G --> I[Read-back และแสดงค่าล่าสุด]
 ```
@@ -44,9 +47,9 @@ flowchart LR
 - **State:** ไม่มีค่า/มีค่า → editing → validating → saving → updated/unchanged/error; `unchanged` ไม่สร้าง Audit ซ้ำ
 - **Roles/Permissions:** แสดง Action เฉพาะผู้จัดการข้อมูลพนักงาน; RPC ตรวจ session, current company และ manager ซ้ำ และไม่เปิดให้ anonymous
 - **Integrations:** ใช้ UI Action Standard v1.0 ใน `docs/UI_ACTION_STANDARD.md`; LINE หลายบัญชีใช้ปุ่มข้อความขนาดเล็กพร้อมไอคอนเพิ่ม
-- **Failure/Retry/Audit:** รูปแบบผิดหรือไม่พบทเบียนต้องคง Dialog ให้แก้ไข; บันทึก actor/company/profile/before-after/reason/source ใน Workforce Audit
+- **Failure/Retry/Audit:** รูปแบบผิดหรือไม่พบ Profile ในบริษัทต้องคง Dialog ให้แก้ไข; legacy Profile ที่ยังไม่มี `employee_people` จะสร้าง/เชื่อม projection เฉพาะเมื่อ Admin บันทึก; บันทึก actor/company/profile/before-after/reason/source ใน Workforce Audit
 - **Owner:** HR Operations / Design System Owner
-- **Migration/Verification/Rollback:** `20260826200000_employee_phone_admin_update.sql`; contract, permission/idempotency/Audit, typecheck, lint, build และ authenticated smoke; rollback โดยซ่อน Action/revoke RPC โดยไม่ลบค่า phone หรือ Audit ที่เกิดแล้ว
+- **Migration/Verification/Rollback:** `20260826200000_employee_phone_admin_update.sql`, `20260826210000_employee_phone_legacy_profile_bridge.sql`; contract, permission/idempotency/Audit/legacy bridge, typecheck, lint, build และ authenticated smoke; rollback โดยซ่อน Action/revoke RPC และคง contact projection, ค่า phone และ Audit เพื่อ recovery
 
 ```mermaid
 flowchart TD

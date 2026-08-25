@@ -1227,8 +1227,8 @@
 - **เหตุผล:** ช่องข้อมูลติดต่อเดิมแสดงเบอร์โทรอย่างเดียว และปุ่มเพิ่ม LINE มีน้ำหนักมากเกิน Action ใน Section ทำให้ภาษาการเพิ่ม/แก้ไขไม่สม่ำเสมอ
 - **มาตรฐาน:** ข้อมูลว่างใช้ปุ่มข้อความสั้นพร้อมไอคอนเพิ่ม; ข้อมูลที่มีแล้วแสดงค่าและไอคอนแก้ไขพร้อม Tooltip/aria-label; รายการหลายค่าใช้ `+ เพิ่ม...อีกบัญชี`
 - **ผลกระทบ:** เริ่มใช้ที่ `/employees` เบอร์โทรและ LINE; โมดูลอื่นบันทึกเป็น technical debt แบบมีเจ้าของและต้องปรับตาม `docs/UI_ACTION_STANDARD.md` เมื่อแก้ Flow นั้นครั้งถัดไป
-- **Data/Permission/Audit:** `admin_update_employee_phone` ตรวจบริษัท/manager/รูปแบบ, idempotent และบันทึก Workforce Audit; anonymous ไม่มีสิทธิ์
-- **Migration:** `20260826200000_employee_phone_admin_update.sql`
+- **Data/Permission/Audit:** `admin_update_employee_phone` ตรวจบริษัท/manager/รูปแบบ, idempotent และบันทึก Workforce Audit; legacy Profile ที่ยังไม่มี `employee_people` จะสร้าง/เชื่อม projection เมื่อ Admin บันทึกครั้งแรก; anonymous ไม่มีสิทธิ์
+- **Migration:** `20260826200000_employee_phone_admin_update.sql`, `20260826210000_employee_phone_legacy_profile_bridge.sql`
 - **Verification:** contract, RPC privilege/idempotency/Audit, typecheck, lint, build และ authenticated Employee Drawer smoke
 - **Rollback:** revert UI/revoke RPC; ไม่ลบเบอร์โทรหรือ Audit ที่บันทึกแล้ว
 # ล่าสุด: Employee Bank Account Secure Store v3.1 — 26/8/2569

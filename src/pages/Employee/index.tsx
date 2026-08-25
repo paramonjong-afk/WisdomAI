@@ -2669,7 +2669,7 @@ export function EmployeePage() {
                   <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', minHeight: 36 }}>
                     <Typography variant="body2">เบอร์โทร: <strong>{contact?.phone || 'ยังไม่มี'}</strong></Typography>
                     {canManage && <Tooltip title={contact?.phone ? 'แก้ไขเบอร์โทร' : 'เพิ่มเบอร์โทร'}>
-                      <span><IconButton size="small" color="primary" aria-label={contact?.phone ? 'แก้ไขเบอร์โทร' : 'เพิ่มเบอร์โทร'} disabled={!contact?.employee_person_id} onClick={() => openPhoneEditor(employeeDrawer, contact?.phone)}>{contact?.phone ? <EditOutlinedIcon fontSize="small" /> : <AddOutlinedIcon fontSize="small" />}</IconButton></span>
+                      <span><IconButton size="small" color="primary" aria-label={contact?.phone ? 'แก้ไขเบอร์โทร' : 'เพิ่มเบอร์โทร'} onClick={() => openPhoneEditor(employeeDrawer, contact?.phone)}>{contact?.phone ? <EditOutlinedIcon fontSize="small" /> : <AddOutlinedIcon fontSize="small" />}</IconButton></span>
                     </Tooltip>}
                   </Stack>
                   <Button sx={{ mt: 1 }} variant="contained" fullWidth disabled={savingId === employeeDrawer.id || (names[employeeDrawer.id]?.trim().length ?? 0) < 2} onClick={() => void saveName(employeeDrawer)}>{savingId === employeeDrawer.id ? <CircularProgress size={20} color="inherit" /> : 'บันทึกชื่อ'}</Button>
