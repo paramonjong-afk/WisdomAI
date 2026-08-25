@@ -8,9 +8,9 @@
 | Status | checkpointed |
 | Branch | `codex/auto-checkpoint-guard` |
 | Base commit | `aba6406d23ae431bfd7d3b3969784b6de2816e45` |
-| Checkpoint commit | `a1bcbb95c05d5b1fdd31afd6438dc87678ac3667` |
+| Checkpoint commit | `1aa85ff4915648b08f16f781bf0d1def19608ece` |
 | Remote | `origin` |
-| Updated | 2026-08-25T11:35:33.347Z |
+| Updated | 2026-08-25T11:35:35.653Z |
 | Actor | codex-program-general |
 
 ## Objective
