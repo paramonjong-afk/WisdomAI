@@ -41,6 +41,8 @@ export type MasterProjectCandidateRecord = MasterProjectCandidateDraft & {
 
 export type ProjectMatch = { project: MasterProjectOption; score: number; evidence: string[] }
 
+export const projectAutoSelectThreshold = 2
+
 export const emptyProjectDraft = (): MasterProjectCandidateDraft => ({
   project_name: '', customer_owner_name: '', site_location: '', responsible_name: '', work_type: '', approximate_start_date: '',
 })
@@ -102,25 +104,35 @@ export function findProjectMatches(candidate: MasterCandidate, source: MasterSou
   }).filter((match) => match.score > 0).sort((a, b) => b.score - a.score || a.project.name.localeCompare(b.project.name, 'th'))
 }
 
+export function autoSelectedProjectId(candidate: MasterCandidate, matches: ProjectMatch[]) {
+  const storedProjectId = text(candidate.candidate_data.project_id)
+  if (storedProjectId) return storedProjectId
+  const strongest = matches[0]
+  return strongest && strongest.score >= projectAutoSelectThreshold ? strongest.project.id : ''
+}
+
 export function applyLocalProjectGate(
   candidate: MasterCandidate,
   action: 'link_existing_project' | 'save_project_candidate' | 'request_information' | 'return_review',
   payload: Record<string, unknown>,
   now = new Date().toISOString(),
+  eventKey = `local-project-gate-${candidate.id}-${Date.parse(now)}`,
+  actorId = 'local-admin',
 ) {
+  const beforeData = { ...candidate.candidate_data }
   const nextData = { ...candidate.candidate_data }
   if (action === 'link_existing_project') {
-    Object.assign(nextData, { project_gate_status: 'linked_existing_project', project_id: payload.project_id, project_name: payload.project_name, project_match_evidence: payload.match_evidence, project_gate_updated_at: now })
+    Object.assign(nextData, { project_gate_status: 'linked_existing_project', project_id: payload.project_id, project_name: payload.project_name, project_match_evidence: payload.match_evidence, project_gate_updated_at: now, project_gate_updated_by: actorId })
   } else if (action === 'save_project_candidate') {
-    Object.assign(nextData, { ...payload, project_gate_status: 'awaiting_new_project', project_candidate_id: payload.project_candidate_id ?? `local-project-candidate-${candidate.id}`, project_gate_updated_at: now })
+    Object.assign(nextData, { ...payload, project_gate_status: 'awaiting_new_project', project_candidate_id: payload.project_candidate_id ?? `local-project-candidate-${candidate.id}`, project_candidate_status: 'awaiting_open_project', project_gate_updated_at: now, project_gate_updated_by: actorId })
   } else if (action === 'request_information') {
-    Object.assign(nextData, { project_gate_status: 'awaiting_information', project_gate_updated_at: now })
+    Object.assign(nextData, { project_gate_status: 'awaiting_information', project_gate_updated_at: now, project_gate_updated_by: actorId })
   } else {
-    Object.assign(nextData, { project_gate_status: 'review', project_gate_updated_at: now })
+    Object.assign(nextData, { project_gate_status: 'review', project_gate_updated_at: now, project_gate_updated_by: actorId })
   }
   Object.assign(nextData, {
     local_project_gate_version: Number(nextData.local_project_gate_version ?? 0) + 1,
-    local_project_gate_audit: [...(Array.isArray(nextData.local_project_gate_audit) ? nextData.local_project_gate_audit : []), { action, at: now }],
+    local_project_gate_audit: [...(Array.isArray(nextData.local_project_gate_audit) ? nextData.local_project_gate_audit : []), { action, at: now, actor_id: actorId, event_key: eventKey, before: beforeData, after: nextData }],
   })
   return { ...candidate, candidate_data: nextData, status: action === 'request_information' ? 'needs_more_info' : candidate.status }
 }

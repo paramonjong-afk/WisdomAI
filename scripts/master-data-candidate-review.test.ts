@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { groupDuplicateCandidates, isAccountNameMismatch, isNameMismatch, resolveCandidateSourceEvidence, reviewFilterMatches, type MasterCandidate, type MasterSourceEvidence } from '../src/pages/MasterDataCenter/masterDataReview.ts'
 import { classifyMasterCandidate, masterReviewBucket } from '../src/services/masterDataClassification.ts'
 
-const page = readFileSync('src/pages/MasterDataCenter/index.tsx', 'utf8')
+const page = readFileSync('src/pages/MasterDataCenter/index.tsx', 'utf8') + readFileSync('src/pages/MasterDataCenter/MasterDataReviewWorkflow.tsx', 'utf8')
 const standardTable = readFileSync('src/components/StandardDataTable.tsx', 'utf8')
 const migration = readFileSync('supabase/migrations/20260823122058_master_data_candidate_review_actions.sql', 'utf8')
 const classificationMigration = readFileSync('supabase/migrations/20260824010000_master_data_classification_review.sql', 'utf8')
@@ -57,8 +57,8 @@ assert.match(page, /ยืนยันข้อเสนอ/)
 assert.match(page, /คงข้อมูลเดิม/)
 assert.match(page, /จับคู่ Master เดิม/)
 assert.match(page, /ขอข้อมูลเพิ่ม/)
-assert.match(page, /ปิดการตรวจสอบ/)
-assert.match(page, /เปิดแก้ไขแบบควบคุม/)
+assert.match(page, /การดำเนินการเพิ่มเติม/)
+assert.match(page, /ปุ่มยังใช้ไม่ได้/)
 assert.match(page, /MasterDataProjectGatePanel/)
 assert.doesNotMatch(page, /<Drawer anchor="bottom"/, 'all validation and actions must stay in the active Detail Drawer')
 for (const token of ['Auto Classification', 'Auto Verified', 'Review Queue', 'Unknown/Needs Review', 'Confirmed Data Reports', 'Admin Correction', 'correct_master_data_candidate']) assert.match(page, new RegExp(token))

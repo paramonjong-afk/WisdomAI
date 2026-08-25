@@ -1,7 +1,8 @@
-import { AddBusinessOutlined, ArrowBackOutlined, LinkOutlined, OpenInNewOutlined } from '@mui/icons-material'
+import { AddBusinessOutlined, LinkOutlined, OpenInNewOutlined } from '@mui/icons-material'
 import { Alert, Button, Chip, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material'
 import { useMemo, useState } from 'react'
 import {
+  autoSelectedProjectId,
   findProjectMatches,
   projectDraftFromCandidate,
   projectGateStatus,
@@ -27,7 +28,7 @@ type Props = {
 
 export function MasterDataProjectGatePanel({ candidate, source, projects, saving, reason, message, onAction, onOpenSource }: Props) {
   const matches = useMemo(() => findProjectMatches(candidate, source, projects), [candidate, projects, source])
-  const [selectedProjectId, setSelectedProjectId] = useState(() => typeof candidate.candidate_data.project_id === 'string' ? candidate.candidate_data.project_id : matches[0]?.project.id ?? '')
+  const [selectedProjectId, setSelectedProjectId] = useState(() => autoSelectedProjectId(candidate, matches))
   const [draft, setDraft] = useState<MasterProjectCandidateDraft>(() => projectDraftFromCandidate(candidate, source))
   const validation = useMemo(() => validateProjectDraft(draft, source), [draft, source])
   const gate = projectGateStatus(candidate)
@@ -63,22 +64,17 @@ export function MasterDataProjectGatePanel({ candidate, source, projects, saving
         })}
       </Select>
       {matches.length > 0 && <Alert severity="info">แนะนำ: {matches.slice(0, 3).map((match) => `${match.project.name} (${match.evidence.join(', ')})`).join(' · ')}</Alert>}
-      <Button startIcon={<LinkOutlined />} variant="outlined" disabled={!selectedProject || saving || reasonMissing} onClick={() => selectedProject && void onAction('link_existing_project', { project_id: selectedProject.id, project_name: selectedProject.name, match_evidence: selectedMatch?.evidence ?? ['admin_selected'] })}>ผูก Project เดิม</Button>
-
-      <Typography variant="subtitle2">2. ไม่พบ Project เดิม — สร้าง/อัปเดต Project Candidate</Typography>
-      <TextField size="small" label="ชื่อโครงการ *" value={draft.project_name} onChange={(event) => set('project_name', event.target.value)} />
-      <TextField size="small" label="ลูกค้าหรือเจ้าของงาน *" value={draft.customer_owner_name} onChange={(event) => set('customer_owner_name', event.target.value)} />
-      <TextField size="small" label="ไซต์/สถานที่ *" value={draft.site_location} onChange={(event) => set('site_location', event.target.value)} />
-      <TextField size="small" label="ผู้รับผิดชอบ *" value={draft.responsible_name} onChange={(event) => set('responsible_name', event.target.value)} />
-      <TextField size="small" label="ประเภทงาน *" value={draft.work_type} onChange={(event) => set('work_type', event.target.value)} />
-      <TextField size="small" type="date" label="วันที่เริ่มโดยประมาณ *" value={draft.approximate_start_date} onChange={(event) => set('approximate_start_date', event.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
-      {!validation.valid && <Alert severity="warning">ข้อมูลที่ยังขาด: {validation.missing.join(', ')}</Alert>}
-      <Button startIcon={<AddBusinessOutlined />} variant="outlined" disabled={!validation.valid || saving || reasonMissing} onClick={() => void onAction('save_project_candidate', draft, draft)}>สร้าง/อัปเดต Project Candidate</Button>
-
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-        <Button color="warning" disabled={saving || reasonMissing} onClick={() => void onAction('request_information', {})}>ขอข้อมูลเพิ่ม</Button>
-        <Button startIcon={<ArrowBackOutlined />} disabled={saving || reasonMissing} onClick={() => void onAction('return_review', {})}>กลับคิวตรวจ</Button>
-      </Stack>
+      {selectedProject ? <Button startIcon={<LinkOutlined />} variant="contained" disabled={saving || reasonMissing} onClick={() => void onAction('link_existing_project', { project_id: selectedProject.id, project_name: selectedProject.name, match_evidence: selectedMatch?.evidence ?? ['admin_selected'] })}>ผูก Project เดิม</Button> : <>
+        <Typography variant="subtitle2">2. ไม่พบ Project เดิม — สร้าง/อัปเดต Project Candidate</Typography>
+        <TextField size="small" label="ชื่อโครงการ *" value={draft.project_name} onChange={(event) => set('project_name', event.target.value)} />
+        <TextField size="small" label="ลูกค้าหรือเจ้าของงาน *" value={draft.customer_owner_name} onChange={(event) => set('customer_owner_name', event.target.value)} />
+        <TextField size="small" label="ไซต์/สถานที่ *" value={draft.site_location} onChange={(event) => set('site_location', event.target.value)} />
+        <TextField size="small" label="ผู้รับผิดชอบ *" value={draft.responsible_name} onChange={(event) => set('responsible_name', event.target.value)} />
+        <TextField size="small" label="ประเภทงาน *" value={draft.work_type} onChange={(event) => set('work_type', event.target.value)} />
+        <TextField size="small" type="date" label="วันที่เริ่มโดยประมาณ *" value={draft.approximate_start_date} onChange={(event) => set('approximate_start_date', event.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
+        {!validation.valid && <Alert severity="warning">ข้อมูลที่ยังขาด: {validation.missing.join(', ')}</Alert>}
+        <Button startIcon={<AddBusinessOutlined />} variant="contained" disabled={!validation.valid || saving || reasonMissing} onClick={() => void onAction('save_project_candidate', draft, draft)}>สร้าง/อัปเดต Project Candidate</Button>
+      </>}
       <Typography variant="caption" color="text.secondary">Project Candidate เป็นคิวรอเปิดโครงการ ไม่สร้าง Project จริงอัตโนมัติ · Raw/OCR เดิมไม่ถูกเขียนทับ · ทุก action append Version/Audit</Typography>
     </Stack>
   </Paper>
