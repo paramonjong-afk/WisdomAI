@@ -1,5 +1,14 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Master Data Project-first Gate v1.4 — 25/8/2569
+
+- **เหตุผล:** Drawer เดิมแก้ค่าได้แต่ validation อยู่หลัง Drawer และรายการยังค้างโดยไม่บอกว่าต้องจำแนก Project ก่อนยืนยัน
+- **ผลกระทบ:** เพิ่ม Project-first Gate ใน `/master-data`: ค้น/ผูก Project เดิมแบบ company-scoped หรือสร้าง Project Candidate ที่ข้อมูลขั้นต่ำครบ; Project Candidate ไม่สร้าง Project จริงอัตโนมัติ และรายการออกจาก pending เฉพาะ explicit confirm/lock สำเร็จ; ทุกคำสั่งใช้ `event_key` แบบ replay-safe และปฏิเสธ key ที่ขัดกับ Candidate อื่น
+- **Data/Audit:** Raw/OCR/Source ไม่ถูกเขียนทับ; ทุก Project action append `master_data_audit` และ `master_data_candidate_versions` พร้อม before/after, actor, reason, source และ Project/Project Candidate
+- **Migration:** `20260825105559_master_data_project_first_gate.sql` เป็น Local-first และยังไม่ Apply Production จนกว่า local gates + authenticated runtime smoke ผ่าน
+- **Verification:** fixture 53→52 หลัง confirm หนึ่งรายการ, existing project/new candidate/missing fields/save-review-confirm/next-item/count reconciliation, RLS, targeted tests, typecheck, lint, build และ browser smoke
+- **Rollback:** ก่อน apply ให้ revert source/migration; หลัง apply ให้ปิด Gate RPC/trigger และ revert frontend โดยเก็บ Project Candidate/Audit/Version เพื่อ recovery ห้ามลบ Raw/OCR
+
 ## ล่าสุด: HR Intake Obvious Non-HR Classification v1.4 — 25/8/2569
 
 - **เหตุผล:** หลัง reconcile system output เหลือ Raw pending หนึ่งรายการที่เป็น UAT/งานพัฒนาชัดเจน ไม่ควรค้างใน HR Gate

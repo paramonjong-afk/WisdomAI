@@ -5,7 +5,13 @@ flowchart LR
   A[Intake / LINE / document / Admin input] --> B[Master-data candidate]
   B --> S[Source Reference Gateway\nCandidate → Transaction → Message]
   S --> S2[Document Flow + Attachment\nEvent + Master Audit]
-  S2 --> C[Rules classification\nMaster + account/tax + project/site + context/history]
+  S2 --> PG{Project-first Gate}
+  PG -->|พบ Project เดิม| PE[Link Existing Project\ncompany-scoped + evidence]
+  PG -->|ไม่พบ แต่ข้อมูลขั้นต่ำครบ| PC[Project Candidate\nawaiting_open_project]
+  PG -->|ข้อมูลไม่ครบ| PI[Awaiting Information\nowner + reason + next action]
+  PE --> C[Rules classification\nMaster + account/tax + project/site + context/history]
+  PC --> C
+  PI --> E
   C --> D{Policy gate}
   D -->|High confidence + 2 evidence\nno duplicate/conflict| AV[Auto Verified\nnot Final / not Locked]
   D -->|Unknown / duplicate / mismatch / conflict| E[Review Queue]
@@ -33,6 +39,8 @@ Create one company-scoped master-data path for people, vendors, customers, proje
 - Inputs: extracted name/account facts from transfer evidence, AI/document classification, and authorised Admin entry.
 - Outputs: candidate rows, verified aliases and bank accounts, links to the existing person/vendor/customer master, and append-only audit.
 - Existing source documents, Intake IDs, transactions and document-flow rows remain canonical; a master candidate stores only a reference to evidence and never duplicates or deletes it.
+- Before a candidate can be confirmed or locked, the Project-first Gate must either link one active Project in the same company or save a complete Project Candidate. A Project Candidate is only a request to open a project; it never creates a real `projects` row automatically. Every Gate command uses one `event_key`; replay returns the prior result and a conflicting reuse is rejected, so retries do not append duplicate Audit/Version rows.
+- Project matching uses project/customer/site/reference/responsible evidence and the resolved Source Reference. A name by itself is not enough. Required Project Candidate fields are project name, customer/owner, site/location, responsible person, work type, approximate start date and Source/Document ID.
 - The table and review Drawer consume the same `MasterSourceEvidence` object. For financial candidates, `source_id` is a Transaction ID and must be resolved through `financial_transactions.source_message_id`; it must never be labelled as a Message ID.
 - The Source Reference Gateway then joins the Message ID to `document_flow_items`, `line_attachments`, `document_flow_events` and `master_data_audit`. Missing links are shown explicitly as incomplete evidence rather than guessed or replaced with another identifier.
 - Classification types are `vendor`, `employee_technician`, `customer`, `company_internal` and `unknown_review`. A name alone is never sufficient: rules require evidence such as an existing Master match, account/tax identity, project/site, message context/history and the resolved Source Reference.
@@ -49,6 +57,8 @@ Create one company-scoped master-data path for people, vendors, customers, proje
 - On approval, an account fact is linked to an employee/profile only when exactly one active person has the same normalized name. Unknown or ambiguous names remain a verified-but-unlinked account for Admin resolution; no person is guessed.
 - Duplicate candidates are preserved as audit evidence and marked rejected/linked instead of being deleted.
 - Admin correction changes derived candidate fields only. Raw/OCR/source evidence is unchanged; each correction appends before/after, actor, timestamp, reason, Source Reference and a candidate version, then returns to review as `admin_reviewed`.
+- Project Gate state is stored with the derived candidate snapshot: `received → awaiting_project_classification → linked_existing_project` or `awaiting_new_project`; incomplete evidence becomes `awaiting_information`/`review`, and explicit approval becomes `confirmed`. Only `confirmed`/`approved`/`locked` leaves the pending queue.
+- Drawer validation, RPC error and success feedback must be visible inside the active Drawer. Saving a correction is not confirmation; the UI keeps the row in Review Queue, explains the missing gate/fields, refreshes counts after success and offers the next item.
 
 ## Retention, failure and retry
 
@@ -65,3 +75,4 @@ Create one company-scoped master-data path for people, vendors, customers, proje
 | v1.1 | 22/8/2569 | Link an approved bank candidate to the active employee/technician master only for one exact normalized name match; ambiguous accounts remain safely unlinked | `20260821212940_master_bank_account_person_link.sql` | Function/backfill and RLS/schema verification | Restore previous review function; no source evidence or person record is deleted |
 | v1.2 | 24/8/2569 | Correct misleading Message IDs and resolve the complete source chain consistently in both table and Drawer | No migration; read-only gateway over existing source records | Source resolver regression including missing-source case, typecheck/lint/build, `/master-data` Admin smoke | Revert the source gateway/UI mapping; raw source, candidates and audit are unchanged |
 | v1.3 | 24/8/2569 | Add five-type classification, Auto Verified policy gate, separated Review Queue/Confirmed Reports and controlled Admin correction without changing raw evidence | `20260824010000_master_data_classification_review.sql` | Five-type fixture, conflict/unknown/duplicate, source parity, audit/version contract, typecheck/lint/build and Cloudflare Admin smoke | Revert UI/classifier and migration functions/triggers; preserve generated audit/version rows and return Auto/Admin Reviewed candidates to `needs_review` |
+| v1.4 | 25/8/2569 | Add Project-first Gate so the 53-item Local regression queue can be linked to an existing Project or a complete Project Candidate before confirmation; surface Drawer validation and next-item flow | `20260825105559_master_data_project_first_gate.sql` (Local-first, not applied to Production) | 53→52 fixture reconciliation after explicit confirm, existing/new/missing Project cases, append-only audit/version contract, RLS, targeted lint/typecheck/build and authenticated browser smoke | Revert UI/service/migration before Production apply; after apply, disable the Gate RPC/trigger and preserve Project Candidate/Audit/Version rows for recovery—never delete Raw/OCR |
