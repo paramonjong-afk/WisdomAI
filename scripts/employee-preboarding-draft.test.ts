@@ -39,6 +39,10 @@ assert.match(updateMigration, /cardinality\(next_missing\)=0 then 'pending_revie
 assert.match(reviewer, /action\?: 'create_preboarding' \| 'update_preboarding'/)
 assert.match(employeePage, /เพิ่ม \/ อัปเดตข้อมูล/)
 assert.match(employeePage, /action: 'update_preboarding'/)
+assert.match(employeePage, /employee_intakes'\)\.select\('id,status,missing_fields'/)
+assert.match(employeePage, /ข้อมูลครบและยืนยันแล้ว/)
+assert.match(employeePage, /ขั้นตอนถัดไป: ตั้งค่าการจ้างงานและสิทธิ์/)
+assert.match(employeePage, /จบขั้นข้อมูลแล้ว/)
 assert.match(employeePage, /บันทึกและยืนยันข้อมูลครบ/)
 
 console.log('employee preboarding draft checks passed')

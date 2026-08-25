@@ -51,6 +51,8 @@ type EmployeeIntakeMaster = {
   phone: string | null
   position: string | null
   start_date: string | null
+  intake_status: string | null
+  missing_fields: string[]
   documents: Array<{ id: string; employee_person_id: string; document_type: string; link_status: string }>
 }
 type IntakeEmployeeDraft = { full_name: string; phone: string; employment_type: string; position: string; start_date: string }
@@ -516,7 +518,10 @@ export function EmployeePage() {
     const intakePersonDocumentsQuery = !currentCompany?.company_id
       ? Promise.resolve({ data: [], error: null })
       : supabase.from('employee_person_documents').select('id,employee_person_id,document_type,link_status').eq('company_id', currentCompany.company_id).order('created_at')
-    const [profileResult,employmentResult,assignmentResult,readinessResult,membershipResult,intakePeopleResult,intakePersonDocumentsResult]=await Promise.all([
+    const employeeIntakesQuery = !currentCompany?.company_id
+      ? Promise.resolve({ data: [], error: null })
+      : supabase.from('employee_intakes').select('id,status,missing_fields').eq('company_id', currentCompany.company_id).limit(500)
+    const [profileResult,employmentResult,assignmentResult,readinessResult,membershipResult,intakePeopleResult,intakePersonDocumentsResult,employeeIntakesResult]=await Promise.all([
       query,
       supabase.from('employee_employment_records').select('profile_id,employee_code,employment_type,job_title,department,employment_status,attendance_policy,work_policy_id').eq('company_id',currentCompany?.company_id ?? ''),
       supabase.from('employee_site_assignments').select('profile_id').eq('company_id',currentCompany?.company_id ?? '').eq('active',true),
@@ -524,8 +529,9 @@ export function EmployeePage() {
       membershipQuery,
       intakePeopleQuery,
       intakePersonDocumentsQuery,
+      employeeIntakesQuery,
     ])
-    if (profileResult.error||employmentResult.error||assignmentResult.error||readinessResult.error||membershipResult.error||intakePeopleResult.error||intakePersonDocumentsResult.error) {
+    if (profileResult.error||employmentResult.error||assignmentResult.error||readinessResult.error||membershipResult.error||intakePeopleResult.error||intakePersonDocumentsResult.error||employeeIntakesResult.error) {
       setErrorMessage(profileResult.error
         ? userError(profileResult.error)
         : employmentResult.error
@@ -540,6 +546,8 @@ export function EmployeePage() {
                 ? userError(intakePeopleResult.error)
                 : intakePersonDocumentsResult.error
                   ? userError(intakePersonDocumentsResult.error)
+                : employeeIntakesResult.error
+                  ? userError(employeeIntakesResult.error)
               : 'โหลดข้อมูลพนักงานไม่สำเร็จ')
     } else {
       const employmentMap=new Map((employmentResult.data??[]).map(row=>[row.profile_id,row]))
@@ -569,8 +577,11 @@ export function EmployeePage() {
         current.push(document)
         documentsByPerson.set(document.employee_person_id, current)
       }
+      const intakeById = new Map((employeeIntakesResult.data ?? []).map((intake) => [intake.id, intake]))
       setIntakeEmployeePeople((intakePeopleResult.data ?? []).map((person) => ({
         ...person,
+        intake_status: person.source_intake_id ? intakeById.get(person.source_intake_id)?.status ?? null : null,
+        missing_fields: person.source_intake_id ? intakeById.get(person.source_intake_id)?.missing_fields ?? [] : [],
         documents: documentsByPerson.get(person.id) ?? [],
       })))
     }
@@ -1789,11 +1800,21 @@ export function EmployeePage() {
                 <Table size="small"><TableHead><TableRow><TableCell>พนักงาน</TableCell><TableCell>สถานะ</TableCell><TableCell>เอกสารแนบ</TableCell><TableCell align="right">จัดการ</TableCell></TableRow></TableHead><TableBody>
                   {intakeEmployeePeople.map((person) => <TableRow key={person.id}>
                     <TableCell><Typography sx={{ fontWeight: 700 }}>{person.full_name}</Typography><Typography variant="caption" color="text.secondary">{person.employee_code} · {employmentLabels[person.employment_type] ?? person.employment_type}</Typography></TableCell>
-                    <TableCell><Chip size="small" color={person.employee_status === 'active' ? 'success' : 'warning'} label={person.employee_status === 'preboarding' ? 'รอตั้งค่าก่อนเริ่มงาน' : person.employee_status} /></TableCell>
+                    <TableCell><Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
+                      <Chip
+                        size="small"
+                        color={person.intake_status === 'approved' ? 'success' : person.intake_status === 'pending_review' ? 'info' : 'warning'}
+                        label={person.intake_status === 'approved' ? 'ข้อมูลครบและยืนยันแล้ว' : person.intake_status === 'pending_review' ? 'ข้อมูลครบ · รอ Admin ยืนยัน' : person.missing_fields.length > 0 ? 'รอข้อมูลเพิ่ม' : 'รอตรวจข้อมูล'}
+                      />
+                      {person.intake_status === 'approved' && <Typography variant="caption" color="text.secondary">ขั้นตอนถัดไป: ตั้งค่าการจ้างงานและสิทธิ์</Typography>}
+                    </Stack></TableCell>
                     <TableCell><Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
                       {person.documents.length === 0 ? <Typography variant="caption" color="text.secondary">ยังไม่มีเอกสารแนบ</Typography> : person.documents.map((document) => <Chip key={document.id} size="small" color={document.link_status === 'available' ? 'success' : 'default'} label={intakeDocumentLabels[document.document_type] ?? document.document_type} />)}
                     </Stack></TableCell>
-                    <TableCell align="right"><Button size="small" variant="outlined" onClick={() => openIntakeDraft(person)}>เพิ่ม / อัปเดตข้อมูล</Button></TableCell>
+                    <TableCell align="right">{person.intake_status === 'approved'
+                      ? <Chip size="small" color="success" variant="outlined" label="จบขั้นข้อมูลแล้ว" />
+                      : <Button size="small" variant="outlined" onClick={() => openIntakeDraft(person)}>เพิ่ม / อัปเดตข้อมูล</Button>}
+                    </TableCell>
                   </TableRow>)}
                 </TableBody></Table>
               </TableContainer>

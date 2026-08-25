@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Employee Onboarding Completed-Data State v2.2 — 25/8/2569
+
+- **เหตุผล:** ข้อมูลก่อนเริ่มงานบันทึกและอนุมัติแล้ว แต่หน้า Employee อ่านเพียง `employee_people.employee_status=preboarding` จึงแสดงเหมือนข้อมูลยังค้างและยังเสนอปุ่มอัปเดตที่ใช้ไม่ได้กับ Intake `approved`
+- **ผลกระทบ:** คิว HR Onboarding อ่าน `employee_intakes.status/missing_fields` และแสดง `รอข้อมูลเพิ่ม`, `ข้อมูลครบ · รอ Admin ยืนยัน`, หรือ `ข้อมูลครบและยืนยันแล้ว`; รายการที่อนุมัติแล้วเปลี่ยนเป็นขั้นตอนถัดไป “ตั้งค่าการจ้างงานและสิทธิ์”
+- **Data/permissions:** เป็น read-only projection เพิ่มเติมภายใต้ RLS บริษัทเดิม; ไม่เปลี่ยน schema, RPC, สิทธิ์ หรือข้อมูล Production
+- **Verification:** preboarding contract, typecheck, lint, build และ authenticated `/employees` smoke โดยเทียบ Employee Master กับ Intake จริง
+- **Rollback:** revert query/label/action UI; Employee Master, Intake, เอกสารต้นฉบับและ Audit ไม่เปลี่ยน
+
 ## แผนงาน: Employee Identity & Completeness v0.1 — 25/8/2569
 
 - **สถานะ:** `รอดำเนินการ`; บันทึก Contract แล้ว แต่ยังไม่มี schema/RPC/UI/Production behavior ใหม่
