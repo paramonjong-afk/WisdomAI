@@ -1141,3 +1141,11 @@
 - **Data/Audit:** ไม่มี migration และไม่มีการแก้ Candidate/Raw/OCR/Source Reference/Version/Audit; เป็นการแก้ projection ฝั่งอ่านเท่านั้น
 - **การตรวจสอบ:** `test:master-data-auto-input`, targeted lint, typecheck, build และ authenticated exact-row Drawer smoke สำหรับ Candidate ที่บันทึก `employee_technician` แต่ AI เสนอ `unknown_review`
 - **Rollback:** revert UI/service precedence patch; ค่าที่ Admin บันทึกและหลักฐานทั้งหมดคงอยู่เหมือนเดิม
+
+## ล่าสุด: Master Data one-shot confirmation v2.0 — 25/8/2569
+
+- **เหตุผล:** ป้องกันการกดปุ่มยืนยันเร็วสองครั้งหรือกดซ้ำหลังฐานข้อมูลบันทึกแล้ว ซึ่งอาจทำให้ผู้ใช้ไม่แน่ใจว่ามีการสร้าง Version/Audit ซ้ำหรือไม่
+- **ผลกระทบ:** `/master-data` ล็อก Candidate ทันทีตั้งแต่คลิกครั้งแรก ระหว่างรอ RPC ปุ่มใช้ซ้ำไม่ได้ และหลัง read-back ได้สถานะ `confirmed`/`approved`/`locked` จะเอาปุ่มยืนยันออก แสดง `บันทึกแล้ว · ปิดการยืนยันซ้ำ` และเหลือเฉพาะ `รายการถัดไป`/`กลับคิว`
+- **Data/Audit:** ไม่มี migration และไม่แก้ Raw/OCR/Source Reference; database review-state guard ยังคงเป็นด่านสุดท้ายสำหรับ request เก่าหรือ request ซ้ำ
+- **การตรวจสอบ:** one-shot regression, Master Data review contracts, targeted/full lint, typecheck, build และ authenticated terminal-Drawer smoke
+- **Rollback:** revert client lock/status marker ได้โดยไม่เปลี่ยน Candidate, Master Data, Version หรือ Audit ที่บันทึกแล้ว

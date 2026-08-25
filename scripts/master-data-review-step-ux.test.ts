@@ -75,6 +75,8 @@ const workflow = readFileSync('src/pages/MasterDataCenter/MasterDataReviewWorkfl
 const projectPanel = readFileSync('src/pages/MasterDataCenter/MasterDataProjectGatePanel.tsx', 'utf8')
 const receiptLoader = readFileSync('src/services/masterDataReviewReceipts.ts', 'utf8')
 for (const token of ['MasterDataReviewProgress', 'MasterDataReviewActions', 'loadMasterDataReviewReceipts', 'Raw/OCR ไม่ถูกเขียนทับ', 'validatePersistedReviewAction', 'validatePersistedCorrection', 'validatePersistedProjectGate', 'await load()']) assert.match(page, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+for (const token of ['reviewActionInFlightRef', 'กำลังบันทึกรายการนี้', 'ระบบปิดการยืนยันซ้ำ']) assert.match(page, new RegExp(token))
+for (const token of ['บันทึกแล้ว · ปิดการยืนยันซ้ำ', "? { label: hasNext ? 'รายการถัดไป' : 'กลับคิว'"]) assert.match(workflow, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 for (const label of ['ความสัมพันธ์', 'ตรวจและแก้ข้อมูล', 'ยืนยันและส่งต่อ', 'ปุ่มยังใช้ไม่ได้', 'Correction Version / Audit', 'Project Candidate บันทึกแล้ว']) assert.match(workflow, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 for (const responsiveContract of ["direction={{ xs: 'column', sm: 'row' }}", "fontSize: { xs: '0.68rem', sm: '0.75rem' }", 'fullWidth variant="contained"']) assert.match(workflow, new RegExp(responsiveContract.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 assert.doesNotMatch(page, /<DialogActions/)

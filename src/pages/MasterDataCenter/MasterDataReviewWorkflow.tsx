@@ -95,6 +95,7 @@ export function MasterDataReviewActions({ candidate, reason, saving, hasNext, on
         : { label: 'เลือก Project เพื่อดำเนินการต่อ', disabled: true, run: () => undefined }
   const menuAction = (action: MasterReviewAction) => { setAnchor(null); onReview(action) }
   return <Paper variant="outlined" sx={{ p: 1, position: 'sticky', bottom: 0, zIndex: 3, bgcolor: 'background.paper' }}>
+      {terminal && <Chip size="small" color="success" icon={<CheckOutlined />} label="บันทึกแล้ว · ปิดการยืนยันซ้ำ" sx={{ mb: 1 }} />}
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
         <Button fullWidth variant="contained" startIcon={terminal ? <NavigateNextOutlined /> : <CheckOutlined />} disabled={primary.disabled} onClick={primary.run}>{primary.label}</Button>
         {!terminal && <Button aria-label="การดำเนินการเพิ่มเติม" variant="outlined" disabled={saving} onClick={(event) => setAnchor(event.currentTarget)}><MoreHorizOutlined /></Button>}
