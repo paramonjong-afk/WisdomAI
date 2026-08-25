@@ -52,6 +52,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- | --- |
 | v2.4 | 25/8/2569 | ให้ทะเบียนพนักงานเบื้องต้นปรากฏร่วมกับงานพนักงานและชี้ข้อมูลที่ Admin ต้องเติม โดยไม่สร้างบุคคลซ้ำ | `/employees`, `create-employee`, Auth/Profile/Membership/Employment linking และ Workforce Audit | ไม่มี schema migration | contract test, typecheck, lint, build, dry-run, authenticated Production smoke และตรวจ person/profile/audit | revert UI/Edge commit; บัญชีที่สร้างแล้วใช้ recovery ตาม Audit โดยไม่ลบ Intake/Document ต้นฉบับ |
 | v2.4.1 | 25/8/2569 | ป้องกันทะเบียนที่ผูกบัญชีสำเร็จแล้วค้างในรายการและเสนอปุ่มสร้างบัญชีซ้ำ | `/employees` กรองกลุ่มเตรียมเริ่มงานด้วย `profile_id is null`; พนักงานที่ผูกแล้วอยู่ตารางหลักเพียงจุดเดียว | ไม่มี | contract, typecheck, lint, build และ authenticated Production smoke หลังสร้างบัญชี | revert UI query ได้โดยไม่กระทบข้อมูลหรือ Audit |
+| v2.5 | 25/8/2569 | เพิ่มการมอบหมายไซต์จาก Drawer พนักงานด้วยข้อมูลชุดเดียวกับระบบลงเวลา | Drawer → canonical `assign_employee_site`; ตรวจบริษัท/สิทธิ์/ไซต์/policy/ช่วงวัน/รายการซ้ำ และบันทึก event แบบ immutable | `20260825231500_employee_drawer_site_assignment_audit.sql` | contract, typecheck, lint, build, migration dry-run/apply และ authenticated Drawer smoke | ซ่อนส่วน Drawer และคืน RPC ก่อนหน้า; assignment/event ที่สร้างแล้วคงไว้เพื่อตรวจสอบ |
 
 ## Employee Master ก่อนข้อมูลครบ — v1.1 (25/8/2569)
 
@@ -406,6 +407,33 @@ flowchart TD
 - Idempotency ใช้ Intake ID, source attachment ID และ content hash; กดซ้ำต้องไม่สร้าง Person/Document link ซ้ำ
 - Audit ต้องเก็บ Candidate ที่เสนอ, คะแนน/เหตุผล, ผู้ตัดสินใจ, before/after และปลายทาง Employee/Profile
 - Failure/recovery: หากพบภายหลังว่าสร้าง Preboarding ซ้ำ ให้ใช้ reconcile action เชื่อมไป Profile เดิมและปิด draft ซ้ำโดยไม่ลบ Raw/เอกสาร/Audit
+
+### Employee Drawer Site Assignment (v2.5, 25/8/2569)
+
+```mermaid
+flowchart TD
+  A[Admin/Manager เปิด Drawer พนักงาน] --> B[โหลดไซต์ active และ Assignment ของบริษัท]
+  B --> C[เลือกไซต์ วันเริ่ม และไซต์หลัก]
+  C --> D{ตรวจสิทธิ์และข้อมูลกลาง}
+  D -->|ข้ามบริษัท/ไซต์หรือ policy ผิด/วันผิด| E[ไม่เขียนข้อมูล + แจ้งแนวทางแก้]
+  D -->|Assignment ช่วงเดียวกันซ้ำ| F[ไม่สร้างซ้ำ + เปิดทางไปจัดการประวัติ]
+  D -->|ผ่าน| G[RPC assign_employee_site]
+  G --> H[เขียน employee_site_assignments]
+  H --> I[เขียน employee_site_assignment_events: created]
+  I --> J[รีเฟรช Readiness และแสดงไซต์ใน Drawer]
+  J --> K[ระบบลงเวลาใช้ Assignment ชุดเดียวกัน]
+  E --> C
+  F --> C
+```
+
+- **Input:** พนักงาน, บริษัทปัจจุบัน, ไซต์ active, วันเริ่ม, ค่าสถานะไซต์หลัก และ work policy ตั้งต้นของไซต์
+- **Output:** Assignment ที่ระบบลงเวลาอ่านได้, จำนวนไซต์/Readiness ที่รีเฟรช และ Audit event แบบ immutable
+- **States:** Assignment ใหม่เป็น `active`; การย้าย/สิ้นสุด/ยกเลิกใช้ lifecycle เดิมที่ `/workforce-setup` ห้ามแก้ประวัติด้วยการสร้างแถวซ้ำ
+- **Roles/permissions:** เฉพาะ company manager/Admin ที่ `is_company_manager` ผ่าน; พนักงาน ไซต์ และ policy ต้องอยู่บริษัทเดียวกับ context
+- **Integrations:** Employee Drawer → canonical RPC → `employee_site_assignments` → readiness/attendance; หน้าประวัติยังอยู่ `/workforce-setup`
+- **Failure/retry:** ตรวจช่วงวันและ overlap ในฐานข้อมูล; retry ด้วยข้อมูลเดิมต้องได้ `site_assignment_already_active` และไม่เขียนซ้ำ
+- **Audit:** เมื่อสร้างสำเร็จต้องเพิ่ม `employee_site_assignment_events` ชนิด `created` พร้อม actor, company และ after snapshot
+- **Owner:** HR Operations / Site Admin; rollback โดยซ่อน Action และคืน RPC ก่อนหน้า โดยไม่ลบ Assignment/Event ที่เกิดแล้ว
 
 | Version | วันที่ | เหตุผล/ผลกระทบ | Migration | Verification | Rollback |
 |---|---|---|---|---|---|

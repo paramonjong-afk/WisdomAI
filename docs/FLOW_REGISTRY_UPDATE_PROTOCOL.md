@@ -1,5 +1,14 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Employee Drawer Site Assignment v2.5 — 25/8/2569
+
+- **เหตุผล:** Admin ต้องมอบหมายไซต์จากจุดที่กำลังตรวจพนักงาน โดยไม่สร้างข้อมูลไซต์คนละชุดกับระบบลงเวลา
+- **ผลกระทบ:** `/employees` Drawer, canonical `assign_employee_site`, assignment readiness, attendance scope และ immutable assignment audit
+- **กติกา:** ตรวจ manager/company/site/policy/date/overlap ที่ RPC; UI ตรวจซ้ำเพื่อแจ้งเร็ว แต่ฐานข้อมูลเป็นด่านสุดท้าย; การย้าย/สิ้นสุดใช้ lifecycle เดิม
+- **Migration:** `20260825231500_employee_drawer_site_assignment_audit.sql`
+- **Verification:** contract, typecheck, lint, build, migration dry-run/apply, authenticated Drawer smoke และตรวจว่าไม่เกิด Assignment ซ้ำ
+- **Rollback:** ซ่อนส่วน Drawer และคืน RPC definition ก่อนหน้า; คง Assignment/Event ที่สร้างแล้วสำหรับ audit/recovery
+
 ## ล่าสุด: Existing Employee Document Visibility v2.3 — 25/8/2569
 
 - **เหตุผล:** เอกสารย้อนหลังเชื่อมกับ Employee Person/Profile เดิมแล้ว แต่ Drawer พนักงาน active ไม่แสดงทะเบียนเอกสาร ทำให้ HR ตรวจผลจากหน้าโปรแกรมไม่ได้

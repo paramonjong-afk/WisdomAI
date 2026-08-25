@@ -56,6 +56,8 @@ type EmployeeIntakeMaster = {
   documents: Array<{ id: string; employee_person_id: string; document_type: string; link_status: string }>
 }
 type EmployeePersonDocument = { id: string; employee_person_id: string; document_type: string; link_status: string }
+type EmployeeSiteOption = { id: string; name: string; work_policy_id: string | null; projects: { name: string } | null }
+type EmployeeSiteAssignment = { id: string; profile_id: string; site_id: string; starts_on: string; ends_on: string | null; is_primary: boolean; project_sites: { name: string; projects: { name: string } | null } | null }
 type IntakeEmployeeDraft = { full_name: string; phone: string; employment_type: string; position: string; start_date: string }
 type WorkPolicyOption = { id: string; name: string; active: boolean }
 type CreateEmployeeError = StandardErrorPayload & { request_id?: string }
@@ -339,6 +341,12 @@ export function EmployeePage() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [intakeEmployeePeople, setIntakeEmployeePeople] = useState<EmployeeIntakeMaster[]>([])
   const [employeeDocumentsByProfile, setEmployeeDocumentsByProfile] = useState<Record<string, EmployeePersonDocument[]>>({})
+  const [employeeSiteOptions, setEmployeeSiteOptions] = useState<EmployeeSiteOption[]>([])
+  const [employeeSiteAssignments, setEmployeeSiteAssignments] = useState<EmployeeSiteAssignment[]>([])
+  const [drawerSiteId, setDrawerSiteId] = useState('')
+  const [drawerSiteStartsOn, setDrawerSiteStartsOn] = useState(new Date().toISOString().slice(0, 10))
+  const [drawerSitePrimary, setDrawerSitePrimary] = useState('yes')
+  const [drawerSiteSaving, setDrawerSiteSaving] = useState(false)
   const [intakeDraftPerson, setIntakeDraftPerson] = useState<EmployeeIntakeMaster | null>(null)
   const [intakeDraft, setIntakeDraft] = useState<IntakeEmployeeDraft>({ full_name: '', phone: '', employment_type: 'unknown', position: '', start_date: '' })
   const [intakeDraftSaving, setIntakeDraftSaving] = useState(false)
@@ -527,18 +535,19 @@ export function EmployeePage() {
     const employeeIntakesQuery = !currentCompany?.company_id
       ? Promise.resolve({ data: [], error: null })
       : supabase.from('employee_intakes').select('id,status,missing_fields').eq('company_id', currentCompany.company_id).limit(500)
-    const [profileResult,employmentResult,assignmentResult,readinessResult,membershipResult,intakePeopleResult,intakePersonDocumentsResult,employeeIntakesResult,employeePersonProfilesResult]=await Promise.all([
+    const [profileResult,employmentResult,assignmentResult,readinessResult,membershipResult,intakePeopleResult,intakePersonDocumentsResult,employeeIntakesResult,employeePersonProfilesResult,siteResult]=await Promise.all([
       query,
       supabase.from('employee_employment_records').select('profile_id,employee_code,employment_type,job_title,department,employment_status,attendance_policy,work_policy_id').eq('company_id',currentCompany?.company_id ?? ''),
-      supabase.from('employee_site_assignments').select('profile_id').eq('company_id',currentCompany?.company_id ?? '').eq('active',true),
+      supabase.from('employee_site_assignments').select('id,profile_id,site_id,starts_on,ends_on,is_primary,project_sites(name,projects(name))').eq('company_id',currentCompany?.company_id ?? '').eq('active',true),
       supabase.from('employee_onboarding_readiness').select('profile_id,has_work_policy,ready_to_clock').eq('company_id',currentCompany?.company_id ?? ''),
       membershipQuery,
       intakePeopleQuery,
       intakePersonDocumentsQuery,
       employeeIntakesQuery,
       employeePersonProfilesQuery,
+      supabase.from('project_sites').select('id,name,work_policy_id,projects(name)').eq('company_id',currentCompany?.company_id ?? '').eq('active',true).order('name'),
     ])
-    if (profileResult.error||employmentResult.error||assignmentResult.error||readinessResult.error||membershipResult.error||intakePeopleResult.error||intakePersonDocumentsResult.error||employeeIntakesResult.error||employeePersonProfilesResult.error) {
+    if (profileResult.error||employmentResult.error||assignmentResult.error||readinessResult.error||membershipResult.error||intakePeopleResult.error||intakePersonDocumentsResult.error||employeeIntakesResult.error||employeePersonProfilesResult.error||siteResult.error) {
       setErrorMessage(profileResult.error
         ? userError(profileResult.error)
         : employmentResult.error
@@ -557,6 +566,8 @@ export function EmployeePage() {
                   ? userError(employeeIntakesResult.error)
                 : employeePersonProfilesResult.error
                   ? userError(employeePersonProfilesResult.error)
+                : siteResult.error
+                  ? userError(siteResult.error)
               : 'โหลดข้อมูลพนักงานไม่สำเร็จ')
     } else {
       const employmentMap=new Map((employmentResult.data??[]).map(row=>[row.profile_id,row]))
@@ -579,6 +590,8 @@ export function EmployeePage() {
         site_count: siteCounts.get(row.id) ?? 0,
       })) as Employee[]
       setEmployees(rows)
+      setEmployeeSiteAssignments((assignmentResult.data ?? []) as unknown as EmployeeSiteAssignment[])
+      setEmployeeSiteOptions((siteResult.data ?? []) as unknown as EmployeeSiteOption[])
       setNames(Object.fromEntries(rows.map((employee) => [employee.id, employee.full_name ?? ''])))
       const documentsByPerson = new Map<string, EmployeeIntakeMaster['documents']>()
       for (const document of intakePersonDocumentsResult.data ?? []) {
@@ -606,6 +619,38 @@ export function EmployeePage() {
     }
     setLoading(false)
   }, [canManage, currentCompany, user])
+
+  const assignSiteFromDrawer = async () => {
+    if (!employeeDrawer || !drawerSiteId) return
+    const duplicate = employeeSiteAssignments.some((assignment) => assignment.profile_id === employeeDrawer.id && assignment.site_id === drawerSiteId)
+    if (duplicate) {
+      setErrorMessage('พนักงานถูกมอบหมายเข้าไซต์นี้อยู่แล้ว กรุณาเลือกไซต์อื่นหรือจัดการประวัติเดิมที่หน้ากำหนดเวลางานและรอบจ่าย')
+      return
+    }
+    setDrawerSiteSaving(true)
+    setErrorMessage('')
+    try {
+      const selectedSite = employeeSiteOptions.find((site) => site.id === drawerSiteId)
+      const { error } = await supabase.rpc('assign_employee_site', {
+        target_profile_id: employeeDrawer.id,
+        target_site_id: drawerSiteId,
+        target_starts_on: drawerSiteStartsOn,
+        target_ends_on: null,
+        target_work_policy_id: selectedSite?.work_policy_id ?? null,
+        target_is_primary: drawerSitePrimary === 'yes',
+      })
+      if (error) throw error
+      await loadEmployees()
+      setMessage(`มอบหมายไซต์ ${selectedSite?.name ?? ''} ให้ ${employeeDrawer.full_name ?? 'พนักงาน'} สำเร็จ และบันทึก Audit แล้ว`)
+      setDrawerSiteId('')
+      setEmployeeDrawer((current) => current ? { ...current, site_count: (current.site_count ?? 0) + 1 } : current)
+    } catch (error) {
+      const friendly = toFriendlyError({ error, module: 'employee_site_assignment', fallback: 'มอบหมายไซต์งานไม่สำเร็จ' })
+      setErrorMessage(`${userError(friendly)}\nแนวทางแก้: ${friendly.action}`)
+    } finally {
+      setDrawerSiteSaving(false)
+    }
+  }
 
   const refreshWithProfile = useCallback(async () => {
     if (syncBusyRef.current) return
@@ -2303,6 +2348,36 @@ export function EmployeePage() {
                 <Typography>ไซต์ที่รับผิดชอบ: <strong>{employeeDrawer.site_count ?? 0} ไซต์</strong></Typography>
               </Stack>
               {canManage && <Button fullWidth variant="outlined" sx={{ mt: 1.5 }} onClick={() => { setEmployeeDrawer(null); void openEmployment(employeeDrawer) }}>แก้ไขข้อมูลการจ้างงาน ค่าจ้าง และนโยบายเวลา</Button>}
+            </Box>
+
+            <Divider />
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>มอบหมายไซต์งาน</Typography>
+              {employeeSiteAssignments.filter((assignment) => assignment.profile_id === employeeDrawer.id).length === 0
+                ? <Alert severity="warning" sx={{ mb: 1.5 }}>ยังไม่มีไซต์งาน จึงยังไม่พร้อมลงเวลา</Alert>
+                : <Stack spacing={0.75} sx={{ mb: 1.5 }}>
+                    {employeeSiteAssignments.filter((assignment) => assignment.profile_id === employeeDrawer.id).map((assignment) => (
+                      <Paper key={assignment.id} variant="outlined" sx={{ p: 1 }}>
+                        <Typography sx={{ fontWeight: 700 }}>{assignment.project_sites?.projects?.name ? `${assignment.project_sites.projects.name} · ` : ''}{assignment.project_sites?.name ?? 'ไม่พบชื่อไซต์'}</Typography>
+                        <Typography variant="caption" color="text.secondary">เริ่ม {new Date(`${assignment.starts_on}T00:00:00`).toLocaleDateString('th-TH')}{assignment.is_primary ? ' · ไซต์หลัก' : ''}</Typography>
+                      </Paper>
+                    ))}
+                  </Stack>}
+              {canManage && <Stack spacing={1}>
+                <TextField select size="small" fullWidth label="เลือกไซต์งาน" value={drawerSiteId} onChange={(event) => setDrawerSiteId(event.target.value)}>
+                  {employeeSiteOptions.map((site) => <MenuItem key={site.id} value={site.id}>{site.projects?.name ? `${site.projects.name} · ` : ''}{site.name}</MenuItem>)}
+                </TextField>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                  <TextField fullWidth size="small" type="date" label="วันเริ่มมอบหมาย" value={drawerSiteStartsOn} onChange={(event) => setDrawerSiteStartsOn(event.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
+                  <TextField fullWidth size="small" select label="กำหนดเป็นไซต์หลัก" value={drawerSitePrimary} onChange={(event) => setDrawerSitePrimary(event.target.value)}>
+                    <MenuItem value="yes">ใช่</MenuItem><MenuItem value="no">ไม่ใช่</MenuItem>
+                  </TextField>
+                </Stack>
+                <Button fullWidth variant="contained" disabled={drawerSiteSaving || !drawerSiteId || !drawerSiteStartsOn} onClick={() => void assignSiteFromDrawer()}>
+                  {drawerSiteSaving ? <CircularProgress size={20} color="inherit" /> : 'บันทึกการมอบหมายไซต์'}
+                </Button>
+                <Button fullWidth variant="text" component="a" href="/workforce-setup">จัดการประวัติ ย้าย หรือสิ้นสุดไซต์</Button>
+              </Stack>}
             </Box>
 
             <Divider />
