@@ -10,14 +10,20 @@ flowchart TD
   B2 --> B3{Admin ตัดสินใจ}
   B3 -->|Draft| QD[ค้างบัญชีพร้อม before after และ Audit]
   B3 -->|ขอข้อมูลเพิ่ม| QI[Accounting task recheck required]
-  B3 -->|ยืนยัน| M0[Money Lineage Gate: แหล่งเงิน ผู้ถือเงิน ผู้จ่าย ผู้รับ โครงการ ยอด และทอดการส่ง]
-  M0 -->|ข้อมูลไม่ครบ/ยอดไม่สมดุล| QI
-  M0 -->|ครบ| C1[ตรวจผู้โอน ผู้รับ ยอด และหลักฐานครบ]
+  B3 -->|ยืนยัน| M0[Transfer Fact: ผู้โอน ผู้รับ บัญชี ยอด เวลา Reference]
+  M0 --> M00{เชื่อมเส้นเงินก่อนหน้าหรือไม่}
+  M00 -->|มี| M01[ผูก Parent และ Root Lineage เดิม]
+  M00 -->|ไม่มี| M02[สร้าง Root Lineage ของสลิปนี้]
+  M01 --> A0[Allocation: แบ่งหลายประเภท หลายโครงการ หลายผู้รับ]
+  M02 --> A0
+  A0 --> A1{ยอดสลิป = จัดสรร + คืน + ยังไม่จัดสรร}
+  A1 -->|ไม่สมดุล/ยังเหลือ| QI
+  A1 -->|สมดุลและเหลือ 0| C1[ตรวจผู้โอน ผู้รับ ยอด และหลักฐานครบ]
   C1 -->|ไม่ชัด/ซ้ำ| Q1[ค้างตรวจพร้อมเหตุผลและ Audit]
   C1 -->|ผ่าน| C[ตรวจชนิดและวัตถุประสงค์]
-  C -->|ค่าแรง| M1[ปิด Accounting task และสร้าง HR/Payroll task]
-  C -->|วัสดุ| M2[ปิด Accounting task และสร้าง Inventory + Project task]
-  C -->|ค่าใช้จ่ายโครงการ| M3[ปิด Accounting task และสร้าง Project task]
+  C -->|ค่าแรงหนึ่งหรือหลาย Allocation| M1[ปิด Accounting task และสร้าง HR/Payroll task]
+  C -->|วัสดุหนึ่งหรือหลาย Allocation| M2[ปิด Accounting task และสร้าง Inventory + Project task]
+  C -->|โครงการ/ผู้รับเหมา/เดินทาง| M3[ปิด Accounting task และสร้าง Project task]
   C -->|เงินสำรอง/ส่งต่อ| M4{จับคู่ผู้ถือเงินในทะเบียนได้หรือไม่}
   M4 -->|ได้| M5[สร้าง/เชื่อม Advance Case และส่ง Advance Finance]
   M4 -->|ไม่ได้| QI
@@ -55,6 +61,10 @@ flowchart TD
 - `transfer_slip_money_lineages` เก็บเส้นทางเงินที่ Admin ตรวจแล้วแยกจาก Raw/OCR: แหล่งเงิน, รหัสกองเงิน, ผู้ถือเงิน, ผู้จ่ายจริง, ผู้รับสุดท้าย, โครงการ/ไซต์, ยอดตั้งต้น/จ่าย/คืน/คงเหลือ และทอดการส่งทั้งหมด โดยมีหนึ่ง projection ต่อ Document Flow Item
 - `review_transfer_slip_money_lineage` บันทึกข้อมูลสลิปและสายเงินใน transaction เดียว ใช้ `event_key` ป้องกันคำสั่งซ้ำ และสร้างงานต่อเฉพาะตอน `confirm`: ค่าแรง→HR, วัสดุ→Inventory+Project, ค่าใช้จ่ายโครงการ→Project, ค่าใช้จ่ายทั่วไป→Accounting Posting, เงินสำรอง→Advance Case เมื่อจับคู่ผู้ถือเงินได้
 - เงินสำรองที่ยังจับคู่ผู้ถือเงินไม่ได้จะคง Accounting task เป็น `recheck_required`; ระบบไม่เดาชื่อ ไม่สร้าง Advance ซ้ำ และไม่ถือว่าเดินทางถึงปลายทางแล้ว
+- Money Lineage v2 แยก `Transfer Fact` (ข้อเท็จจริงจากสลิป) ออกจาก `transfer_slip_money_allocations` (วัตถุประสงค์/จำนวน/โครงการ/ผู้รับผิดชอบ) สลิปหนึ่งใบจึงแบ่งค่าแรง วัสดุ ผู้รับเหมา หรือหลายโครงการได้ โดยไม่แก้ Raw/OCR
+- `root_lineage_id` และ `parent_lineage_id` เชื่อมสลิปคนละใบเป็นสายเงินเดียวกัน เช่น บริษัท → ผู้ถือเงิน → ช่าง/ร้านค้า/โครงการ → เงินคืน; สลิปเติมเงินสำรองต้องเป็น Allocation เดียว ส่วนการใช้เงินจริงเชื่อมเป็นสลิปลูกเพื่อไม่คาดเดาการใช้เงินล่วงหน้า
+- ยืนยันและส่งปลายทางได้ต่อเมื่อ `ยอดตามสลิป = รวม Allocation + ยอดคืน + ยอดยังไม่จัดสรร` และยอดยังไม่จัดสรรเป็นศูนย์; หากไม่ครบยังบันทึก Draft/ขอข้อมูลเพิ่มได้และ Accounting task ไม่ถูกปิด
+- Allocation ที่แก้ไขไม่ถูกลบ: เวอร์ชันก่อนถูกทำเครื่องหมาย `superseded` และ `document_flow_events` เก็บ before/after, actor, เวลา, Root/Parent และยอดกระทบทั้งหมดด้วย `event_key` เดิม
 
 ## Change record
 
@@ -66,3 +76,4 @@ flowchart TD
 | v1.2.1 | 23/8/2569 | Production smoke พบชื่อคอลัมน์ duplicate ใน query ไม่ตรง schema จริง | เปลี่ยน projection เป็น `financial_transactions.duplicate_of` ทำให้ข้อมูลธุรกรรมและ count แสดงตามข้อมูลจริง | ไม่มี | authenticated Production smoke ต้องไม่มี schema alert และ count duplicate ต้องตรงรายการ | คืน query ก่อนหน้าได้แต่จะทำให้รายละเอียดสลิปโหลดไม่สำเร็จ จึงควร rollback ทั้ง v1.2 แทน |
 | v1.3 | 23/8/2569 | ให้ทีมบัญชีแก้ค่าที่ AI อ่านไม่ได้และสั่งอ่านใหม่จากรูปเดียวกันโดยไม่หลุด Flow | Drawer 2 แท็บ, single-item AI reread, manual draft/confirm/request info และ before/after Audit | `20260823111848_transfer_slip_drawer_review.sql`; deploy `reprocess-transfer-slips` | review contract, queue test, typecheck, lint, build และ authenticated page smoke | ซ่อน action/UI, ถอน EXECUTE RPC และ rollback Edge Function; raw source/task/audit เดิมไม่ถูกลบ |
 | v1.4 | 23/8/2569 | ติดตามว่าเงินมาจากกองใด ผ่านใครบ้าง และส่งงานต่อหลังบัญชียืนยัน | เพิ่ม Money Lineage, balance gate, multi-hop route, project/site และ idempotent destination routing | `20260823122135_transfer_slip_money_lineage_routing.sql` | money-lineage/review/queue tests, migration query, lint/typecheck/build และ authenticated page smoke | ปิดปุ่มยืนยันและส่งต่อ, revoke RPC/ตัด UI; เก็บ Raw, transaction, lineage และ audit เพื่อ recovery |
+| v1.5 | 26/8/2569 | สลิปหนึ่งใบอาจแบ่งหลายวัตถุประสงค์/หลายโครงการ และการใช้เงินหลายใบต้องย้อนกลับถึงกองเงินต้นทางได้ | แยก Transfer Fact กับ Allocation, เพิ่ม Root/Parent Lineage, balance gate และ multi-destination routing แบบ idempotent | `20260825231054_transfer_slip_money_allocations_v2.sql` | allocation/lineage contracts, migration dry-run, lint/typecheck/build และ authenticated Accounting Drawer smoke | ปิด RPC/UI v2 แล้วกลับใช้ RPC v1; เก็บ Allocation/Root/Parent/Audit ที่เกิดแล้วเพื่อ recovery ห้ามลบ Raw/OCR |

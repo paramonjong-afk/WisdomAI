@@ -11,6 +11,8 @@ flowchart LR
   G --> H[ตรวจชื่อซ้ำ + parent เดียวกัน]
   H --> F
   F --> I[ส่งคิวปลายทาง + Audit event]
+  J[สลิปบัญชี: Allocation หลายโครงการ] --> K[สร้าง Project task จาก Allocation ที่ยืนยัน]
+  K --> I
 ```
 
 ## Multi-destination document flow — v1.1
@@ -46,6 +48,7 @@ flowchart LR
 - Failure: ชื่อว่าง, parent ต่างโครงการ, งานซ้ำ, หรือไม่มีสิทธิ์ ต้องปฏิเสธพร้อมข้อความ; ผู้ใช้เลือกงานเดิมหรือเสนอให้ผู้ดูแลสร้างได้.
 - Drawer แสดงทะเบียนงานกลางเป็นต้นไม้พับ/ขยายตาม `โครงการ → งานหลัก → งานย่อย`; การเลือกหรือเพิ่มงานไม่ขึ้นกับแผนกปลายทาง จึงใช้รายการเดียวกันได้ทั้งช่าง, บัญชี, สต็อก, จัดซื้อ และ HR.
 - เมื่อบันทึกไม่สำเร็จ UI ต้องแปล error กลางเป็นสาเหตุที่ทำงานต่อได้: สิทธิ์ไม่พอ, โครงการ/งานย่อยคนละบริษัท, งานแม่ไม่ตรงโครงการ, ชื่อซ้ำ หรือ version conflict. ทุกกรณีไม่สร้างข้อมูลซ้ำและให้รีเฟรช/เลือกรายการเดิมตามความเหมาะสม.
+- สลิปโอนเงินหนึ่งใบสามารถมี `transfer_slip_money_allocations` หลายโครงการ/ไซต์ได้ โดยใช้ Document Flow Item และ Source เดิมเพียงชุดเดียว; Project task ถูกสร้างแบบ idempotent จาก Allocation ที่ยืนยันและไม่ถือว่าเป็นการ Posting ต้นทุนจนกว่าเจ้าของปลายทางจะรับงาน
 
 ## Change record
 
@@ -56,3 +59,4 @@ flowchart LR
 | v1.2 | 20/8/2569 | เพิ่มสถานะข้อมูลกลางและ recheck task เฉพาะแผนกที่กระทบ | `202608200001_document_flow_data_review_status.sql` | ปิด UI สถานะ; ไม่ลบ audit เดิม |
 | v1.3 | 20/8/2569 | ทำให้สถานะงานหลายปลายทางที่กำลังทำงานถูกต้องตามกฎทะเบียนกลาง จึง route ได้โดยไม่สร้างรายการซ้ำ | `20260820082024_document_flow_multi_destination_state_fix.sql` | หยุดสร้าง task ใหม่ชั่วคราว; task/audit ที่มีอยู่ยังอ่านได้ |
 | v1.4 | 20/8/2569 | แสดงทะเบียนงานกลางเป็นต้นไม้ใน Drawer และแปลความผิดพลาดการบันทึกให้แก้ไขได้ทันที โดยไม่แยกงานย่อยตามแผนก | ไม่มี migration | คืน UI แบบ select เดิม; ข้อมูล/สิทธิ์/RPC ไม่เปลี่ยน |
+| v1.5 | 26/8/2569 | รองรับสลิปเดียวแบ่งหลายโครงการและเชื่อมกลับ Root Money Lineage โดยไม่ทำสำเนาเอกสาร | `20260825231054_transfer_slip_money_allocations_v2.sql` | allocation/root-parent contracts, destination task idempotency, lint/typecheck/build และ Accounting/Project queue smoke | ปิด v2 routing; เก็บ Allocation/Audit เดิมและกลับอ่าน Project task ก่อนหน้า |

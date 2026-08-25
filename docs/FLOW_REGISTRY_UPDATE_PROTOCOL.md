@@ -1,5 +1,37 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Accounting Money Allocation & Root/Parent Lineage v1.5 — 26/8/2569
+
+- **เหตุผล:** Money Lineage เดิมเก็บวัตถุประสงค์เดียวต่อสลิปและหลายทอดใน JSON เดียว จึงแบ่งค่าแรง/วัสดุ/หลายโครงการหรือเชื่อมสลิปการใช้เงินกลับกองเงินต้นทางไม่ได้อย่างตรวจสอบได้
+- **ผลกระทบ:** `/accounting-documents` แยก Transfer Fact ออกจาก Allocation; สลิปหนึ่งใบแบ่งหลาย Allocation/Project/Site ได้ และสลิปคนละใบเชื่อม `parent_lineage_id`/`root_lineage_id`; เงินสำรองยังต้องเป็น Allocation เฉพาะก่อนเชื่อมสลิปการใช้เงินจริงภายหลัง
+- **Gate/Route:** ยืนยันได้เมื่อ `ยอดสลิป = รวม Allocation + ยอดคืน + ยอดยังไม่จัดสรร` และยอดยังไม่จัดสรรเป็นศูนย์; ค่าแรง -> HR, วัสดุ -> Inventory+Project, โครงการ/ผู้รับเหมา/เดินทาง -> Project, ค่าใช้จ่ายทั่วไป/ผู้ขาย/ภาษี/ค่าธรรมเนียม -> Accounting Posting, เงินสำรอง -> Advance เมื่อจับคู่ผู้ถือเงินได้
+- **Data/Audit:** Raw/OCR/Source ไม่ถูกแก้; Allocation ก่อนหน้าคงเป็น `superseded`, event เก็บ before/after, actor, time, Root/Parent, route และยอดกระทบ; RPC ใช้ event key ป้องกันคำสั่งซ้ำ
+- **Migration:** `20260825231054_transfer_slip_money_allocations_v2.sql`
+- **Verification:** allocation/root-parent/balance/advance-exclusive contracts, migration dry-run, targeted/full lint, typecheck, build และ authenticated Accounting/Project/HR/Advance smoke
+- **Rollback:** revoke/ซ่อน RPC/UI v2 และกลับใช้ Money Lineage v1; เก็บ Allocation/Root/Parent/Audit เพื่อ recovery ห้ามลบ Raw/OCR/Document Flow Item
+
+<<<<<<< HEAD
+=======
+## ล่าสุด: Accounting Money Allocation & Root/Parent Lineage v1.5 — 26/8/2569
+
+- **เหตุผล:** Money Lineage เดิมเก็บวัตถุประสงค์เดียวต่อสลิปและหลายทอดใน JSON เดียว จึงแบ่งค่าแรง/วัสดุ/หลายโครงการหรือเชื่อมสลิปการใช้เงินกลับกองเงินต้นทางไม่ได้อย่างตรวจสอบได้
+- **ผลกระทบ:** `/accounting-documents` แยก Transfer Fact ออกจาก Allocation; สลิปหนึ่งใบแบ่งหลาย Allocation/Project/Site ได้ และสลิปคนละใบเชื่อม `parent_lineage_id`/`root_lineage_id`; เงินสำรองยังต้องเป็น Allocation เฉพาะก่อนเชื่อมสลิปการใช้เงินจริงภายหลัง
+- **Gate/Route:** ยืนยันได้เมื่อ `ยอดสลิป = รวม Allocation + ยอดคืน + ยอดยังไม่จัดสรร` และยอดยังไม่จัดสรรเป็นศูนย์; ค่าแรง→HR, วัสดุ→Inventory+Project, โครงการ/ผู้รับเหมา/เดินทาง→Project, ค่าใช้จ่ายทั่วไป/ผู้ขาย/ภาษี/ค่าธรรมเนียม→Accounting Posting, เงินสำรอง→Advance เมื่อจับคู่ผู้ถือเงินได้
+- **Data/Audit:** Raw/OCR/Source ไม่ถูกแก้; Allocation ก่อนหน้าคงเป็น `superseded`, event เก็บ before/after, actor, time, Root/Parent, route และยอดกระทบ; RPC ใช้ event key ป้องกันคำสั่งซ้ำ
+- **Migration:** `20260825231054_transfer_slip_money_allocations_v2.sql`
+- **Verification:** allocation/root-parent/balance/advance-exclusive contracts, migration dry-run, targeted/full lint, typecheck, build และ authenticated Accounting/Project/HR/Advance smoke
+- **Rollback:** revoke/ซ่อน RPC/UI v2 และกลับใช้ Money Lineage v1; เก็บ Allocation/Root/Parent/Audit เพื่อ recovery ห้ามลบ Raw/OCR/Document Flow Item
+
+## ล่าสุด: Master Data Project-first Gate v1.4 — 25/8/2569
+
+- **เหตุผล:** Drawer เดิมแก้ค่าได้แต่ validation อยู่หลัง Drawer และรายการยังค้างโดยไม่บอกว่าต้องจำแนก Project ก่อนยืนยัน
+- **ผลกระทบ:** เพิ่ม Project-first Gate ใน `/master-data`: ค้น/ผูก Project เดิมแบบ company-scoped หรือสร้าง Project Candidate ที่ข้อมูลขั้นต่ำครบ; Project Candidate ไม่สร้าง Project จริงอัตโนมัติ และรายการออกจาก pending เฉพาะ explicit confirm/lock สำเร็จ; ทุกคำสั่งใช้ `event_key` แบบ replay-safe และปฏิเสธ key ที่ขัดกับ Candidate อื่น
+- **Data/Audit:** Raw/OCR/Source ไม่ถูกเขียนทับ; ทุก Project action append `master_data_audit` และ `master_data_candidate_versions` พร้อม before/after, actor, reason, source และ Project/Project Candidate
+- **Migration:** `20260825105559_master_data_project_first_gate.sql` เป็น Local-first และยังไม่ Apply Production จนกว่า local gates + authenticated runtime smoke ผ่าน
+- **Verification:** fixture 53→52 หลัง confirm หนึ่งรายการ, existing project/new candidate/missing fields/save-review-confirm/next-item/count reconciliation, RLS, targeted tests, typecheck, lint, build และ browser smoke
+- **Rollback:** ก่อน apply ให้ revert source/migration; หลัง apply ให้ปิด Gate RPC/trigger และ revert frontend โดยเก็บ Project Candidate/Audit/Version เพื่อ recovery ห้ามลบ Raw/OCR
+
+>>>>>>> bbd8724 (feat: allocate transfer slips across money routes)
 ## ล่าสุด: HR Intake Obvious Non-HR Classification v1.4 — 25/8/2569
 
 - **เหตุผล:** หลัง reconcile system output เหลือ Raw pending หนึ่งรายการที่เป็น UAT/งานพัฒนาชัดเจน ไม่ควรค้างใน HR Gate
