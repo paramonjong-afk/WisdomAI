@@ -43,6 +43,9 @@ assert.match(employeePage, /employee_intakes'\)\.select\('id,status,missing_fiel
 assert.match(employeePage, /ข้อมูลครบและยืนยันแล้ว/)
 assert.match(employeePage, /ขั้นตอนถัดไป: ตั้งค่าการจ้างงานและสิทธิ์/)
 assert.match(employeePage, /จบขั้นข้อมูลแล้ว/)
+assert.match(employeePage, /employee_people'\)\.select\('id,profile_id'/)
+assert.match(employeePage, /employeeDocumentsByProfile/)
+assert.match(employeePage, /เอกสารประจำตัวและเอกสารย้อนหลัง/)
 assert.match(employeePage, /บันทึกและยืนยันข้อมูลครบ/)
 
 console.log('employee preboarding draft checks passed')

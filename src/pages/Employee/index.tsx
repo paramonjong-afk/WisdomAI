@@ -55,6 +55,7 @@ type EmployeeIntakeMaster = {
   missing_fields: string[]
   documents: Array<{ id: string; employee_person_id: string; document_type: string; link_status: string }>
 }
+type EmployeePersonDocument = { id: string; employee_person_id: string; document_type: string; link_status: string }
 type IntakeEmployeeDraft = { full_name: string; phone: string; employment_type: string; position: string; start_date: string }
 type WorkPolicyOption = { id: string; name: string; active: boolean }
 type CreateEmployeeError = StandardErrorPayload & { request_id?: string }
@@ -337,6 +338,7 @@ export function EmployeePage() {
   const canCreate = canManage
   const [employees, setEmployees] = useState<Employee[]>([])
   const [intakeEmployeePeople, setIntakeEmployeePeople] = useState<EmployeeIntakeMaster[]>([])
+  const [employeeDocumentsByProfile, setEmployeeDocumentsByProfile] = useState<Record<string, EmployeePersonDocument[]>>({})
   const [intakeDraftPerson, setIntakeDraftPerson] = useState<EmployeeIntakeMaster | null>(null)
   const [intakeDraft, setIntakeDraft] = useState<IntakeEmployeeDraft>({ full_name: '', phone: '', employment_type: 'unknown', position: '', start_date: '' })
   const [intakeDraftSaving, setIntakeDraftSaving] = useState(false)
@@ -518,10 +520,13 @@ export function EmployeePage() {
     const intakePersonDocumentsQuery = !currentCompany?.company_id
       ? Promise.resolve({ data: [], error: null })
       : supabase.from('employee_person_documents').select('id,employee_person_id,document_type,link_status').eq('company_id', currentCompany.company_id).order('created_at')
+    const employeePersonProfilesQuery = !currentCompany?.company_id
+      ? Promise.resolve({ data: [], error: null })
+      : supabase.from('employee_people').select('id,profile_id').eq('company_id', currentCompany.company_id).not('profile_id', 'is', null).limit(1000)
     const employeeIntakesQuery = !currentCompany?.company_id
       ? Promise.resolve({ data: [], error: null })
       : supabase.from('employee_intakes').select('id,status,missing_fields').eq('company_id', currentCompany.company_id).limit(500)
-    const [profileResult,employmentResult,assignmentResult,readinessResult,membershipResult,intakePeopleResult,intakePersonDocumentsResult,employeeIntakesResult]=await Promise.all([
+    const [profileResult,employmentResult,assignmentResult,readinessResult,membershipResult,intakePeopleResult,intakePersonDocumentsResult,employeeIntakesResult,employeePersonProfilesResult]=await Promise.all([
       query,
       supabase.from('employee_employment_records').select('profile_id,employee_code,employment_type,job_title,department,employment_status,attendance_policy,work_policy_id').eq('company_id',currentCompany?.company_id ?? ''),
       supabase.from('employee_site_assignments').select('profile_id').eq('company_id',currentCompany?.company_id ?? '').eq('active',true),
@@ -530,8 +535,9 @@ export function EmployeePage() {
       intakePeopleQuery,
       intakePersonDocumentsQuery,
       employeeIntakesQuery,
+      employeePersonProfilesQuery,
     ])
-    if (profileResult.error||employmentResult.error||assignmentResult.error||readinessResult.error||membershipResult.error||intakePeopleResult.error||intakePersonDocumentsResult.error||employeeIntakesResult.error) {
+    if (profileResult.error||employmentResult.error||assignmentResult.error||readinessResult.error||membershipResult.error||intakePeopleResult.error||intakePersonDocumentsResult.error||employeeIntakesResult.error||employeePersonProfilesResult.error) {
       setErrorMessage(profileResult.error
         ? userError(profileResult.error)
         : employmentResult.error
@@ -548,6 +554,8 @@ export function EmployeePage() {
                   ? userError(intakePersonDocumentsResult.error)
                 : employeeIntakesResult.error
                   ? userError(employeeIntakesResult.error)
+                : employeePersonProfilesResult.error
+                  ? userError(employeePersonProfilesResult.error)
               : 'โหลดข้อมูลพนักงานไม่สำเร็จ')
     } else {
       const employmentMap=new Map((employmentResult.data??[]).map(row=>[row.profile_id,row]))
@@ -577,6 +585,16 @@ export function EmployeePage() {
         current.push(document)
         documentsByPerson.set(document.employee_person_id, current)
       }
+      const profileByPerson = new Map((employeePersonProfilesResult.data ?? []).map((person) => [person.id, person.profile_id]))
+      const documentsByProfile = new Map<string, EmployeePersonDocument[]>()
+      for (const document of intakePersonDocumentsResult.data ?? []) {
+        const profileId = profileByPerson.get(document.employee_person_id)
+        if (!profileId) continue
+        const current = documentsByProfile.get(profileId) ?? []
+        current.push(document)
+        documentsByProfile.set(profileId, current)
+      }
+      setEmployeeDocumentsByProfile(Object.fromEntries(documentsByProfile))
       const intakeById = new Map((employeeIntakesResult.data ?? []).map((intake) => [intake.id, intake]))
       setIntakeEmployeePeople((intakePeopleResult.data ?? []).map((person) => ({
         ...person,
@@ -2238,6 +2256,24 @@ export function EmployeePage() {
                 {savingId === employeeDrawer.id ? <CircularProgress size={20} color="inherit" /> : 'บันทึกชื่อ'}
               </Button>
               {canManage && employeeDrawer.id !== user?.id && <Button sx={{ mt: 1 }} variant="outlined" fullWidth onClick={() => openAccountEditor(employeeDrawer)}>แก้ไข Email / Password เข้าระบบ</Button>}
+            </Box>
+
+            <Divider />
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>เอกสารประจำตัวและเอกสารย้อนหลัง</Typography>
+              {(employeeDocumentsByProfile[employeeDrawer.id] ?? []).length === 0
+                ? <Typography variant="body2" color="text.secondary">ยังไม่มีเอกสารที่เชื่อมกับพนักงานรายนี้</Typography>
+                : <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                    {(employeeDocumentsByProfile[employeeDrawer.id] ?? []).map((document) => (
+                      <Chip
+                        key={document.id}
+                        size="small"
+                        color={document.link_status === 'available' ? 'success' : 'default'}
+                        variant="outlined"
+                        label={`${intakeDocumentLabels[document.document_type] ?? document.document_type}${document.link_status === 'available' ? '' : ` · ${document.link_status}`}`}
+                      />
+                    ))}
+                  </Stack>}
             </Box>
 
             <Divider />

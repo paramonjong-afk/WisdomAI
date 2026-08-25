@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Existing Employee Document Visibility v2.3 — 25/8/2569
+
+- **เหตุผล:** เอกสารย้อนหลังเชื่อมกับ Employee Person/Profile เดิมแล้ว แต่ Drawer พนักงาน active ไม่แสดงทะเบียนเอกสาร ทำให้ HR ตรวจผลจากหน้าโปรแกรมไม่ได้
+- **ผลกระทบ:** หน้า `/employees` อ่าน Employee Person ที่มี `profile_id` และแสดงชนิด/สถานะ `employee_person_documents` ในหัวข้อ “เอกสารประจำตัวและเอกสารย้อนหลัง” ของ Drawer
+- **Data/permissions:** read-only ภายใต้ company RLS เดิม; ไม่เปิดไฟล์ Storage, ไม่เปลี่ยนสิทธิ์ และไม่เขียนข้อมูลเพิ่ม
+- **Verification:** preboarding contract, typecheck, lint, build และ authenticated Drawer ของพนักงานเดิมที่มีเอกสารย้อนหลัง
+- **Rollback:** ซ่อน section/query mapping; Employee Person, document reference, Raw และ Audit ไม่เปลี่ยน
+
 ## แผนงาน: Existing Employee Resolution Gate v0.2 — 25/8/2569
 
 - **สถานะ:** `รอดำเนินการ`; เพิ่ม Contract ป้องกัน Intake เอกสารย้อนหลังสร้างพนักงานใหม่ซ้ำ
