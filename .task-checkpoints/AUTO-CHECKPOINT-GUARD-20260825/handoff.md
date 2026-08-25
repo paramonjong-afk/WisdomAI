@@ -10,7 +10,7 @@
 | Base commit | `aba6406d23ae431bfd7d3b3969784b6de2816e45` |
 | Checkpoint commit | `a1bcbb95c05d5b1fdd31afd6438dc87678ac3667` |
 | Remote | `origin` |
-| Updated | 2026-08-25T11:18:59.985Z |
+| Updated | 2026-08-25T11:35:33.347Z |
 | Actor | codex-program-general |
 
 ## Objective
@@ -23,11 +23,13 @@ Preserve source and handoff context safely across usage limits, compaction, tool
 - Implemented CLI, policy, Flow documentation, example, and Git contract tests.
 - Contract tests passed for protected branch, explicit paths, unrelated files, no-op, failed test/push, and cross-worktree resume.
 - Targeted lint and typecheck passed before the self-hosted checkpoint.
+- All configured gates passed and local checkpoint commits a1bcbb9/cef8504 were created.
 
 ## Pending
 
 - Run the configured checkpoint gates and push the work branch.
 - Run all configured gates and push the dedicated branch.
+- Authenticate GitHub for this shell and rerun checkpoint to persist the blocked record and push the branch.
 
 ## Blocker
 
@@ -35,16 +37,16 @@ none
 
 ## Next Action
 
-Execute the self-hosted checkpoint and verify the remote branch.
+Authenticate GitHub for this shell, then run npm run checkpoint:checkpoint -- --task-id AUTO-CHECKPOINT-GUARD-20260825 and verify origin/codex/auto-checkpoint-guard.
 
 ## Tests
 
 | Command | Result | Ran at | Exit code |
 | --- | --- | --- | --- |
-| `npm run test:auto-checkpoint` | passed | 2026-08-25T11:17:06.192Z | 0 |
-| `npx eslint scripts/task-checkpoint-guard.ts scripts/task-checkpoint-guard.test.ts --no-warn-ignored` | passed | 2026-08-25T11:17:15.020Z | 0 |
-| `npm run typecheck` | passed | 2026-08-25T11:17:59.781Z | 0 |
-| `npm run build` | passed | 2026-08-25T11:18:58.225Z | 0 |
+| `npm run test:auto-checkpoint` | passed | 2026-08-25T11:33:55.142Z | 0 |
+| `npx eslint scripts/task-checkpoint-guard.ts scripts/task-checkpoint-guard.test.ts --no-warn-ignored` | passed | 2026-08-25T11:34:02.550Z | 0 |
+| `npm run typecheck` | passed | 2026-08-25T11:34:41.437Z | 0 |
+| `npm run build` | passed | 2026-08-25T11:35:33.347Z | 0 |
 
 ## Owned Paths
 
