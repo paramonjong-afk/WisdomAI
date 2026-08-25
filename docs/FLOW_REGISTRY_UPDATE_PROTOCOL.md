@@ -1,5 +1,15 @@
 # Flow Registry Update Protocol
 
+## แผนงาน: Employee Identity & Completeness v0.1 — 25/8/2569
+
+- **สถานะ:** `รอดำเนินการ`; บันทึก Contract แล้ว แต่ยังไม่มี schema/RPC/UI/Production behavior ใหม่
+- **เหตุผล:** พนักงานอาจมีหลาย LINE/ชื่อเรียก และเอกสารหรือบัญชีธนาคารอาจเข้ามาภายหลัง จึงต้องเติมข้อมูลเดิมอย่างตรวจสอบได้แทนการสร้างพนักงานหรือไฟล์ซ้ำ
+- **ผลกระทบที่วางแผน:** Employee Identity, LINE/Web Intake, Employee Drawer, Document Registry, Bank Master, Onboarding readiness, Payroll gate และ Audit
+- **กติกา:** AI/OCR เสนอ Candidate เท่านั้น; HR/Admin บริษัทเดียวกันยืนยันก่อนผูกหรือแก้ Master; บัญชีหลายบัญชีได้แต่บัญชีรับค่าจ้างหลักมีหนึ่งบัญชีต่อบริษัท/ช่วงเวลา; เก็บ version และปกปิดเลขบัญชี
+- **Migration:** ยังไม่มี; ก่อนเริ่มต้องตรวจ legacy `employee_line_accounts`, `employee_person_documents` และข้อมูลบัญชีเดิม พร้อมแผน reconcile ที่ไม่ลบ Raw
+- **Verification ที่ต้องผ่าน:** duplicate/idempotency, multi-LINE/alias, document late-link, bank version/primary uniqueness, RLS สองบริษัท, missing-data queue, audit/retry/recovery, typecheck/lint/build และ authenticated real-page smoke
+- **Rollback:** ปิด candidate/link action และคืน version verified ก่อนหน้า โดยคง Raw, source reference, เอกสารต้นฉบับและ Audit
+
 ## ล่าสุด: Employee Intake Preboarding Draft v1.0 — 25/8/2569
 
 - **เหตุผล:** เอกสารบัตรประชาชนและเอกสารประกอบเข้าระบบแล้ว แต่ข้อมูลการจ้างยังไม่ครบ; HR ต้องเริ่มทะเบียนและเห็นไฟล์ทั้งหมดได้โดยไม่เดาข้อมูลหรือเปิดสิทธิ์เร็วเกินไป

@@ -313,6 +313,40 @@ flowchart LR
 - Owner: HR/Admin ดูแลการตัดสินใจ; Platform Integration ดูแล classifier/routing/retry
 - Migration: `20260825194500_line_hr_document_intake_routing.sql`; rollback ปิด route/trigger โดยคง Raw, private document และ Audit ไว้
 
+### Planned: Employee Identity & Document/Bank Completeness (v0.1, 25/8/2569)
+
+> สถานะ `รอดำเนินการ` — แผนภาพนี้เป็น Contract สำหรับงานถัดไป ยังไม่ใช่ความสามารถที่เปิดใช้ใน Production
+
+```mermaid
+flowchart LR
+  A[LINE / Web / Upload / Login] --> B[เก็บ Raw และ Source Reference]
+  B --> C{ตรวจพบพนักงาน Candidate เดียว\nในบริษัทเดียวกัน?}
+  C -->|ไม่ชัดเจน| D[คิว HR ตรวจตัวตน]
+  C -->|ชัดเจน| E[คิว HR ยืนยันการผูก]
+  D --> E
+  E --> F[Employee Identity\nLogin + หลาย LINE + Alias]
+  B --> G[จำแนกเอกสาร / หลักฐานธนาคาร]
+  G --> H{ซ้ำด้วย Source หรือ Hash?}
+  H -->|ซ้ำ| I[เชื่อมรายการเดิม / บันทึก Audit]
+  H -->|ใหม่| J[Document หรือ Bank Candidate]
+  J --> K{HR/Admin ตรวจและยืนยัน?}
+  K -->|ขอเพิ่ม/ปฏิเสธ| L[เปิดคิวต่อ / ส่งกลับเจ้าของ]
+  K -->|ยืนยัน| M[แนบ employee_person_documents\nหรืออัปเดต Bank Master แบบมี Version]
+  F --> N[Employee Completeness Gate]
+  M --> N
+  N -->|ยังขาด| O[คิว HR ข้อมูล/เอกสารขาด]
+  N -->|ครบ| P[พร้อม Onboarding / Payroll ตามสิทธิ์]
+```
+
+- **Input:** Login, LINE account ได้หลายบัญชี, alias/ชื่อเล่น, Raw document, attachment/source ID, OCR candidate และข้อมูลบัญชีธนาคาร
+- **Output:** ตัวตนพนักงานที่ HR ยืนยัน, reference เอกสารที่เพิ่มภายหลัง, บัญชีธนาคารแบบ versioned, completeness status และ HR task สำหรับรายการขาด
+- **States:** `missing`, `candidate`, `needs_review`, `verified`, `rejected`, `expired`, `superseded`; เอกสารหรือบัญชีที่ยังไม่ `verified` ห้ามใช้เปิด Payroll/สิทธิ์อัตโนมัติ
+- **Roles/permissions:** HR/Admin จัดการเฉพาะบริษัทของตน; Platform Admin ตรวจปัญหาระบบได้แต่ไม่ยืนยันข้อมูลธุรกิจแทนโดยไม่มี company membership
+- **Integrations:** LINE/Web/Upload → Intake → Employee Identity/Document Registry/Bank Master → Onboarding/Payroll; Raw และ source reference ต้องคงอยู่
+- **Failure/retry:** ใช้ source message/document ID และ content hash เป็น idempotency key; retry ต้องเติมลิงก์ที่ขาดโดยไม่สร้างเอกสารหรือบัญชีซ้ำ
+- **Audit:** บันทึกผู้เสนอ/ผู้ยืนยัน, before/after, เหตุผล, source, company, employee, document/bank version และเวลา; เลขบัญชีใน UI/Log ต้องปกปิด
+- **Owner:** HR Operations; เจ้าของ integration คือ Platform Integration; rollback โดย deactivate link/version ล่าสุดและคืนค่าที่ verified ก่อนหน้า ห้ามลบ Raw/Audit
+
 | Version | วันที่ | เหตุผล/ผลกระทบ | Migration | Verification | Rollback |
 |---|---|---|---|---|---|
 | v2.0 | 25/8/2569 | จำแนกเอกสารบุคคลจาก LINE แล้วส่งเข้า Restricted HR Intake แบบ bundle/idempotent พร้อม recovery จาก message ID เดิม | `20260825194500_line_hr_document_intake_routing.sql` | LINE/Employee/Omni contract, typecheck, targeted lint, build, migration dry-run และ authenticated HR smoke | ปิด route/trigger โดยคง Raw, Intake, private document และ Audit |
