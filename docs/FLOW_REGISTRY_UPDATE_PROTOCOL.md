@@ -6,7 +6,7 @@
 - **ผลกระทบ:** เพิ่ม Flow สองขั้น: สร้าง Employee Master `preboarding` แบบไม่มี Login/ลงเวลา/ค่าแรง แล้วคง Intake เป็น `information_required`; อนุมัติสุดท้ายได้เมื่อข้อมูลครบเท่านั้น; Preview แสดงเอกสารทุกไฟล์
 - **สิทธิ์/Audit:** Admin หรือ Company Manager บริษัทเดียวกันผ่าน Edge Function; RPC เปิดเฉพาะ service role; ใช้ Intake/document unique key กันซ้ำ และเขียน Workforce Audit
 - **Migration:** `20260825203000_employee_intake_preboarding_draft.sql`; timestamp ต่อท้าย Production history จริง, ไม่ใช้ `--include-all`, ไม่ reset/drop และไม่ลบข้อมูลเดิม
-- **Verification:** preboarding contract, employee intake, LINE HR routing, typecheck, lint, build, linked migration dry-run/apply, current Intake data reconciliation และ authenticated Cloudflare smoke
+- **Verification:** preboarding contract, employee intake, LINE HR routing, typecheck, lint, build, linked migration dry-run/apply, current Intake data reconciliation และ authenticated Cloudflare smoke; แก้ runtime preview guard ให้ Employee Intake เปิดไฟล์ได้โดยไม่ต้องมี `review_case_id`
 - **Rollback:** revert frontend/Edge และปิด RPC; archive Employee Master ที่สร้างผิดได้โดยคง Intake, เอกสารต้นฉบับและ Audit เพื่อ recovery
 
 ## ล่าสุด: Master Data persistence/read-after-write v1.6 — 25/8/2569

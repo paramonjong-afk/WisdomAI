@@ -27,6 +27,7 @@ assert.match(reviewer, /linked_document_count/)
 assert.match(gateway, /employeeIntakePreview[\s\S]*order\('created_at'\)/)
 assert.doesNotMatch(gateway, /employeeIntakePreview[\s\S]{0,300}limit\(1\)/)
 assert.match(intakeRoom, /result\.data\.map\(async \(file, index\)/)
+assert.match(intakeRoom, /actionMenuRow\.source === 'employee_intake' \|\| actionMenuRow\.review_case_id/)
 assert.match(intakeRoom, /ยังไม่เปิด Login\/ลงเวลา\/ค่าแรง/)
 
 console.log('employee preboarding draft checks passed')

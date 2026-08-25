@@ -787,7 +787,7 @@ export function IntakeRoomPanel({
               <MenuItem
                 onClick={() => {
                   closeActionMenu()
-                  if (actionMenuRow.review_case_id) {
+                  if (actionMenuRow.source === 'employee_intake' || actionMenuRow.review_case_id) {
                     void openSourcePreview(actionMenuRow)
                   } else {
                     setActionMessage('ยังไม่มีข้อมูลรีวิวสำหรับรายการนี้')
