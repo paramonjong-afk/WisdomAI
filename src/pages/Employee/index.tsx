@@ -652,6 +652,13 @@ export function EmployeePage() {
     }
   }
 
+  const openEmployeeDrawer = (employee: Employee) => {
+    setDrawerSiteId('')
+    setDrawerSiteStartsOn(new Date().toISOString().slice(0, 10))
+    setDrawerSitePrimary('yes')
+    setEmployeeDrawer(employee)
+  }
+
   const refreshWithProfile = useCallback(async () => {
     if (syncBusyRef.current) return
     const now = Date.now()
@@ -1773,6 +1780,11 @@ export function EmployeePage() {
   const activeUserCount = new Set(activityLogs.map((log) =>
     log.profiles?.email || log.profiles?.full_name).filter(Boolean)).size
   const pendingCorrectionSessionIds = new Set(correctionRequests.map((request) => request.session_id))
+  const drawerSiteAssignments = employeeDrawer
+    ? employeeSiteAssignments.filter((assignment) => assignment.profile_id === employeeDrawer.id)
+    : []
+  const drawerAssignedSiteIds = new Set(drawerSiteAssignments.map((assignment) => assignment.site_id))
+  const drawerAvailableSiteOptions = employeeSiteOptions.filter((site) => !drawerAssignedSiteIds.has(site.id))
 
   const exportActivityCsv = () => {
     const headers = ['วันเวลา', 'พนักงาน', 'เหตุการณ์', 'ระดับ', 'หน้า', 'อุปกรณ์', 'รายละเอียด']
@@ -1877,7 +1889,7 @@ export function EmployeePage() {
               id: 'employee', label: 'พนักงาน', minWidth: 230,
               render: (employee) => <Button
                 variant="text"
-                onClick={() => setEmployeeDrawer(employee)}
+                onClick={() => openEmployeeDrawer(employee)}
                 sx={{ display: 'block', p: 0, textAlign: 'left', textTransform: 'none' }}
               >
                 <Typography sx={{ fontWeight: 700, color: 'text.primary' }}>{employee.full_name || 'ยังไม่ระบุชื่อ'}</Typography>
@@ -1905,7 +1917,7 @@ export function EmployeePage() {
             },
             {
               id: 'ready', label: 'ความพร้อม', minWidth: 130,
-              render: employee => { const missing=employeeMissingData(employee); return <Button size="small" variant="text" onClick={() => setEmployeeDrawer(employee)} sx={{ p: 0, textTransform: 'none' }}><Chip size="small" color={missing.length===0 ? 'success' : 'warning'} label={missing.length===0 ? 'พร้อมทำงาน' : `ขาด: ${missing.join(', ')}`} /></Button> },
+              render: employee => { const missing=employeeMissingData(employee); return <Button size="small" variant="text" onClick={() => openEmployeeDrawer(employee)} sx={{ p: 0, textTransform: 'none' }}><Chip size="small" color={missing.length===0 ? 'success' : 'warning'} label={missing.length===0 ? 'พร้อมทำงาน' : `ขาด: ${missing.join(', ')}`} /></Button> },
               exportValue: employee => { const missing=employeeMissingData(employee); return missing.length===0 ? 'พร้อมทำงาน' : `ขาด: ${missing.join(', ')}` },
             },
             {
@@ -1921,7 +1933,7 @@ export function EmployeePage() {
             },
             {
               id: 'actions', label: 'จัดการ', minWidth: 105,
-              render: employee => <Button size="small" variant="outlined" onClick={() => setEmployeeDrawer(employee)}>ดู / จัดการ</Button>,
+              render: employee => <Button size="small" variant="outlined" onClick={() => openEmployeeDrawer(employee)}>ดู / จัดการ</Button>,
             },
           ]}
           />
@@ -2353,19 +2365,24 @@ export function EmployeePage() {
             <Divider />
             <Box>
               <Typography variant="subtitle2" sx={{ mb: 1 }}>มอบหมายไซต์งาน</Typography>
-              {employeeSiteAssignments.filter((assignment) => assignment.profile_id === employeeDrawer.id).length === 0
+              {drawerSiteAssignments.length === 0
                 ? <Alert severity="warning" sx={{ mb: 1.5 }}>ยังไม่มีไซต์งาน จึงยังไม่พร้อมลงเวลา</Alert>
                 : <Stack spacing={0.75} sx={{ mb: 1.5 }}>
-                    {employeeSiteAssignments.filter((assignment) => assignment.profile_id === employeeDrawer.id).map((assignment) => (
+                    {drawerSiteAssignments.map((assignment) => (
                       <Paper key={assignment.id} variant="outlined" sx={{ p: 1 }}>
                         <Typography sx={{ fontWeight: 700 }}>{assignment.project_sites?.projects?.name ? `${assignment.project_sites.projects.name} · ` : ''}{assignment.project_sites?.name ?? 'ไม่พบชื่อไซต์'}</Typography>
                         <Typography variant="caption" color="text.secondary">เริ่ม {new Date(`${assignment.starts_on}T00:00:00`).toLocaleDateString('th-TH')}{assignment.is_primary ? ' · ไซต์หลัก' : ''}</Typography>
                       </Paper>
                     ))}
                   </Stack>}
-              {canManage && <Stack spacing={1}>
+              {canManage && drawerAvailableSiteOptions.length === 0
+                ? <Stack spacing={1}>
+                    <Alert severity="success">มอบหมายครบทุกไซต์ที่เปิดใช้งานแล้ว หากต้องการย้ายหรือสิ้นสุดไซต์ ให้จัดการประวัติด้านล่าง</Alert>
+                    <Button fullWidth variant="text" component="a" href="/workforce-setup">จัดการประวัติ ย้าย หรือสิ้นสุดไซต์</Button>
+                  </Stack>
+                : canManage && <Stack spacing={1}>
                 <TextField select size="small" fullWidth label="เลือกไซต์งาน" value={drawerSiteId} onChange={(event) => setDrawerSiteId(event.target.value)}>
-                  {employeeSiteOptions.map((site) => <MenuItem key={site.id} value={site.id}>{site.projects?.name ? `${site.projects.name} · ` : ''}{site.name}</MenuItem>)}
+                  {drawerAvailableSiteOptions.map((site) => <MenuItem key={site.id} value={site.id}>{site.projects?.name ? `${site.projects.name} · ` : ''}{site.name}</MenuItem>)}
                 </TextField>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                   <TextField fullWidth size="small" type="date" label="วันเริ่มมอบหมาย" value={drawerSiteStartsOn} onChange={(event) => setDrawerSiteStartsOn(event.target.value)} slotProps={{ inputLabel: { shrink: true } }} />

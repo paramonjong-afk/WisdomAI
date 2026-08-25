@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Employee Drawer Duplicate-Site Guard v2.5.1 — 25/8/2569
+
+- **เหตุผล:** RPC ป้องกันข้อมูลซ้ำแล้ว แต่ Drawer ยังแสดงไซต์เดิมและเปิดปุ่มให้กดซ้ำ จึงทำให้ผู้ใช้พบ Error ที่ควรป้องกันก่อนส่ง
+- **ผลกระทบ:** `/employees` กรองไซต์ที่มี active assignment ออกจากตัวเลือก, reset ฟอร์มเมื่อเปิดพนักงาน และแสดงทางไปจัดการ lifecycle เมื่อไม่มีไซต์เหลือ
+- **Data/Audit:** ไม่มี migration และไม่แก้ Assignment/Audit เดิม; RPC v2.5 ยังคงเป็น final duplicate gate
+- **Verification:** contract, typecheck, lint, build และ authenticated Production Drawer ของพนักงานที่มีไซต์แล้ว
+- **Rollback:** revert UI filter/reset; database duplicate protection ยังคงทำงาน
+
 ## ล่าสุด: Employee Drawer Site Assignment v2.5 — 25/8/2569
 
 - **เหตุผล:** Admin ต้องมอบหมายไซต์จากจุดที่กำลังตรวจพนักงาน โดยไม่สร้างข้อมูลไซต์คนละชุดกับระบบลงเวลา
