@@ -103,10 +103,10 @@ const systemFlows = [
   },
   {
     title: 'Master Data Governance',
-    version: 'Master Data v1.0 · 22/8/2569',
+    version: 'Master Data v1.4 · 25/8/2569',
     icon: <AccountTreeOutlinedIcon color="primary" />,
     summary: 'ข้อมูลจากสลิปและเอกสารเข้า candidate inbox ก่อน Admin ยืนยันเป็นบัญชี/ข้อมูลหลัก ใช้ซ้ำข้ามระบบ และ archive แทนการลบเมื่อหมดอายุ',
-    bullets: ['อ่านจาก docs/MASTER_DATA_GOVERNANCE_FLOW.md', 'ทะเบียนพนักงาน ผู้ขาย โครงการ และงานย่อยเดิมยังเป็น source-of-truth', 'เลขบัญชีที่แสดงเป็นข้อมูลธนาคารและเลขท้ายบัญชีเท่านั้น พร้อม audit และ retention 90 วันสำหรับ candidate'],
+    bullets: ['อ่านจาก docs/MASTER_DATA_GOVERNANCE_FLOW.md', 'Project-first Gate ต้องผูก Project เดิมหรือสร้าง Project Candidate ที่ข้อมูลครบก่อนยืนยัน; ไม่สร้าง Project จริงอัตโนมัติ', 'ทะเบียนพนักงาน ผู้ขาย โครงการ และงานย่อยเดิมยังเป็น source-of-truth', 'Drawer แสดง validation/error/success ในจุดเดียว และทุกการแก้/ผูก Project append Version/Audit โดยไม่เขียนทับ Raw/OCR'],
     path: '/master-data',
     action: 'ไปศูนย์ข้อมูลกลาง',
   },
