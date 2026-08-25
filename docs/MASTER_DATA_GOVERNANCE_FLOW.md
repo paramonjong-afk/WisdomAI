@@ -1,11 +1,10 @@
-# Master Data Governance & Retention Flow
-
 ```mermaid
 flowchart LR
   A[Intake / LINE / document / Admin input] --> B[Master-data candidate]
   B --> S[Source Reference Gateway\nCandidate → Transaction → Message]
   S --> S2[Document Flow + Attachment\nEvent + Master Audit]
-  S2 --> AI[Auto Input<br/>name/type/account/bank/tax<br/>project/date/owner/route]
+  S2 --> ER[Evidence Split Review<br/>same-page signed image/PDF<br/>stale-response guard]
+  ER --> AI[Auto Input<br/>name/type/account/bank/tax<br/>project/date/owner/route]
   AI --> PG{Project-first Gate}
   PG -->|พบ Project เดิม| PE[Link Existing Project\ncompany-scoped + evidence]
   PG -->|ไม่พบ แต่ข้อมูลขั้นต่ำครบ| PC[Project Candidate\nawaiting_open_project]
@@ -35,6 +34,7 @@ flowchart LR
     U0[1. ตรวจและเติมข้อมูล<br/>Project + Work Package + mismatch]
     U0 --> U1[2. สรุปและยืนยัน<br/>destination + next action + Source/Audit]
   end
+  ER -.Desktop: evidence left / review right<br/>Mobile: same-route switch.-> UX
   PG -.controls.-> U0
   PE -.unlocks.-> U1
   PC -.unlocks.-> U1
@@ -46,6 +46,8 @@ flowchart LR
   J -->|No| H
   K --> L[Retention audit; restore only by Admin]
 ```
+
+# Master Data Governance & Retention Flow
 
 ## Purpose
 
@@ -61,6 +63,7 @@ Create one company-scoped master-data path for people, vendors, customers, proje
 - Auto Input derives name, five-type classification, account last four digits, bank, tax ID, Project fields, responsible person, start date, destination Module, owner and next action. Every derived field carries source, confidence and state (`ready`, `review`, `conflict`, `missing`, `persisted`); green can be reused, yellow needs review, red is conflicting, gray is missing and `persisted` identifies a value already saved by Admin. Once an Admin classification is persisted in `admin_reviewed`, `confirmed` or `locked`, it is the current Drawer value; a later AI disagreement is displayed separately as a suggestion and cannot silently replace it. Admin fills only missing/conflicting/material fields. Auto Input never creates a real Project, confirms/locks Master Data, closes a payment or changes Raw/OCR.
 - The table and review Drawer consume the same `MasterSourceEvidence` object. For financial candidates, `source_id` is a Transaction ID and must be resolved through `financial_transactions.source_message_id`; it must never be labelled as a Message ID.
 - The Source Reference Gateway then joins the Message ID to `document_flow_items`, `line_attachments`, `document_flow_events` and `master_data_audit`. The Drawer presents Document, Intake, Message, Room and Attachment IDs as separate copyable fields, hides full UUIDs behind compact labels/tooltips, and distinguishes the actual Audit event count from the latest Audit row ID. Missing links are shown explicitly as incomplete evidence rather than guessed or replaced with another identifier.
+- The Drawer opens private image/PDF evidence inside the same-page `EvidenceSplitReviewWorkspace`: Desktop displays evidence on the left and the two-tab review pane on the right; Tablet/Mobile switches to a full-screen evidence pane without navigating away or unmounting the review form. A new browser tab is secondary fallback only. Preview request state is keyed by Candidate ID and late responses from a previous Candidate are discarded. Signed URL errors remain visible with Retry and never close/reset the Drawer.
 - Classification types are `vendor`, `employee_technician`, `customer`, `company_internal` and `unknown_review`. A name alone is never sufficient: rules require evidence such as an existing Master match, account/tax identity, project/site, message context/history and the resolved Source Reference.
 - `auto_verified` is a queue-relief state only. It requires confidence at least 0.95, two independent evidence groups, a resolved source and no conflict/duplicate; it never authorises payment posting, reserve deduction, payroll close or Job close.
 - Review queues split pending, duplicate, name/account mismatch, conflict and Unknown/Needs Review. Confirmed reports split Vendor, Employee/Technician, Customer and Company/Internal and retain reviewer/date/source searchability. Queue and report counts are calculated after the same status/type/date and search predicates as the visible rows.
@@ -95,6 +98,7 @@ Create one company-scoped master-data path for people, vendors, customers, proje
 
 | Version | Date | Rationale / impact | Migration | Verification | Rollback |
 |---|---|---|---|---|---|
+| v2.2 | 26/8/2569 | Keep private image/PDF evidence beside the Master Data review form, preserve Drawer state on responsive screens and prevent stale signed-preview results from crossing Candidates; establish the shared Evidence Drawer standard for future Modules | No migration; uses the existing company-scoped Source Reference and private Storage signed URL path | Evidence split contract, existing Master Data contracts, targeted/full lint, typecheck, build, Desktop/Tablet/Mobile Local smoke and authenticated Production exact-source smoke | Revert the workspace integration and restore the secondary external-open action; Raw/OCR, Candidate, Source Reference, Version and Audit remain unchanged |
 | v2.1 | 26/8/2569 | Replace the confusing multi-step Drawer with two task-oriented tabs, require Project work scope, skip redundant correction when evidence matches, surface transfer-party conflicts and make Source Reference IDs/Audit readable | `20260826173000_master_data_two_tab_work_scope.sql` adds the idempotent company-scoped `save_master_data_project_gate_v3` wrapper and append-only work-scope Audit/Version metadata; no Raw/OCR mutation | Two-tab/source/work-scope/mismatch contracts, migration validation, lint, typecheck, build, responsive Local browser smoke and authenticated Production persistence/read smoke | Revert the v2.1 UI and call v2 Project Gate RPC; revoke v3 wrapper only after clients are rolled back. Preserve Work Package, Candidate, Version, Audit and Raw/OCR/source evidence |
 | v2.0 | 25/8/2569 | Prevent rapid double-click/repeated Master Data confirmation and make the terminal state unambiguous; after persistence the confirmation control is removed and only next/back navigation remains | No migration; synchronous client lock plus existing database review-state guard, with no Raw/OCR/candidate/audit mutation | One-shot action regression, Master Data review contracts, lint, typecheck, build and authenticated terminal-Drawer smoke | Revert the client lock/status marker; database status guard and all saved Master Data/Audit remain unchanged |
 | v1.9 | 25/8/2569 | Prevent a later evidence-only AI result from displaying `Unknown/Needs Review` over an Admin-saved five-type classification; show the AI result as a separate suggestion with its reason/confidence | No migration or backfill; read projection uses `master-data-auto-input-v2` provenance for future corrections, with no Raw/OCR or current Production data mutation | Persisted-classification regression, targeted lint, typecheck, build and authenticated exact-row Drawer smoke | Revert the Auto Input precedence/display patch; saved candidate classification, Version/Audit and Raw/OCR remain unchanged |

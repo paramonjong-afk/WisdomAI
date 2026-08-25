@@ -29,3 +29,7 @@ Every Codex thread that changes or deploys the application must read and follow 
 - If the shared workspace is dirty, preserve all existing changes and release from an isolated clean clone/worktree based on the latest GitHub `main`.
 - Do not declare deploy complete from a push, CI success, HTTP 200, or build alone. Record the live URL/revision and verify the changed page plus its destination/Intake/Audit path with the relevant authenticated role.
 - Every release handoff must include commit, workflow status, Production revision, test/build evidence, remaining blocker (or “none found”), and rollback/recovery instructions.
+
+## Evidence Drawer Standard
+
+When a Drawer must show an image or PDF, read and follow `docs/EVIDENCE_SPLIT_REVIEW_STANDARD.md`. The default interaction must keep evidence and review controls on the same route through `EvidenceSplitReviewWorkspace`; opening a new browser tab is secondary fallback only. Preserve form state, scope preview state to the active record, discard stale async preview results, use the Module's existing secure signed-reference path, and verify Desktop/Tablet/Mobile behavior.

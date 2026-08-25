@@ -1,4 +1,5 @@
 import { Alert, Chip, DialogContent, DialogTitle, Divider, Drawer, MenuItem, Paper, Select, Stack, Tab, Tabs, TextField, Typography } from '@mui/material'
+import { EvidenceSplitReviewWorkspace, type EvidencePreviewState } from '../../components/EvidenceSplitReviewWorkspace'
 import type { MasterClassification, MasterClassificationType } from '../../services/masterDataClassification'
 import { classificationLabel } from '../../services/masterDataClassification'
 import type { MasterAutoRoute } from '../../services/masterDataAutoInput'
@@ -30,12 +31,16 @@ type Props = {
   activeTab: number
   requiresCorrection: boolean
   hasNext: boolean
+  preview: EvidencePreviewState | null
   onTabChange: (tab: number) => void
   onCorrectionChange: (correction: Correction) => void
   onReasonChange: (reason: string) => void
   onProjectAction: (action: ProjectGateAction, payload: Record<string, unknown>) => Promise<void>
   onCreateWorkPackage: (input: { projectId: string; parentId: string | null; name: string; description: string }) => Promise<MasterWorkPackageOption | null>
   onOpenSource: () => void
+  onClosePreview: () => void
+  onRetryPreview: () => void
+  onOpenPreviewExternal: () => void
   onCorrect: () => void
   onReview: (action: MasterReviewAction) => void
   onNext: () => void
@@ -60,7 +65,7 @@ export function MasterDataReviewDrawer(props: Props) {
   const nameMismatch = isNameMismatch(candidate, source)
   const terminal = ['confirmed', 'approved', 'locked'].includes(candidate.status)
 
-  return <Drawer anchor="right" open={props.open} onClose={props.onClose} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 720 }, maxWidth: '100vw' } } }}>
+  const reviewPane = <>
     <DialogTitle>ตรวจข้อมูลใหม่ · {candidate.display_name}</DialogTitle>
     <Tabs value={props.activeTab} onChange={(_, value: number) => props.onTabChange(value)} variant="fullWidth" sx={{ borderBottom: 1, borderColor: 'divider', position: 'sticky', top: 0, zIndex: 4, bgcolor: 'background.paper' }}>
       <Tab label="1. ตรวจและเติมข้อมูล" />
@@ -115,5 +120,19 @@ export function MasterDataReviewDrawer(props: Props) {
       </Stack>
     </DialogContent>
     <MasterDataReviewActions candidate={candidate} reason={props.reason} saving={props.saving} hasNext={props.hasNext} requiresCorrection={props.requiresCorrection} activeTab={props.activeTab} onTabChange={props.onTabChange} onCorrect={props.onCorrect} onReview={props.onReview} onNext={props.onNext} onClose={props.onClose} />
+  </>
+
+  return <Drawer anchor="right"
+    open={props.open}
+    onClose={props.onClose}
+    slotProps={{ paper: { sx: { width: props.preview ? '100%' : { xs: '100%', sm: 720 }, maxWidth: '100vw' } } }}
+  >
+    <EvidenceSplitReviewWorkspace
+      preview={props.preview}
+      reviewPane={reviewPane}
+      onClosePreview={props.onClosePreview}
+      onRetry={props.onRetryPreview}
+      onOpenExternal={props.onOpenPreviewExternal}
+    />
   </Drawer>
 }

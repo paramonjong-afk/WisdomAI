@@ -103,10 +103,10 @@ const systemFlows = [
   },
   {
     title: 'Master Data Governance',
-    version: 'Master Data v2.1 · 26/8/2569',
+    version: 'Master Data v2.2 · 26/8/2569',
     icon: <AccountTreeOutlinedIcon color="primary" />,
     summary: 'ข้อมูลจากสลิปและเอกสารเข้า candidate inbox ก่อน Admin ยืนยันเป็นบัญชี/ข้อมูลหลัก ใช้ซ้ำข้ามระบบ และ archive แทนการลบเมื่อหมดอายุ',
-    bullets: ['อ่านจาก docs/MASTER_DATA_GOVERNANCE_FLOW.md', 'Project-first Gate ต้องผูก Project + Work Package เดิม หรือสร้าง Project Candidate พร้อมเนื้องานที่ข้อมูลครบ; ไม่สร้าง Project จริงอัตโนมัติ', 'ทะเบียนพนักงาน ผู้ขาย โครงการ และงานย่อยเดิมยังเป็น source-of-truth', 'Drawer มี 2 Tab: ตรวจและเติมข้อมูล / สรุปและยืนยัน; ข้อมูลตรงข้าม Correction ได้ แต่ข้อมูลขาดหรือผู้โอน/ผู้รับขัดแย้งต้องตรวจ', 'Source Reference แยก Document/Intake/Message/Room/Attachment และจำนวน Audit ให้อ่าน/คัดลอกได้', 'ปุ่มยืนยันเป็น one-shot: ล็อกทันทีระหว่างบันทึก และหลังสำเร็จเหลือเฉพาะรายการถัดไป/กลับคิว', 'Auto Input พร้อมที่มา/ความมั่นใจ, วันเริ่มจากหลักฐานแรก และ Project/Correction Version/Audit โดยไม่เขียนทับ Raw/OCR'],
+    bullets: ['อ่านจาก docs/MASTER_DATA_GOVERNANCE_FLOW.md และ docs/EVIDENCE_SPLIT_REVIEW_STANDARD.md', 'Project-first Gate ต้องผูก Project + Work Package เดิม หรือสร้าง Project Candidate พร้อมเนื้องานที่ข้อมูลครบ; ไม่สร้าง Project จริงอัตโนมัติ', 'ทะเบียนพนักงาน ผู้ขาย โครงการ และงานย่อยเดิมยังเป็น source-of-truth', 'Drawer มี 2 Tab: ตรวจและเติมข้อมูล / สรุปและยืนยัน; ข้อมูลตรงข้าม Correction ได้ แต่ข้อมูลขาดหรือผู้โอน/ผู้รับขัดแย้งต้องตรวจ', 'รูป/PDF เปิดในหน้าเดียว: Desktop หลักฐานซ้าย + Drawer ขวา, Mobile สลับกลับข้อมูลโดยไม่ล้างฟอร์ม; แท็บใหม่เป็น fallback', 'Source Reference แยก Document/Intake/Message/Room/Attachment และจำนวน Audit ให้อ่าน/คัดลอกได้', 'ปุ่มยืนยันเป็น one-shot: ล็อกทันทีระหว่างบันทึก และหลังสำเร็จเหลือเฉพาะรายการถัดไป/กลับคิว', 'Auto Input พร้อมที่มา/ความมั่นใจ, วันเริ่มจากหลักฐานแรก และ Project/Correction Version/Audit โดยไม่เขียนทับ Raw/OCR'],
     path: '/master-data',
     action: 'ไปศูนย์ข้อมูลกลาง',
   },

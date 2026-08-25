@@ -2,6 +2,7 @@ import { CompareArrowsOutlined, RefreshOutlined } from '@mui/icons-material'
 import { Alert, Button, Chip, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
+import type { EvidencePreviewState } from '../../components/EvidenceSplitReviewWorkspace'
 import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
@@ -28,6 +29,11 @@ const accountStatus: Record<string, string> = { verified: 'ยืนยันแ
 const entityLabel: Record<string, string> = { employee: 'พนักงาน', vendor: 'ผู้ขาย', customer: 'ลูกค้า', project: 'โครงการ', work_package: 'งานย่อย', bank_account: 'บัญชีธนาคาร' }
 const dateTime = (value: string | null) => value ? new Date(value).toLocaleString('th-TH') : '-'
 const emptyEvidence = emptyMasterSourceEvidence
+const localEvidencePreviewUrl = (candidate: Pick<Candidate, 'id' | 'display_name'>) => {
+  const safeName = candidate.display_name.replace(/[<>&'"]/g, '')
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="1280" viewBox="0 0 960 1280"><rect width="960" height="1280" fill="#f4f0ea"/><rect x="70" y="70" width="820" height="1140" rx="24" fill="#fff" stroke="#b45d3f" stroke-width="5"/><text x="480" y="210" text-anchor="middle" font-family="Arial,sans-serif" font-size="42" font-weight="700" fill="#2b2927">LOCAL TEST EVIDENCE</text><text x="480" y="300" text-anchor="middle" font-family="Arial,sans-serif" font-size="28" fill="#5d554f">${safeName}</text><text x="480" y="360" text-anchor="middle" font-family="monospace" font-size="20" fill="#756b64">${candidate.id}</text><path d="M220 520h520v360H220z" fill="#f7e6de" stroke="#b45d3f" stroke-width="4"/><circle cx="360" cy="650" r="72" fill="#d58a6e"/><path d="M250 840l165-150 110 95 90-75 95 130z" fill="#b45d3f" opacity=".78"/><text x="480" y="1010" text-anchor="middle" font-family="Arial,sans-serif" font-size="28" fill="#2b2927">ตัวอย่างสำหรับ Local Browser UAT เท่านั้น</text><text x="480" y="1060" text-anchor="middle" font-family="Arial,sans-serif" font-size="22" fill="#756b64">ไม่ใช่ข้อมูล Production</text></svg>`
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
+}
 const masterReviewError = (error: unknown) => {
   const message = error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error ?? '')
   const generic = userError(error)
@@ -50,8 +56,10 @@ export function MasterDataCenterPage() {
   const [reviewReceipts, setReviewReceipts] = useState<Record<string, MasterReviewReceipt>>({})
   const [error, setError] = useState('')
   const [drawerMessage, setDrawerMessage] = useState<DrawerMessage | null>(null)
+  const [evidencePreview, setEvidencePreview] = useState<EvidencePreviewState | null>(null)
   const [savingId, setSavingId] = useState('')
   const reviewActionInFlightRef = useRef(new Set<string>())
+  const evidencePreviewRequestRef = useRef(0)
   const [filter, setFilter] = useState<MasterReviewFilter>('pending_review')
   const [selected, setSelected] = useState<Candidate | null>(null)
   const [drawerTab, setDrawerTab] = useState(0)
@@ -62,7 +70,6 @@ export function MasterDataCenterPage() {
   const [reviewVisibleCount, setReviewVisibleCount] = useState(0)
   const [confirmedVisibleCount, setConfirmedVisibleCount] = useState(0)
   const [correction, setCorrection] = useState({ display_name: '', classification_type: 'unknown_review' as MasterClassificationType, account_last4: '', bank_name: '', tax_id: '' })
-  const setSourceUrl = (value: string) => { void value }
 
   const load = useCallback(async () => {
     if (localTestData) {
@@ -160,16 +167,41 @@ export function MasterDataCenterPage() {
   }
   const openSource = async (candidate: Candidate) => {
     const source = evidence[candidate.id] ?? emptyEvidence()
-    if (!source.bucket || !source.path) { setDrawerMessage({ severity: 'error', text: 'ไม่พบไฟล์ต้นฉบับของรายการนี้ กรุณาใช้ Document/Message ID ใน Source Reference ตรวจต้นทาง' }); return }
+    const requestId = ++evidencePreviewRequestRef.current
+    const previewBase = { recordId: candidate.id, fileName: source.fileName ?? `หลักฐาน-${candidate.id.slice(0, 8)}`, contentType: source.attachmentContentType }
+    setDrawerMessage(null)
+    setEvidencePreview({ ...previewBase, url: null, loading: true, error: null })
+    if (localTestData) {
+      await Promise.resolve()
+      if (requestId !== evidencePreviewRequestRef.current) return
+      setEvidencePreview({ ...previewBase, fileName: source.fileName ?? 'local-test-evidence.svg', contentType: 'image/svg+xml', url: localEvidencePreviewUrl(candidate), loading: false, error: null })
+      return
+    }
+    if (!source.bucket || !source.path) {
+      if (requestId !== evidencePreviewRequestRef.current) return
+      setEvidencePreview({ ...previewBase, url: null, loading: false, error: 'ไม่พบไฟล์ต้นฉบับของรายการนี้ กรุณาใช้ Document/Message ID ใน Source Reference ตรวจต้นทาง' })
+      return
+    }
     const signed = await documentFlowGateway.signedPreviewUrl(source.bucket, source.path)
-    if (signed.error || !signed.data?.signedUrl) { setDrawerMessage({ severity: 'error', text: `เปิดไฟล์ต้นฉบับไม่สำเร็จ: ${userError(signed.error)}` }); return }
-    window.open(signed.data.signedUrl, '_blank', 'noopener,noreferrer')
+    if (requestId !== evidencePreviewRequestRef.current) return
+    if (signed.error || !signed.data?.signedUrl) {
+      setEvidencePreview({ ...previewBase, url: null, loading: false, error: `เปิดไฟล์ต้นฉบับไม่สำเร็จ: ${userError(signed.error)}` })
+      return
+    }
+    setEvidencePreview({ ...previewBase, url: signed.data.signedUrl, loading: false, error: null })
+  }
+  const closeEvidencePreview = () => { evidencePreviewRequestRef.current += 1; setEvidencePreview(null) }
+  const retryEvidencePreview = () => { if (selected) void openSource(selected) }
+  const openEvidenceInNewTab = () => {
+    if (!evidencePreview?.url) return
+    window.open(evidencePreview.url, '_blank', 'noopener,noreferrer')
   }
   const openCandidate = (candidate: Candidate) => {
     const source = evidence[candidate.id] ?? emptyEvidence()
     const classification = classifyMasterCandidate(candidate, source, duplicateIds.has(candidate.id))
     const auto = buildMasterAutoCorrection(candidate, source, classification)
     setSelected(candidate)
+    closeEvidencePreview()
     setDrawerTab(0)
     setReviewReason('')
     setDrawerMessage(null)
@@ -312,7 +344,7 @@ export function MasterDataCenterPage() {
   const selectedRequiresCorrection = selected && selectedClassification ? masterDataRequiresCorrection(selected, selectedSource, selectedClassification.conflicts, selectedClassification.type) : false
   const selectedRoute = selectedClassification ? masterAutoRoute(correction.classification_type, selectedClassification.confidence, selectedClassification.conflicts) : null
   const selectedSourceCount = selected ? duplicateGroups.find((group) => group.candidateIds.includes(selected.id))?.candidateIds.length ?? 1 : 0
-  const closeDrawer = () => { setSelected(null); setSourceUrl(''); setReviewReason(''); setDrawerMessage(null); setDrawerTab(0) }
+  const closeDrawer = () => { setSelected(null); closeEvidencePreview(); setReviewReason(''); setDrawerMessage(null); setDrawerTab(0) }
 
   return <Stack spacing={2}>
     <PageHeader title="ศูนย์ข้อมูลกลาง" description="ข้อมูลจากสลิปและเอกสารจะเข้ารอตรวจ ก่อนยืนยันเป็นข้อมูลใช้ร่วมกันทุก Module · ไม่มีการลบข้อมูลที่มีการอ้างอิง" action={<Button startIcon={<RefreshOutlined />} onClick={() => void load()}>รีเฟรช</Button>} />
@@ -334,7 +366,7 @@ export function MasterDataCenterPage() {
       { id: 'status', label: 'สถานะข้อมูล', minWidth: 190, render: (row) => <Chip size="small" color={['confirmed', 'approved', 'auto_verified'].includes(row.status) ? 'success' : row.status === 'locked' ? 'primary' : row.status === 'rejected' ? 'error' : row.status === 'archived' ? 'default' : 'warning'} label={candidateStatus[row.status] ?? row.status} /> },
       { id: 'actions', label: 'ตรวจรายละเอียด', minWidth: 170, render: (row) => <Button size="small" startIcon={<CompareArrowsOutlined />} onClick={(event) => { event.stopPropagation(); openCandidate(row) }}>เปิด Detail</Button> },
     ]} />
-    <MasterDataReviewDrawer open={Boolean(selected)} candidate={selected} source={selectedSource} classification={selectedClassification} route={selectedRoute} sourceCount={selectedSourceCount} projects={projects} workPackages={workPackages} receipt={selected ? reviewReceipts[selected.id] ?? { projectCandidate: null, correction: null } : { projectCandidate: null, correction: null }} reviewerName={(id) => id ? reviewerNames[id] ?? id : '-'} correction={correction} reason={reviewReason} saving={Boolean(selected && savingId === selected.id)} message={drawerMessage} activeTab={drawerTab} requiresCorrection={selectedRequiresCorrection} hasNext={summaryRows.length > 1} onTabChange={setDrawerTab} onCorrectionChange={setCorrection} onReasonChange={setReviewReason} onProjectAction={saveProjectGate} onCreateWorkPackage={createWorkPackage} onOpenSource={() => selected && void openSource(selected)} onCorrect={() => void correctCandidate()} onReview={(action) => selected && void review(selected, action)} onNext={openNextCandidate} onClose={closeDrawer} />
+    <MasterDataReviewDrawer open={Boolean(selected)} candidate={selected} source={selectedSource} classification={selectedClassification} route={selectedRoute} sourceCount={selectedSourceCount} projects={projects} workPackages={workPackages} receipt={selected ? reviewReceipts[selected.id] ?? { projectCandidate: null, correction: null } : { projectCandidate: null, correction: null }} reviewerName={(id) => id ? reviewerNames[id] ?? id : '-'} correction={correction} reason={reviewReason} saving={Boolean(selected && savingId === selected.id)} message={drawerMessage} activeTab={drawerTab} requiresCorrection={selectedRequiresCorrection} hasNext={summaryRows.length > 1} preview={evidencePreview} onTabChange={setDrawerTab} onCorrectionChange={setCorrection} onReasonChange={setReviewReason} onProjectAction={saveProjectGate} onCreateWorkPackage={createWorkPackage} onOpenSource={() => selected && void openSource(selected)} onClosePreview={closeEvidencePreview} onRetryPreview={retryEvidencePreview} onOpenPreviewExternal={openEvidenceInNewTab} onCorrect={() => void correctCandidate()} onReview={(action) => selected && void review(selected, action)} onNext={openNextCandidate} onClose={closeDrawer} />
     <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ alignItems: { md: 'center' } }}><Typography variant="h6" sx={{ flex: 1 }}>Confirmed Data Reports</Typography><Select size="small" value={reportType} onChange={(event) => setReportType(event.target.value as MasterClassificationType | 'all')}><MenuItem value="all">ทุกประเภท</MenuItem>{Object.entries(classificationLabel).filter(([key]) => key !== 'unknown_review').map(([key, label]) => <MenuItem key={key} value={key}>{label}</MenuItem>)}</Select><TextField size="small" type="date" label="วันที่ยืนยัน" value={reportDate} onChange={(event) => setReportDate(event.target.value)} slotProps={{ inputLabel: { shrink: true } }} /><Chip label={`${confirmedVisibleCount} รายการ`} /></Stack>
     <StandardDataTable rows={confirmedRows} onFilteredRowCountChange={setConfirmedVisibleCount} getRowId={(row) => row.id} onRowClick={openCandidate} getSearchText={(row) => `${row.display_name} ${candidateAccount(row) ?? ''} ${classificationLabel[classifications[row.id].type]} ${reviewerNames[row.reviewed_by ?? ''] ?? row.reviewed_by ?? ''} ${evidence[row.id]?.messageId ?? ''} ${evidence[row.id]?.sourceRoom ?? ''}`} searchLabel="ค้นหาชื่อ บัญชี ประเภท ผู้ยืนยัน หรือ Source" emptyText="ยังไม่มีข้อมูลยืนยันตามตัวกรอง" minWidth={1120} columns={[
       { id: 'report_type', label: 'ประเภท', minWidth: 190, render: (row) => classificationLabel[classifications[row.id].type] },

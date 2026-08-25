@@ -1,4 +1,4 @@
-import { ContentCopyOutlined, OpenInNewOutlined } from '@mui/icons-material'
+import { ContentCopyOutlined, VisibilityOutlined } from '@mui/icons-material'
 import { Accordion, AccordionDetails, AccordionSummary, Button, Chip, Grid, IconButton, Paper, Stack, Tooltip, Typography } from '@mui/material'
 import { ExpandMoreOutlined } from '@mui/icons-material'
 import type { MasterSourceEvidence } from './masterDataReview'
@@ -55,7 +55,7 @@ export function MasterDataSourceReferenceCard({ source, sourceCount, onOpenSourc
         </Paper>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'center' } }}>
           <Typography variant="body2" sx={{ flex: 1 }}>กลุ่มนี้พบ <strong>{sourceCount}</strong> source · Audit <strong>{source.auditCount}</strong> เหตุการณ์{source.auditId ? ` · ล่าสุด #${source.auditId}` : ''}</Typography>
-          {(source.path || source.documentId || source.messageId) && <Button size="small" startIcon={<OpenInNewOutlined />} onClick={onOpenSource}>เปิดหลักฐานต้นฉบับ</Button>}
+          {(source.path || source.documentId || source.messageId) && <Button size="small" startIcon={<VisibilityOutlined />} onClick={onOpenSource}>ดูหลักฐานข้างข้อมูล</Button>}
         </Stack>
         {source.missingReasons.length > 0 && <Stack spacing={0.25}>{source.missingReasons.map((reason) => <Typography key={reason} variant="caption" color="warning.main">• {reason}</Typography>)}</Stack>}
       </Stack>
