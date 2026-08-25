@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Employee Multiple LINE Accounts v2.9 — 26/8/2569
+
+- **เหตุผล:** พนักงานอาจมี LINE ส่วนตัวมากกว่าหนึ่งบัญชี แต่ schema เดิมบังคับหนึ่งบัญชีต่อพนักงาน
+- **ผลกระทบ:** `/employees` เพิ่ม LINE ที่ 2+ ได้ แยกบัญชีหลัก/รอง และยกเลิกเฉพาะบัญชี; Attendance/Sender/Audit sync ทุก identity
+- **Migration:** `20260826190000_employee_multiple_line_accounts.sql`; เก็บบัญชีเดิมเป็นบัญชีหลักและไม่ลบ Raw/ข้อความ
+- **Verification:** migration dry-run/apply, duplicate/idempotency/primary promotion/self-link, tests, typecheck, lint, build และ authenticated Production Drawer/Audit
+- **Rollback:** revoke RPC/ซ่อน Action ใหม่; ต้อง reconcile หลายบัญชีก่อนคืน unique constraint
+
 ## ล่าสุด: Employee LINE Account Link v2.8 — 26/8/2569
 
 - **เหตุผล:** Drawer แสดง LINE ที่ผูกแล้วได้ แต่ Admin ยังเลือก Candidate และยืนยันการผูกให้พนักงานไม่ได้

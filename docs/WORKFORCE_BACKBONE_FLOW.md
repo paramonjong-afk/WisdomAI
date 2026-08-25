@@ -87,6 +87,29 @@ flowchart TD
 | --- | --- | --- | --- | --- | --- | --- |
 | v2.8 | 26/8/2569 | Drawer เห็นข้อมูล LINE แต่ยังผูก Candidate ให้พนักงานไม่ได้ | `/employees`, Employee LINE Master, Attendance Identity, LINE Sender และ Workforce Audit | `20260826180000_employee_admin_line_account_link.sql` | migration dry-run/apply, duplicate/idempotency/permission contracts, tests, typecheck, lint, build และ authenticated Production smoke | revert UI และ revoke RPC; ใช้ `admin_unlink_employee_line_account` พร้อมเหตุผลเพื่อคืนสถานะรายบุคคล โดยไม่ลบ Sender/Audit |
 
+## Employee Multiple LINE Accounts v2.9 — 26/8/2569
+
+```mermaid
+flowchart LR
+  A[Admin เปิด Drawer] --> B[เพิ่ม LINE อีกบัญชี]
+  B --> C[เลือก Candidate + หลักฐาน]
+  C --> D{บัญชีหลักหรือรอง}
+  D --> E[ตรวจบริษัท สมาชิก และ LINE ซ้ำ]
+  E --> F[Employee LINE + Sender + Attendance Identity]
+  F --> G[Audit และแสดงทุกบัญชี]
+  G --> H[ยกเลิกเฉพาะบัญชี]
+  H --> I{เป็นบัญชีหลัก?}
+  I -->|ใช่| J[เลื่อนบัญชีรองเป็นบัญชีหลัก]
+  I -->|ไม่| G
+```
+
+- **Input/Output:** Admin เลือก LINE Candidate ระบุหลักฐาน และเลือกบัญชีหลักหรือรอง; Drawer แสดงทุกบัญชีที่ยืนยัน
+- **State/Permission:** `candidate → active_primary|active_secondary → inactive`; มีบัญชีหลัก active สูงสุดหนึ่งบัญชี; Company Manager/Admin เท่านั้น และ LINE หนึ่งบัญชีห้ามผูกหลายคน
+- **Integration:** sync `employee_line_accounts`, `line_senders.profile_id`, `attendance_channel_identities`; self-link token ใช้กติกาเดียวกัน
+- **Failure/Retry:** LINE ผิดบริษัท/ของคนอื่นถูกปฏิเสธ; กดซ้ำไม่สร้าง identity ซ้ำ; ยกเลิกบัญชีหลักจะเลื่อนบัญชีรองล่าสุด โดยไม่ลบข้อความเดิม
+- **Audit/Owner:** เพิ่ม/ยกเลิกบันทึก Workforce Audit; HR/Workforce Owner ยืนยันตัวบุคคล
+- **Change/Rollback:** v2.9, migration `20260826190000_employee_multiple_line_accounts.sql`; rollback โดย revoke RPC/ซ่อน Action และต้อง reconcile หลายบัญชีก่อนคืน unique constraint
+
 ## Employee Drawer Information Hub v2.7 — 26/8/2569
 
 ```mermaid
