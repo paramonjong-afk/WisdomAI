@@ -55,7 +55,11 @@ type EmployeeIntakeMaster = {
   missing_fields: string[]
   documents: Array<{ id: string; employee_person_id: string; document_type: string; link_status: string }>
 }
-type EmployeePersonDocument = { id: string; employee_person_id: string; document_type: string; link_status: string }
+type EmployeePersonDocument = {
+  id: string; employee_person_id: string; source_intake_document_id: string; document_type: string
+  link_status: string; source_channel: string; mime_type: string; linked_at: string
+}
+type EmployeeDocumentAccess = EmployeePersonDocument & { storage_bucket: string; storage_path: string }
 type EmployeeSiteOption = { id: string; name: string; work_policy_id: string | null; projects: { name: string } | null }
 type EmployeeSiteAssignment = { id: string; profile_id: string; site_id: string; starts_on: string; ends_on: string | null; is_primary: boolean; project_sites: { name: string; projects: { name: string } | null } | null }
 type IntakeEmployeeDraft = { full_name: string; phone: string; employment_type: string; position: string; start_date: string }
@@ -341,6 +345,10 @@ export function EmployeePage() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [intakeEmployeePeople, setIntakeEmployeePeople] = useState<EmployeeIntakeMaster[]>([])
   const [employeeDocumentsByProfile, setEmployeeDocumentsByProfile] = useState<Record<string, EmployeePersonDocument[]>>({})
+  const [employeeDocumentPreview, setEmployeeDocumentPreview] = useState<EmployeeDocumentAccess | null>(null)
+  const [employeeDocumentPreviewUrl, setEmployeeDocumentPreviewUrl] = useState('')
+  const [employeeDocumentPreviewError, setEmployeeDocumentPreviewError] = useState('')
+  const [employeeDocumentBusy, setEmployeeDocumentBusy] = useState('')
   const [employeeSiteOptions, setEmployeeSiteOptions] = useState<EmployeeSiteOption[]>([])
   const [employeeSiteAssignments, setEmployeeSiteAssignments] = useState<EmployeeSiteAssignment[]>([])
   const [drawerSiteId, setDrawerSiteId] = useState('')
@@ -528,7 +536,7 @@ export function EmployeePage() {
       : supabase.from('employee_people').select('id,source_intake_id,employee_code,full_name,phone,employment_type,position,start_date,employee_status,created_at').eq('company_id', currentCompany.company_id).eq('employee_status','preboarding').is('profile_id', null).order('created_at', { ascending: false }).limit(500)
     const intakePersonDocumentsQuery = !currentCompany?.company_id
       ? Promise.resolve({ data: [], error: null })
-      : supabase.from('employee_person_documents').select('id,employee_person_id,document_type,link_status').eq('company_id', currentCompany.company_id).order('created_at')
+      : supabase.from('employee_person_documents').select('id,employee_person_id,source_intake_document_id,document_type,link_status,source_channel,mime_type,linked_at').eq('company_id', currentCompany.company_id).order('created_at')
     const employeePersonProfilesQuery = !currentCompany?.company_id
       ? Promise.resolve({ data: [], error: null })
       : supabase.from('employee_people').select('id,profile_id').eq('company_id', currentCompany.company_id).not('profile_id', 'is', null).limit(1000)
@@ -657,6 +665,46 @@ export function EmployeePage() {
     setDrawerSiteStartsOn(new Date().toISOString().slice(0, 10))
     setDrawerSitePrimary('yes')
     setEmployeeDrawer(employee)
+  }
+
+  const requestEmployeeDocumentAccess = async (document: EmployeePersonDocument, action: 'preview' | 'download') => {
+    const busyKey = `${document.id}:${action}`
+    setEmployeeDocumentBusy(busyKey)
+    if (action === 'preview') {
+      setEmployeeDocumentPreview({ ...document, storage_bucket: '', storage_path: '' })
+      setEmployeeDocumentPreviewUrl('')
+      setEmployeeDocumentPreviewError('')
+    }
+    try {
+      const { data, error } = await supabase.rpc('request_employee_document_access', {
+        target_document_id: document.id,
+        target_action: action,
+      })
+      if (error) throw error
+      const access = (Array.isArray(data) ? data[0] : data) as EmployeeDocumentAccess | null
+      if (!access?.storage_bucket || !access.storage_path) throw new Error('employee_document_storage_reference_missing')
+      const signedResult = action === 'download'
+        ? await supabase.storage.from(access.storage_bucket).createSignedUrl(access.storage_path, 600, { download: true })
+        : await supabase.storage.from(access.storage_bucket).createSignedUrl(access.storage_path, 600)
+      if (signedResult.error || !signedResult.data?.signedUrl) throw signedResult.error ?? new Error('employee_document_signed_url_missing')
+      if (action === 'preview') {
+        setEmployeeDocumentPreview(access)
+        setEmployeeDocumentPreviewUrl(signedResult.data.signedUrl)
+      } else {
+        const anchor = window.document.createElement('a')
+        anchor.href = signedResult.data.signedUrl
+        anchor.target = '_blank'
+        anchor.rel = 'noopener noreferrer'
+        anchor.click()
+      }
+    } catch (error) {
+      const friendly = toFriendlyError({ error, module: 'employee_document_access', fallback: 'เปิดเอกสารพนักงานไม่สำเร็จ' })
+      const detail = `${userError(friendly)} แนวทางแก้: ${friendly.action}`
+      if (action === 'preview') setEmployeeDocumentPreviewError(detail)
+      else setErrorMessage(detail)
+    } finally {
+      setEmployeeDocumentBusy('')
+    }
   }
 
   const refreshWithProfile = useCallback(async () => {
@@ -2336,7 +2384,7 @@ export function EmployeePage() {
             <Box>
               <Typography variant="subtitle2" sx={{ mb: 1 }}>เอกสารประจำตัวและเอกสารย้อนหลัง</Typography>
               {(employeeDocumentsByProfile[employeeDrawer.id] ?? []).length === 0
-                ? <Typography variant="body2" color="text.secondary">ยังไม่มีเอกสารที่เชื่อมกับพนักงานรายนี้</Typography>
+                ? <Alert severity="warning" sx={{ mb: 1 }}>ยังไม่มีเอกสารที่เชื่อมกับพนักงานรายนี้ กรุณาค้นหาหรือแนบจาก Intake</Alert>
                 : <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
                     {(employeeDocumentsByProfile[employeeDrawer.id] ?? []).map((document) => (
                       <Chip
@@ -2344,10 +2392,14 @@ export function EmployeePage() {
                         size="small"
                         color={document.link_status === 'available' ? 'success' : 'default'}
                         variant="outlined"
-                        label={`${intakeDocumentLabels[document.document_type] ?? document.document_type}${document.link_status === 'available' ? '' : ` · ${document.link_status}`}`}
+                        clickable={document.link_status === 'available'}
+                        disabled={Boolean(employeeDocumentBusy)}
+                        onClick={document.link_status === 'available' ? () => void requestEmployeeDocumentAccess(document, 'preview') : undefined}
+                        label={`${intakeDocumentLabels[document.document_type] ?? document.document_type}${document.link_status === 'available' ? ' · กดดู' : ` · ${document.link_status}`}`}
                       />
                     ))}
                   </Stack>}
+              <Button size="small" sx={{ mt: 1 }} component="a" href="/document-flows?document_view=intake_room">ค้นหา / แนบเอกสารเพิ่มจาก Intake</Button>
             </Box>
 
             <Divider />
@@ -2426,6 +2478,43 @@ export function EmployeePage() {
           </Stack>}
         </Box>
       </Drawer>
+
+      <Dialog
+        open={Boolean(employeeDocumentPreview)}
+        onClose={() => !employeeDocumentBusy && setEmployeeDocumentPreview(null)}
+        fullWidth
+        maxWidth="md"
+      >
+        <DialogTitle>{employeeDocumentPreview ? intakeDocumentLabels[employeeDocumentPreview.document_type] ?? employeeDocumentPreview.document_type : 'เอกสารพนักงาน'}</DialogTitle>
+        <DialogContent dividers>
+          {employeeDocumentPreview && <Stack spacing={1.5}>
+            <Typography variant="body2" color="text.secondary">
+              แหล่งข้อมูล: {employeeDocumentPreview.source_channel || 'ไม่ระบุ'} · เชื่อมเมื่อ {employeeDocumentPreview.linked_at ? new Date(employeeDocumentPreview.linked_at).toLocaleString('th-TH') : 'ไม่ระบุ'}
+            </Typography>
+            {employeeDocumentBusy.endsWith(':preview') && <Stack sx={{ py: 6, alignItems: 'center' }}><CircularProgress /><Typography sx={{ mt: 1 }}>กำลังตรวจสิทธิ์และเปิดเอกสาร...</Typography></Stack>}
+            {employeeDocumentPreviewError && <Alert severity="error">{employeeDocumentPreviewError}</Alert>}
+            {employeeDocumentPreviewUrl && employeeDocumentPreview.mime_type?.startsWith('image/') && (
+              <Box component="img" src={employeeDocumentPreviewUrl} alt={intakeDocumentLabels[employeeDocumentPreview.document_type] ?? 'เอกสารพนักงาน'} sx={{ display: 'block', maxWidth: '100%', maxHeight: '68vh', mx: 'auto', objectFit: 'contain' }} />
+            )}
+            {employeeDocumentPreviewUrl && employeeDocumentPreview.mime_type === 'application/pdf' && (
+              <Box component="iframe" src={employeeDocumentPreviewUrl} title={intakeDocumentLabels[employeeDocumentPreview.document_type] ?? 'เอกสารพนักงาน'} sx={{ width: '100%', height: '68vh', border: 0 }} />
+            )}
+            {employeeDocumentPreviewUrl && !employeeDocumentPreview.mime_type?.startsWith('image/') && employeeDocumentPreview.mime_type !== 'application/pdf' && (
+              <Alert severity="info">ไฟล์ชนิดนี้ไม่รองรับการแสดงในหน้าเว็บ กรุณากดดาวน์โหลดเพื่อเปิดด้วยโปรแกรมที่รองรับ</Alert>
+            )}
+          </Stack>}
+        </DialogContent>
+        <DialogActions>
+          <Button component="a" href="/document-flows?document_view=intake_room">ไปที่ Intake</Button>
+          <Button
+            disabled={!employeeDocumentPreviewUrl || Boolean(employeeDocumentBusy)}
+            onClick={() => employeeDocumentPreview && void requestEmployeeDocumentAccess(employeeDocumentPreview, 'download')}
+          >
+            {employeeDocumentBusy.endsWith(':download') ? <CircularProgress size={18} /> : 'ดาวน์โหลด'}
+          </Button>
+          <Button onClick={() => setEmployeeDocumentPreview(null)} disabled={Boolean(employeeDocumentBusy)}>ปิด</Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={Boolean(reviewTarget)} onClose={() => !reviewingId && setReviewTarget(null)} fullWidth maxWidth="sm">
         <DialogTitle>

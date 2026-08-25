@@ -22,6 +22,37 @@ flowchart TD
   K -->|ครบ + Admin อนุมัติ| B
 ```
 
+## Secure Employee Document Viewer v2.6 — 26/8/2569
+
+```mermaid
+flowchart LR
+  A[Admin เปิด Drawer พนักงาน] --> B[เลือกเอกสารที่ available]
+  B --> C[RPC ตรวจ Login + บริษัทปัจจุบัน + Manager]
+  C -->|ผ่าน| D[ตรวจ Document และ Employee Person บริษัทเดียวกัน]
+  D --> E[บันทึก Audit ว่าขอ Preview/Download]
+  E --> F[คืน Storage reference]
+  F --> G[สร้าง Signed URL อายุ 10 นาที]
+  G --> H[แสดงภาพ/PDF หรือดาวน์โหลด]
+  C -->|ไม่ผ่าน| I[แจ้งสิทธิ์/บริษัทไม่ถูกต้อง]
+  D -->|ไม่พบ/ไม่ available| J[แจ้งปัญหาและคง Drawer]
+  J --> K[ไป Intake เพื่อค้นหา/แนบ/กู้เอกสาร]
+  G -->|สร้าง URL ไม่สำเร็จ| L[แจ้ง retry โดยไม่เปิด Storage สาธารณะ]
+```
+
+- **Input:** `employee_person_documents.id` จาก Drawer, action `preview/download`, ผู้ใช้และบริษัทที่กำลังใช้งาน
+- **Output/State:** Signed URL ของ private Storage อายุ 600 วินาที; ไม่มีการเปลี่ยนสถานะเอกสารหรือ Employee Master
+- **Role/Permission:** Platform Admin หรือ Company Manager ของบริษัทปัจจุบันเท่านั้น; RPC ตรวจ tenant ซ้ำก่อนคืน storage reference และ Storage RLS ยังเป็นด่านสุดท้าย
+- **Integration:** Employee Drawer → `request_employee_document_access` → Workforce Audit → Supabase private Storage; ลิงก์ recovery ไป HR Intake
+- **Failure/Retry:** ไม่พบไฟล์/ไม่ available/ผิดบริษัท/ไม่มีสิทธิ์จะไม่คืน path; signed URL ล้มเหลวแจ้งชัดและ retry ได้; เอกสารขาดให้ค้นหา/แนบจาก Intake โดยไม่สร้าง Employee ซ้ำ
+- **Audit/Idempotency:** ทุกคำขอเปิดดู/ดาวน์โหลดบันทึก `employee_document_preview_requested` หรือ `employee_document_download_requested`; การขอซ้ำสร้าง Audit ใหม่ตามเหตุการณ์ แต่ไม่สร้าง Document link ใหม่
+- **Owner:** HR/Admin เป็นผู้ใช้และแก้ความไม่ครบ; Workforce Module เป็นเจ้าของ permission/audit; Document Intake เป็นเจ้าของไฟล์ต้นฉบับและ recovery
+
+### Change record
+
+| Version | Date | Rationale | Impact | Migration | Verification | Rollback |
+| --- | --- | --- | --- | --- | --- | --- |
+| v2.6 | 26/8/2569 | ให้เอกสารใน Drawer เปิดตรวจได้จริงโดยไม่เผย bucket/path หรือทำ Storage เป็น public | `/employees`, Workforce Audit, private Storage signed URL และ Intake recovery | `20260826000100_employee_document_secure_preview.sql` | contract, migration dry-run/apply, RLS/RPC check, typecheck, lint, build และ authenticated Drawer preview/Audit smoke | revert UI/RPC และ revoke function; เอกสาร/Raw/link เดิมไม่เปลี่ยน และ Audit ที่เกิดแล้วคงไว้ |
+
 ## Employee Preboarding Visible List v2.4 — 25/8/2569
 
 ```mermaid

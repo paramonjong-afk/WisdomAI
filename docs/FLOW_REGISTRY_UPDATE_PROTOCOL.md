@@ -1,5 +1,14 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Secure Employee Document Viewer v2.6 — 26/8/2569
+
+- **เหตุผล:** Drawer แสดงเพียงชนิดเอกสารแต่เปิดต้นฉบับไม่ได้ ทำให้ HR ต้องย้อนค้นเองและตรวจหลักฐานไม่จบในจุดทำงาน
+- **ผลกระทบ:** `/employees` เปิดภาพ/PDF จาก private Storage ด้วย Signed URL 10 นาที, ดาวน์โหลดแบบมีสิทธิ์, และมีลิงก์กลับไปค้นหา/แนบจาก Intake
+- **Permission/Audit:** RPC ตรวจ Login, active company, manager/platform role, document/person tenant และ `available` ก่อนคืน reference; ทุก request บันทึก Workforce Audit โดยไม่เก็บ storage path ใน Audit
+- **Migration:** `20260826000100_employee_document_secure_preview.sql`
+- **Verification:** contract, migration dry-run/apply, RLS/RPC, typecheck, lint, build และ authenticated Drawer preview พร้อมตรวจ Audit
+- **Rollback:** revert UI และ revoke/drop RPC; private Storage, Employee Document link, Raw และ Audit เดิมไม่เปลี่ยน
+
 ## ล่าสุด: Employee Drawer Duplicate-Site Guard v2.5.1 — 25/8/2569
 
 - **เหตุผล:** RPC ป้องกันข้อมูลซ้ำแล้ว แต่ Drawer ยังแสดงไซต์เดิมและเปิดปุ่มให้กดซ้ำ จึงทำให้ผู้ใช้พบ Error ที่ควรป้องกันก่อนส่ง
