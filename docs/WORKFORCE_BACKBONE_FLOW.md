@@ -347,6 +347,35 @@ flowchart LR
 - **Audit:** บันทึกผู้เสนอ/ผู้ยืนยัน, before/after, เหตุผล, source, company, employee, document/bank version และเวลา; เลขบัญชีใน UI/Log ต้องปกปิด
 - **Owner:** HR Operations; เจ้าของ integration คือ Platform Integration; rollback โดย deactivate link/version ล่าสุดและคืนค่าที่ verified ก่อนหน้า ห้ามลบ Raw/Audit
 
+### Existing Employee Resolution Gate (v0.2, 25/8/2569)
+
+```mermaid
+flowchart TD
+  A[เอกสาร/ข้อมูลพนักงานเข้า Intake] --> B[เก็บ Raw + Source + Hash]
+  B --> C[ค้น Candidate ภายในบริษัทเดียวกัน\nชื่อ/alias/โทร/LINE/บัญชี/เอกสาร]
+  C --> D{จำนวน Candidate ที่น่าเชื่อถือ}
+  D -->|0| E[เสนอ: พนักงานใหม่]
+  D -->|1| F[เสนอ: อัปเดตพนักงานเดิม]
+  D -->|มากกว่า 1 / ขัดแย้ง| G[Manual Identity Review]
+  E --> H{HR/Admin ยืนยัน}
+  F --> H
+  G --> H
+  H -->|สร้างใหม่| I[สร้าง Employee Master preboarding]
+  H -->|อัปเดตเดิม| J[เชื่อมเอกสารกับ Profile/Employee เดิม]
+  H -->|ข้อมูลไม่พอ| K[ขอข้อมูลเพิ่ม / เปิด Intake ต่อ]
+  J --> L[อัปเดต Completeness\nไม่เปลี่ยนสถานะ active]
+  I --> M[คิวตั้งค่าการจ้างงานและสิทธิ์]
+  L --> N[Audit การแนบย้อนหลัง]
+```
+
+- ต้องใช้ Gate นี้ก่อน `create_employee_preboarding_from_intake` ทุกครั้ง รวม LINE, Web Chat, Upload และการกู้เอกสารย้อนหลัง
+- Matching เป็น Candidate เท่านั้น; ห้ามถือว่าชื่อใกล้กันเป็นคนเดียวกันโดยไม่มี HR/Admin ยืนยัน
+- `update_existing` ต้องคงสถานะการจ้างงาน/สิทธิ์/ไซต์ของพนักงานเดิม และเพิ่มเฉพาะ reference เอกสาร/ข้อมูลที่ผู้ตรวจยืนยัน
+- `create_new` ต้องมีเหตุผลเมื่อมี Candidate เดิม เพื่อป้องกันการสร้างซ้ำโดยไม่ตั้งใจ
+- Idempotency ใช้ Intake ID, source attachment ID และ content hash; กดซ้ำต้องไม่สร้าง Person/Document link ซ้ำ
+- Audit ต้องเก็บ Candidate ที่เสนอ, คะแนน/เหตุผล, ผู้ตัดสินใจ, before/after และปลายทาง Employee/Profile
+- Failure/recovery: หากพบภายหลังว่าสร้าง Preboarding ซ้ำ ให้ใช้ reconcile action เชื่อมไป Profile เดิมและปิด draft ซ้ำโดยไม่ลบ Raw/เอกสาร/Audit
+
 | Version | วันที่ | เหตุผล/ผลกระทบ | Migration | Verification | Rollback |
 |---|---|---|---|---|---|
 | v2.0 | 25/8/2569 | จำแนกเอกสารบุคคลจาก LINE แล้วส่งเข้า Restricted HR Intake แบบ bundle/idempotent พร้อม recovery จาก message ID เดิม | `20260825194500_line_hr_document_intake_routing.sql` | LINE/Employee/Omni contract, typecheck, targeted lint, build, migration dry-run และ authenticated HR smoke | ปิด route/trigger โดยคง Raw, Intake, private document และ Audit |

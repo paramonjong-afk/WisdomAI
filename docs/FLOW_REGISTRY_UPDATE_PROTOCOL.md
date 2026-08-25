@@ -1,5 +1,16 @@
 # Flow Registry Update Protocol
 
+## แผนงาน: Existing Employee Resolution Gate v0.2 — 25/8/2569
+
+- **สถานะ:** `รอดำเนินการ`; เพิ่ม Contract ป้องกัน Intake เอกสารย้อนหลังสร้างพนักงานใหม่ซ้ำ
+- **เหตุผล:** ชื่อบนเอกสารอาจไม่มีคำนำหน้า สะกดต่าง หรือใช้ชื่อเล่น ทำให้พนักงาน active ถูกสร้างเป็น Employee Master `preboarding` อีกคน
+- **Flow:** เก็บ Raw → ค้น Candidate company-scoped → HR/Admin เลือก `update_existing/create_new/request_info` → เชื่อมเอกสารเดิมหรือสร้าง Preboarding → Audit/Reconcile
+- **กติกา:** ห้าม auto-merge จาก fuzzy name; Candidate หลายคนหรือข้อมูลขัดแย้งต้อง Manual Review; update เดิมห้ามเปลี่ยน employment/rights/site โดยผลข้างเคียง
+- **ผลกระทบที่วางแผน:** Employee Intake, Employee Identity/Alias, Document Registry, LINE/Web Intake, HR Onboarding queue และ Workforce Audit
+- **Migration:** ยังไม่มี; ก่อน Apply ต้องตรวจ legacy preboarding เทียบ active Profile/Employment และทำ guarded reconcile ที่ไม่ delete Raw
+- **Verification:** existing/new/ambiguous/name-variant/cross-company/duplicate/retry, RLS, audit, count ก่อน-หลัง, typecheck/lint/build และ authenticated Employee/Intake smoke
+- **Rollback:** ปิด resolution action และกลับ Manual Review; link ที่ยืนยันผิดต้องคืนได้แบบ versioned โดยไม่ลบ Raw/Source/Audit
+
 ## ล่าสุด: Employee Onboarding Completed-Data State v2.2 — 25/8/2569
 
 - **เหตุผล:** ข้อมูลก่อนเริ่มงานบันทึกและอนุมัติแล้ว แต่หน้า Employee อ่านเพียง `employee_people.employee_status=preboarding` จึงแสดงเหมือนข้อมูลยังค้างและยังเสนอปุ่มอัปเดตที่ใช้ไม่ได้กับ Intake `approved`

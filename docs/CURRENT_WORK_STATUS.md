@@ -2,6 +2,14 @@
 
 ## งานรอดำเนินการ: Employee Identity & Completeness
 
+### EMP-IDENTITY-004 — Existing Employee Resolution ก่อนสร้าง Preboarding
+
+- สถานะ: `รอดำเนินการ / ต้องใช้กับ Intake พนักงานทุกช่องทาง`
+- ขอบเขต: ก่อนสร้าง Employee Master ใหม่ ต้องค้น Candidate พนักงานเดิมในบริษัทเดียวกันจากชื่อ/alias/เบอร์โทร/บัญชีธนาคาร/เอกสาร/LINE และรหัสอ้างอิง แล้วให้ HR เลือก `อัปเดตพนักงานเดิม` หรือ `สร้างพนักงานใหม่`
+- กติกา: ชื่อสะกดใกล้เคียงเป็นเพียงสัญญาณ ห้ามรวมอัตโนมัติ; ถ้ามี Candidate มากกว่าหนึ่งคนต้องค้าง Manual Review; เอกสารย้อนหลังต้องเชื่อมกับตัวตนเดิมโดย reference และไม่สร้าง Preboarding ซ้ำ
+- Reconcile: ตรวจ Employee Master `preboarding` เทียบ Profile/Employment active เดิม; รายการที่ยืนยันว่าเป็นคนเดียวกันให้เชื่อม `profile_id`, รักษา Raw/Source/Audit และนำออกจากคิวพนักงานใหม่โดยไม่ลบหลักฐาน
+- Owner: HR/Admin ยืนยันตัวบุคคล; Platform Integration ดูแล matching/idempotency/RLS
+
 ### EMP-IDENTITY-002 — ผูก Login, หลายบัญชี LINE และชื่อเรียก
 
 - สถานะ: `รอดำเนินการ / ยังไม่เปิดใช้ใน Production`
