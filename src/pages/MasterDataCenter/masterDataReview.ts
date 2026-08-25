@@ -30,6 +30,7 @@ export type MasterSourceEvidence = {
   transactionId: string | null
   sourceRoom: string | null
   sourceChannel: string | null
+  sourceSender: string | null
   attachmentId: string | null
   fileName: string | null
   bucket: string | null
@@ -47,7 +48,7 @@ export type MasterSourceEvidence = {
 
 export type MasterSourceLookup = {
   transaction?: { id: string; source_message_id: string | null } | null
-  flow?: { id: string; intake_id: string | null; source_message_id: string | null; source_channel: string | null; source_room_name: string | null; source_received_at: string | null } | null
+  flow?: { id: string; intake_id: string | null; source_message_id: string | null; source_channel: string | null; source_room_name: string | null; source_sender_name: string | null; source_received_at: string | null } | null
   message?: { id: string; line_group_id: string | null; file_name: string | null; occurred_at: string | null } | null
   attachment?: { id: string; message_id: string; storage_bucket: string; storage_path: string; content_type: string | null } | null
   event?: { id: string } | null
@@ -55,7 +56,7 @@ export type MasterSourceLookup = {
 }
 
 export const emptyMasterSourceEvidence = (): MasterSourceEvidence => ({
-  documentId: null, intakeId: null, messageId: null, transactionId: null, sourceRoom: null, sourceChannel: null,
+  documentId: null, intakeId: null, messageId: null, transactionId: null, sourceRoom: null, sourceChannel: null, sourceSender: null,
   attachmentId: null, fileName: null, bucket: null, path: null, receivedAt: null, ocrRawText: null,
   extractedName: null, extractedAccount: null, aiConfidence: null, modelVersion: null, auditId: null,
   sourceResolved: false, missingReasons: [],
@@ -67,7 +68,7 @@ export function candidateEvidenceFallback(candidate: MasterCandidate): MasterSou
   return {
     ...emptyMasterSourceEvidence(), documentId: string('document_id'), intakeId: string('intake_id'), messageId: string('message_id'),
     transactionId: candidate.source_table === 'financial_transactions' ? candidate.source_id : string('transaction_id'),
-    sourceRoom: string('source_room'), sourceChannel: string('source_channel'), attachmentId: string('attachment_id'),
+    sourceRoom: string('source_room'), sourceChannel: string('source_channel'), sourceSender: string('source_sender_name') ?? string('sender_name'), attachmentId: string('attachment_id'),
     fileName: string('file_name'), bucket: string('storage_bucket'), path: string('storage_path'), receivedAt: string('received_at') ?? candidate.created_at,
     ocrRawText: string('ocr_raw_text'), extractedName: string('ocr_name') ?? string('recipient_name') ?? candidate.display_name,
     extractedAccount: string('ocr_account_last4') ?? string('account_last4'), aiConfidence: typeof data.ai_confidence === 'number' ? data.ai_confidence : candidate.confidence,
@@ -89,6 +90,7 @@ export function resolveCandidateSourceEvidence(candidate: MasterCandidate, looku
     documentId: lookup.flow?.id ?? base.documentId, intakeId: lookup.flow?.intake_id ?? base.intakeId,
     sourceRoom: lookup.flow?.source_room_name ?? lookup.message?.line_group_id ?? base.sourceRoom,
     sourceChannel: lookup.flow?.source_channel ?? (lookup.message ? 'line' : base.sourceChannel),
+    sourceSender: lookup.flow?.source_sender_name ?? base.sourceSender,
     attachmentId: lookup.attachment?.id ?? base.attachmentId, fileName: lookup.message?.file_name ?? base.fileName,
     bucket: lookup.attachment?.storage_bucket ?? base.bucket, path: lookup.attachment?.storage_path ?? base.path,
     receivedAt: lookup.flow?.source_received_at ?? lookup.message?.occurred_at ?? base.receivedAt,

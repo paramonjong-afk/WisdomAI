@@ -1092,3 +1092,13 @@
 - **Migration:** ไม่มี schema migration
 - **Verification:** `test:line-hr-document-routing`, typecheck, lint, build, invalid credential smoke, valid legacy recovery และตรวจ Intake/เอกสาร/Audit/Telegram
 - **Rollback:** revert helper และ internal guards เป็น exact-key comparison; ไม่ลบ Raw, Intake, private document หรือ Audit
+
+## ล่าสุด: Master Data 3-Step Auto Input v1.8 — 25/8/2569
+
+- **เหตุผล:** Drawer เดิมแสดงสถานะย่อย 5 จุดและบังคับกรอก Project หลายช่อง ทำให้ Admin ทำงานช้า รวมทั้ง Error จาก RPC อาจดูเหมือนระบบเงียบหรือบันทึกสำเร็จทั้งที่ DB ไม่เปลี่ยน
+- **ผลกระทบ:** `/master-data` เหลือ 3 ขั้นตอน `ความสัมพันธ์ → ตรวจและแก้ข้อมูล → ยืนยันและส่งต่อ`; เพิ่มหน้าต่าง Project Candidate แบบกระชับ และเติมชื่อ/ประเภท/บัญชี/ธนาคาร/ภาษี/Project/ผู้รับผิดชอบ/วันเริ่ม/ปลายทาง/ผู้รับผิดชอบงาน/งานถัดไปจากหลักฐานที่มี
+- **กติกา Auto:** วันเริ่มใช้กิจกรรม/ข้อความ/เอกสารที่เกี่ยวข้องรายการแรกเป็นค่าเริ่มต้น; ทุกค่ามี source/confidence/status สีเขียว-เหลือง-แดง-เทา; ข้อมูลขัดแย้งหรือไม่ครบต้องให้คนตรวจ และห้ามสร้าง Project จริง ยืนยัน/Lock ปิดบัญชีหรือตัดยอดด้วย Auto อย่างเดียว
+- **Persistence/Audit:** UI เรียก v2 RPC ด้วย event key, รอผล RPC แล้ว read-back Candidate จาก source เดียวกันก่อนแจ้งสำเร็จ; บันทึก Auto provenance, before/after, actor, time, reason, route และ Audit/Version แบบ append-only โดย Raw/OCR/Source Reference ไม่เปลี่ยน
+- **Migration:** `20260825220000_master_data_auto_input_three_step.sql` เพิ่ม optional Project Candidate metadata และ v2 wrappers แบบ company-scoped/idempotent
+- **การตรวจสอบ:** `test:master-data-project-gate`, `test:master-data-review-step`, `test:master-data-candidate-review`, `test:master-data-account-last4`, `test:master-data-auto-input`, migration local checks, typecheck, lint, build และ Local/Production browser smoke ตาม role
+- **Rollback:** คืนหน้าและ RPC call ไป v1.7/ฟังก์ชัน v1, revoke v2 wrapper ได้โดยไม่ลบ metadata, Project Candidate, Version, Audit หรือหลักฐานต้นฉบับ

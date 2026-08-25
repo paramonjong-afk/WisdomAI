@@ -2,11 +2,9 @@ import type { MasterCandidate } from '../pages/MasterDataCenter/masterDataReview
 import { isProjectGateReady, projectGateStatus } from './masterDataProjectGate.ts'
 
 export const masterReviewStepLabels = [
-  'Project รอเลือก',
-  'Project พร้อม',
-  'แก้ข้อมูลแล้ว',
-  'รอตรวจซ้ำ',
-  'ยืนยันแล้ว',
+  'ความสัมพันธ์',
+  'ตรวจและแก้ข้อมูล',
+  'ยืนยันและส่งต่อ',
 ] as const
 
 export type MasterReviewStage = 'project_pending' | 'project_ready' | 'awaiting_rereview' | 'confirmed'
@@ -127,8 +125,8 @@ export function masterReviewStage(candidate: Pick<MasterCandidate, 'candidate_da
 
 export function masterReviewActiveStep(candidate: Pick<MasterCandidate, 'candidate_data' | 'status'>) {
   const stage = masterReviewStage(candidate)
-  if (stage === 'confirmed') return 4
-  if (stage === 'awaiting_rereview') return 3
+  if (stage === 'confirmed') return 3
+  if (stage === 'awaiting_rereview') return 2
   if (stage === 'project_ready') return 1
   return 0
 }

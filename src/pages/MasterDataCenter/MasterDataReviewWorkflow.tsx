@@ -38,7 +38,7 @@ export function MasterDataReviewProgress({ candidate, receipt, reason, actorName
   const persistedNotice = masterReviewPersistenceNotice(candidate)
   return <Stack spacing={1.25}>
     <Paper variant="outlined" sx={{ p: 1.25, position: 'sticky', top: 0, zIndex: 2, bgcolor: 'background.paper' }}>
-      <Typography sx={{ fontWeight: 800, mb: 1 }}>ขั้นตอนตรวจและยืนยัน</Typography>
+      <Typography sx={{ fontWeight: 800, mb: 1 }}>3 ขั้นตอนตรวจและยืนยัน</Typography>
       <Stepper activeStep={masterReviewActiveStep(candidate)} alternativeLabel sx={{ '& .MuiStepLabel-label': { fontSize: { xs: '0.68rem', sm: '0.75rem' } } }}>
         {masterReviewStepLabels.map((label) => <Step key={label}><StepLabel>{label}</StepLabel></Step>)}
       </Stepper>
