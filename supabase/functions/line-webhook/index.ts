@@ -2,6 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 import { ImageMagick, initializeImageMagick, MagickFormat } from 'npm:@imagemagick/magick-wasm@^0'
 import { sendLinePush, type LinePriority } from '../_shared/line-quota.ts'
 import { describeLineWebhookEvent, safeWebhookEventList } from '../_shared/line-webhook-intake.ts'
+import { lineEmployeeIntakeBundleKey } from '../_shared/line-employee-intake.ts'
 import { parseLineAttendanceCommand } from './attendance-command.ts'
 
 type LineEvent = {
@@ -141,6 +142,12 @@ type AccountingDocumentExtraction = {
 type ImageAnalysis = WorkAnalysis & {
   financial_document: FinancialDocument | null
   accounting_document: AccountingDocumentExtraction | null
+  employee_document: {
+    is_employee_document: boolean
+    document_type: 'thai_national_id' | 'driving_license' | 'house_registration' | 'education_certificate' | 'bank_evidence' | 'portrait' | 'other'
+    fields: Record<string, unknown>
+    confidence: number
+  } | null
   system_error: {
     is_system_error: boolean
     error_code: string | null
@@ -451,6 +458,7 @@ async function analyzeImageWithGemini(
         ...fallbackAnalysis('ได้รับรูปจาก LINE แต่ยังไม่ได้เปิดใช้งาน Gemini Vision'),
         financial_document: null,
         accounting_document: null,
+        employee_document: null,
       } as ImageAnalysis,
       provider: 'rules',
       model: null,
@@ -510,12 +518,18 @@ async function analyzeImageWithGemini(
             'Do not classify ordinary chat text or construction defects as system_error. Copy only error codes/messages visibly present in the screenshot.',
             'Use only project codes from the supplied list and return an empty list when uncertain.',
             'Return exactly one JSON object and no markdown.',
-            'Required top-level keys: category, summary_text, assignee_text, urgency, confidence, project_codes, financial_document, accounting_document, system_error.',
+            'Required top-level keys: category, summary_text, assignee_text, urgency, confidence, project_codes, financial_document, accounting_document, employee_document, system_error.',
             'Set system_error to null unless this is evidence of a software/program error. Otherwise it must contain is_system_error, error_code, visible_message, affected_module, confidence.',
             'Set financial_document to null unless the image is a transfer slip or cheque payment.',
             'A financial_document must contain is_transfer_slip, is_cheque_payment, sender_name, sender_bank_name, sender_account_last4, recipient_name, recipient_bank_name, recipient_account_last4, amount_total, labor_amount, materials_amount, expense_type, transfer_at, bank_reference, notes, payment_party_confidence, confidence, cheque_number, cheque_issued_on, cheque_drawer_name, cheque_payee_name, cheque_bank_name, cheque_account_last4, cheque_extraction_confidence.',
             'For a cheque payment set is_cheque_payment true and is_transfer_slip false. Extract cheque number, issue date, drawer, payee, bank and final 4 account digits only when visible. Never treat the LINE uploader as drawer or payee. Return null when unreadable.',
             'Set accounting_document to null unless the image is an accounting document.',
+            'Set employee_document to null unless the image is an employee onboarding or personnel document.',
+            'Employee documents include Thai national ID cards, driving licences, house registrations, education certificates, bank-account evidence, and employee portraits.',
+            'An employee_document must contain is_employee_document, document_type, fields, and confidence.',
+            'Allowed employee document_type values: thai_national_id, driving_license, house_registration, education_certificate, bank_evidence, portrait, other.',
+            'Allowed employee fields: title_th, first_name_th, last_name_th, first_name_en, last_name_en, date_of_birth, nationality, address_line, subdistrict, district, province, postal_code, identifier_last4, issued_on, expires_on, bank_name, bank_account_last4, education_level, institution_name, major, graduation_year, gpa.',
+            'Never return a full national ID, full bank account number, card laser code, religion, portrait embedding, raw OCR text, or data about other household members. Use null for uncertain values.',
             'Classify every accounting document across independent dimensions: money flow, lifecycle, counterparty, project/cost, expense, tax, payment, matching, and risk.',
             'Never infer paid status from an invoice alone. Quotations and purchase orders are commitment, not expense payment.',
             'Risk flags may include unreadable, possible_duplicate, totals_mismatch, missing_tax_id, bank_account_changed, unknown_vendor, or date_anomaly only when supported.',
@@ -684,7 +698,154 @@ async function analyzeImageWithGemini(
       item_type: allowedItemTypes.includes(line.item_type) ? line.item_type : 'unknown',
     }))
   }
+  if (parsed.employee_document) {
+    const allowedEmployeeDocumentTypes = new Set([
+      'thai_national_id', 'driving_license', 'house_registration', 'education_certificate',
+      'bank_evidence', 'portrait', 'other',
+    ])
+    const allowedEmployeeFields = new Set([
+      'title_th', 'first_name_th', 'last_name_th', 'first_name_en', 'last_name_en',
+      'date_of_birth', 'nationality', 'address_line', 'subdistrict', 'district', 'province',
+      'postal_code', 'identifier_last4', 'issued_on', 'expires_on', 'bank_name',
+      'bank_account_last4', 'education_level', 'institution_name', 'major',
+      'graduation_year', 'gpa',
+    ])
+    parsed.employee_document.is_employee_document = parsed.employee_document.is_employee_document === true
+    parsed.employee_document.document_type = allowedEmployeeDocumentTypes.has(parsed.employee_document.document_type)
+      ? parsed.employee_document.document_type
+      : 'other'
+    parsed.employee_document.confidence = Math.max(0, Math.min(1, Number(parsed.employee_document.confidence) || 0))
+    parsed.employee_document.fields = Object.fromEntries(
+      Object.entries(parsed.employee_document.fields ?? {})
+        .filter(([key, value]) => allowedEmployeeFields.has(key) && value !== null && value !== '')
+        .map(([key, value]) => {
+          if (key === 'identifier_last4' || key === 'bank_account_last4') {
+            const digits = String(value).replace(/\D/g, '')
+            return [key, digits.length >= 4 ? digits.slice(-4) : null]
+          }
+          return [key, typeof value === 'string' ? value.trim().slice(0, 500) : value]
+        })
+        .filter(([, value]) => value !== null),
+    )
+  }
   return { analysis: parsed, provider: 'gemini', model, error: null }
+}
+
+async function routeEmployeeDocumentToIntake(input: {
+  companyId: string
+  groupId: string | null
+  userId: string
+  occurredAt: number
+  sourceMessageId: string
+  sourceAttachmentId: string
+  bytes: ArrayBuffer
+  contentHash: string
+  mimeType: string
+  document: NonNullable<ImageAnalysis['employee_document']>
+}) {
+  if (!input.document.is_employee_document || input.document.confidence < 0.65) return null
+
+  const sourceBundleKey = lineEmployeeIntakeBundleKey(input)
+  const candidateName = [input.document.fields.first_name_th, input.document.fields.last_name_th]
+    .filter(Boolean).map(String).join(' ').trim() || null
+
+  const { data: inserted, error: intakeInsertError } = await supabase.from('employee_intakes').upsert({
+    company_id: input.companyId,
+    channel: 'line',
+    external_chat_id: input.groupId,
+    external_user_id: input.userId,
+    source_bundle_key: sourceBundleKey,
+    purpose: null,
+    status: 'awaiting_purpose',
+    candidate_name: candidateName,
+    extracted_data: candidateName ? { candidate_name: candidateName } : {},
+    document_count: 0,
+    source_started_at: new Date(input.occurredAt).toISOString(),
+  }, { onConflict: 'source_bundle_key', ignoreDuplicates: true }).select('id,candidate_name,extracted_data').maybeSingle()
+  if (intakeInsertError) throw intakeInsertError
+
+  const { data: intake, error: intakeLookupError } = inserted
+    ? { data: inserted, error: null }
+    : await supabase.from('employee_intakes')
+      .select('id,candidate_name,extracted_data')
+      .eq('company_id', input.companyId)
+      .eq('source_bundle_key', sourceBundleKey)
+      .single()
+  if (intakeLookupError || !intake) throw intakeLookupError ?? new Error('employee_intake_bundle_not_found')
+
+  const { data: existingDocument, error: existingDocumentError } = await supabase
+    .from('employee_intake_documents')
+    .select('id')
+    .eq('company_id', input.companyId)
+    .eq('source_channel', 'line')
+    .eq('external_file_id', input.sourceAttachmentId)
+    .maybeSingle()
+  if (existingDocumentError) throw existingDocumentError
+
+  if (!existingDocument) {
+    const extension = input.mimeType.includes('png') ? 'png' : input.mimeType.includes('webp') ? 'webp' : 'jpg'
+    const storagePath = `${input.companyId}/${intake.id}/line-${input.sourceAttachmentId}.${extension}`
+    const contentBytes = new Uint8Array(input.bytes)
+    const { error: uploadError } = await supabase.storage.from('employee-intake-documents').upload(
+      storagePath,
+      contentBytes,
+      { contentType: input.mimeType, upsert: false },
+    )
+    if (uploadError && !/already exists|duplicate/i.test(uploadError.message)) throw uploadError
+
+    const { error: documentError } = await supabase.from('employee_intake_documents').upsert({
+      company_id: input.companyId,
+      intake_id: intake.id,
+      source_channel: 'line',
+      external_file_id: input.sourceAttachmentId,
+      document_type: input.document.document_type,
+      storage_bucket: 'employee-intake-documents',
+      storage_path: storagePath,
+      mime_type: input.mimeType,
+      size_bytes: contentBytes.byteLength,
+      content_sha256: input.contentHash,
+      extracted_fields: input.document.fields,
+      extraction_status: 'completed',
+    }, { onConflict: 'company_id,source_channel,external_file_id' })
+    if (documentError) throw documentError
+  }
+
+  const { count, error: countError } = await supabase.from('employee_intake_documents')
+    .select('id', { count: 'exact', head: true })
+    .eq('company_id', input.companyId)
+    .eq('intake_id', intake.id)
+  if (countError) throw countError
+
+  const currentExtracted = (intake.extracted_data ?? {}) as Record<string, unknown>
+  const nextExtracted = { ...currentExtracted }
+  if (candidateName && !nextExtracted.candidate_name) nextExtracted.candidate_name = candidateName
+  const { error: intakeUpdateError } = await supabase.from('employee_intakes').update({
+    candidate_name: intake.candidate_name ?? candidateName,
+    extracted_data: nextExtracted,
+    document_count: count ?? 1,
+    updated_at: new Date().toISOString(),
+  }).eq('id', intake.id).eq('company_id', input.companyId)
+  if (intakeUpdateError) throw intakeUpdateError
+
+  const { error: auditError } = await supabase.from('employee_workforce_audit_logs').insert({
+    company_id: input.companyId,
+    profile_id: null,
+    actor_profile_id: null,
+    entity_type: 'employee_intake',
+    entity_id: intake.id,
+    action: existingDocument ? 'line_employee_document_duplicate_ignored' : 'line_employee_document_routed',
+    reason: 'LINE image classified as restricted HR document and routed to HR Intake for Admin review',
+    new_values: {
+      source_message_id: input.sourceMessageId,
+      source_attachment_id: input.sourceAttachmentId,
+      source_bundle_key: sourceBundleKey,
+      document_type: input.document.document_type,
+      confidence: input.document.confidence,
+      document_count: count ?? 1,
+    },
+  })
+  if (auditError) throw auditError
+  return { intakeId: intake.id, documentCount: count ?? 1, duplicate: Boolean(existingDocument) }
 }
 
 async function saveFinancialTransaction(
@@ -1968,6 +2129,7 @@ async function processMessage(event: LineEvent, companyId: string): Promise<'pro
             ...fallbackAnalysis('ได้รับรูปจาก LINE แต่ระบบวิเคราะห์ภาพไม่สำเร็จ กรุณาตรวจสอบรูปต้นฉบับ'),
             financial_document: null,
             accounting_document: null,
+            employee_document: null,
           },
           provider: 'rules',
           model: null,
@@ -1995,6 +2157,8 @@ async function processMessage(event: LineEvent, companyId: string): Promise<'pro
       if (summaryError || !imageSummary) throw summaryError ?? new Error('Unable to save image work summary')
       const proposedPurpose = result.analysis.system_error?.is_system_error
         ? 'system_error'
+        : result.analysis.employee_document?.is_employee_document
+          ? 'hr_document'
         : ['completed', 'in_progress', 'planned'].includes(result.analysis.category)
         ? 'progress_report'
         : ['issue', 'risk', 'safety'].includes(result.analysis.category)
@@ -2005,6 +2169,8 @@ async function processMessage(event: LineEvent, companyId: string): Promise<'pro
             : 'other'
       const proposedDocumentType = result.analysis.accounting_document?.is_accounting_document
         ? result.analysis.accounting_document.document_type
+        : result.analysis.employee_document?.is_employee_document
+          ? result.analysis.employee_document.document_type
         : result.analysis.financial_document?.is_cheque_payment
           ? 'cheque_payment'
           : result.analysis.financial_document?.is_transfer_slip
@@ -2012,6 +2178,8 @@ async function processMessage(event: LineEvent, companyId: string): Promise<'pro
           : null
       const retentionClass = proposedPurpose === 'system_error'
         ? 'system_error'
+        : proposedPurpose === 'hr_document'
+          ? 'hr_restricted'
         : proposedPurpose === 'financial_document'
           ? 'financial'
           : proposedPurpose === 'other'
@@ -2106,6 +2274,28 @@ async function processMessage(event: LineEvent, companyId: string): Promise<'pro
         processing_stage: 'image_summary_saved',
         error_message: result.error,
       })
+
+      if (result.analysis.employee_document?.is_employee_document) {
+        const routed = await routeEmployeeDocumentToIntake({
+          companyId,
+          groupId,
+          userId: userId ?? 'unknown',
+          occurredAt: event.timestamp,
+          sourceMessageId: saved.id,
+          sourceAttachmentId: savedAttachment.id,
+          bytes,
+          contentHash,
+          mimeType: contentType,
+          document: result.analysis.employee_document,
+        })
+        if (routed) {
+          await updateIngestion(event.webhookEventId, {
+            output_type: 'employee_intake',
+            output_id: routed.intakeId,
+            processing_stage: routed.duplicate ? 'employee_intake_duplicate_ignored' : 'employee_intake_routed',
+          })
+        }
+      }
 
       const detectedSystemError = result.analysis.system_error
       if (detectedSystemError?.is_system_error && detectedSystemError.confidence >= 0.65) {

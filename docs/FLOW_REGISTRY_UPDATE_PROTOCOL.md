@@ -1025,3 +1025,14 @@
 - Notification Center v1.0 (24/8/2569): added `docs/NOTIFICATION_CENTER_FLOW.md`, an Admin/manager-only bell and `/notifications` view over the tenant-guarded `get_communication_event_feed` RPC. Filters persist in URL; read state is user-scoped/idempotent and does not approve or close source work. No migration; rollback restores the previous page/bell while retaining source events and read-state audit.
 - Notification Center v1.1 (24/8/2569): Production UAT now classifies `incident`, `repeat`, approval and review event types as actionable independently from delivery status, so a successfully delivered incident notification remains in the work queue. No migration or source mutation; rollback restores the v1.0 classifier.
 - Notification Center v1.2 (24/8/2569): unread and actionable counts are independent. Marking a notification read changes only user read state; the work remains actionable until its source Module closes it. No migration or source mutation; rollback restores the prior count projection.
+
+## ล่าสุด: LINE Employee Document → Restricted HR Intake v3.9 — 25/8/2569
+
+- **เหตุผล:** รูปบัตร/เอกสารพนักงานจาก LINE เคยถูกจำแนกเป็นสรุปงานหรือ `other` ทำให้ HR ไม่เห็นรายการ แม้ Raw และไฟล์ต้นฉบับถูกเก็บแล้ว
+- **ผลกระทบ:** `line-webhook`, Image Review, Document Flow, Employee Intake, private Storage, HR/Admin UI, Audit และ recovery ของข้อมูล LINE เดิม
+- **Flow:** เก็บ Raw → จำแนกเอกสารบุคคล → confidence gate → bundle ตามบริษัท/ห้อง/ผู้ส่ง/10 นาที → `awaiting_purpose` ใน HR Intake → Admin เลือก New/Update/Archive → ตรวจ/อนุมัติก่อนสร้าง Employee Master; confidence ต่ำค้าง Manual Review
+- **Privacy/สิทธิ์:** เก็บเลขบัตร/บัญชีเฉพาะ 4 ตัวท้าย, ใช้ `hr_restricted` และ bucket private; service role ทำ ingestion เท่านั้น ส่วน HR/Admin ตัดสินใจตาม tenant RLS
+- **Idempotency/Audit:** `source_bundle_key` และ external attachment ID กันรายการซ้ำ; reprocess รับ internal UUID หรือ LINE message ID เดิม; Raw ไม่ถูกแก้และมี ingestion/document/workforce audit
+- **Migration:** `20260825194500_line_hr_document_intake_routing.sql`
+- **Verification:** `test:line-hr-document-routing`, `test:employee-intake`, `test:line-webhook-intake`, typecheck, lint, build, migration dry-run และ authenticated HR Intake smoke
+- **Rollback:** ปิด route ใน Edge Function และ trigger `zz_route_hr_image_review_to_intake`; ห้ามลบ Raw, Intake, private document หรือ Audit ที่เกิดแล้ว

@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import { lineEmployeeIntakeBundleKey } from '../_shared/line-employee-intake.ts'
 
 const url=Deno.env.get('SUPABASE_URL')!
 const serviceKey=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -332,15 +333,37 @@ async function receiveEmployeeIntakePhoto(actor:{company_id:string;profile_id:st
 
 async function importLineEmployeeIntake(companyId:string,messageIds:string[]){
   if(!companyId||!messageIds.length||messageIds.length>10)throw new Error('invalid_line_intake_import')
-  const {data:messages,error:messageError}=await admin.from('line_messages').select('id,line_message_id,line_group_id').in('id',messageIds).eq('company_id',companyId)
-  if(messageError)throw messageError
-  if((messages??[]).length!==messageIds.length)throw new Error('line_intake_messages_not_found')
-  const {data:intake,error:intakeError}=await admin.from('employee_intakes').insert({
-    company_id:companyId,channel:'line',external_chat_id:messages?.[0]?.line_group_id??null,
-    purpose:null,status:'awaiting_purpose',document_count:0,
-  }).select('id').single()
+  const normalizedIds=[...new Set(messageIds.map(id=>id.trim()).filter(Boolean))]
+  const uuidIds=normalizedIds.filter(id=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))
+  const externalIds=normalizedIds.filter(id=>!uuidIds.includes(id))
+  const select='id,line_message_id,line_group_id,line_user_id,occurred_at'
+  const queries=[]
+  if(uuidIds.length)queries.push(admin.from('line_messages').select(select).in('id',uuidIds).eq('company_id',companyId))
+  if(externalIds.length)queries.push(admin.from('line_messages').select(select).in('line_message_id',externalIds).eq('company_id',companyId))
+  const queryResults=await Promise.all(queries)
+  const queryError=queryResults.find(result=>result.error)?.error
+  if(queryError)throw queryError
+  const messages=queryResults.flatMap(result=>result.data??[])
+  const foundIds=new Set(messages.flatMap(message=>[message.id,message.line_message_id].filter(Boolean)))
+  if(normalizedIds.some(id=>!foundIds.has(id)))throw new Error('line_intake_messages_not_found')
+  const sourceGroup=messages[0]?.line_group_id??null
+  const sourceUser=messages[0]?.line_user_id??'unknown'
+  if(messages.some(message=>(message.line_group_id??null)!==sourceGroup||(message.line_user_id??'unknown')!==sourceUser))throw new Error('line_intake_messages_must_share_sender_and_room')
+  const occurredAt=Math.min(...messages.map(message=>Date.parse(message.occurred_at)).filter(Number.isFinite))
+  if(!Number.isFinite(occurredAt))throw new Error('line_intake_message_time_invalid')
+  const sourceBundleKey=lineEmployeeIntakeBundleKey({companyId,groupId:sourceGroup,userId:sourceUser,occurredAt})
+  const {data:createdIntake,error:intakeError}=await admin.from('employee_intakes').upsert({
+    company_id:companyId,channel:'line',external_chat_id:sourceGroup,external_user_id:sourceUser,
+    source_bundle_key:sourceBundleKey,purpose:null,status:'awaiting_purpose',document_count:0,
+    source_started_at:new Date(occurredAt).toISOString(),
+  },{onConflict:'source_bundle_key',ignoreDuplicates:true}).select('id').maybeSingle()
   if(intakeError)throw intakeError
-  const {data:attachments,error:attachmentError}=await admin.from('line_attachments').select('id,message_id,storage_bucket,storage_path,content_type,size_bytes').in('message_id',messageIds)
+  const {data:intake,error:intakeLookupError}=createdIntake
+    ?{data:createdIntake,error:null}
+    :await admin.from('employee_intakes').select('id').eq('company_id',companyId).eq('source_bundle_key',sourceBundleKey).single()
+  if(intakeLookupError||!intake)throw intakeLookupError??new Error('line_intake_bundle_not_found')
+  const internalMessageIds=messages.map(message=>message.id)
+  const {data:attachments,error:attachmentError}=await admin.from('line_attachments').select('id,message_id,storage_bucket,storage_path,content_type,size_bytes').in('message_id',internalMessageIds)
   if(attachmentError)throw attachmentError
   for(const attachment of attachments??[]){
     const {data:blob,error:downloadError}=await admin.storage.from(attachment.storage_bucket).download(attachment.storage_path)
@@ -349,16 +372,24 @@ async function importLineEmployeeIntake(companyId:string,messageIds:string[]){
     const extension=(attachment.content_type??'image/jpeg').includes('png')?'png':(attachment.content_type??'').includes('webp')?'webp':'jpg'
     const targetPath=`${companyId}/${intake.id}/line-${attachment.id}.${extension}`
     const {error:uploadError}=await admin.storage.from('employee-intake-documents').upload(targetPath,bytes,{contentType:attachment.content_type??'image/jpeg',upsert:false})
-    if(uploadError)throw uploadError
-    const {error:documentError}=await admin.from('employee_intake_documents').insert({
+    if(uploadError&&!/already exists|duplicate/i.test(uploadError.message))throw uploadError
+    const {error:documentError}=await admin.from('employee_intake_documents').upsert({
       company_id:companyId,intake_id:intake.id,source_channel:'line',external_file_id:attachment.id,
       storage_path:targetPath,mime_type:attachment.content_type??'image/jpeg',size_bytes:attachment.size_bytes??bytes.length,
       content_sha256:await sha256Hex(bytes),extraction_status:'pending',
-    })
+    },{onConflict:'company_id,source_channel,external_file_id',ignoreDuplicates:true})
     if(documentError)throw documentError
   }
-  const documentCount=(attachments??[]).length
+  const {count:documentCount,error:countError}=await admin.from('employee_intake_documents').select('id',{count:'exact',head:true}).eq('company_id',companyId).eq('intake_id',intake.id)
+  if(countError)throw countError
   await admin.from('employee_intakes').update({document_count:documentCount,updated_at:new Date().toISOString()}).eq('id',intake.id).eq('company_id',companyId)
+  const {error:auditError}=await admin.from('employee_workforce_audit_logs').insert({
+    company_id:companyId,profile_id:null,actor_profile_id:null,entity_type:'employee_intake',entity_id:intake.id,
+    action:createdIntake?'line_employee_documents_reprocessed':'line_employee_documents_reprocess_idempotent',
+    reason:'Trusted recovery action imported existing immutable LINE attachments into restricted HR Intake',
+    new_values:{source_bundle_key:sourceBundleKey,source_message_ids:internalMessageIds,document_count:documentCount??0},
+  })
+  if(auditError)throw auditError
   const {data:chats,error:chatError}=await admin.from('telegram_admin_chats').select('telegram_chat_id').eq('company_id',companyId).eq('active',true)
   if(chatError)throw chatError
   const replyMarkup={inline_keyboard:[
@@ -368,14 +399,14 @@ async function importLineEmployeeIntake(companyId:string,messageIds:string[]){
     [{text:'⛔ ยกเลิก',callback_data:`employee_intake:cancel:${intake.id}`}],
   ]}
   const uniqueChats=[...new Set((chats??[]).map(chat=>String(chat.telegram_chat_id)))]
-  const deliveries=await Promise.allSettled(uniqueChats.map(chatId=>sendText(chatId,`📥 รับเอกสารจาก LINE แล้ว ${documentCount} รายการ\nเอกสารชุดนี้ใช้สำหรับอะไร?\nระบบยังไม่สร้างบัญชีพนักงานจนกว่า Admin จะตรวจอนุมัติ`,replyMarkup)))
-  return{intake_id:intake.id,document_count:documentCount,telegram_targets:uniqueChats.length,telegram_sent:deliveries.filter(result=>result.status==='fulfilled').length}
+  const deliveries=await Promise.allSettled(uniqueChats.map(chatId=>sendText(chatId,`📥 รับเอกสารจาก LINE แล้ว ${documentCount??0} รายการ\nเอกสารชุดนี้ใช้สำหรับอะไร?\nระบบยังไม่สร้างบัญชีพนักงานจนกว่า Admin จะตรวจอนุมัติ`,replyMarkup)))
+  return{intake_id:intake.id,document_count:documentCount??0,reused:!createdIntake,telegram_targets:uniqueChats.length,telegram_sent:deliveries.filter(result=>result.status==='fulfilled').length}
 }
 
 async function extractEmployeeDocument(bytes:Uint8Array,mimeType:string){
   if(!geminiKey)throw new Error('employee_document_ai_not_configured')
   const prompt=`Analyze this Thai employee onboarding document. Return JSON only with keys document_type and fields.
-Allowed document_type: thai_national_id, house_registration, education_certificate, bank_evidence, portrait, other.
+Allowed document_type: thai_national_id, driving_license, house_registration, education_certificate, bank_evidence, portrait, other.
 Allowed fields: title_th, first_name_th, last_name_th, first_name_en, last_name_en, date_of_birth (YYYY-MM-DD), nationality, address_line, subdistrict, district, province, postal_code, identifier_last4, education_level, institution_name, major, graduation_year, gpa.
 Never return a full national ID, card laser code, religion, portrait embedding, raw OCR text, or data about other household members. Use null for uncertain values.`
   const requestBody=JSON.stringify({generationConfig:{responseMimeType:'application/json'},contents:[{parts:[{text:prompt},{inlineData:{mimeType,data:bytesToBase64(bytes)}}]}]})
@@ -417,7 +448,7 @@ async function analyzeEmployeeIntake(actor:{company_id:string;profile_id:string}
       const fullName=[safeFields.first_name_th,safeFields.last_name_th].filter(Boolean).join(' ')
       if(fullName)nameVariants.add(fullName)
       for(const [key,value] of Object.entries(safeFields))if(value!==null&&value!==''&&merged[key]==null)merged[key]=value
-      const allowedDocumentTypes=new Set(['thai_national_id','house_registration','education_certificate','bank_evidence','portrait','other'])
+      const allowedDocumentTypes=new Set(['thai_national_id','driving_license','house_registration','education_certificate','bank_evidence','portrait','other'])
       const documentType=allowedDocumentTypes.has(result.document_type??'')?result.document_type:'other'
       if(documentType==='other'&&!Object.keys(safeFields).length)throw new Error('employee_document_no_readable_fields')
       await admin.from('employee_intake_documents').update({document_type:documentType,extracted_fields:safeFields,extraction_status:'completed',updated_at:new Date().toISOString()}).eq('id',document.id)

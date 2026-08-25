@@ -22,6 +22,10 @@ flowchart LR
   I --> J[Intake Quality Gate]
   J -->|ผ่าน| K[Filter: จัดประเภทและปลายทาง]
   J -->|มีปัญหา/ซ้ำ| L[ค้าง Intake Admin]
+  G --> N{เป็นเอกสารบุคคลหรือไม่}
+  N -->|ใช่ มั่นใจ >= 65%| O2[คัดลอกไฟล์เข้า Private HR Intake\nรวมชุดตามห้อง + ผู้ส่ง + 10 นาที]
+  N -->|ใช่ แต่ไม่มั่นใจ| L
+  O2 --> P2[awaiting_purpose\nHR/Admin ตรวจเอกสาร]
   K --> M[คิวแผนกปลายทาง]
 ```
 
@@ -274,3 +278,36 @@ flowchart LR
 - ข้อมูลต้นทางและข้อความยังแยกหน้าที่เดิม: คิวเอกสารคือไฟล์/รูปที่ต้องส่งต่อ ส่วนข้อความและบริบทคือข้อความ/ผล AI ที่ใช้สร้างคิว
 - ปิดคิวได้ผ่าน transition เดิมเท่านั้น ข้อมูลไม่ถูกลบและค้นย้อนหลังผ่าน Timeline/Audit ได้
 - Owner: Platform UI; rollback คือคืน tab selector เดิมโดยไม่กระทบ gateway หรือ schema
+
+## LINE Employee Document → Restricted HR Intake — v3.9 (25/8/2569)
+
+```mermaid
+flowchart LR
+  A[LINE รูป/ไฟล์] --> B[เก็บ Raw message + attachment ก่อน]
+  B --> C[Vision Classification]
+  C -->|เอกสารบุคคล confidence >= 65%| D[Bundle Key\nบริษัท + ห้อง + ผู้ส่ง + 10 นาที]
+  C -->|ต่ำ/ไม่ชัด| E[Intake Manual Review\nไม่เดาปลายทาง]
+  D --> F[Private employee-intake-documents]
+  F --> G[Employee Intake: awaiting_purpose]
+  G --> H{HR/Admin เลือกวัตถุประสงค์}
+  H -->|พนักงานใหม่| I[อ่านเฉพาะ field ที่อนุญาต\nรอตรวจและอนุมัติ]
+  H -->|แก้ข้อมูลเดิม/เก็บเอกสาร| J[Flow ตามวัตถุประสงค์]
+  I --> K[อนุมัติแล้วจึงสร้าง Employee Master]
+  B --> L[Audit + ingestion trace]
+  D --> L
+  G --> L
+  M[Reprocess ด้วย LINE message id เดิม] --> D
+```
+
+- **Input:** รูปจาก LINE รวมบัตรประชาชน ใบขับขี่ ทะเบียนบ้าน วุฒิการศึกษา หลักฐานบัญชี และรูปพนักงาน; Raw message/attachment ต้องถูกบันทึกก่อนการจำแนกเสมอ
+- **Validation:** AI คืนชนิดเอกสารและ confidence; confidence ต่ำกว่า 65% ค้าง Manual Review ห้ามสร้างพนักงานหรือเดาปลายทาง
+- **Data/Privacy:** เก็บเลขบัตรและเลขบัญชีได้เฉพาะ 4 ตัวท้าย ไม่เก็บ laser code, ศาสนา, raw OCR หรือข้อมูลสมาชิกคนอื่นในทะเบียนบ้าน; สำเนา HR อยู่ bucket private และ `retention_class=hr_restricted`
+- **State/Output:** เอกสารที่ผ่านถูกจัดเป็น Bundle เดียวด้วยบริษัท+ห้อง+ผู้ส่ง+หน้าต่าง 10 นาที, สร้าง `employee_intakes.status=awaiting_purpose` และแสดงใน HR Intake เพื่อให้ Admin เลือก New/Update/Archive ก่อนดำเนินการต่อ
+- **Idempotency/Retry:** `source_bundle_key` กันสร้าง Intake ซ้ำ และ `company_id + source_channel + external_file_id` กันไฟล์ซ้ำ; รายการเก่า reprocess ได้ด้วย LINE message ID เดิมโดยไม่ลบหรือแก้ Raw
+- **Audit:** `line_ingestion_events`, `document_flow_events` และ `employee_workforce_audit_logs` เชื่อม source message, attachment, bundle และ Intake; failure คง Raw และ retry ได้
+- **Roles:** Edge Function ใช้ service role เฉพาะ ingestion/copy; HR/Admin/Company manager อ่านและตัดสินใจตาม RLS; การอนุมัติพนักงานยังใช้ RPC เดิมและไม่มี Auth account ก่อนอนุมัติ
+- **Integrations:** LINE Messaging API, Gemini Vision, Supabase Storage/Database, Document Flow และ HR Intake
+- **Owner:** HR/Admin เป็นเจ้าของการยืนยันข้อมูล; Platform Integration เป็นเจ้าของ classifier, retry และ audit
+- **Migration:** `20260825194500_line_hr_document_intake_routing.sql`
+- **Verification:** contract tests ของ bundle/idempotency/reprocess, Employee Intake, LINE webhook, typecheck, lint, build, migration dry-run และ authenticated HR Intake smoke
+- **Rollback:** ปิดการ route ใน `line-webhook` และ trigger `zz_route_hr_image_review_to_intake`; คง Raw, Intake, เอกสาร private และ Audit ที่เกิดแล้วเพื่อกู้คืน ห้ามลบข้อมูลย้อนหลัง
