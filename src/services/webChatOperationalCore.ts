@@ -117,6 +117,9 @@ const extractIds = (text: string) => ({
 })
 
 const isSystemContext = (message: OperationalMessage, text: string) => {
+  // Database-generated notifications have no sender. Older rows may still carry
+  // the default user_message class, so sender identity is the durable guard.
+  if (!message.sender_profile_id) return true
   if (message.message_class === 'system_confirmation' || message.message_class === 'system_result') return true
   return /(^|\b)(system\s+(?:result|confirmation)|ผลลัพธ์ระบบ|ยืนยันจากระบบ)(\b|:)/i.test(text)
 }

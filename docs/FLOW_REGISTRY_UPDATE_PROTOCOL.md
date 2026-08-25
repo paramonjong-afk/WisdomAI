@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: HR Intake System Output Reconciliation v1.3 — 25/8/2569
+
+- **เหตุผล:** Production พบ system attendance notification ที่ไม่มี sender แต่ใช้ legacy `user_message` ถูกนับเป็น HR Raw pending และ Operational Task ผิดประเภท พร้อมทั้ง approval job ก่อนหน้า Bundle migration ไม่มี Bundle link
+- **ผลกระทบ:** null-sender/System Result/System Confirmation เป็น context-only, ไม่เข้า Omni ซ้ำ; Raw เดิมเปลี่ยนจาก pending เป็น context พร้อม audit และ approval job ที่ยังไม่มี item ถูก sync เข้า Bundle แบบ idempotent
+- **Migration:** `20260825065812_reconcile_hr_intake_system_outputs.sql`; ไม่มี delete/reset/drop และไม่แก้ attendance session เดิม
+- **Verification:** HR/Operational contract tests, migration dry-run/apply, count ก่อน-หลัง, typecheck/lint/build และ authenticated Cloudflare `/chat`
+- **Rollback:** คืน trigger/classifier ก่อนหน้า แต่เก็บ Raw audit/context และ Bundle evidence ที่ reconcile แล้วเพื่อไม่สร้างงานซ้ำ; attendance เดิมไม่ต้อง rollback
+
 ## 2026-08-25 — Production migration baseline reconciliation v1.0
 
 - **เหตุผล:** Production มี migration ที่ถูกใช้จริงด้วย timestamp ใหม่ แต่ Repository ยังเก็บ SQL ชุดเดียวกันภายใต้ชื่อ local เก่า ทำให้ CLI เสนอ apply ซ้ำด้วย `--include-all`
