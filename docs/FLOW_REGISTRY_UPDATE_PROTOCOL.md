@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Master Data persistence/read-after-write v1.6 — 25/8/2569
+
+- **เหตุผล:** Production action ของ Message `928d5df9-275e-467d-be72-5016a4f4e966` บันทึก `request_info` จริง แต่ UI ไม่อธิบายว่าเป็นเพียงรอข้อมูลเพิ่ม และการนับ `ข้อมูลใหม่ 55` เทียบกับ `รอตรวจ 56` ใช้คนละความหมาย
+- **ผลกระทบ:** ทุก Project/Correction/Review action ต้อง await RPC, ต้องได้ Candidate เดิมกลับมา และต้อง refetch แล้วยืนยันสถานะจากฐานข้อมูลก่อนแสดง success; null/stale/error คง Drawer ไว้พร้อมเหตุผล. Dashboard ใช้ projection เดียวและแยก 56 รายการเป็นข้อมูลใหม่ 55 + รอตรวจ/รอข้อมูล 1 อย่างตรวจสอบได้
+- **Data/Audit:** ไม่มี migration และไม่แก้ Raw/OCR/ข้อมูลธุรกิจย้อนหลัง; รายการจริงยังคง `needs_review` พร้อม Version/Audit จาก `request_info` และรอผู้ใช้ทำ Project → Correction → Confirm ต่อ
+- **Verification:** exact-row/audit/RPC evidence แบบ read-only, projection/persistence regression, rollback-only RPC probe, typecheck, targeted/full lint, build, Local browser และ authenticated Cloudflare smoke
+- **Rollback:** revert v1.6 frontend/service/projection; ข้อมูล Candidate, Version, Audit และ Source Reference ที่มีอยู่ไม่เปลี่ยน
+
 ## ล่าสุด: Master Data Project-first Gate v1.4 — 25/8/2569
 
 - **เหตุผล:** Drawer เดิมแก้ค่าได้แต่ validation อยู่หลัง Drawer และรายการยังค้างโดยไม่บอกว่าต้องจำแนก Project ก่อนยืนยัน
@@ -1002,6 +1010,8 @@
 
 - **Program Loop boundary:** ปลายทางภายในระบบใช้ห้องต้นทาง/ห้องงาน, HR หลัก และห้องเงินสำรองจ่ายตาม config กลาง โดยใช้ `request_code/event_key` เดิมทุกจุด; ห้อง 00 ของ Codex ไม่ใช่ Web Chat destination และต้องไม่มี duplicate notification ไปที่นั่น
 # Latest changes (23/08/2569)
+
+- Master Data Drawer Step UX v1.5 (25/8/2569): `/master-data` now presents the single review path `Project รอเลือก → Project พร้อม → แก้ข้อมูลแล้ว → รอตรวจซ้ำ → ยืนยันแล้ว`, one state-aware Primary Action, grouped secondary actions, inline missing-field reasons, persisted Project Candidate/Correction Version/Audit evidence and next-item/count refresh. Existing Project auto-selection requires at least two matching evidence points so a weak province/site-only hint cannot silently override the Project Candidate path. No schema or Raw/OCR mutation; rollback removes the Step/receipt UI while preserving all existing evidence and audit.
 
 - HR Confirmation Bundle trigger hardening v1.1: added a safe wrapper trigger for `chat_attendance_approval_jobs` and enriched the local HR fixture/omni projection with classification reason/rule/model metadata. Migration remains local-only; rollback restores the direct trigger call and removes the added fixture metadata while preserving raw/audit history.
 
