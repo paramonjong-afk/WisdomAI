@@ -11,7 +11,8 @@ flowchart LR
   C --> D{Complete, non-duplicate\nand confidence ≥ 90%?}
   D -->|No| R[Accounting review queue\nmark missing fields]
   R --> ML[Admin confirms Money Lineage\nsource fund + holder + multi-hop balance]
-  ML -->|Holder registry matched| F
+  ML -->|Holder registry matched| ML2[สร้าง Root Lineage ของเงินสำรอง]
+  ML2 --> F
   ML -->|Missing or unmatched| R
   D -->|Yes| E{Recipient exact-matches\nactive monthly employee?}
   E -->|Yes| F[Auto-create Advance Case: draft]
@@ -22,7 +23,8 @@ flowchart LR
   V --> W[Click case row or amount\nopen Advance Detail Drawer]
   W --> K[Issue technician sub-advance]
   K --> L[Technician uses money + evidence]
-  L --> M{Technician balance = 0?}
+  L --> L2[สลิปการใช้เงินผูก Parent/Root เดิมและแบ่ง Allocation]
+  L2 --> M{Allocation + คืน + คงเหลือ = เงินรับ และคงเหลือ 0?}
   M -->|Yes| F[Parent settlement lines + evidence]
   M -->|No| L
   F --> G{HR/Accounting review}
@@ -45,6 +47,8 @@ flowchart LR
 - A holder may issue one or more technician sub-advances. Each is recorded as an approved `employee_advance` line on the parent and creates a child case; a parent cannot close until every child is closed. A technician closes only after their actual spending/return exactly offsets their child advance.
 - Automatic creation is allowed only for a non-duplicate/non-dismissed slip with an amount, complete recipient identity, AI confidence at least 90%, a registered account pair, an Accounting destination queue state, and one exact active **monthly** holder match in the same company. Name comparison removes Thai titles and whitespace and accepts a previously confirmed alias. It creates a `draft` advance case only; it never approves, closes, or posts an accounting journal.
 - Accounting confirmation now also records a Money Lineage projection. A reserve/advance transfer must identify its funding source and holder and reconcile the paid amount with the slip. Only a holder-registry match creates or links the draft Advance Case; otherwise the Accounting task remains `recheck_required` with a visible reason.
+- The advance funding slip is the Root Lineage. Each later wage/material/vendor/project/refund slip is a child through `parent_lineage_id` and inherits the same `root_lineage_id`; the child can contain multiple reviewed allocations without rewriting or copying the source slip.
+- An advance transfer/onward transfer must be exclusive to one funding slip. Actual wage/material/project uses are recorded from their own evidence slips and reconciled against the root, preventing the system from guessing future spending at the time money is handed to the custodian.
 - An exact daily-worker match does not create a standalone technician advance because a sub-advance must always have a parent advance. It remains a shared HR/Accounting queue item until an authorised holder and parent advance are selected.
 - Every extracted source/destination field is presented independently. A missing field is recorded as `missing`/`needs_review`, never filled by inference.
 - Reconciliation is fixed: `amount_received - approved expenses/sub-advances - cash return - payroll offset = outstanding_balance`. A case cannot close while the outstanding balance is non-zero or an item is still pending/rejected.
@@ -76,3 +80,4 @@ flowchart LR
 | v1.6 | 23/8/2569 | Add Program Loop System Confirmation after a successful advance write: canonical room ensure/create, source/HR/Finance routing, shared Advance event key plus destination delivery key, delivery/retry ledger, and no Omni re-intake | `20260823035155_employee_advance_confirmation_outbox.sql` (Production baseline; includes resolved room-variable ambiguity fix) | Migration contract/scenario tests, schema/RPC/trigger inspection, lint, typecheck, build, and protected-page verification | Disable the confirmation trigger/integration and retry worker; retain advance cases, chat messages, rooms, and Audit for reconciliation; do not delete financial source records |
 | v1.7 | 23/8/2569 | Harden the SECURITY DEFINER room-provisioning helper: only authenticated managers (or internal system callers) may invoke it; anonymous/PUBLIC execution is revoked while authenticated/service-role execution remains available | `20260823035600_fix_advance_confirmation_room_scope.sql`, `20260823041021_lock_advance_confirmation_room_rpc.sql` (Production baseline; supersedes local timestamp `20260823035700`) | Production privilege query confirms `anon=false`, `authenticated=true`, `service_role=true`, manager guard present; contract tests, lint, typecheck, and build pass | Revoke the helper grants and disable confirmation provisioning if rollback is required; retain existing rooms, messages, deliveries, and Audit |
 | v1.8 | 23/8/2569 | Require reviewed fund source, custodian and multi-hop balance before an Accounting slip can continue to Advance Finance | `20260823122135_transfer_slip_money_lineage_routing.sql` | Money-lineage contract, RPC/schema checks, lint/typecheck/build and Accounting Drawer smoke | Disable lineage routing RPC/UI; existing source slip, Advance Case and audit remain recoverable |
+| v1.9 | 26/8/2569 | Link every downstream spending/refund slip back to the original advance and allow project/purpose splits without duplicating Intake evidence | `20260825231054_transfer_slip_money_allocations_v2.sql` | allocation balance/root-parent/idempotency contracts, migration dry-run, lint/typecheck/build and Accounting/Advance smoke | Disable v2 allocation RPC/UI; retain source, root/parent links, allocation versions and audit for recovery |

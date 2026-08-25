@@ -1,5 +1,15 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Accounting Money Allocation & Root/Parent Lineage v1.5 — 26/8/2569
+
+- **เหตุผล:** Money Lineage เดิมเก็บวัตถุประสงค์เดียวต่อสลิปและหลายทอดใน JSON เดียว จึงแบ่งค่าแรง/วัสดุ/หลายโครงการหรือเชื่อมสลิปการใช้เงินกลับกองเงินต้นทางไม่ได้อย่างตรวจสอบได้
+- **ผลกระทบ:** `/accounting-documents` แยก Transfer Fact ออกจาก Allocation; สลิปหนึ่งใบแบ่งหลาย Allocation/Project/Site ได้ และสลิปคนละใบเชื่อม `parent_lineage_id`/`root_lineage_id`; เงินสำรองยังต้องเป็น Allocation เฉพาะก่อนเชื่อมสลิปการใช้เงินจริงภายหลัง
+- **Gate/Route:** ยืนยันได้เมื่อ `ยอดสลิป = รวม Allocation + ยอดคืน + ยอดยังไม่จัดสรร` และยอดยังไม่จัดสรรเป็นศูนย์; ค่าแรง→HR, วัสดุ→Inventory+Project, โครงการ/ผู้รับเหมา/เดินทาง→Project, ค่าใช้จ่ายทั่วไป/ผู้ขาย/ภาษี/ค่าธรรมเนียม→Accounting Posting, เงินสำรอง→Advance เมื่อจับคู่ผู้ถือเงินได้
+- **Data/Audit:** Raw/OCR/Source ไม่ถูกแก้; Allocation ก่อนหน้าคงเป็น `superseded`, event เก็บ before/after, actor, time, Root/Parent, route และยอดกระทบ; RPC ใช้ event key ป้องกันคำสั่งซ้ำ
+- **Migration:** `20260825231054_transfer_slip_money_allocations_v2.sql`
+- **Verification:** allocation/root-parent/balance/advance-exclusive contracts, migration dry-run, targeted/full lint, typecheck, build และ authenticated Accounting/Project/HR/Advance smoke
+- **Rollback:** revoke/ซ่อน RPC/UI v2 และกลับใช้ Money Lineage v1; เก็บ Allocation/Root/Parent/Audit เพื่อ recovery ห้ามลบ Raw/OCR/Document Flow Item
+
 ## ล่าสุด: Master Data Project-first Gate v1.4 — 25/8/2569
 
 - **เหตุผล:** Drawer เดิมแก้ค่าได้แต่ validation อยู่หลัง Drawer และรายการยังค้างโดยไม่บอกว่าต้องจำแนก Project ก่อนยืนยัน
