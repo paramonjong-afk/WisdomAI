@@ -21,6 +21,7 @@ flowchart LR
 - รายการที่เพิ่มได้หลายค่า เช่น LINE ใช้ปุ่มข้อความขนาดเล็ก `+ เพิ่ม LINE อีกบัญชี`; แต่ละรายการมี Action ของตัวเอง
 - หลีกเลี่ยงไอคอนล้วนสำหรับ Action ใหม่หรือความหมายเฉพาะงาน ถ้าผู้ใช้อาจต้องเดา
 - Primary Action มีหนึ่งรายการต่อ Dialog; Action รองใช้ text/outlined และต้องไม่แย่งลำดับสายตา
+- ข้อมูลลับ เช่น เลขบัญชีเต็ม ต้องแยก Secure Store; Action เปิดดูต้องขอเหตุผล, จำกัดสิทธิ์, ซ่อนอัตโนมัติ และบันทึก Audit โดยห้ามใส่ค่าลับใน Log
 
 ## Contract
 
@@ -44,3 +45,4 @@ flowchart LR
 | Version | Date | Rationale | Impact | Migration | Verification | Rollback |
 | --- | --- | --- | --- | --- | --- | --- |
 | v1.0 | 26/8/2569 | ให้ Action เพิ่ม/แก้ไขใช้ภาษาและลำดับเดียวกันทั้งระบบโดยไม่บังคับ Big-bang rewrite | เริ่มที่ `/employees`; โมดูลอื่นปรับเมื่อมีการแก้ครั้งถัดไป | `20260826200000_employee_phone_admin_update.sql` เฉพาะ Employee phone | contract, permission/idempotency/Audit, typecheck, lint, build และ authenticated Drawer smoke | revert UI/RPC; ค่า phone และ Audit ที่บันทึกแล้วคงอยู่ |
+| v1.1 | 26/8/2569 | เพิ่ม Pattern สำหรับข้อมูลลับที่ต้องใช้งานจริง แต่ห้ามเผยใน UI/Log ปกติ | Employee bank account Secure Store และ Action เพิ่ม/แก้ไข/เปิดดู | `20260826203000_employee_bank_account_secure_store.sql` | encryption/fingerprint/privilege/Audit contracts, tests, typecheck, lint, build และ authenticated smoke | ซ่อน Action/revoke RPC; ciphertext และ Audit คงไว้เพื่อ recovery |

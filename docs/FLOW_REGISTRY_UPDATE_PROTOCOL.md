@@ -1231,3 +1231,12 @@
 - **Migration:** `20260826200000_employee_phone_admin_update.sql`
 - **Verification:** contract, RPC privilege/idempotency/Audit, typecheck, lint, build และ authenticated Employee Drawer smoke
 - **Rollback:** revert UI/revoke RPC; ไม่ลบเบอร์โทรหรือ Audit ที่บันทึกแล้ว
+# ล่าสุด: Employee Bank Account Secure Store v3.1 — 26/8/2569
+
+- **เหตุผล:** การเก็บเพียงเลขท้าย 4 ตัวตรวจสอบบัญชีได้แต่ไม่สามารถใช้ทำรายการจ่ายจริง ขณะที่การเก็บเลขเต็มใน Master/UI/Log เพิ่มความเสี่ยงข้อมูลรั่ว
+- **Flow:** เอกสาร/LINE สร้าง Candidate → Admin/การเงินตรวจเจ้าของและเลขเต็ม → HMAC กันซ้ำ + AES256 ciphertext ใน private schema → Public Master แสดง 4 ตัวท้าย → เปิดดูผ่าน audited RPC 60 วินาที
+- **สิทธิ์:** Platform Admin, company_admin, executive และ accounting_hr เท่านั้น; anonymous/พนักงานทั่วไปไม่มีสิทธิ์เพิ่ม แก้ หรือเปิดเลขเต็ม
+- **ข้อมูลเดิม:** บัญชีเดิมคงสถานะ `มีเพียงเลขท้าย · ต้องเติมเลขเต็ม`; ห้ามเดาเลขเต็มหรือประกอบจาก Raw อัตโนมัติ
+- **Migration:** `20260826203000_employee_bank_account_secure_store.sql`; ใช้ Supabase Vault key และ private table
+- **Verification:** encryption/fingerprint/duplicate/idempotency/privilege/Audit contracts, migration dry-run, tests, typecheck, lint, build และ authenticated Employee Drawer smoke
+- **Rollback:** ซ่อน Action และ revoke RPC; ไม่ลบ ciphertext, Master record หรือ Audit ที่เกิดแล้ว
