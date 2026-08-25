@@ -1,8 +1,10 @@
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
-  Chip, Divider, Drawer, MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography,
+  Chip, Divider, Drawer, IconButton, MenuItem, Paper, Stack, Tab, Tabs, TextField, Tooltip, Typography,
   Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow,
 } from '@mui/material'
+import AddOutlinedIcon from '@mui/icons-material/AddOutlined'
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '../../components/PageHeader'
@@ -356,6 +358,9 @@ export function EmployeePage() {
   const [lineLinkReason, setLineLinkReason] = useState('ยืนยันโดย Admin จากประวัติชื่อและการสนทนา LINE')
   const [lineLinkPrimary, setLineLinkPrimary] = useState(false)
   const [lineLinkSaving, setLineLinkSaving] = useState(false)
+  const [phoneEmployee, setPhoneEmployee] = useState<Employee | null>(null)
+  const [phoneValue, setPhoneValue] = useState('')
+  const [phoneSaving, setPhoneSaving] = useState(false)
   const [employeeBankAccountsByProfile, setEmployeeBankAccountsByProfile] = useState<Record<string, EmployeeBankAccount[]>>({})
   const [employeeContactsByProfile, setEmployeeContactsByProfile] = useState<Record<string, EmployeeContact>>({})
   const [employeeDrawerTab, setEmployeeDrawerTab] = useState(0)
@@ -744,6 +749,38 @@ export function EmployeePage() {
       setErrorMessage(`${userError(friendly)}\nแนวทางแก้: ${friendly.action}`)
     } finally {
       setLineLinkSaving(false)
+    }
+  }
+
+  const openPhoneEditor = (employee: Employee, phone: string | null | undefined) => {
+    setPhoneEmployee(employee)
+    setPhoneValue(phone ?? '')
+  }
+
+  const saveEmployeePhone = async () => {
+    if (!phoneEmployee) return
+    const normalizedPhone = phoneValue.replace(/\s+/g, '').trim()
+    if (normalizedPhone && !/^\+?[0-9-]{8,20}$/.test(normalizedPhone)) {
+      setErrorMessage('เบอร์โทรต้องมี 8–20 หลัก ใช้ได้เฉพาะตัวเลข เครื่องหมาย + และ -')
+      return
+    }
+    setPhoneSaving(true)
+    setErrorMessage('')
+    try {
+      const { data, error } = await supabase.rpc('admin_update_employee_phone', {
+        target_profile_id: phoneEmployee.id,
+        next_phone: normalizedPhone || null,
+        change_reason: normalizedPhone ? 'Admin เพิ่มหรือแก้ไขเบอร์โทรจาก Employee Drawer' : 'Admin ลบเบอร์โทรจาก Employee Drawer',
+      })
+      if (error) throw error
+      await loadEmployees()
+      setPhoneEmployee(null)
+      setMessage(data?.status === 'unchanged' ? 'เบอร์โทรเป็นข้อมูลเดิม ไม่มีการบันทึกซ้ำ' : 'บันทึกเบอร์โทรและ Audit เรียบร้อยแล้ว')
+    } catch (error) {
+      const friendly = toFriendlyError({ error, module: 'employee_phone_update', fallback: 'บันทึกเบอร์โทรไม่สำเร็จ' })
+      setErrorMessage(`${userError(friendly)}\nแนวทางแก้: ${friendly.action}`)
+    } finally {
+      setPhoneSaving(false)
     }
   }
 
@@ -2558,7 +2595,12 @@ export function EmployeePage() {
                   <Typography variant="subtitle2" sx={{ mb: 1 }}>ข้อมูลติดต่อและบัญชีเข้าระบบ</Typography>
                   <TextField fullWidth size="small" label="ชื่อพนักงาน" value={names[employeeDrawer.id] ?? ''} slotProps={{ htmlInput: { maxLength: 120 } }} onChange={(event) => setNames((current) => ({ ...current, [employeeDrawer.id]: event.target.value }))} />
                   <Typography variant="body2" sx={{ mt: 1 }}>อีเมล: <strong>{employeeDrawer.email || 'ยังไม่มี'}</strong></Typography>
-                  <Typography variant="body2">เบอร์โทร: <strong>{contact?.phone || 'ยังไม่มี'}</strong></Typography>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', minHeight: 36 }}>
+                    <Typography variant="body2">เบอร์โทร: <strong>{contact?.phone || 'ยังไม่มี'}</strong></Typography>
+                    {canManage && <Tooltip title={contact?.phone ? 'แก้ไขเบอร์โทร' : 'เพิ่มเบอร์โทร'}>
+                      <span><IconButton size="small" color="primary" aria-label={contact?.phone ? 'แก้ไขเบอร์โทร' : 'เพิ่มเบอร์โทร'} disabled={!contact?.employee_person_id} onClick={() => openPhoneEditor(employeeDrawer, contact?.phone)}>{contact?.phone ? <EditOutlinedIcon fontSize="small" /> : <AddOutlinedIcon fontSize="small" />}</IconButton></span>
+                    </Tooltip>}
+                  </Stack>
                   <Button sx={{ mt: 1 }} variant="contained" fullWidth disabled={savingId === employeeDrawer.id || (names[employeeDrawer.id]?.trim().length ?? 0) < 2} onClick={() => void saveName(employeeDrawer)}>{savingId === employeeDrawer.id ? <CircularProgress size={20} color="inherit" /> : 'บันทึกชื่อ'}</Button>
                   {canManage && employeeDrawer.id !== user?.id && <Button sx={{ mt: 1 }} variant="outlined" fullWidth onClick={() => openAccountEditor(employeeDrawer)}>แก้ไข Email / Password เข้าระบบ</Button>}
                 </Box>
@@ -2566,7 +2608,7 @@ export function EmployeePage() {
                 <Box>
                   <Typography variant="subtitle2">บัญชี LINE</Typography>
                   {lineAccounts.length === 0 ? <Alert severity="warning" sx={{ mt: 1 }}>ยังไม่พบบัญชี LINE ที่ยืนยันกับพนักงานรายนี้</Alert> : <Stack spacing={0.75} sx={{ mt: 1 }}>{lineAccounts.map((account) => <Paper key={account.id} variant="outlined" sx={{ p: 1 }}><Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}><Box><Typography sx={{ fontWeight: 700 }}>{account.line_senders?.display_name || 'ไม่พบชื่อแสดงผล LINE'} {account.is_primary ? <Chip size="small" color="primary" label="บัญชีหลัก" /> : <Chip size="small" variant="outlined" label="บัญชีรอง" />}</Typography><Typography variant="caption" color="text.secondary">{account.active ? 'ใช้งานอยู่' : 'ปิดใช้งาน'} · ยืนยัน {new Date(account.verified_at).toLocaleString('th-TH')}</Typography></Box>{canManage && account.active && <Button size="small" color="warning" disabled={lineLinkSaving} onClick={() => void unlinkLineAccount(employeeDrawer, account)}>ยกเลิกบัญชีนี้</Button>}</Stack></Paper>)}</Stack>}
-                  {canManage && <Button sx={{ mt: 1 }} variant="contained" onClick={() => openLineLink(employeeDrawer)}>{lineAccounts.some((account) => account.active) ? 'เพิ่ม LINE อีกบัญชี' : 'ผูกบัญชี LINE'}</Button>}
+                  {canManage && <Button size="small" sx={{ mt: 1 }} startIcon={<AddOutlinedIcon />} onClick={() => openLineLink(employeeDrawer)}>{lineAccounts.some((account) => account.active) ? 'เพิ่ม LINE อีกบัญชี' : 'ผูกบัญชี LINE'}</Button>}
                   <Button size="small" sx={{ mt: 1 }} component="a" href="/line-monitor">ตรวจประวัติ LINE / Candidate ทั้งหมด</Button>
                 </Box>
                 <Divider />
@@ -2589,6 +2631,12 @@ export function EmployeePage() {
           })()}
         </Box>
       </Drawer>
+
+      <Dialog open={Boolean(phoneEmployee)} onClose={() => !phoneSaving && setPhoneEmployee(null)} fullWidth maxWidth="xs">
+        <DialogTitle>{phoneValue ? 'แก้ไขเบอร์โทร' : 'เพิ่มเบอร์โทร'} · {phoneEmployee?.full_name || phoneEmployee?.email}</DialogTitle>
+        <DialogContent><TextField autoFocus fullWidth label="เบอร์โทร" value={phoneValue} onChange={(event) => setPhoneValue(event.target.value)} placeholder="เช่น 0812345678 หรือ +85620..." helperText="รองรับตัวเลข เครื่องหมาย + และ - จำนวน 8–20 หลัก" sx={{ mt: 1 }} /></DialogContent>
+        <DialogActions><Button disabled={phoneSaving} onClick={() => setPhoneEmployee(null)}>ยกเลิก</Button><Button variant="contained" disabled={phoneSaving || (!!phoneValue.trim() && !/^\+?[0-9-\s]{8,24}$/.test(phoneValue.trim()))} onClick={() => void saveEmployeePhone()}>{phoneSaving ? <CircularProgress size={20} color="inherit" /> : 'บันทึกเบอร์โทร'}</Button></DialogActions>
+      </Dialog>
 
       <Dialog open={Boolean(lineLinkEmployee)} onClose={() => !lineLinkSaving && setLineLinkEmployee(null)} fullWidth maxWidth="sm">
         <DialogTitle>ผูกบัญชี LINE · {lineLinkEmployee?.full_name || lineLinkEmployee?.email}</DialogTitle>

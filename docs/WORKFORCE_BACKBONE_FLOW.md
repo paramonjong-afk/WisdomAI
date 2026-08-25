@@ -1,5 +1,28 @@
 # WORKFORCE FLOW — แกนหลังระบบงานบุคคล
 
+## Employee Contact Action v3.0 — 26/8/2569
+
+```mermaid
+flowchart LR
+  A[Employee Drawer บัญชี/ติดต่อ] --> B{มีเบอร์โทรหรือไม่}
+  B -->|ไม่มี| C[+ เพิ่มเบอร์โทร]
+  B -->|มี| D[แสดงค่า + ไอคอนแก้ไข]
+  C --> E[ตรวจรูปแบบ/สิทธิ์บริษัท]
+  D --> E
+  E --> F[admin_update_employee_phone]
+  F --> G[employee_people.phone]
+  F --> H[Workforce Audit]
+  G --> I[Read-back และแสดงค่าล่าสุด]
+```
+
+- **Input/Output:** Admin/manager เพิ่ม แก้ หรือลบเบอร์ของ Employee Person ที่เชื่อม Profile ในบริษัทปัจจุบัน; หน้าจอ read-back ก่อนแจ้งสำเร็จ
+- **State:** ไม่มีค่า/มีค่า → editing → validating → saving → updated/unchanged/error; `unchanged` ไม่สร้าง Audit ซ้ำ
+- **Roles/Permissions:** แสดง Action เฉพาะผู้จัดการข้อมูลพนักงาน; RPC ตรวจ session, current company และ manager ซ้ำ และไม่เปิดให้ anonymous
+- **Integrations:** ใช้ UI Action Standard v1.0 ใน `docs/UI_ACTION_STANDARD.md`; LINE หลายบัญชีใช้ปุ่มข้อความขนาดเล็กพร้อมไอคอนเพิ่ม
+- **Failure/Retry/Audit:** รูปแบบผิดหรือไม่พบทเบียนต้องคง Dialog ให้แก้ไข; บันทึก actor/company/profile/before-after/reason/source ใน Workforce Audit
+- **Owner:** HR Operations / Design System Owner
+- **Migration/Verification/Rollback:** `20260826200000_employee_phone_admin_update.sql`; contract, permission/idempotency/Audit, typecheck, lint, build และ authenticated smoke; rollback โดยซ่อน Action/revoke RPC โดยไม่ลบค่า phone หรือ Audit ที่เกิดแล้ว
+
 ```mermaid
 flowchart TD
   A[Intake / Admin / พนักงาน ส่งข้อมูล HR] --> B[Workforce source tables]
