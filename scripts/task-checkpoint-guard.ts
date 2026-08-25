@@ -484,6 +484,8 @@ function commandHandoff(root: string, options: CliOptions) {
   const blocker = one(options, 'blocker')
   const nextAction = one(options, 'next-action')
   assertNoSecrets('Handoff', [...done, ...pending, blocker ?? '', nextAction ?? ''])
+  if (bool(options, 'clear-done')) manifest.done = []
+  if (bool(options, 'clear-pending')) manifest.pending = []
   if (done.length) manifest.done = [...new Set([...manifest.done, ...done])]
   if (pending.length) manifest.pending = [...new Set([...manifest.pending, ...pending])]
   if (bool(options, 'clear-blocker')) manifest.blocker = null
@@ -556,7 +558,7 @@ function commandCheckpoint(root: string, options: CliOptions) {
     recordBlocked(root, manifest, 'One or more configured checkpoint tests failed. See the terminal output and tests in manifest.json.', 'checkpoint_test_failed')
     fail(`BLOCKED: configured tests failed. Local handoff: ${relative(root, handoffPath(root, manifest.task_id))}`)
   }
-  manifest.status = 'checkpointed'
+  manifest.status = manifest.status === 'completed' ? 'completed' : 'checkpointed'
   manifest.blocker = null
   manifest.actor = actor(options, manifest.actor)
   manifest.updated_at = now()

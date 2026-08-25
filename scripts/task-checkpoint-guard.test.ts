@@ -113,6 +113,11 @@ const resumableRemote = ownedFixture.remote
   assert.match(git(repo, 'diff', '--cached', '--name-only'), /notes\/unrelated room.txt/)
   git(repo, 'restore', '--staged', '--', 'notes/unrelated room.txt')
   checkpoint(repo, ['checkpoint', '--task-id', 'OWNED-NOOP'])
+  checkpoint(repo, ['handoff', '--task-id', 'OWNED-NOOP', '--status', 'completed', '--clear-pending', '--next-action', 'Review the completed checkpoint.'])
+  checkpoint(repo, ['checkpoint', '--task-id', 'OWNED-NOOP'])
+  const completedManifest = JSON.parse(readFileSync(join(repo, '.task-checkpoints', 'OWNED-NOOP', 'manifest.json'), 'utf8'))
+  assert.equal(completedManifest.status, 'completed')
+  assert.deepEqual(completedManifest.pending, [])
   assert.match(checkpoint(repo, ['audit', '--task-id', 'OWNED-NOOP']), /AUDIT_OK/)
 }
 
@@ -148,7 +153,7 @@ const resumableRemote = ownedFixture.remote
   run('git', ['clone', '--branch', 'codex/owned-and-noop', resumableRemote, resumed], fixtureRoot)
   const output = checkpoint(resumed, ['resume', '--task-id', 'OWNED-NOOP'])
   assert.match(output, /RESUME_READY OWNED-NOOP/)
-  assert.match(output, /Continue from the verified checkpoint/)
+  assert.match(output, /Review the completed checkpoint/)
   assert.match(output, /docs\/Project First Notes.md/)
 }
 
