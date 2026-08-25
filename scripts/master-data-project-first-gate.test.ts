@@ -22,6 +22,7 @@ assert.equal(linked.candidate_data.local_project_gate_version, 1)
 
 const newProject = fixture.candidates[1]
 const completeDraft = projectDraftFromCandidate(newProject, fixture.evidence[newProject.id])
+assert.equal(completeDraft.approximate_start_date, '2026-08-25', 'start date should come from the earliest related evidence without manual input')
 const weakMatches = findProjectMatches(newProject, fixture.evidence[newProject.id], fixture.projects)
 assert.equal(autoSelectedProjectId(newProject, weakMatches), '', 'one weak evidence point must not auto-link a new Project Candidate to an existing Project')
 assert.deepEqual(validateProjectDraft(completeDraft, fixture.evidence[newProject.id]), { valid: true, missing: [] })
@@ -33,7 +34,9 @@ assert.match(String(pendingProject.candidate_data.project_candidate_id), /^local
 const incomplete = fixture.candidates[2]
 const invalid = validateProjectDraft(projectDraftFromCandidate(incomplete, fixture.evidence[incomplete.id]), fixture.evidence[incomplete.id])
 assert.equal(invalid.valid, false)
-for (const required of ['ชื่อโครงการ', 'ลูกค้าหรือเจ้าของงาน', 'ไซต์/สถานที่', 'ผู้รับผิดชอบ', 'ประเภทงาน', 'วันที่เริ่มโดยประมาณ']) assert.ok(invalid.missing.includes(required))
+for (const required of ['ชื่อโครงการ', 'ลูกค้าหรือเจ้าของงาน', 'ไซต์/สถานที่', 'ประเภทงาน']) assert.ok(invalid.missing.includes(required))
+assert.ok(!invalid.missing.includes('ผู้รับผิดชอบ'), 'source sender should auto-fill responsible person')
+assert.ok(!invalid.missing.includes('วันที่เริ่มโดยประมาณ'), 'source received date should auto-fill approximate start date')
 assert.equal(isProjectGateReady(incomplete), false, 'received candidates must not be confirmable')
 
 const corrected = { ...linked, status: 'admin_reviewed' }
@@ -49,7 +52,7 @@ const projectService = readFileSync('src/services/masterDataProjectGate.ts', 'ut
 const migration = readFileSync('supabase/migrations/20260825105559_master_data_project_first_gate.sql', 'utf8')
 for (const token of ['LOCAL TEST DATA', 'MasterDataProjectGatePanel', 'save_master_data_project_gate', 'MasterDataReviewActions']) assert.match(page, new RegExp(token))
 for (const token of ['linked_existing_project', 'awaiting_new_project']) assert.match(projectService, new RegExp(token))
-for (const token of ['Project-first Gate', 'ผูก Project เดิม', 'สร้าง/อัปเดต Project Candidate', 'ข้อมูลที่ยังขาด', 'เปิดต้นทาง']) assert.match(panel, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+for (const token of ['Project-first Gate', 'ผูก Project เดิม', 'เพิ่ม Project Candidate', 'ข้อมูลที่ยังขาด', 'เปิดต้นทาง']) assert.match(panel, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 for (const token of ['ขอข้อมูลเพิ่ม', 'กลับคิว', 'รายการถัดไป']) assert.match(workflow, new RegExp(token))
 assert.doesNotMatch(page, /<Drawer anchor="bottom"/, 'validation/actions must not render in a second overlapping Drawer')
 for (const token of ['master_data_project_candidates', 'awaiting_open_project', 'save_master_data_project_gate', 'linked_existing_project', 'awaiting_information', 'master_data_candidate_versions', 'master_data_audit', 'before_data', 'after_data', 'is_company_manager', 'enable row level security', 'master_candidate_project_gate_required', "'replayed',true", 'master_candidate_event_key_conflict']) assert.match(migration, new RegExp(token))

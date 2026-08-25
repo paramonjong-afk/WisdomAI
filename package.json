@@ -122,6 +122,7 @@
     "test:master-data-project-gate": "node --experimental-strip-types scripts/master-data-project-first-gate.test.ts",
     "test:master-data-review-step": "node --experimental-strip-types scripts/master-data-review-step-ux.test.ts",
     "test:master-data-account-last4": "node --experimental-strip-types scripts/master-data-account-last4-confirmation.test.ts",
+    "test:master-data-auto-input": "node --experimental-strip-types scripts/master-data-auto-input.test.ts",
     "test:document-flow-backfill-removed": "node --experimental-strip-types scripts/document-flow-backfill-removed.test.ts",
     "test:payroll-forecast": "node --experimental-strip-types scripts/realtime-payroll-forecast.test.ts",
     "test:platform-control-center": "node --experimental-strip-types scripts/platform-control-center.test.ts",

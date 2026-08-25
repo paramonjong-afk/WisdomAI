@@ -54,14 +54,14 @@ const corrected = {
   },
 }
 assert.equal(masterReviewStage(corrected), 'awaiting_rereview')
-assert.equal(masterReviewActiveStep(corrected), 3)
+assert.equal(masterReviewActiveStep(corrected), 2)
 assert.equal(localReviewReceipt(corrected).correction?.version, 1)
 assert.equal(localReviewReceipt(corrected).correction?.beforeData?.status, original.status)
 assert.equal(localReviewReceipt(corrected).correction?.afterData?.status, 'admin_reviewed')
 
 const confirmed = { ...corrected, status: 'confirmed', reviewed_at: '2026-08-25T12:02:00.000Z' }
 assert.equal(masterReviewStage(confirmed), 'confirmed')
-assert.equal(masterReviewActiveStep(confirmed), 4)
+assert.equal(masterReviewActiveStep(confirmed), 3)
 assert.deepEqual(masterReviewBlockers(confirmed, ''), [])
 assert.equal(validatePersistedProjectGate(original.id, 'save_project_candidate', projectReady, projectReady), null)
 assert.equal(validatePersistedProjectGate(original.id, 'save_project_candidate', null, projectReady), 'RPC ไม่คืน Candidate จาก Project Gate จึงยังไม่ถือว่าสำเร็จ')
@@ -75,10 +75,10 @@ const workflow = readFileSync('src/pages/MasterDataCenter/MasterDataReviewWorkfl
 const projectPanel = readFileSync('src/pages/MasterDataCenter/MasterDataProjectGatePanel.tsx', 'utf8')
 const receiptLoader = readFileSync('src/services/masterDataReviewReceipts.ts', 'utf8')
 for (const token of ['MasterDataReviewProgress', 'MasterDataReviewActions', 'loadMasterDataReviewReceipts', 'Raw/OCR ไม่ถูกเขียนทับ', 'validatePersistedReviewAction', 'validatePersistedCorrection', 'validatePersistedProjectGate', 'await load()']) assert.match(page, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
-for (const label of ['Project รอเลือก', 'Project พร้อม', 'แก้ข้อมูลแล้ว', 'รอตรวจซ้ำ', 'ยืนยันแล้ว', 'ปุ่มยังใช้ไม่ได้', 'Correction Version / Audit', 'Project Candidate บันทึกแล้ว']) assert.match(workflow, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+for (const label of ['ความสัมพันธ์', 'ตรวจและแก้ข้อมูล', 'ยืนยันและส่งต่อ', 'ปุ่มยังใช้ไม่ได้', 'Correction Version / Audit', 'Project Candidate บันทึกแล้ว']) assert.match(workflow, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 for (const responsiveContract of ["direction={{ xs: 'column', sm: 'row' }}", "fontSize: { xs: '0.68rem', sm: '0.75rem' }", 'fullWidth variant="contained"']) assert.match(workflow, new RegExp(responsiveContract.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 assert.doesNotMatch(page, /<DialogActions/)
-assert.match(projectPanel, /selectedProject \? <Button[\s\S]*ผูก Project เดิม[\s\S]*: <>/)
+for (const action of ['ผูก Project เดิม', 'เพิ่ม Project Candidate']) assert.match(projectPanel, new RegExp(action))
 for (const table of ['master_data_project_candidates', 'master_data_candidate_versions', 'master_data_audit']) assert.match(receiptLoader, new RegExp(table))
 assert.ok(evidence.documentId || evidence.intakeId || evidence.messageId, 'fixture must retain Source Reference')
 

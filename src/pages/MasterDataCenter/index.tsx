@@ -7,6 +7,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
 import { documentFlowGateway } from '../../services/documentFlowGateway'
+import { autoInputAuditPayload, buildMasterAutoCorrection, masterAutoRoute } from '../../services/masterDataAutoInput'
 import { classificationLabel, classifyMasterCandidate, type MasterClassificationType } from '../../services/masterDataClassification'
 import { emptyMasterSourceEvidence, loadMasterSourceEvidence } from '../../services/masterDataSourceGateway'
 import { applyLocalProjectGate, isProjectGateReady, projectGateStatus, type MasterProjectOption } from '../../services/masterDataProjectGate'
@@ -20,6 +21,7 @@ import { candidateAccount, groupDuplicateCandidates, isNameMismatch, mismatchSta
 
 type Candidate = MasterCandidate & { archive_after: string }
 type BankAccount = { id: string; owner_name: string; owner_type: string; bank_name: string | null; account_last4: string; verification_status: string; verified_at: string | null; created_at: string }
+type DrawerMessage = { severity: 'success' | 'error' | 'info'; text: string; incidentId?: string; persisted?: boolean }
 
 const candidateStatus: Record<string, string> = { provisional: 'รับเข้า', auto_verified: 'Auto Verified', admin_reviewed: 'Admin แก้แล้ว/รอตรวจซ้ำ', needs_review: 'รอตรวจสอบ', confirmed: 'ยืนยันแล้ว', locked: 'Locked', pending_review: 'รอตรวจสอบ', approved: 'ยืนยันแล้ว', rejected: 'ยกเลิก', archived: 'เก็บถาวร', needs_more_info: 'รอข้อมูลเพิ่ม' }
 const accountStatus: Record<string, string> = { verified: 'ยืนยันแล้ว', unverified: 'รอตรวจ', inactive: 'ปิดใช้งาน', archived: 'เก็บถาวร' }
@@ -46,7 +48,7 @@ export function MasterDataCenterPage() {
   const [projects, setProjects] = useState<MasterProjectOption[]>([])
   const [reviewReceipts, setReviewReceipts] = useState<Record<string, MasterReviewReceipt>>({})
   const [error, setError] = useState('')
-  const [drawerMessage, setDrawerMessage] = useState<{ severity: 'success' | 'error' | 'info'; text: string } | null>(null)
+  const [drawerMessage, setDrawerMessage] = useState<DrawerMessage | null>(null)
   const [savingId, setSavingId] = useState('')
   const [filter, setFilter] = useState<MasterReviewFilter>('pending_review')
   const [selected, setSelected] = useState<Candidate | null>(null)
@@ -113,25 +115,27 @@ export function MasterDataCenterPage() {
       return
     }
     setSavingId(candidate.id); setDrawerMessage(null); setError('')
+    const eventKey = crypto.randomUUID()
     try {
-      const { data: reviewedData, error: rpcError } = await supabase.rpc('review_master_data_candidate', { target_candidate_id: candidate.id, target_event_key: crypto.randomUUID(), target_action: action, target_reason: reviewReason.trim() || null })
-      if (rpcError) { setDrawerMessage({ severity: 'error', text: masterReviewError(rpcError) }); return }
+      const { data: reviewedData, error: rpcError } = await supabase.rpc('review_master_data_candidate', { target_candidate_id: candidate.id, target_event_key: eventKey, target_action: action, target_reason: reviewReason.trim() || null })
+      if (rpcError) { setDrawerMessage({ severity: 'error', text: masterReviewError(rpcError), incidentId: eventKey, persisted: false }); return }
       const reviewed = reviewedData && typeof reviewedData === 'object' ? reviewedData as Candidate : null
       const refreshedRows = await load()
       const persisted = refreshedRows.find((row) => row.id === candidate.id) ?? null
       const persistenceError = validatePersistedReviewAction(candidate.id, action, reviewed, persisted)
-      if (persistenceError || !persisted) { setDrawerMessage({ severity: 'error', text: persistenceError ?? 'ตรวจสอบสถานะหลังบันทึกไม่สำเร็จ' }); return }
+      if (persistenceError || !persisted) { setDrawerMessage({ severity: 'error', text: persistenceError ?? 'ตรวจสอบสถานะหลังบันทึกไม่สำเร็จ', incidentId: eventKey, persisted: false }); return }
       setSelected(persisted)
       setReviewReason('')
       const terminal = ['confirmed', 'approved', 'locked', 'rejected', 'archived'].includes(persisted.status)
       setDrawerMessage({
         severity: 'success',
+        persisted: true,
         text: terminal
           ? `${candidateStatus[persisted.status] ?? persisted.status} ในฐานข้อมูลแล้ว · คิวและตัวเลขรีเฟรชแล้ว`
           : `${candidateStatus[persisted.status] ?? persisted.status} ในฐานข้อมูลแล้ว · รายการยังไม่ยืนยัน Master Data และยังอยู่คิว`,
       })
     } catch (actionError) {
-      setDrawerMessage({ severity: 'error', text: userError(actionError, 'ตรวจสอบการบันทึก Action ไม่สำเร็จ') })
+      setDrawerMessage({ severity: 'error', text: userError(actionError, 'ตรวจสอบการบันทึก Action ไม่สำเร็จ'), incidentId: eventKey, persisted: false })
     } finally {
       setSavingId('')
     }
@@ -144,36 +148,50 @@ export function MasterDataCenterPage() {
     window.open(signed.data.signedUrl, '_blank', 'noopener,noreferrer')
   }
   const openCandidate = (candidate: Candidate) => {
+    const source = evidence[candidate.id] ?? emptyEvidence()
+    const classification = classifyMasterCandidate(candidate, source, duplicateIds.has(candidate.id))
+    const auto = buildMasterAutoCorrection(candidate, source, classification)
     setSelected(candidate)
     setReviewReason('')
     setDrawerMessage(null)
-    setCorrection({ display_name: candidate.display_name, classification_type: (candidate.classification_type as MasterClassificationType | null) ?? 'unknown_review', account_last4: candidateAccount(candidate) ?? '', bank_name: String(candidate.candidate_data.bank_name ?? ''), tax_id: String(candidate.candidate_data.tax_id ?? '') })
+    setCorrection({ display_name: auto.display_name.value, classification_type: auto.classification_type.value, account_last4: auto.account_last4.value, bank_name: auto.bank_name.value, tax_id: auto.tax_id.value })
   }
   const correctCandidate = async () => {
     if (!selected || reviewReason.trim().length < 3) { setDrawerMessage({ severity: 'error', text: 'กรุณาระบุเหตุผลการแก้ไขอย่างน้อย 3 ตัวอักษรใน Drawer' }); return }
     if (selected.entity_type === 'bank_account' && !normalizeAccountLast4(correction.account_last4)) { setDrawerMessage({ severity: 'error', text: 'กรุณาระบุเลขบัญชีอย่างน้อย 4 หลัก ระบบจะบันทึกเฉพาะ 4 ตัวท้ายใน Master Data' }); return }
+    const selectedSource = evidence[selected.id] ?? emptyEvidence()
+    const selectedClassification = classifyMasterCandidate(selected, selectedSource, duplicateIds.has(selected.id))
+    const selectedAuto = buildMasterAutoCorrection(selected, selectedSource, selectedClassification)
+    const selectedRoute = masterAutoRoute(correction.classification_type, selectedClassification.confidence, selectedClassification.conflicts)
+    const correctionPayload = {
+      ...correction,
+      auto_fill_evidence: autoInputAuditPayload(selectedAuto, selectedRoute),
+      suggested_destination: selectedRoute.destination,
+      suggested_owner: selectedRoute.owner,
+      suggested_next_action: selectedRoute.nextAction,
+    }
     if (localTestData) {
       const now = new Date().toISOString()
       const eventKey = `local-correction-${selected.id}-${Date.parse(now)}`
       const afterData = { ...selected, display_name: correction.display_name.trim() || selected.display_name, classification_type: correction.classification_type, status: 'admin_reviewed', review_reason: reviewReason.trim(), reviewed_at: now }
-      const updated = { ...afterData, candidate_data: { ...selected.candidate_data, ...correction, admin_corrected_at: now, admin_corrected_by: 'local-admin', local_correction_version: Number(selected.candidate_data.local_correction_version ?? 0) + 1, local_correction_audit: [...(Array.isArray(selected.candidate_data.local_correction_audit) ? selected.candidate_data.local_correction_audit : []), { event_key: eventKey, actor_id: 'local-admin', at: now, before: selected, after: afterData }] } }
+      const updated = { ...afterData, candidate_data: { ...selected.candidate_data, ...correctionPayload, admin_corrected_at: now, admin_corrected_by: 'local-admin', local_correction_version: Number(selected.candidate_data.local_correction_version ?? 0) + 1, local_correction_audit: [...(Array.isArray(selected.candidate_data.local_correction_audit) ? selected.candidate_data.local_correction_audit : []), { event_key: eventKey, actor_id: 'local-admin', at: now, before: selected, after: afterData }] } }
       setSelected(updated); setCandidates((current) => current.map((row) => row.id === updated.id ? updated : row)); setReviewReceipts((current) => ({ ...current, [updated.id]: localReviewReceipt(updated) })); setDrawerMessage({ severity: 'success', text: 'Local fixture: append ฉบับแก้ไข/Version/Audit แล้ว รายการเปลี่ยนเป็นรอตรวจซ้ำ' }); return
     }
     setSavingId(selected.id); setDrawerMessage(null); setError('')
+    const eventKey = crypto.randomUUID()
     try {
-      const eventKey = crypto.randomUUID()
-      const { data: correctedData, error: correctionError } = await supabase.rpc('correct_master_data_candidate', { target_candidate_id: selected.id, target_event_key: eventKey, target_correction: correction, target_reason: reviewReason.trim() })
-      if (correctionError) { setDrawerMessage({ severity: 'error', text: masterReviewError(correctionError) }); return }
+      const { data: correctedData, error: correctionError } = await supabase.rpc('correct_master_data_candidate_v2', { target_candidate_id: selected.id, target_event_key: eventKey, target_correction: correctionPayload, target_reason: reviewReason.trim() })
+      if (correctionError) { setDrawerMessage({ severity: 'error', text: masterReviewError(correctionError), incidentId: eventKey, persisted: false }); return }
       const corrected = correctedData && typeof correctedData === 'object' ? correctedData as Candidate : null
       const refreshedRows = await load()
       const persisted = refreshedRows.find((row) => row.id === selected.id) ?? null
       const persistenceError = validatePersistedCorrection(selected.id, corrected, persisted)
-      if (persistenceError || !persisted) { setDrawerMessage({ severity: 'error', text: persistenceError ?? 'ตรวจสอบ Correction หลังบันทึกไม่สำเร็จ' }); return }
+      if (persistenceError || !persisted) { setDrawerMessage({ severity: 'error', text: persistenceError ?? 'ตรวจสอบ Correction หลังบันทึกไม่สำเร็จ', incidentId: eventKey, persisted: false }); return }
       setSelected(persisted)
       setReviewReason('')
-      setDrawerMessage({ severity: 'success', text: 'บันทึก Correction/Version/Audit ในฐานข้อมูลแล้ว · รายการอยู่รอตรวจซ้ำและยังไม่ยืนยัน Master Data' })
+      setDrawerMessage({ severity: 'success', text: 'บันทึก Correction/Version/Audit ในฐานข้อมูลแล้ว · รายการอยู่รอตรวจซ้ำและยังไม่ยืนยัน Master Data', incidentId: eventKey, persisted: true })
     } catch (actionError) {
-      setDrawerMessage({ severity: 'error', text: userError(actionError, 'ตรวจสอบ Correction ไม่สำเร็จ') })
+      setDrawerMessage({ severity: 'error', text: userError(actionError, 'ตรวจสอบ Correction ไม่สำเร็จ'), incidentId: eventKey, persisted: false })
     } finally {
       setSavingId('')
     }
@@ -189,20 +207,22 @@ export function MasterDataCenterPage() {
       return
     }
     setSavingId(selected.id); setDrawerMessage(null); setError('')
+    const eventKey = crypto.randomUUID()
     try {
-      const eventKey = crypto.randomUUID()
-      const { data, error: gateError } = await supabase.rpc('save_master_data_project_gate', { target_candidate_id: selected.id, target_event_key: eventKey, target_action: action, target_payload: payload, target_reason: reviewReason.trim() })
-      if (gateError) { setDrawerMessage({ severity: 'error', text: userError(gateError) }); return }
+      const { data, error: gateError } = await supabase.rpc('save_master_data_project_gate_v2', { target_candidate_id: selected.id, target_event_key: eventKey, target_action: action, target_payload: payload, target_reason: reviewReason.trim() })
+      if (gateError) { setDrawerMessage({ severity: 'error', text: userError(gateError), incidentId: eventKey, persisted: false }); return }
       const result = data && typeof data === 'object' ? data as { candidate?: Candidate } : null
       const rpcCandidate = result?.candidate ?? null
       const refreshedRows = await load()
       const persisted = refreshedRows.find((row) => row.id === selected.id) ?? null
       const persistenceError = validatePersistedProjectGate(selected.id, action, rpcCandidate, persisted)
-      if (persistenceError || !persisted) { setDrawerMessage({ severity: 'error', text: persistenceError ?? 'ตรวจสอบ Project Gate หลังบันทึกไม่สำเร็จ' }); return }
+      if (persistenceError || !persisted) { setDrawerMessage({ severity: 'error', text: persistenceError ?? 'ตรวจสอบ Project Gate หลังบันทึกไม่สำเร็จ', incidentId: eventKey, persisted: false }); return }
       setSelected(persisted)
       setReviewReason('')
       setDrawerMessage({
         severity: 'success',
+        persisted: true,
+        incidentId: eventKey,
         text: action === 'link_existing_project'
           ? 'ผูก Project เดิมในฐานข้อมูลแล้ว · ขั้นถัดไปคือบันทึก Correction'
           : action === 'save_project_candidate'
@@ -212,14 +232,18 @@ export function MasterDataCenterPage() {
               : 'บันทึกส่งกลับคิวตรวจแล้ว · รายการยังไม่ยืนยัน Master Data',
       })
     } catch (actionError) {
-      setDrawerMessage({ severity: 'error', text: userError(actionError, 'ตรวจสอบ Project Gate ไม่สำเร็จ') })
+      setDrawerMessage({ severity: 'error', text: userError(actionError, 'ตรวจสอบ Project Gate ไม่สำเร็จ'), incidentId: eventKey, persisted: false })
     } finally {
       setSavingId('')
     }
   }
   const reviewProjection = useMemo(() => buildMasterReviewProjection(candidates), [candidates])
-  const duplicateGroups = useMemo(() => groupDuplicateCandidates(candidates), [candidates])
-  const duplicateIds = useMemo(() => new Set(duplicateGroups.flatMap((group) => group.candidateIds)), [duplicateGroups])
+  const duplicateState = useMemo(() => {
+    const groups = groupDuplicateCandidates(candidates)
+    return { groups, ids: new Set(groups.flatMap((group) => group.candidateIds)) }
+  }, [candidates])
+  const duplicateGroups = duplicateState.groups
+  const duplicateIds = duplicateState.ids
   const classifications = useMemo(() => Object.fromEntries(candidates.map((candidate) => [candidate.id, classifyMasterCandidate(candidate, evidence[candidate.id] ?? emptyEvidence(), duplicateIds.has(candidate.id))])), [candidates, duplicateIds, evidence])
   const filteredCandidates = useMemo(() => candidates.filter((candidate) => {
     const classification = classifications[candidate.id]
@@ -259,7 +283,7 @@ export function MasterDataCenterPage() {
       { id: 'name', label: 'ข้อมูลใหม่ / ชื่อ', minWidth: 240, render: (row) => <Stack spacing={0.25}><Typography variant="body2">{row.display_name}</Typography>{isNameMismatch(row, evidence[row.id] ?? null) && <Chip size="small" color="error" label={`ผิดที่ ${mismatchStage(row, evidence[row.id] ?? null)}`} />}</Stack> },
       { id: 'bank', label: 'บัญชีจากหลักฐาน', minWidth: 230, render: (row) => row.entity_type === 'bank_account' ? `•••• ${candidateAccount(row) ?? '-'}` : '-' },
       { id: 'duplicate', label: 'Duplicate Group', minWidth: 180, render: (row) => { const group = duplicateGroups.find((item) => item.candidateIds.includes(row.id)); return group ? <Chip size="small" color="warning" label={`${group.candidateIds.length} ต้นทาง`} /> : 'ไม่ซ้ำ' } },
-      { id: 'source', label: 'Source Reference', minWidth: 300, render: (row) => { const source = evidence[row.id] ?? emptyEvidence(); return <Stack spacing={0.2}><Typography variant="caption">Document/Intake: {source.documentId ?? source.intakeId ?? 'ไม่พบ mapping'}</Typography><Typography variant="caption">Room: {source.sourceRoom ?? 'ไม่พบห้อง'} · Message: {source.messageId ?? 'ไม่พบ Message ID'}</Typography><Typography variant="caption">เข้า: {dateTime(source.receivedAt ?? row.created_at)}</Typography>{!source.sourceResolved && <Chip size="small" color="warning" label="Source ไม่ครบ" />}</Stack> } },
+      { id: 'source', label: 'Source Reference', minWidth: 320, render: (row) => { const source = evidence[row.id] ?? emptyEvidence(); return <Stack spacing={0.2}><Typography variant="caption">Document/Intake: {source.documentId ?? source.intakeId ?? 'ไม่พบ mapping'}</Typography><Typography variant="caption">Room: {source.sourceRoom ?? 'ไม่พบห้อง'} · ผู้ส่ง: {source.sourceSender ?? '-'}</Typography><Typography variant="caption">Message: {source.messageId ?? 'ไม่พบ Message ID'} · เข้า: {dateTime(source.receivedAt ?? row.created_at)}</Typography>{!source.sourceResolved && <Chip size="small" color="warning" label="Source ไม่ครบ" />}</Stack> } },
       { id: 'confidence', label: 'ความมั่นใจ AI', minWidth: 130, render: (row) => row.confidence == null ? '-' : `${Math.round(row.confidence * 100)}%` },
       { id: 'created', label: 'พบเมื่อ', minWidth: 170, render: (row) => dateTime(row.created_at) },
       { id: 'status', label: 'สถานะข้อมูล', minWidth: 190, render: (row) => <Chip size="small" color={['confirmed', 'approved', 'auto_verified'].includes(row.status) ? 'success' : row.status === 'locked' ? 'primary' : row.status === 'rejected' ? 'error' : row.status === 'archived' ? 'default' : 'warning'} label={candidateStatus[row.status] ?? row.status} /> },

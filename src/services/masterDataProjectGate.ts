@@ -1,4 +1,5 @@
 import type { MasterCandidate, MasterSourceEvidence } from '../pages/MasterDataCenter/masterDataReview'
+import { detectProjectStartDate } from './masterDataAutoInput.ts'
 
 export type MasterProjectGateStatus =
   | 'received'
@@ -65,13 +66,33 @@ export const isProjectGateReady = (candidate: Pick<MasterCandidate, 'candidate_d
 
 export function projectDraftFromCandidate(candidate: MasterCandidate, source: MasterSourceEvidence): MasterProjectCandidateDraft {
   const data = candidate.candidate_data ?? {}
+  const detectedStart = detectProjectStartDate(candidate, source)
   return {
     project_name: text(data.project_name) || text(data.detected_project_name) || (text(source.sourceRoom).startsWith('โครงการ') ? text(source.sourceRoom) : ''),
     customer_owner_name: text(data.customer_owner_name) || text(data.customer_name) || text(data.owner_name),
-    site_location: text(data.site_location) || text(data.site_name) || text(data.location),
-    responsible_name: text(data.responsible_name) || text(data.assignee_name) || text(data.sender_name),
+    site_location: text(data.site_location) || text(data.site_name) || text(data.location) || (/โครงการ|ไซต์|site/i.test(text(source.sourceRoom)) ? text(source.sourceRoom) : ''),
+    responsible_name: text(data.responsible_name) || text(data.assignee_name) || text(data.sender_name) || text(source.sourceSender),
     work_type: text(data.work_type) || text(data.property_type),
-    approximate_start_date: text(data.approximate_start_date) || text(data.project_start_date),
+    approximate_start_date: detectedStart.date,
+  }
+}
+
+export function projectDraftAuditPayload(candidate: MasterCandidate, source: MasterSourceEvidence, draft: MasterProjectCandidateDraft) {
+  const start = detectProjectStartDate(candidate, source)
+  const data = candidate.candidate_data ?? {}
+  const fieldSource = (keys: string[], fallback: string) => keys.some((key) => text(data[key])) ? `candidate_data.${keys.find((key) => text(data[key]))}` : fallback
+  return {
+    detected_start_date: start.date,
+    confirmed_start_date: draft.approximate_start_date,
+    start_date_source: { label: start.source || 'Admin ระบุ', source_reference: source.documentId ?? source.intakeId ?? source.messageId, confidence: start.confidence },
+    auto_fill_evidence: {
+      project_name: { source: fieldSource(['project_name', 'detected_project_name'], 'ห้องต้นทาง'), confidence: source.aiConfidence ?? candidate.confidence },
+      customer_owner_name: { source: fieldSource(['customer_owner_name', 'customer_name', 'owner_name'], 'Admin ระบุ'), confidence: source.aiConfidence ?? candidate.confidence },
+      site_location: { source: fieldSource(['site_location', 'site_name', 'location'], 'ห้องต้นทาง'), confidence: source.aiConfidence ?? candidate.confidence },
+      responsible_name: { source: fieldSource(['responsible_name', 'assignee_name', 'sender_name'], source.sourceSender ? 'ผู้ส่งต้นทาง' : 'Admin ระบุ'), confidence: source.aiConfidence ?? candidate.confidence },
+      work_type: { source: fieldSource(['work_type', 'property_type'], 'Admin ระบุ'), confidence: source.aiConfidence ?? candidate.confidence },
+      approximate_start_date: { source: start.source || 'Admin ระบุ', confidence: start.confidence },
+    },
   }
 }
 

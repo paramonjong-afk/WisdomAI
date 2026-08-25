@@ -8,7 +8,7 @@ const standardTable = readFileSync('src/components/StandardDataTable.tsx', 'utf8
 const migration = readFileSync('supabase/migrations/20260823122058_master_data_candidate_review_actions.sql', 'utf8')
 const classificationMigration = readFileSync('supabase/migrations/20260824010000_master_data_classification_review.sql', 'utf8')
 const evidence: MasterSourceEvidence = {
-  documentId: 'doc-1', intakeId: 'intake-1', messageId: 'msg-1', transactionId: 'tx-1', sourceRoom: 'ไซต์ A', sourceChannel: 'LINE', attachmentId: 'att-1', fileName: 'slip.jpg', bucket: 'line-attachments', path: 'company/slip.jpg', receivedAt: '2026-08-23T08:00:00Z', ocrRawText: 'โอนให้สมนึก', extractedName: 'สมหนึก', extractedAccount: '1234', aiConfidence: 0.82, modelVersion: 'ocr-v2', auditId: 'audit-1', sourceResolved: true, missingReasons: [],
+  documentId: 'doc-1', intakeId: 'intake-1', messageId: 'msg-1', transactionId: 'tx-1', sourceRoom: 'ไซต์ A', sourceChannel: 'LINE', sourceSender: 'หัวหน้าช่าง A', attachmentId: 'att-1', fileName: 'slip.jpg', bucket: 'line-attachments', path: 'company/slip.jpg', receivedAt: '2026-08-23T08:00:00Z', ocrRawText: 'โอนให้สมนึก', extractedName: 'สมหนึก', extractedAccount: '1234', aiConfidence: 0.82, modelVersion: 'ocr-v2', auditId: 'audit-1', sourceResolved: true, missingReasons: [],
 }
 const candidate = (id: string, created: string): MasterCandidate => ({ id, entity_type: 'bank_account', display_name: 'สมนึก', normalized_name: 'สมนึก', candidate_data: { account_last4: '1234' }, confidence: 0.82, status: 'pending_review', source_table: 'financial_transactions', source_id: id, duplicate_of: null, created_at: created })
 const rows = [candidate('tx-1', '2026-08-23T08:00:00Z'), candidate('tx-2', '2026-08-23T09:00:00Z'), { ...candidate('tx-3', '2026-08-23T10:00:00Z'), display_name: 'สมหมาย', normalized_name: 'สมหมาย' }]
@@ -23,7 +23,7 @@ assert.equal(reviewFilterMatches(rows[2], evidence, new Set(groups[0].candidateI
 assert.equal(reviewFilterMatches(rows[0], evidence, new Set(groups[0].candidateIds), 'pending_review'), true)
 const resolved = resolveCandidateSourceEvidence(rows[0], {
   transaction: { id: 'tx-1', source_message_id: 'msg-real-1' },
-  flow: { id: 'doc-real-1', intake_id: 'intake-real-1', source_message_id: 'msg-real-1', source_channel: 'line', source_room_name: 'ห้องไซต์ A', source_received_at: '2026-08-23T08:00:00Z' },
+  flow: { id: 'doc-real-1', intake_id: 'intake-real-1', source_message_id: 'msg-real-1', source_channel: 'line', source_room_name: 'ห้องไซต์ A', source_sender_name: 'หัวหน้าช่าง A', source_received_at: '2026-08-23T08:00:00Z' },
   message: { id: 'msg-real-1', line_group_id: 'group-a', file_name: 'slip-real.jpg', occurred_at: '2026-08-23T08:00:00Z' },
   attachment: { id: 'att-real-1', message_id: 'msg-real-1', storage_bucket: 'line-attachments', storage_path: 'company/slip-real.jpg', content_type: 'image/jpeg' },
   event: { id: 'event-real-1' }, audit: { id: 901 },

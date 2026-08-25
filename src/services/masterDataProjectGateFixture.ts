@@ -34,7 +34,7 @@ export function createMasterDataProjectGateFixture() {
   })
   const evidence = Object.fromEntries(candidates.map((candidate, index): [string, MasterSourceEvidence] => [candidate.id, {
     documentId: `fixture-document-${String(index + 1).padStart(3, '0')}`, intakeId: `fixture-intake-${String(index + 1).padStart(3, '0')}`, messageId: `fixture-message-${String(index + 1).padStart(3, '0')}`, transactionId: candidate.source_id,
-    sourceRoom: index === 0 ? 'โครงการ บ้านพักอาศัย พานทอง จ.ชลบุรี' : 'ห้องทดสอบ Master Data', sourceChannel: 'local_fixture', attachmentId: `fixture-attachment-${index + 1}`, fileName: `fixture-${index + 1}.jpg`, bucket: null, path: null,
+    sourceRoom: index === 0 ? 'โครงการ บ้านพักอาศัย พานทอง จ.ชลบุรี' : 'ห้องทดสอบ Master Data', sourceChannel: 'local_fixture', sourceSender: index === 0 ? 'หัวหน้าช่างพานทอง' : 'Admin Fixture', attachmentId: `fixture-attachment-${index + 1}`, fileName: `fixture-${index + 1}.jpg`, bucket: null, path: null,
     receivedAt: candidate.created_at, ocrRawText: index === 0 ? 'ค่าใช้จ่ายโครงการพานทอง' : `หลักฐานทดสอบ ${index + 1}`, extractedName: candidate.display_name, extractedAccount: String(candidate.candidate_data.account_last4), aiConfidence: candidate.confidence, modelVersion: 'fixture-ocr-v1', auditId: `fixture-audit-${index + 1}`, sourceResolved: true, missingReasons: [],
   }]))
   return { candidates, evidence, projects, dataset: 'master-data-project-first-v1', count: candidates.length }

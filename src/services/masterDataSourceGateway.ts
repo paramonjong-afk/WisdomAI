@@ -3,7 +3,7 @@ import { candidateEvidenceFallback, emptyMasterSourceEvidence, resolveCandidateS
 import type { MasterCandidate } from '../pages/MasterDataCenter/masterDataReview'
 
 type FinancialSource = { id: string; source_message_id: string | null }
-type FlowSource = { id: string; intake_id: string | null; source_message_id: string | null; source_channel: string | null; source_room_name: string | null; source_received_at: string | null }
+type FlowSource = { id: string; intake_id: string | null; source_message_id: string | null; source_channel: string | null; source_room_name: string | null; source_sender_name: string | null; source_received_at: string | null }
 type MessageSource = { id: string; line_group_id: string | null; file_name: string | null; occurred_at: string | null }
 type AttachmentSource = { id: string; message_id: string; storage_bucket: string; storage_path: string; content_type: string | null }
 type EventSource = { id: string; item_id: string; created_at: string }
@@ -32,7 +32,7 @@ export async function loadMasterSourceEvidence(candidates: MasterCandidate[]) {
   const messageIds = unique([...directMessageIds, ...transactions.data.map((row) => row.source_message_id), ...Object.values(fallback).map((row) => row.messageId)])
 
   const [flows, messages, attachments] = await Promise.all([
-    messageIds.length ? batch<FlowSource>(messageIds, (ids) => supabase.from('document_flow_items').select('id,intake_id,source_message_id,source_channel,source_room_name,source_received_at').in('source_message_id', ids)) : Promise.resolve({ data: [] as FlowSource[], error: null }),
+    messageIds.length ? batch<FlowSource>(messageIds, (ids) => supabase.from('document_flow_items').select('id,intake_id,source_message_id,source_channel,source_room_name,source_sender_name,source_received_at').in('source_message_id', ids)) : Promise.resolve({ data: [] as FlowSource[], error: null }),
     messageIds.length ? batch<MessageSource>(messageIds, (ids) => supabase.from('line_messages').select('id,line_group_id,file_name,occurred_at').in('id', ids)) : Promise.resolve({ data: [] as MessageSource[], error: null }),
     messageIds.length ? batch<AttachmentSource>(messageIds, (ids) => supabase.from('line_attachments').select('id,message_id,storage_bucket,storage_path,content_type').in('message_id', ids)) : Promise.resolve({ data: [] as AttachmentSource[], error: null }),
   ])

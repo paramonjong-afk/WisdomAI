@@ -5,7 +5,8 @@ flowchart LR
   A[Intake / LINE / document / Admin input] --> B[Master-data candidate]
   B --> S[Source Reference Gateway\nCandidate → Transaction → Message]
   S --> S2[Document Flow + Attachment\nEvent + Master Audit]
-  S2 --> PG{Project-first Gate}
+  S2 --> AI[Auto Input<br/>name/type/account/bank/tax<br/>project/date/owner/route]
+  AI --> PG{Project-first Gate}
   PG -->|พบ Project เดิม| PE[Link Existing Project\ncompany-scoped + evidence]
   PG -->|ไม่พบ แต่ข้อมูลขั้นต่ำครบ| PC[Project Candidate\nawaiting_open_project]
   PG -->|ข้อมูลไม่ครบ| PI[Awaiting Information\nowner + reason + next action]
@@ -28,17 +29,16 @@ flowchart LR
   G --> R[Reports: Vendor / Employee-Technician\nCustomer / Company-Internal]
   G --> H[Employee / vendor / customer / project / bank-account reference]
   H --> I[Transactions and workflow routes]
-  subgraph UX[Detail Drawer operational steps]
-    U0[Project รอเลือก] --> U1[Project พร้อม]
-    U1 --> U2[แก้ข้อมูลแล้ว\nAppend Version + Audit]
-    U2 --> U3[รอตรวจซ้ำ]
-    U3 --> U4[ยืนยันแล้ว\nRefresh queue + next item]
+  subgraph UX[Detail Drawer: 3 operational steps]
+    U0[1. ความสัมพันธ์<br/>ผูก Project / Project Candidate]
+    U0 --> U1[2. ตรวจและแก้ข้อมูล<br/>Auto Input + Admin correction]
+    U1 --> U2[3. ยืนยันและส่งต่อ<br/>Refetch queue + next item]
   end
   PG -.controls.-> U0
   PE -.unlocks.-> U1
   PC -.unlocks.-> U1
   V -.evidence.-> U2
-  G -.terminal.-> U4
+  G -.terminal.-> U2
   AV -.->|prohibited| X[No payment close / balance cut / Job close]
   G --> J{Unused and no active reference?}
   J -->|Yes| K[Inactive then archive]
@@ -56,7 +56,8 @@ Create one company-scoped master-data path for people, vendors, customers, proje
 - Outputs: candidate rows, verified aliases and bank accounts, links to the existing person/vendor/customer master, and append-only audit.
 - Existing source documents, Intake IDs, transactions and document-flow rows remain canonical; a master candidate stores only a reference to evidence and never duplicates or deletes it.
 - Before a candidate can be confirmed or locked, the Project-first Gate must either link one active Project in the same company or save a complete Project Candidate. A Project Candidate is only a request to open a project; it never creates a real `projects` row automatically. Every Gate command uses one `event_key`; replay returns the prior result and a conflicting reuse is rejected, so retries do not append duplicate Audit/Version rows.
-- Project matching uses project/customer/site/reference/responsible evidence and the resolved Source Reference. A name by itself is not enough. The Drawer auto-selects an existing Project only when at least two evidence points match; one weak match (for example province only) remains a suggestion for Admin review. Required Project Candidate fields are project name, customer/owner, site/location, responsible person, work type, approximate start date and Source/Document ID.
+- Project matching uses project/customer/site/reference/responsible evidence and the resolved Source Reference. A name by itself is not enough. The Drawer auto-selects an existing Project only when at least two evidence points match; one weak match (for example province only) remains a suggestion for Admin review. Required Project Candidate fields are project name, customer/owner, site/location, responsible person, work type, start date and Source/Document ID. The start date defaults to the earliest related project activity/message/document timestamp and remains editable before save.
+- Auto Input derives name, five-type classification, account last four digits, bank, tax ID, Project fields, responsible person, start date, destination Module, owner and next action. Every derived field carries source, confidence and state (`ready`, `review`, `conflict`, `missing`); green can be reused, yellow needs review, red is conflicting and gray is missing. Admin fills only missing/conflicting/material fields. Auto Input never creates a real Project, confirms/locks Master Data, closes a payment or changes Raw/OCR.
 - The table and review Drawer consume the same `MasterSourceEvidence` object. For financial candidates, `source_id` is a Transaction ID and must be resolved through `financial_transactions.source_message_id`; it must never be labelled as a Message ID.
 - The Source Reference Gateway then joins the Message ID to `document_flow_items`, `line_attachments`, `document_flow_events` and `master_data_audit`. Missing links are shown explicitly as incomplete evidence rather than guessed or replaced with another identifier.
 - Classification types are `vendor`, `employee_technician`, `customer`, `company_internal` and `unknown_review`. A name alone is never sufficient: rules require evidence such as an existing Master match, account/tax identity, project/site, message context/history and the resolved Source Reference.
@@ -75,8 +76,8 @@ Create one company-scoped master-data path for people, vendors, customers, proje
 - Duplicate candidates are preserved as audit evidence and marked rejected/linked instead of being deleted.
 - Admin correction changes derived candidate fields only. Raw/OCR/source evidence is unchanged; each correction appends before/after, actor, timestamp, reason, Source Reference and a candidate version, then returns to review as `admin_reviewed`.
 - Project Gate state is stored with the derived candidate snapshot: `received → awaiting_project_classification → linked_existing_project` or `awaiting_new_project`; incomplete evidence becomes `awaiting_information`/`review`, and explicit approval becomes `confirmed`. Only `confirmed`/`approved`/`locked` leaves the pending queue.
-- Drawer validation, RPC error and success feedback must be visible inside the active Drawer. Saving a correction is not confirmation; the UI keeps the row in Review Queue, explains the missing gate/fields, refreshes counts after success and offers the next item.
-- The Detail Drawer exposes one five-step operational path: `Project รอเลือก → Project พร้อม → แก้ข้อมูลแล้ว → รอตรวจซ้ำ → ยืนยันแล้ว`. Project actions are mutually exclusive, the current state has one Primary Action, and request-information/reject/archive/back/next actions live in the additional-actions menu. A disabled Primary Action lists every missing field or prerequisite inline rather than relying on a snackbar.
+- Drawer validation, RPC error and success feedback must be visible inside the active Drawer with the command/event ID. Saving a correction is not confirmation; the UI keeps the row in Review Queue, explains the missing gate/fields, refreshes counts after success and offers the next item. The UI must not display success or close the Drawer until the awaited RPC and a fresh company-scoped read both confirm persistence.
+- The Detail Drawer exposes one three-step operational path: `ความสัมพันธ์ → ตรวจและแก้ข้อมูล → ยืนยันและส่งต่อ`. The first step links an existing Project or opens a compact Project Candidate dialog, the second appends Admin correction/Auto Input provenance, and the third confirms only after read-back verification. The current state has one Primary Action; request-information/reject/archive/back/next actions live in the additional-actions menu. A disabled Primary Action lists every missing field or prerequisite inline rather than relying on a snackbar.
 - A saved Project Candidate shows its ID, status, actor, timestamp, version and Audit event. A correction shows append-only before/after plus Version/Audit. Terminal confirmation reloads the queue and counts from the same source, removes the confirmed row from `pending_review`, and can open the next pending item. Raw/OCR remains read-only throughout.
 - Drawer actions are successful only after the awaited RPC returns the same Candidate and a fresh company-scoped query confirms the expected status/gate/version. A null RPC payload, failed refetch or unchanged status keeps the Drawer open and shows an inline error; no optimistic success or automatic close is allowed.
 - Summary cards and the default Review Queue use one status projection. `คิวที่ต้องจัดการ = ข้อมูลใหม่ + รอตรวจ/รอข้อมูล + Auto Verified + แก้ไขโดย Admin`; conflicts remain an overlapping quality flag. A `request_info` decision stays in the queue and is labelled as not yet confirmed rather than appearing to complete Master Data.
@@ -92,6 +93,7 @@ Create one company-scoped master-data path for people, vendors, customers, proje
 
 | Version | Date | Rationale / impact | Migration | Verification | Rollback |
 |---|---|---|---|---|---|
+| v1.8 | 25/8/2569 | Reduce the crowded five-state presentation to three operational steps, add compact Project Candidate entry, derive start date and other reusable fields automatically with source/confidence, and prevent silent/non-persisted actions | `20260825220000_master_data_auto_input_three_step.sql` adds Auto Input provenance/date fields and idempotent v2 wrappers; no Raw/OCR mutation | Auto Input/project/step/source/account contracts, local migration checks, targeted/full lint, typecheck, build, responsive Local browser smoke and authenticated Production persistence smoke | Revert UI to v1.7 and call v1 RPCs; revoke v2 wrappers and stop writing new optional metadata columns. Preserve Project Candidate, Version, Audit and all Raw/OCR/source evidence |
 | v1.7 | 25/8/2569 | Fix Production confirmation rollback caused by writing a full OCR account number into the four-digit Master Account field; keep the failure visible inside the Drawer | `20260825211200_fix_master_data_account_last4_confirmation.sql`; normalize only the derived Master projection in correction/approval/match RPCs | Regression contract for full/formatted/short values, local RPC migration checks, typecheck/lint/build, rollback-only Production persistence probe and authenticated `/master-data` smoke | Restore the v1.6 correction/review RPC bodies and remove the UI-specific error mapping; do not alter Raw/OCR, existing versions or audit |
 | v1.0 | 22/8/2569 | Establish central candidate, verified account, audit and retention foundations without replacing existing employee/vendor/project data | `20260821211435_master_data_governance.sql` | Schema/RLS/RPC, UI, lint/build/test and protected production route | Disable the Master Data UI/RPCs; source records, existing master records and audits remain |
 | v1.1 | 22/8/2569 | Link an approved bank candidate to the active employee/technician master only for one exact normalized name match; ambiguous accounts remain safely unlinked | `20260821212940_master_bank_account_person_link.sql` | Function/backfill and RLS/schema verification | Restore previous review function; no source evidence or person record is deleted |
