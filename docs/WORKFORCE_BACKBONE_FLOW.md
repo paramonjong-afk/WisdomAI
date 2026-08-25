@@ -23,7 +23,7 @@ flowchart LR
 - **Failure/Retry:** Vault/key ไม่พร้อม, เลขผิดรูปแบบ, ซ้ำกับเจ้าของอื่น หรือพนักงานไม่อยู่บริษัทต้อง fail ก่อนเขียน; unchanged ไม่สร้าง Audit ซ้ำ
 - **Audit:** เพิ่ม/แก้/เปิดดูเก็บ actor, company, employee, bank id, reason, before/after แบบปกปิด; ห้ามบันทึกเลขเต็ม
 - **Owner:** Finance/HR Data Controller และ Platform Security Owner
-- **Migration/Verification/Rollback:** `20260826203000_employee_bank_account_secure_store.sql`; ตรวจ ciphertext/fingerprint/RPC privilege/idempotency/Audit และหน้า authenticated; rollback ซ่อน Action/revoke RPC โดยคง ciphertext, Master และ Audit เพื่อ recovery
+- **Migration/Verification/Rollback:** `20260826203000_employee_bank_account_secure_store.sql` และ `20260826204500_employee_bank_secret_audit_fk_indexes.sql`; ตรวจ ciphertext/fingerprint/RPC privilege/idempotency/Audit, FK advisor และหน้า authenticated; rollback ซ่อน Action/revoke RPC โดยคง ciphertext, Master และ Audit เพื่อ recovery
 
 ## Employee Contact Action v3.0 — 26/8/2569
 
