@@ -1,6 +1,7 @@
 import { CheckOutlined, MoreHorizOutlined, NavigateNextOutlined } from '@mui/icons-material'
 import { Alert, Button, Chip, Divider, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Stack, Typography } from '@mui/material'
 import { useState } from 'react'
+import type { MasterRecordingMode } from '../../services/masterDataAdvanceFunding'
 import {
   masterReviewBlockers,
   masterReviewPersistenceNotice,
@@ -25,25 +26,29 @@ type Props = {
   requiresCorrection: boolean
   activeTab: number
   onTabChange: (tab: number) => void
+  recordingMode: MasterRecordingMode
+  advanceBlockers: string[]
+  onConfirmAdvanceFunding: () => void
 }
 
-type ProgressProps = Pick<Props, 'candidate' | 'receipt' | 'reason' | 'actorName' | 'requiresCorrection'>
+type ProgressProps = Pick<Props, 'candidate' | 'receipt' | 'reason' | 'actorName' | 'requiresCorrection' | 'recordingMode' | 'advanceBlockers'>
 
 const dateTime = (value: string | null) => value ? new Date(value).toLocaleString('th-TH') : '-'
 const value = (data: Record<string, unknown> | null, key: string) => data && data[key] != null ? String(data[key]) : '-'
 
-export function MasterDataReviewProgress({ candidate, receipt, reason, actorName, requiresCorrection }: ProgressProps) {
+export function MasterDataReviewProgress({ candidate, receipt, reason, actorName, requiresCorrection, recordingMode, advanceBlockers }: ProgressProps) {
   const stage = masterReviewStage(candidate)
-  const blockers = masterReviewBlockers(candidate, reason, requiresCorrection)
+  const advanceFunding = recordingMode === 'employee_advance_funding'
+  const blockers = advanceFunding ? advanceBlockers : masterReviewBlockers(candidate, reason, requiresCorrection)
   const terminal = stage === 'confirmed'
   const persistedNotice = masterReviewPersistenceNotice(candidate)
   return <Stack spacing={1.25}>
     <Paper variant="outlined" sx={{ p: 1.25 }}>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} sx={{ alignItems: { sm: 'center' } }}>
         <Typography sx={{ fontWeight: 800, flex: 1 }}>สถานะรายการ</Typography>
-        <Chip size="small" color={terminal ? 'success' : stage === 'project_pending' ? 'warning' : 'primary'} label={terminal ? 'ยืนยันแล้ว' : stage === 'project_pending' ? 'รอ Project' : stage === 'awaiting_rereview' ? 'รอตรวจซ้ำ' : requiresCorrection ? 'รอบันทึกข้อมูลที่แก้' : 'พร้อมยืนยัน'} />
+        <Chip size="small" color={terminal ? 'success' : advanceFunding && blockers.length === 0 ? 'primary' : stage === 'project_pending' ? 'warning' : 'primary'} label={terminal ? 'ยืนยันแล้ว' : advanceFunding ? blockers.length ? 'ข้อมูลเงินทดลองจ่ายยังไม่ครบ' : 'พร้อมส่งบัญชี' : stage === 'project_pending' ? 'รอ Project' : stage === 'awaiting_rereview' ? 'รอตรวจซ้ำ' : requiresCorrection ? 'รอบันทึกข้อมูลที่แก้' : 'พร้อมยืนยัน'} />
       </Stack>
-      {projectGateSummary(candidate) && <Chip size="small" color="success" label={projectGateSummary(candidate)} sx={{ mt: 1 }} />}
+      {advanceFunding ? <Chip size="small" color="info" label="ไม่บังคับ Project · Project รอจัดสรรตอนลงค่าใช้จ่าย/กระทบยอด" sx={{ mt: 1 }} /> : projectGateSummary(candidate) && <Chip size="small" color="success" label={projectGateSummary(candidate)} sx={{ mt: 1 }} />}
     </Paper>
 
     {blockers.length > 0 && !terminal && <Alert severity="info">
@@ -81,21 +86,26 @@ export function MasterDataReviewProgress({ candidate, receipt, reason, actorName
   </Stack>
 }
 
-export function MasterDataReviewActions({ candidate, reason, saving, hasNext, requiresCorrection, activeTab, onTabChange, onCorrect, onReview, onNext, onClose }: Omit<Props, 'receipt' | 'actorName'>) {
+export function MasterDataReviewActions({ candidate, reason, saving, hasNext, requiresCorrection, activeTab, recordingMode, advanceBlockers, onConfirmAdvanceFunding, onTabChange, onCorrect, onReview, onNext, onClose }: Omit<Props, 'receipt' | 'actorName'>) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const stage = masterReviewStage(candidate)
-  const blockers = masterReviewBlockers(candidate, reason, requiresCorrection)
+  const advanceFunding = recordingMode === 'employee_advance_funding'
+  const blockers = advanceFunding ? advanceBlockers : masterReviewBlockers(candidate, reason, requiresCorrection)
   const isReasonMissing = reason.trim().length < 3
   const terminal = stage === 'confirmed'
-  const primary = stage === 'project_ready' && activeTab === 0 && requiresCorrection
+  const primary = terminal
+    ? { label: hasNext ? 'รายการถัดไป' : 'กลับคิว', disabled: false, run: hasNext ? onNext : onClose }
+    : advanceFunding
+      ? activeTab === 0
+        ? { label: 'ไปสรุปและยืนยัน', disabled: false, run: () => onTabChange(1) }
+        : { label: 'ยืนยันบุคคล/บัญชี และส่งบัญชี', disabled: saving || blockers.length > 0, run: onConfirmAdvanceFunding }
+    : stage === 'project_ready' && activeTab === 0 && requiresCorrection
     ? { label: 'บันทึกข้อมูลที่แก้และส่งตรวจซ้ำ', disabled: saving || isReasonMissing, run: onCorrect }
     : (stage === 'project_ready' || stage === 'awaiting_rereview') && activeTab === 0
       ? { label: 'ไปสรุปและยืนยัน', disabled: false, run: () => onTabChange(1) }
       : (stage === 'project_ready' && !requiresCorrection) || stage === 'awaiting_rereview'
         ? { label: 'ยืนยันข้อมูล', disabled: saving || isReasonMissing, run: () => onReview('approve') }
-      : terminal
-        ? { label: hasNext ? 'รายการถัดไป' : 'กลับคิว', disabled: false, run: hasNext ? onNext : onClose }
-        : activeTab === 1
+      : activeTab === 1
           ? { label: 'กลับไปเลือก Project', disabled: false, run: () => onTabChange(0) }
           : { label: 'เลือก Project เพื่อดำเนินการต่อ', disabled: true, run: () => undefined }
   const menuAction = (action: MasterReviewAction) => { setAnchor(null); onReview(action) }

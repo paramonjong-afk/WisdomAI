@@ -3,6 +3,7 @@ import { EvidenceSplitReviewWorkspace, type EvidencePreviewState } from '../../c
 import type { MasterClassification, MasterClassificationType } from '../../services/masterDataClassification'
 import { classificationLabel } from '../../services/masterDataClassification'
 import type { MasterAutoRoute } from '../../services/masterDataAutoInput'
+import type { MasterRecordingMode } from '../../services/masterDataAdvanceFunding'
 import type { MasterProjectOption, MasterWorkPackageOption } from '../../services/masterDataProjectGate'
 import type { MasterReviewAction, MasterReviewReceipt } from '../../services/masterDataReviewWorkflow'
 import { MasterDataProjectGatePanel, type ProjectGateAction } from './MasterDataProjectGatePanel'
@@ -32,6 +33,10 @@ type Props = {
   requiresCorrection: boolean
   hasNext: boolean
   preview: EvidencePreviewState | null
+  recordingMode: MasterRecordingMode
+  advanceBlockers: string[]
+  onRecordingModeChange: (mode: MasterRecordingMode) => void
+  onConfirmAdvanceFunding: () => void
   onTabChange: (tab: number) => void
   onCorrectionChange: (correction: Correction) => void
   onReasonChange: (reason: string) => void
@@ -64,6 +69,7 @@ export function MasterDataReviewDrawer(props: Props) {
   const masterAccount = typeof candidate.candidate_data.master_account_last4 === 'string' ? candidate.candidate_data.master_account_last4 : null
   const nameMismatch = isNameMismatch(candidate, source)
   const terminal = ['confirmed', 'approved', 'locked'].includes(candidate.status)
+  const advanceFunding = props.recordingMode === 'employee_advance_funding'
 
   const reviewPane = <>
     <DialogTitle>ตรวจข้อมูลใหม่ · {candidate.display_name}</DialogTitle>
@@ -79,10 +85,10 @@ export function MasterDataReviewDrawer(props: Props) {
           {props.message.incidentId && <Typography variant="caption">รหัสเหตุการณ์: {props.message.incidentId}</Typography>}
         </Alert>}
         {props.activeTab === 0 ? <>
-          <Alert severity={props.requiresCorrection ? 'warning' : 'success'}>
-            {props.requiresCorrection ? 'พบข้อมูลขาดหรือขัดแย้ง ให้แก้เฉพาะช่องที่จำเป็นแล้วบันทึกเป็น Version ใหม่' : 'ข้อมูลจากหลักฐานตรงกับข้อเสนอเดิม ไม่ต้องกรอกหรือบันทึก Correction ซ้ำ'}
+          <Alert severity={advanceFunding ? 'info' : props.requiresCorrection ? 'warning' : 'success'}>
+            {advanceFunding ? 'เลือกโหมดเงินทดลองจ่ายแล้ว: ยืนยันบุคคล/บัญชีและส่งบัญชีได้ในคำสั่งเดียว โดยยังไม่ต้องผูก Project' : props.requiresCorrection ? 'พบข้อมูลขาดหรือขัดแย้ง ให้แก้เฉพาะช่องที่จำเป็นแล้วบันทึกเป็น Version ใหม่' : 'ข้อมูลจากหลักฐานตรงกับข้อเสนอเดิม ไม่ต้องกรอกหรือบันทึก Correction ซ้ำ'}
           </Alert>
-          <MasterDataProjectGatePanel key={candidate.id} candidate={candidate} source={source} projects={props.projects} workPackages={props.workPackages} saving={props.saving} reason={props.reason} onAction={props.onProjectAction} onOpenSource={props.onOpenSource} onCreateWorkPackage={props.onCreateWorkPackage} />
+          <MasterDataProjectGatePanel key={candidate.id} candidate={candidate} source={source} projects={props.projects} workPackages={props.workPackages} saving={props.saving} reason={props.reason} recordingMode={props.recordingMode} advanceBlockers={props.advanceBlockers} onRecordingModeChange={props.onRecordingModeChange} onAction={props.onProjectAction} onOpenSource={props.onOpenSource} onCreateWorkPackage={props.onCreateWorkPackage} />
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
             <Paper variant="outlined" sx={{ p: 1.25, flex: 1 }}><Typography sx={{ fontWeight: 800 }}>ข้อมูลเดิม</Typography><Typography variant="body2">ชื่อ: {masterName ?? 'ยังไม่มี Master เดิม'}</Typography><Typography variant="body2">บัญชี: {masterAccount ? `•••• ${masterAccount.slice(-4)}` : '-'} · ธนาคาร: {(candidate.candidate_data.master_bank_name as string | undefined) ?? '-'}</Typography></Paper>
             <Paper variant="outlined" sx={{ p: 1.25, flex: 1, borderColor: nameMismatch ? 'error.main' : 'success.main' }}><Typography sx={{ fontWeight: 800 }}>หลักฐานใหม่</Typography><Typography variant="body2">ชื่อ: {source.extractedName ?? candidate.display_name}</Typography><Typography variant="body2">บัญชี: {candidateAccount(candidate) ? `•••• ${candidateAccount(candidate)}` : '-'} · ธนาคาร: {(candidate.candidate_data.bank_name as string | undefined) ?? source.transferRecipientBank ?? '-'}</Typography><Chip size="small" color={nameMismatch ? 'error' : 'success'} label={nameMismatch ? `ข้อมูลไม่ตรง: ${mismatchStage(candidate, source)}` : 'ข้อมูลตรงกับข้อเสนอ'} /></Paper>
@@ -92,19 +98,19 @@ export function MasterDataReviewDrawer(props: Props) {
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><PartyCard title="ผู้โอน / แหล่งเงิน" name={source.transferSenderName} bank={source.transferSenderBank} account={source.transferSenderAccountLast4} /><PartyCard title="ผู้รับ / ผู้ถือเงิน" name={source.transferRecipientName} bank={source.transferRecipientBank} account={source.transferRecipientAccountLast4} tone={nameMismatch ? 'warning' : 'default'} /></Stack>
             <Typography variant="body2" sx={{ mt: 1 }}>ยอด {money(source.transferAmount)} · อ้างอิง {source.bankReference ?? '-'} · ความมั่นใจคู่โอน {source.paymentPartyConfidence == null ? '-' : `${Math.round(source.paymentPartyConfidence * 100)}%`}</Typography>
           </Paper>}
-          {props.requiresCorrection && <Paper variant="outlined" sx={{ p: 1.25 }}>
-            <Typography sx={{ fontWeight: 800, mb: 1 }}>แก้เฉพาะข้อมูล Derived · ไม่แก้ Raw/OCR</Typography>
+          {(props.requiresCorrection || advanceFunding) && <Paper variant="outlined" sx={{ p: 1.25 }}>
+            <Typography sx={{ fontWeight: 800, mb: 1 }}>{advanceFunding ? 'ข้อมูลบุคคล/บัญชีที่จะบันทึก · ไม่แก้ Raw/OCR' : 'แก้เฉพาะข้อมูล Derived · ไม่แก้ Raw/OCR'}</Typography>
             <Stack spacing={1}>
               <TextField size="small" label="ชื่อที่แก้ไข" value={props.correction.display_name} onChange={(event) => props.onCorrectionChange({ ...props.correction, display_name: event.target.value })} />
-              <Select size="small" value={props.correction.classification_type} onChange={(event) => props.onCorrectionChange({ ...props.correction, classification_type: event.target.value as MasterClassificationType })}>{Object.entries(classificationLabel).map(([key, label]) => <MenuItem key={key} value={key}>{label}</MenuItem>)}</Select>
+              <Select size="small" disabled={advanceFunding} value={props.correction.classification_type} onChange={(event) => props.onCorrectionChange({ ...props.correction, classification_type: event.target.value as MasterClassificationType })}>{advanceFunding ? <MenuItem value="employee_technician">Employee/Technician</MenuItem> : Object.entries(classificationLabel).map(([key, label]) => <MenuItem key={key} value={key}>{label}</MenuItem>)}</Select>
               <TextField size="small" label="เลขท้ายบัญชี" value={props.correction.account_last4} onChange={(event) => props.onCorrectionChange({ ...props.correction, account_last4: event.target.value })} />
               <TextField size="small" label="ธนาคาร" value={props.correction.bank_name} onChange={(event) => props.onCorrectionChange({ ...props.correction, bank_name: event.target.value })} />
-              <TextField size="small" label="เลขภาษี" value={props.correction.tax_id} onChange={(event) => props.onCorrectionChange({ ...props.correction, tax_id: event.target.value })} />
+              {!advanceFunding && <TextField size="small" label="เลขภาษี" value={props.correction.tax_id} onChange={(event) => props.onCorrectionChange({ ...props.correction, tax_id: event.target.value })} />}
             </Stack>
             <Typography variant="caption" color="text.secondary">การบันทึก append before/after, actor, เวลา, reason และ Source ลง Audit/Version</Typography>
           </Paper>}
         </> : <>
-          <MasterDataReviewProgress candidate={candidate} receipt={props.receipt} reason={props.reason} actorName={props.reviewerName} requiresCorrection={props.requiresCorrection} />
+          <MasterDataReviewProgress candidate={candidate} receipt={props.receipt} reason={props.reason} actorName={props.reviewerName} requiresCorrection={props.requiresCorrection} recordingMode={props.recordingMode} advanceBlockers={props.advanceBlockers} />
           <Paper variant="outlined" sx={{ p: 1.25 }}>
             <Typography sx={{ fontWeight: 800 }}>สรุปก่อนยืนยัน</Typography>
             <Typography variant="body2">ชื่อ: {props.correction.display_name || candidate.display_name}</Typography>
@@ -119,7 +125,7 @@ export function MasterDataReviewDrawer(props: Props) {
         {!terminal && <><Divider /><TextField multiline minRows={2} label="เหตุผล (บังคับเมื่อบันทึก/ยืนยัน/ตัดสินใจ)" value={props.reason} onChange={(event) => props.onReasonChange(event.target.value)} /></>}
       </Stack>
     </DialogContent>
-    <MasterDataReviewActions candidate={candidate} reason={props.reason} saving={props.saving} hasNext={props.hasNext} requiresCorrection={props.requiresCorrection} activeTab={props.activeTab} onTabChange={props.onTabChange} onCorrect={props.onCorrect} onReview={props.onReview} onNext={props.onNext} onClose={props.onClose} />
+    <MasterDataReviewActions candidate={candidate} reason={props.reason} saving={props.saving} hasNext={props.hasNext} requiresCorrection={props.requiresCorrection} activeTab={props.activeTab} recordingMode={props.recordingMode} advanceBlockers={props.advanceBlockers} onConfirmAdvanceFunding={props.onConfirmAdvanceFunding} onTabChange={props.onTabChange} onCorrect={props.onCorrect} onReview={props.onReview} onNext={props.onNext} onClose={props.onClose} />
   </>
 
   return <Drawer anchor="right"
