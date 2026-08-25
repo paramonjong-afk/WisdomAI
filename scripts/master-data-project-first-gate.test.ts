@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { reviewFilterMatches } from '../src/pages/MasterDataCenter/masterDataReview.ts'
-import { applyLocalProjectGate, findProjectMatches, isProjectGateReady, projectDraftFromCandidate, projectGateStatus, validateProjectDraft } from '../src/services/masterDataProjectGate.ts'
+import { applyLocalProjectGate, autoSelectedProjectId, findProjectMatches, isProjectGateReady, projectDraftFromCandidate, projectGateStatus, validateProjectDraft } from '../src/services/masterDataProjectGate.ts'
 import { createMasterDataProjectGateFixture } from '../src/services/masterDataProjectGateFixture.ts'
 
 const fixture = createMasterDataProjectGateFixture()
@@ -13,6 +13,7 @@ const existingEvidence = fixture.evidence[existing.id]
 const matches = findProjectMatches(existing, existingEvidence, fixture.projects)
 assert.equal(matches[0]?.project.id, 'fixture-project-panthong', 'project name/site/source room should match an existing company Project')
 assert.ok(matches[0].evidence.length >= 1)
+assert.equal(autoSelectedProjectId(existing, matches), fixture.projects[0].id, 'strong Project evidence may preselect the existing Project')
 const linked = applyLocalProjectGate(existing, 'link_existing_project', { project_id: matches[0].project.id, project_name: matches[0].project.name, match_evidence: matches[0].evidence }, '2026-08-25T04:00:00Z')
 assert.equal(projectGateStatus(linked), 'linked_existing_project')
 assert.equal(isProjectGateReady(linked), true)
@@ -21,6 +22,8 @@ assert.equal(linked.candidate_data.local_project_gate_version, 1)
 
 const newProject = fixture.candidates[1]
 const completeDraft = projectDraftFromCandidate(newProject, fixture.evidence[newProject.id])
+const weakMatches = findProjectMatches(newProject, fixture.evidence[newProject.id], fixture.projects)
+assert.equal(autoSelectedProjectId(newProject, weakMatches), '', 'one weak evidence point must not auto-link a new Project Candidate to an existing Project')
 assert.deepEqual(validateProjectDraft(completeDraft, fixture.evidence[newProject.id]), { valid: true, missing: [] })
 const pendingProject = applyLocalProjectGate(newProject, 'save_project_candidate', completeDraft, '2026-08-25T04:01:00Z')
 assert.equal(projectGateStatus(pendingProject), 'awaiting_new_project')
@@ -41,9 +44,13 @@ assert.equal(after.filter((row) => reviewFilterMatches(row, fixture.evidence[row
 
 const page = readFileSync('src/pages/MasterDataCenter/index.tsx', 'utf8')
 const panel = readFileSync('src/pages/MasterDataCenter/MasterDataProjectGatePanel.tsx', 'utf8')
+const workflow = readFileSync('src/pages/MasterDataCenter/MasterDataReviewWorkflow.tsx', 'utf8') + readFileSync('src/services/masterDataReviewWorkflow.ts', 'utf8')
+const projectService = readFileSync('src/services/masterDataProjectGate.ts', 'utf8')
 const migration = readFileSync('supabase/migrations/20260825105559_master_data_project_first_gate.sql', 'utf8')
-for (const token of ['LOCAL TEST DATA', 'MasterDataProjectGatePanel', 'save_master_data_project_gate', 'รายการถัดไป', 'linked_existing_project', 'awaiting_new_project']) assert.match(page, new RegExp(token))
-for (const token of ['Project-first Gate', 'ผูก Project เดิม', 'สร้าง/อัปเดต Project Candidate', 'ข้อมูลที่ยังขาด', 'เปิดต้นทาง', 'ขอข้อมูลเพิ่ม', 'กลับคิวตรวจ']) assert.match(panel, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+for (const token of ['LOCAL TEST DATA', 'MasterDataProjectGatePanel', 'save_master_data_project_gate', 'MasterDataReviewActions']) assert.match(page, new RegExp(token))
+for (const token of ['linked_existing_project', 'awaiting_new_project']) assert.match(projectService, new RegExp(token))
+for (const token of ['Project-first Gate', 'ผูก Project เดิม', 'สร้าง/อัปเดต Project Candidate', 'ข้อมูลที่ยังขาด', 'เปิดต้นทาง']) assert.match(panel, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+for (const token of ['ขอข้อมูลเพิ่ม', 'กลับคิว', 'รายการถัดไป']) assert.match(workflow, new RegExp(token))
 assert.doesNotMatch(page, /<Drawer anchor="bottom"/, 'validation/actions must not render in a second overlapping Drawer')
 for (const token of ['master_data_project_candidates', 'awaiting_open_project', 'save_master_data_project_gate', 'linked_existing_project', 'awaiting_information', 'master_data_candidate_versions', 'master_data_audit', 'before_data', 'after_data', 'is_company_manager', 'enable row level security', 'master_candidate_project_gate_required', "'replayed',true", 'master_candidate_event_key_conflict']) assert.match(migration, new RegExp(token))
 assert.match(migration, /revoke all on function public\.save_master_data_project_gate/)
