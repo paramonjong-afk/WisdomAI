@@ -1,4 +1,4 @@
-import { AddBusinessOutlined, LinkOutlined, OpenInNewOutlined } from '@mui/icons-material'
+import { AddBusinessOutlined, LinkOutlined, VisibilityOutlined } from '@mui/icons-material'
 import { Alert, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material'
 import { useMemo, useState } from 'react'
 import { buildMasterAutoCorrection, masterAutoRoute, type AutoInputField } from '../../services/masterDataAutoInput'
@@ -103,7 +103,7 @@ export function MasterDataProjectGatePanel({ candidate, source, projects, workPa
         <Typography variant="subtitle2">หลักฐานที่ใช้ Auto</Typography>
         <Typography variant="body2">{source.sourceChannel ?? '-'} · {source.sourceRoom ?? '-'} · ผู้ส่ง {source.sourceSender ?? '-'}</Typography>
         <Typography variant="body2">Document/Intake: {source.documentId ?? source.intakeId ?? '-'} · Message: {source.messageId ?? '-'}</Typography>
-        {(source.path || source.documentId || source.messageId) && <Button size="small" startIcon={<OpenInNewOutlined />} onClick={onOpenSource}>เปิดต้นทาง</Button>}
+        {(source.path || source.documentId || source.messageId) && <Button size="small" aria-label="เปิดต้นทางแบบแบ่งจอ" startIcon={<VisibilityOutlined />} onClick={onOpenSource}>ดูรูป/เอกสารข้างข้อมูล</Button>}
       </Paper>
 
       <Paper variant="outlined" sx={{ p: 1, bgcolor: 'action.hover' }}>

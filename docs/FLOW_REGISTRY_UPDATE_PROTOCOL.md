@@ -1,5 +1,15 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Evidence Split Review Standard + Master Data v2.2 — 26/8/2569
+
+- **เหตุผล:** Drawer ที่เปิดหลักฐานด้วย Browser Tab ใหม่ทำให้ผู้ใช้หลุดจากงานเดิมและเสี่ยงเสีย form/Tab/scroll state รวมทั้งผล Signed URL เก่าอาจกลับมาหลังเลือก Candidate ใหม่
+- **ผลกระทบ:** เพิ่ม `docs/EVIDENCE_SPLIT_REVIEW_STANDARD.md` และ `EvidenceSplitReviewWorkspace` กลาง; `/master-data` แสดงรูป/PDF ซ้ายและ Drawer ขวาบน Desktop ส่วน Tablet/Mobile สลับหลักฐานใน route เดิมโดยไม่ unmount ฟอร์ม
+- **Security/State:** ใช้ private Storage Signed URL เดิม, ไม่แสดง path/secret, preview ผูก Candidate ID + request sequence, เปลี่ยน/ปิดรายการแล้วทิ้งผล async เก่า; Raw/OCR/Source/Audit ไม่ถูกแก้
+- **Action:** ปุ่มหลักเปลี่ยนเป็น “ดูหลักฐานข้างข้อมูล”; เปิดแท็บใหม่เป็น fallback ใน viewer เท่านั้น
+- **Migration:** ไม่มี
+- **Verification:** evidence contract, Master Data contracts, targeted/full lint, typecheck, build, responsive Local browser และ authenticated Cloudflare Master Data smoke
+- **Rollback:** revert shared workspace/Drawer integration; Candidate, Source Reference, Signed Storage policy, Version และ Audit เดิมคงอยู่
+
 ## ล่าสุด: Employee Drawer Information Hub v2.7 — 26/8/2569
 
 - **เหตุผล:** Drawer เดิมเรียงทุก Section ต่อกันและไม่ดึง LINE/บัญชีธนาคาร ทำให้ยาวและแยกข้อมูลพร้อม/ขาดได้ยาก
