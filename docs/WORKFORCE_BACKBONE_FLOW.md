@@ -630,6 +630,37 @@ stateDiagram-v2
     active --> deleted : delete (ผ่าน preview + สิทธิ์เงื่อนไข)
 ```
 
+### Employee Existing Bank Candidate Link (v3.2, 26/8/2569)
+
+```mermaid
+flowchart TD
+  A[Admin เปิด Employee Drawer] --> B[ค้น Master Bank ในบริษัท]
+  B --> C{ชื่อเจ้าของ normalized ตรงพนักงาน?}
+  C -->|ไม่ตรง| D[ไม่เสนอและไม่ผูก]
+  C -->|ตรง| E[แสดงธนาคาร เลขท้าย Source และสถานะ Secure]
+  E --> F{ผูกกับบุคคลอื่นแล้ว?}
+  F -->|ใช่| G[ปิด Action พร้อมเหตุผล]
+  F -->|ไม่| H[Admin ตรวจหลักฐานและเลือกบัญชีหลัก/รอง]
+  H --> I[RPC ตรวจสิทธิ์ บริษัท ชื่อ และข้อมูลซ้ำอีกครั้ง]
+  I -->|ผ่าน| J[เชื่อม Master Bank กับ Profile]
+  J --> K[Audit existing_bank_candidate_linked]
+  K --> L{มี Secure Number?}
+  L -->|มี| M[พร้อมใช้จ่าย]
+  L -->|ไม่มี| N[แจ้งเติมเลขเต็มผ่าน Secure Store]
+  I -->|ไม่ผ่าน| O[ไม่เขียนข้อมูล + แจ้งวิธีแก้]
+```
+
+- **Input/Output:** ใช้ Profile, บริษัทปัจจุบัน และบัญชี Master ที่ชื่อ normalized ตรงกัน; ส่งออกเป็นการเชื่อมบัญชีเดิม ไม่สร้างบัญชีซ้ำและไม่เปิดเผยเลขเต็ม
+- **States:** `available → linked`; `linked_same` เป็น idempotent unchanged; `linked_other` ถูกปิด Action; บัญชีเลขท้ายอย่างเดียวยังคงไม่พร้อมจ่ายจนเติมเลขเต็ม
+- **Roles/permissions:** เฉพาะ Platform Admin, company_admin, executive และ accounting_hr; RPC ตรวจ Auth, company membership และชื่อเจ้าของซ้ำฝั่งฐานข้อมูล
+- **Integrations:** Employee Drawer → candidate RPC → `master_bank_accounts` → Secure Store readiness → Workforce Audit; Source table/ID แสดงแบบไม่เปิดข้อมูลลับ
+- **Failure/retry:** ชื่อไม่ตรง, ข้ามบริษัท, ผูกคนอื่น หรือหลักฐานไม่ครบจะไม่เขียน; retry บัญชีเดิมคืน `unchanged` และไม่สร้าง Audit ซ้ำ
+- **Owner:** HR Operations / Accounting HR
+
+| Version | วันที่ | เหตุผล/ผลกระทบ | Migration | Verification | Rollback |
+|---|---|---|---|---|---|
+| v3.2 | 26/8/2569 | ให้ Admin ใช้บัญชีที่ระบบมีอยู่แล้วได้อย่างปลอดภัย ลดการกรอกซ้ำ แต่ยังบังคับตรวจหลักฐานและไม่เดาเลขเต็ม | `20260825233255_employee_bank_candidate_link.sql` | candidate/link/permission/idempotency/Audit contract, typecheck, lint, build, migration dry-run และ authenticated Drawer smoke | ซ่อน Candidate Action และ revoke RPC; Master Bank, Secure Secret และ Audit เดิมคงอยู่ |
+
 ---
 
 ## จุดควบคุมแกนหลัง (ต้องคงไว้)

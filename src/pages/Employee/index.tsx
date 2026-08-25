@@ -67,6 +67,7 @@ type EmployeeDocumentAccess = EmployeePersonDocument & { storage_bucket: string;
 type EmployeeLineAccount = { id: string; profile_id: string; line_user_id: string; verified_at: string; active: boolean; is_primary: boolean; account_label: string | null; line_senders: { display_name: string | null } | null }
 type EmployeeLineCandidate = { line_user_id: string; display_name: string | null; picture_url: string | null; profile_id: string | null; updated_at: string }
 type EmployeeBankAccount = { id: string; profile_id: string | null; employee_person_id: string | null; bank_name: string | null; account_last4: string; verification_status: string; verified_at: string | null; secure_number_available: boolean; is_primary: boolean }
+type EmployeeBankCandidate = { id: string; owner_name: string; bank_name: string | null; account_last4: string; verification_status: string; secure_number_available: boolean; is_primary: boolean; evidence_source_table: string | null; evidence_source_id: string | null; verified_at: string | null; link_status: 'available' | 'linked_same' | 'linked_other' }
 type EmployeeContact = { employee_person_id: string; phone: string | null }
 type EmployeeSiteOption = { id: string; name: string; work_policy_id: string | null; projects: { name: string } | null }
 type EmployeeSiteAssignment = { id: string; profile_id: string; site_id: string; starts_on: string; ends_on: string | null; is_primary: boolean; project_sites: { name: string; projects: { name: string } | null } | null }
@@ -371,6 +372,10 @@ export function EmployeePage() {
   const [bankPrimary, setBankPrimary] = useState(true)
   const [bankReason, setBankReason] = useState('Admin ตรวจสอบจากเอกสารต้นฉบับและเจ้าของบัญชีแล้ว')
   const [bankSaving, setBankSaving] = useState(false)
+  const [bankEntryMode, setBankEntryMode] = useState<'candidate' | 'manual'>('candidate')
+  const [bankCandidates, setBankCandidates] = useState<EmployeeBankCandidate[]>([])
+  const [bankCandidateId, setBankCandidateId] = useState('')
+  const [bankCandidatesLoading, setBankCandidatesLoading] = useState(false)
   const [bankRevealTarget, setBankRevealTarget] = useState<EmployeeBankAccount | null>(null)
   const [bankRevealReason, setBankRevealReason] = useState('ใช้ตรวจสอบหรือจัดทำรายการจ่ายให้พนักงาน')
   const [bankRevealing, setBankRevealing] = useState(false)
@@ -798,13 +803,51 @@ export function EmployeePage() {
     }
   }
 
-  const openBankEditor = (employee: Employee, account?: EmployeeBankAccount) => {
+  const openBankEditor = async (employee: Employee, account?: EmployeeBankAccount) => {
     setBankEmployee(employee)
     setBankTarget(account ?? null)
     setBankName(account?.bank_name ?? '')
     setBankFullNumber('')
     setBankPrimary(account?.is_primary ?? true)
     setBankReason('Admin ตรวจสอบจากเอกสารต้นฉบับและเจ้าของบัญชีแล้ว')
+    setBankCandidates([])
+    setBankCandidateId('')
+    setBankEntryMode(account ? 'manual' : 'candidate')
+    if (!account) {
+      setBankCandidatesLoading(true)
+      const { data, error } = await supabase.rpc('list_employee_bank_account_candidates', { target_profile_id: employee.id })
+      setBankCandidatesLoading(false)
+      if (error) {
+        const friendly = toFriendlyError({ error, module: 'employee_bank_candidates', fallback: 'ค้นหาบัญชีเดิมไม่สำเร็จ' })
+        setErrorMessage(`${userError(friendly)}\nแนวทางแก้: ${friendly.action}`)
+        setBankEntryMode('manual')
+        return
+      }
+      const candidates = (data ?? []) as EmployeeBankCandidate[]
+      setBankCandidates(candidates)
+      const available = candidates.find((candidate) => candidate.link_status === 'available')
+      if (available) setBankCandidateId(available.id)
+      else setBankEntryMode('manual')
+    }
+  }
+
+  const linkEmployeeBankCandidate = async () => {
+    if (!bankEmployee || !bankCandidateId || bankReason.trim().length < 3) return
+    setBankSaving(true)
+    setErrorMessage('')
+    try {
+      const { data, error } = await supabase.rpc('admin_link_employee_bank_account_candidate', {
+        target_profile_id: bankEmployee.id, target_bank_account_id: bankCandidateId,
+        make_primary: bankPrimary, link_reason: bankReason.trim(),
+      })
+      if (error) throw error
+      await loadEmployees()
+      setBankEmployee(null)
+      setMessage(data?.status === 'unchanged' ? 'บัญชีนี้ผูกอยู่แล้ว ไม่มีการบันทึกซ้ำ' : data?.secure_number_available ? 'ผูกบัญชีเดิมและ Audit เรียบร้อย พร้อมใช้จ่าย' : 'ผูกบัญชีเดิมและ Audit แล้ว กรุณาเติมเลขบัญชีเต็มก่อนใช้จ่าย')
+    } catch (error) {
+      const friendly = toFriendlyError({ error, module: 'employee_bank_candidate_link', fallback: 'ผูกบัญชีเดิมไม่สำเร็จ' })
+      setErrorMessage(`${userError(friendly)}\nแนวทางแก้: ${friendly.action}`)
+    } finally { setBankSaving(false) }
   }
 
   const saveEmployeeBankAccount = async () => {
@@ -2684,7 +2727,7 @@ export function EmployeePage() {
                 </Box>
                 <Divider />
                 <Box>
-                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}><Typography variant="subtitle2">บัญชีธนาคาร</Typography>{canManageSensitiveBank && <Button size="small" startIcon={<AddOutlinedIcon />} onClick={() => openBankEditor(employeeDrawer)}>เพิ่มบัญชี</Button>}</Stack>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}><Typography variant="subtitle2">บัญชีธนาคาร</Typography>{canManageSensitiveBank && <Button size="small" startIcon={<AddOutlinedIcon />} onClick={() => void openBankEditor(employeeDrawer)}>เพิ่มบัญชี</Button>}</Stack>
                   {bankAccounts.length === 0 ? <Alert severity="warning" sx={{ mt: 1 }}>ยังไม่พบบัญชีธนาคารที่ยืนยันและเชื่อมกับพนักงานรายนี้</Alert> : <Stack spacing={0.75} sx={{ mt: 1 }}>{bankAccounts.map((account) => <Paper key={account.id} variant="outlined" sx={{ p: 1 }}><Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', justifyContent: 'space-between' }}><Box><Typography sx={{ fontWeight: 700 }}>{account.bank_name || 'ไม่ระบุธนาคาร'} · {revealedBankNumbers[account.id] || `•••• ${account.account_last4}`} {account.is_primary && <Chip size="small" color="primary" label="บัญชีหลัก" />}</Typography><Stack direction="row" spacing={0.5} useFlexGap sx={{ mt: 0.5, flexWrap: 'wrap' }}><Chip size="small" color={account.secure_number_available ? 'success' : 'warning'} label={account.secure_number_available ? 'พร้อมใช้จ่าย' : 'มีเพียงเลขท้าย · ต้องเติมเลขเต็ม'} /><Typography variant="caption" color="text.secondary">{account.verified_at ? `ยืนยัน ${new Date(account.verified_at).toLocaleString('th-TH')}` : ''}</Typography></Stack></Box>{canManageSensitiveBank && <Stack direction="row" spacing={0.25}>{account.secure_number_available && <Tooltip title="แสดงเลขบัญชีเต็ม 60 วินาที"><IconButton size="small" aria-label="แสดงเลขบัญชีเต็ม" onClick={() => { setBankRevealTarget(account); setBankRevealReason('ใช้ตรวจสอบหรือจัดทำรายการจ่ายให้พนักงาน') }}><VisibilityOutlinedIcon fontSize="small" /></IconButton></Tooltip>}<Tooltip title={account.secure_number_available ? 'แก้ไขบัญชีธนาคาร' : 'เติมเลขบัญชีเต็ม'}><IconButton size="small" color="primary" aria-label={account.secure_number_available ? 'แก้ไขบัญชีธนาคาร' : 'เติมเลขบัญชีเต็ม'} onClick={() => openBankEditor(employeeDrawer, account)}>{account.secure_number_available ? <EditOutlinedIcon fontSize="small" /> : <AddOutlinedIcon fontSize="small" />}</IconButton></Tooltip></Stack>}</Stack></Paper>)}</Stack>}
                   <Alert severity="info" sx={{ mt: 1 }}>ข้อมูลจากเอกสาร/LINE จะเป็น Candidate ก่อน และต้องให้ Admin ยืนยันเพื่อป้องกันผูกผิดคน</Alert>
                   <Button size="small" sx={{ mt: 1 }} startIcon={<AccountBalanceOutlinedIcon />} component="a" href="/master-data">ตรวจบัญชีจากหลักฐาน</Button>
@@ -2711,8 +2754,12 @@ export function EmployeePage() {
 
       <Dialog open={Boolean(bankEmployee)} onClose={() => !bankSaving && setBankEmployee(null)} fullWidth maxWidth="xs">
         <DialogTitle>{bankTarget ? (bankTarget.secure_number_available ? 'แก้ไขบัญชีธนาคาร' : 'เติมเลขบัญชีเต็ม') : 'เพิ่มบัญชีธนาคาร'} · {bankEmployee?.full_name || bankEmployee?.email}</DialogTitle>
-        <DialogContent><Stack spacing={1.5} sx={{ mt: 1 }}><Alert severity="info">เลขเต็มจะเข้ารหัสใน Secure Store; หน้าจอ รายงาน และ Log แสดงเพียง 4 ตัวท้าย</Alert><TextField autoFocus fullWidth label="เลขบัญชีเต็ม" value={bankFullNumber} onChange={(event) => setBankFullNumber(event.target.value)} placeholder={bankTarget ? `บัญชีเดิม •••• ${bankTarget.account_last4}` : 'กรอกตัวเลข 8–20 หลัก'} /><TextField fullWidth label="ธนาคาร" value={bankName} onChange={(event) => setBankName(event.target.value)} /><TextField select fullWidth label="ประเภทบัญชี" value={bankPrimary ? 'primary' : 'secondary'} onChange={(event) => setBankPrimary(event.target.value === 'primary')}><MenuItem value="primary">บัญชีหลักสำหรับรับเงิน</MenuItem><MenuItem value="secondary">บัญชีรอง</MenuItem></TextField><TextField multiline minRows={2} fullWidth label="เหตุผล / หลักฐาน" value={bankReason} onChange={(event) => setBankReason(event.target.value)} /></Stack></DialogContent>
-        <DialogActions><Button disabled={bankSaving} onClick={() => setBankEmployee(null)}>ยกเลิก</Button><Button variant="contained" disabled={bankSaving || !/^[0-9\s-]{8,24}$/.test(bankFullNumber.trim()) || bankName.trim().length < 2 || bankReason.trim().length < 3} onClick={() => void saveEmployeeBankAccount()}>{bankSaving ? <CircularProgress size={20} color="inherit" /> : 'เข้ารหัสและบันทึก'}</Button></DialogActions>
+        <DialogContent><Stack spacing={1.5} sx={{ mt: 1 }}>
+          {!bankTarget && <><Stack direction="row" spacing={1}><Button variant={bankEntryMode === 'candidate' ? 'contained' : 'outlined'} onClick={() => setBankEntryMode('candidate')} disabled={!bankCandidates.length}>เลือกบัญชีที่ระบบพบ</Button><Button variant={bankEntryMode === 'manual' ? 'contained' : 'outlined'} onClick={() => setBankEntryMode('manual')}>กรอกบัญชีใหม่</Button></Stack>{bankCandidatesLoading && <Alert severity="info">กำลังค้นหาบัญชีที่ชื่อเจ้าของตรงกับพนักงาน…</Alert>}</>}
+          {bankEntryMode === 'candidate' && !bankTarget ? <><Alert severity="info">ระบบเสนอเฉพาะบัญชีในบริษัทที่ชื่อเจ้าของตรงกัน Admin ต้องตรวจหลักฐานก่อนผูก และบัญชีของบุคคลอื่นจะเลือกไม่ได้</Alert>{bankCandidates.length === 0 && !bankCandidatesLoading ? <Alert severity="warning">ไม่พบบัญชีเดิมที่ชื่อตรงกัน กรุณากรอกบัญชีใหม่</Alert> : <TextField select fullWidth label="บัญชีที่ระบบพบ" value={bankCandidateId} onChange={(event) => setBankCandidateId(event.target.value)}>{bankCandidates.map((candidate) => <MenuItem key={candidate.id} value={candidate.id} disabled={candidate.link_status !== 'available'}>{candidate.bank_name || 'ไม่ระบุธนาคาร'} · •••• {candidate.account_last4} · {candidate.owner_name}{candidate.link_status === 'linked_other' ? ' · ผูกกับบุคคลอื่นแล้ว' : candidate.link_status === 'linked_same' ? ' · ผูกอยู่แล้ว' : ''}</MenuItem>)}</TextField>}{bankCandidateId && (() => { const candidate = bankCandidates.find((item) => item.id === bankCandidateId); return candidate ? <Alert severity={candidate.secure_number_available ? 'success' : 'warning'}>{candidate.secure_number_available ? 'มีเลขเต็มใน Secure Store พร้อมใช้จ่ายหลังผูก' : 'มีเพียงเลขท้าย หลังผูกต้องเติมเลขเต็มก่อนใช้จ่าย'} · แหล่งที่มา {candidate.evidence_source_table || 'Master Data'}{candidate.evidence_source_id ? ` / …${candidate.evidence_source_id.slice(-8)}` : ''}</Alert> : null })()}</> : <><Alert severity="info">เลขเต็มจะเข้ารหัสใน Secure Store; หน้าจอ รายงาน และ Log แสดงเพียง 4 ตัวท้าย</Alert><TextField autoFocus fullWidth label="เลขบัญชีเต็ม" value={bankFullNumber} onChange={(event) => setBankFullNumber(event.target.value)} placeholder={bankTarget ? `บัญชีเดิม •••• ${bankTarget.account_last4}` : 'กรอกตัวเลข 8–20 หลัก'} /><TextField fullWidth label="ธนาคาร" value={bankName} onChange={(event) => setBankName(event.target.value)} /></>}
+          <TextField select fullWidth label="ประเภทบัญชี" value={bankPrimary ? 'primary' : 'secondary'} onChange={(event) => setBankPrimary(event.target.value === 'primary')}><MenuItem value="primary">บัญชีหลักสำหรับรับเงิน</MenuItem><MenuItem value="secondary">บัญชีรอง</MenuItem></TextField><TextField multiline minRows={2} fullWidth label="เหตุผล / หลักฐาน" value={bankReason} onChange={(event) => setBankReason(event.target.value)} />
+        </Stack></DialogContent>
+        <DialogActions><Button disabled={bankSaving} onClick={() => setBankEmployee(null)}>ยกเลิก</Button>{bankEntryMode === 'candidate' && !bankTarget ? <Button variant="contained" disabled={bankSaving || !bankCandidateId || bankReason.trim().length < 3} onClick={() => void linkEmployeeBankCandidate()}>{bankSaving ? <CircularProgress size={20} color="inherit" /> : 'ตรวจแล้ว · ผูกบัญชีนี้'}</Button> : <Button variant="contained" disabled={bankSaving || !/^[0-9\s-]{8,24}$/.test(bankFullNumber.trim()) || bankName.trim().length < 2 || bankReason.trim().length < 3} onClick={() => void saveEmployeeBankAccount()}>{bankSaving ? <CircularProgress size={20} color="inherit" /> : 'เข้ารหัสและบันทึก'}</Button>}</DialogActions>
       </Dialog>
 
       <Dialog open={Boolean(bankRevealTarget)} onClose={() => !bankRevealing && setBankRevealTarget(null)} fullWidth maxWidth="xs">
