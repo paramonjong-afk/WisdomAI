@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "task_id": "INTAKE-PROJECT-FIRST-001",
+  "title": "Intake Project-first gate",
+  "module": "intake",
+  "objective": "Validate project context before routing new Intake evidence while preserving the original source.",
+  "owner_room": "intake-primary",
+  "branch": "codex/intake-project-first",
+  "base_commit": "0000000000000000000000000000000000000000",
+  "checkpoint_commit": null,
+  "remote": "origin",
+  "owned_paths": [
+    ".task-checkpoints/INTAKE-PROJECT-FIRST-001/**",
+    "scripts/intake-project-first.test.ts",
+    "src/pages/DocumentFlows/index.tsx"
+  ],
+  "status": "active",
+  "done": [
+    "Read the registered Intake flow and current Project routing source."
+  ],
+  "pending": [
+    "Implement and verify the Project-first validation gate."
+  ],
+  "blocker": null,
+  "next_action": "Compare the existing Intake route with the registered Project-first policy before editing.",
+  "tests": [
+    {
+      "command": "npm run test:intake-project-first",
+      "status": "pending",
+      "ran_at": null,
+      "duration_ms": null,
+      "exit_code": null
+    }
+  ],
+  "updated_at": "2026-08-25T00:00:00.000Z",
+  "actor": "example-only"
+}

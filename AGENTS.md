@@ -29,3 +29,15 @@ Every Codex thread that changes or deploys the application must read and follow 
 - If the shared workspace is dirty, preserve all existing changes and release from an isolated clean clone/worktree based on the latest GitHub `main`.
 - Do not declare deploy complete from a push, CI success, HTTP 200, or build alone. Record the live URL/revision and verify the changed page plus its destination/Intake/Audit path with the relevant authenticated role.
 - Every release handoff must include commit, workflow status, Production revision, test/build evidence, remaining blocker (or “none found”), and rollback/recovery instructions.
+
+## Auto Checkpoint Guard Standard
+
+Use the repository checkpoint commands documented in `docs/AUTO_CHECKPOINT_GUARD_FLOW.md` for work that may span context compaction, usage limits, account changes, or multiple sessions.
+
+- Initialize one durable manifest per Task ID on `codex/*` or another dedicated work branch. Never checkpoint directly on `main` or `master`.
+- Declare `owned_paths` as an explicit allowlist. The guard must stage only changed files in that allowlist, display unrelated dirty files, and never use `git add -A`.
+- Create a checkpoint at every completed milestone, before build/migration/deploy preparation, before changing Codex account, and when a usage warning, context compaction, or tool instability appears.
+- For long-running work, checkpoint at least every 15–30 minutes when there is a meaningful change. Do not claim to know the number of tokens remaining.
+- A checkpoint may run tests, `diff --check`, commit, and push only its work branch without force. It must never auto-merge `main`, auto-deploy Production, auto-apply a migration, auto-close a financial transaction, or auto-delete data/files.
+- Never store passwords, tokens, private keys, credentials, or `.env` content in task manifests, handoffs, events, commit messages, or test results.
+- When a test or push fails, keep the local checkpoint/handoff, set the task status to `blocked`, record one actionable blocker, and provide the exact resume command.

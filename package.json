@@ -129,7 +129,15 @@
     "test:filter-rule-pack": "node --experimental-strip-types scripts/filter-rule-pack.test.ts",
     "preview": "vite preview",
     "deploy:cloudflare": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-cloudflare-production.ps1",
-    "test:cloudflare-deploy": "node --experimental-strip-types scripts/cloudflare-production-deploy.test.ts"
+    "test:cloudflare-deploy": "node --experimental-strip-types scripts/cloudflare-production-deploy.test.ts",
+    "checkpoint:init": "node --experimental-strip-types scripts/task-checkpoint-guard.ts init",
+    "checkpoint:status": "node --experimental-strip-types scripts/task-checkpoint-guard.ts status",
+    "checkpoint:check": "node --experimental-strip-types scripts/task-checkpoint-guard.ts check",
+    "checkpoint:checkpoint": "node --experimental-strip-types scripts/task-checkpoint-guard.ts checkpoint",
+    "checkpoint:handoff": "node --experimental-strip-types scripts/task-checkpoint-guard.ts handoff",
+    "checkpoint:resume": "node --experimental-strip-types scripts/task-checkpoint-guard.ts resume",
+    "checkpoint:audit": "node --experimental-strip-types scripts/task-checkpoint-guard.ts audit",
+    "test:auto-checkpoint": "node --experimental-strip-types scripts/task-checkpoint-guard.test.ts"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

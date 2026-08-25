@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "task_id": "AUTO-CHECKPOINT-GUARD-20260825",
+  "title": "Auto Checkpoint Guard",
+  "module": "platform-release",
+  "objective": "Preserve source and handoff context safely across usage limits, compaction, tool instability, and Codex account changes.",
+  "owner_room": "program-general",
+  "branch": "codex/auto-checkpoint-guard",
+  "base_commit": "aba6406d23ae431bfd7d3b3969784b6de2816e45",
+  "checkpoint_commit": null,
+  "remote": "origin",
+  "owned_paths": [
+    ".task-checkpoints/AUTO-CHECKPOINT-GUARD-20260825/**",
+    "AGENTS.md",
+    "docs/AUTO_CHECKPOINT_GUARD_FLOW.md",
+    "docs/FLOW_REGISTRY_UPDATE_PROTOCOL.md",
+    "docs/examples/auto-checkpoint/intake-project-first.manifest.json",
+    "package.json",
+    "scripts/task-checkpoint-guard.test.ts",
+    "scripts/task-checkpoint-guard.ts"
+  ],
+  "status": "checkpointed",
+  "done": [
+    "Inspected repository policies, release conventions, Flow Registry, and dirty workspace.",
+    "Implemented CLI, policy, Flow documentation, example, and Git contract tests.",
+    "Contract tests passed for protected branch, explicit paths, unrelated files, no-op, failed test/push, and cross-worktree resume.",
+    "Targeted lint and typecheck passed before the self-hosted checkpoint."
+  ],
+  "pending": [
+    "Run the configured checkpoint gates and push the work branch.",
+    "Run all configured gates and push the dedicated branch."
+  ],
+  "blocker": null,
+  "next_action": "Execute the self-hosted checkpoint and verify the remote branch.",
+  "tests": [
+    {
+      "command": "npm run test:auto-checkpoint",
+      "status": "passed",
+      "ran_at": "2026-08-25T11:17:06.192Z",
+      "duration_ms": 38707,
+      "exit_code": 0
+    },
+    {
+      "command": "npx eslint scripts/task-checkpoint-guard.ts scripts/task-checkpoint-guard.test.ts --no-warn-ignored",
+      "status": "passed",
+      "ran_at": "2026-08-25T11:17:15.020Z",
+      "duration_ms": 8826,
+      "exit_code": 0
+    },
+    {
+      "command": "npm run typecheck",
+      "status": "passed",
+      "ran_at": "2026-08-25T11:17:59.781Z",
+      "duration_ms": 44761,
+      "exit_code": 0
+    },
+    {
+      "command": "npm run build",
+      "status": "passed",
+      "ran_at": "2026-08-25T11:18:58.225Z",
+      "duration_ms": 58444,
+      "exit_code": 0
+    }
+  ],
+  "updated_at": "2026-08-25T11:18:58.226Z",
+  "actor": "codex-program-general"
+}

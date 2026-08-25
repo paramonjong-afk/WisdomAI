@@ -1,0 +1,3 @@
+{"task_id":"AUTO-CHECKPOINT-GUARD-20260825","event":"task_initialized","at":"2026-08-25T11:15:54.047Z","actor":"codex-program-general","details":{"branch":"codex/auto-checkpoint-guard","base_commit":"aba6406d23ae431bfd7d3b3969784b6de2816e45"}}
+{"task_id":"AUTO-CHECKPOINT-GUARD-20260825","event":"handoff_updated","at":"2026-08-25T11:16:16.960Z","actor":"codex-program-general","details":{"status":"active","next_action":"Execute the self-hosted checkpoint and verify the remote branch."}}
+{"task_id":"AUTO-CHECKPOINT-GUARD-20260825","event":"checkpoint_prepared","at":"2026-08-25T11:18:58.229Z","actor":"codex-program-general","details":{"tests":["passed","passed","passed","passed"]}}

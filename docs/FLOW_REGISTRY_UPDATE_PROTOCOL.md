@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Auto Checkpoint Guard v1.0 — 25/8/2569
+
+- **เหตุผล:** งานพัฒนาระยะยาวอาจสูญเสียบริบทหรือ source ที่ยังไม่ push เมื่อเกิด usage warning, context compaction, tool instability หรือเปลี่ยน Codex Account
+- **ผลกระทบ:** เพิ่ม durable Task manifest/handoff/events, explicit owned-path staging, test/diff gate, deterministic checkpoint commits และ resume/audit ข้าม account/worktree; ไม่เปลี่ยน Flow ธุรกิจหรือ Production
+- **Migration:** ไม่มี; ไม่แก้ schema, Raw, business task, Audit ธุรกิจ หรือสิทธิ์
+- **Verification:** temporary Git repository contract tests สำหรับ protected branch, secret paths, unrelated dirty files, no-op, failed test/push, Windows paths และ cross-worktree resume พร้อม typecheck/lint/build
+- **Rollback:** revert CLI/npm scripts/policy/docs และหยุดใช้ checkpoint commands; เก็บ task branch/manifest ที่ยังต้อง handoff จนยืนยันว่าไม่ต้อง resume
+
 ## ล่าสุด: HR Intake Obvious Non-HR Classification v1.4 — 25/8/2569
 
 - **เหตุผล:** หลัง reconcile system output เหลือ Raw pending หนึ่งรายการที่เป็น UAT/งานพัฒนาชัดเจน ไม่ควรค้างใน HR Gate
