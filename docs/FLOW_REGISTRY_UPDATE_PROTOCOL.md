@@ -1,5 +1,15 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Accounting Money Allocation & Root/Parent Lineage v1.5 — 26/8/2569
+
+- **เหตุผล:** Money Lineage เดิมเก็บวัตถุประสงค์เดียวต่อสลิปและหลายทอดใน JSON เดียว จึงแบ่งค่าแรง/วัสดุ/หลายโครงการหรือเชื่อมสลิปการใช้เงินกลับกองเงินต้นทางไม่ได้อย่างตรวจสอบได้
+- **ผลกระทบ:** `/accounting-documents` แยก Transfer Fact ออกจาก Allocation; สลิปหนึ่งใบแบ่งหลาย Allocation/Project/Site ได้ และสลิปคนละใบเชื่อม `parent_lineage_id`/`root_lineage_id`; เงินสำรองยังต้องเป็น Allocation เฉพาะก่อนเชื่อมสลิปการใช้เงินจริงภายหลัง
+- **Gate/Route:** ยืนยันได้เมื่อ `ยอดสลิป = รวม Allocation + ยอดคืน + ยอดยังไม่จัดสรร` และยอดยังไม่จัดสรรเป็นศูนย์; ค่าแรง→HR, วัสดุ→Inventory+Project, โครงการ/ผู้รับเหมา/เดินทาง→Project, ค่าใช้จ่ายทั่วไป/ผู้ขาย/ภาษี/ค่าธรรมเนียม→Accounting Posting, เงินสำรอง→Advance เมื่อจับคู่ผู้ถือเงินได้
+- **Data/Audit:** Raw/OCR/Source ไม่ถูกแก้; Allocation ก่อนหน้าคงเป็น `superseded`, event เก็บ before/after, actor, time, Root/Parent, route และยอดกระทบ; RPC ใช้ event key ป้องกันคำสั่งซ้ำ
+- **Migration:** `20260826220000_transfer_slip_money_allocations_v2.sql`
+- **Verification:** allocation/root-parent/balance/advance-exclusive contracts, migration dry-run, targeted/full lint, typecheck, build และ authenticated Accounting/Project/HR/Advance smoke
+- **Rollback:** revoke/ซ่อน RPC/UI v2 และกลับใช้ Money Lineage v1; เก็บ Allocation/Root/Parent/Audit เพื่อ recovery ห้ามลบ Raw/OCR/Document Flow Item
+
 ## ล่าสุด: Master Data Employee Advance Funding v2.3 — 26/8/2569
 
 - **เหตุผล:** รายการเติมเงินทดลองจ่ายเป็นการมอบเงินให้พนักงานถือไว้ก่อนเกิดค่าใช้จ่าย จึงยังไม่มี Project ที่ถูกต้อง; การบังคับ Project ทำให้ผู้ใช้ต้องสร้าง Project เทียมและรายการค้างใน Master Data
@@ -135,7 +145,6 @@
 - **Data/Audit:** ไม่มี migration และไม่แก้ Raw/OCR/ข้อมูลธุรกิจย้อนหลัง; รายการจริงยังคง `needs_review` พร้อม Version/Audit จาก `request_info` และรอผู้ใช้ทำ Project → Correction → Confirm ต่อ
 - **Verification:** exact-row/audit/RPC evidence แบบ read-only, projection/persistence regression, rollback-only RPC probe, typecheck, targeted/full lint, build, Local browser และ authenticated Cloudflare smoke
 - **Rollback:** revert v1.6 frontend/service/projection; ข้อมูล Candidate, Version, Audit และ Source Reference ที่มีอยู่ไม่เปลี่ยน
-
 ## ล่าสุด: Master Data Project-first Gate v1.4 — 25/8/2569
 
 - **เหตุผล:** Drawer เดิมแก้ค่าได้แต่ validation อยู่หลัง Drawer และรายการยังค้างโดยไม่บอกว่าต้องจำแนก Project ก่อนยืนยัน
