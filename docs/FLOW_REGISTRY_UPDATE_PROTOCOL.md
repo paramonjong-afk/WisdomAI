@@ -1,5 +1,12 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Reserve-fund Vendor via Personal Account UI v1.8 — 27/8/2569
+
+- **เหตุผล:** ประเภทเดิมชื่อ `จ่ายผู้ขาย` ทำให้ Admin ไม่ทราบว่าใช้กับกรณีเงินสำรองจ่ายซึ่งสลิปเข้าบัญชีบุคคลได้
+- **ผลกระทบ:** Accounting Transfer Slip Drawer แสดง `จ่ายผู้ขายผ่านบัญชีบุคคล (เงินสำรองจ่าย)` และย้ำให้เลือกแหล่งเงิน `เงินสำรองจ่าย`; เจ้าของบัญชียังคงแยกจาก Vendor Master
+- **Data/Migration:** ไม่มี schema change; คง `vendor_payment`, Vendor Match, Money Lineage, RLS/Audit/idempotency เดิม
+- **Verification/Rollback:** UI contract, typecheck, lint, build และ Production Drawer; revert label/help text โดยไม่เปลี่ยนข้อมูล
+
 ## ล่าสุด: Confirmed Master Duplicate Group Reconciliation v3.5 — 27/8/2569
 
 - **เหตุผล:** ยืนยัน Candidate หนึ่งต้นทางแล้ว แต่หลักฐานชื่อ+เลขท้ายเดียวกันที่เหลือยังคงสถานะเปิด ทำให้กลุ่มเดิมย้อนมาแสดงใน Review Queue

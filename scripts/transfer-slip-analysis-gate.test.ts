@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { buildSlipAnalysisGate, inferSlipMoneyPurpose, slipPurposeNeedsFundHolder, slipPurposeNeedsProject } from '../src/services/transferSlipAnalysisGate.ts'
 import { emptyMoneyLineage } from '../src/services/transferSlipMoneyLineage.ts'
 import type { TransferSlipQueueRow } from '../src/services/accountingTransferSlipQueue.ts'
+import { readFileSync } from 'node:fs'
 
 const row = (overrides: Partial<TransferSlipQueueRow> = {}): TransferSlipQueueRow => ({
   taskId: 'task-1', itemId: 'item-1', intakeId: 'intake-1', sourceMessageId: 'message-1', createdAt: '2026-08-27T00:00:00Z', taskStatus: 'pending',
@@ -40,5 +41,6 @@ assert.ok(blocked.blockers.includes('ยืนยันประเภทเง�
 assert.equal(slipPurposeNeedsProject('materials'), true)
 assert.equal(slipPurposeNeedsProject('advance_transfer'), false)
 assert.equal(slipPurposeNeedsFundHolder('advance_transfer'), true)
+assert.match(readFileSync('src/pages/AccountingDocuments/index.tsx', 'utf8'), /จ่ายผู้ขายผ่านบัญชีบุคคล \(เงินสำรองจ่าย\)/)
 
 console.log('transfer slip analysis gate passed: type-aware fields, explicit blockers and confirmed auto-route state')
