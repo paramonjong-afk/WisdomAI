@@ -1,16 +1,23 @@
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
-  Chip, Divider, Drawer, IconButton, MenuItem, Paper, Stack, Tab, Tabs, TextField, Tooltip, Typography,
+  Chip, Divider, Drawer, IconButton, Menu, MenuItem, Paper, Stack, Tab, Tabs, TextField, Tooltip, Typography,
   Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow,
 } from '@mui/material'
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined'
 import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined'
+import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
+import FilterListOutlinedIcon from '@mui/icons-material/FilterListOutlined'
+import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined'
+import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
+import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined'
+import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined'
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '../../components/PageHeader'
-import { StandardDataTable } from '../../components/StandardDataTable'
+import { StandardDataTable, type StandardDataTableTools } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
@@ -346,6 +353,9 @@ export function EmployeePage() {
   const { user, profile, refreshProfile, currentCompany, signOut } = useAuth()
   const [searchParams,setSearchParams]=useSearchParams()
   const [employeeListFilter, setEmployeeListFilter]=useState<'active'|'resigned'|'all'>('active')
+  const [employeeFilterAnchor, setEmployeeFilterAnchor] = useState<HTMLElement | null>(null)
+  const employeeTableToolsRef = useRef<StandardDataTableTools | null>(null)
+  const employeeSearchActionsRef = useRef<{ toggle: () => void } | null>(null)
   const canManage = profile?.role === 'admin'
     || profile?.role === 'manager'
     || ['company_admin', 'executive', 'manager', 'site_supervisor'].includes(currentCompany?.company_role ?? '')
@@ -2134,25 +2144,32 @@ export function EmployeePage() {
         title="พนักงาน"
         description="กำหนดชื่อที่ใช้แสดงในระบบและข้อความแจ้งเตือน LINE"
         action={canCreate && tab === 0 ? (
-          <Stack direction="row" spacing={1}>
-            <Button variant="outlined" onClick={() => void refreshWithProfile()} disabled={loading}>
-              รีเฟรชรายชื่อ
-            </Button>
-            <Button variant="outlined" onClick={() => void refreshWithProfile()} disabled={loading}>
-              อัปเดตสิทธิ์และรายชื่อ
-            </Button>
-            <Button
-              variant="contained"
-              onClick={() => {
+          <Stack direction="row" spacing={0.5} sx={{ alignSelf: { xs: 'stretch', sm: 'flex-start' }, justifyContent: 'flex-end' }}>
+            <Tooltip title="รีเฟรชรายชื่อ">
+              <span><IconButton color="primary" onClick={() => void refreshWithProfile()} disabled={loading} aria-label="รีเฟรชรายชื่อ"><RefreshOutlinedIcon /></IconButton></span>
+            </Tooltip>
+            <Tooltip title="อัปเดตสิทธิ์และรายชื่อ">
+              <span><IconButton color="primary" onClick={() => void refreshWithProfile()} disabled={loading} aria-label="อัปเดตสิทธิ์และรายชื่อ"><ManageAccountsOutlinedIcon /></IconButton></span>
+            </Tooltip>
+            <Tooltip title="เพิ่มพนักงาน">
+              <span><IconButton color="primary" aria-label="เพิ่มพนักงาน" onClick={() => {
                 setCreateEmployeeAction('')
                 setCreateEmployeeErrorCode('')
                 setErrorMessage('')
                 clearCreateForm()
                 setCreateOpen(true)
-              }}
-            >
-              เพิ่มพนักงาน
-            </Button>
+              }}><AddOutlinedIcon /></IconButton></span>
+            </Tooltip>
+            <Tooltip title="ตัวกรองรายชื่อ"><IconButton size="small" onClick={(event) => setEmployeeFilterAnchor(event.currentTarget)} aria-label="ตัวกรองรายชื่อ"><FilterListOutlinedIcon /></IconButton></Tooltip>
+            <Menu anchorEl={employeeFilterAnchor} open={Boolean(employeeFilterAnchor)} onClose={() => setEmployeeFilterAnchor(null)}>
+              <MenuItem selected={employeeListFilter === 'active'} onClick={() => { setEmployeeListFilter('active'); setEmployeeFilterAnchor(null) }}>พนักงานปกติ ({activeEmployees.length})</MenuItem>
+              <MenuItem selected={employeeListFilter === 'resigned'} onClick={() => { setEmployeeListFilter('resigned'); setEmployeeFilterAnchor(null) }}>พนักงานลาออก ({resignedEmployees.length})</MenuItem>
+              <MenuItem selected={employeeListFilter === 'all'} onClick={() => { setEmployeeListFilter('all'); setEmployeeFilterAnchor(null) }}>รวมพนักงานทั้งหมด ({employees.length})</MenuItem>
+            </Menu>
+            <Tooltip title="ค้นหา"><IconButton size="small" onClick={() => employeeSearchActionsRef.current?.toggle()} aria-label="ค้นหาพนักงาน"><SearchOutlinedIcon /></IconButton></Tooltip>
+            <Tooltip title="ตั้งค่าคอลัมน์"><IconButton size="small" onClick={(event) => employeeTableToolsRef.current?.openColumnSettings(event.currentTarget)} aria-label="ตั้งค่าคอลัมน์"><SettingsOutlinedIcon /></IconButton></Tooltip>
+            <Tooltip title="ส่งออก CSV"><IconButton size="small" onClick={() => employeeTableToolsRef.current?.exportCsv()} aria-label="ส่งออก CSV"><DownloadOutlinedIcon /></IconButton></Tooltip>
+            <Tooltip title="ส่งออก PDF"><IconButton size="small" onClick={() => employeeTableToolsRef.current?.exportPdf()} aria-label="ส่งออก PDF"><PictureAsPdfOutlinedIcon /></IconButton></Tooltip>
           </Stack>
         ) : undefined}
       />
@@ -2174,27 +2191,6 @@ export function EmployeePage() {
         <Stack sx={{ alignItems: 'center', py: 6 }}><CircularProgress /></Stack>
       ) : (
         <Stack spacing={2}>
-          <Paper variant="outlined" sx={{ p: 2 }}>
-            <Stack
-              direction={{ xs: 'column', md: 'row' }}
-              spacing={1}
-              sx={{ alignItems: { xs: 'stretch', md: 'center' } }}
-            >
-              <TextField
-                select
-                value={employeeListFilter}
-                onChange={(event) => setEmployeeListFilter(event.target.value as 'active'|'resigned'|'all')}
-                size="small"
-                label="แสดงรายชื่อ"
-                sx={{ minWidth: 220 }}
-              >
-                <MenuItem value="active">พนักงานปกติ ({activeEmployees.length})</MenuItem>
-                <MenuItem value="resigned">พนักงานลาออก ({resignedEmployees.length})</MenuItem>
-                <MenuItem value="all">รวมพนักงานทั้งหมด ({employees.length})</MenuItem>
-              </TextField>
-              <Chip size="small" label={`ลาออก: ${resignedEmployees.length}`} color="warning" variant={employeeListFilter === 'resigned' ? 'filled' : 'outlined'} />
-            </Stack>
-          </Paper>
           <StandardDataTable
             rows={visibleEmployees}
             getRowId={(employee) => employee.id}
@@ -2203,6 +2199,10 @@ export function EmployeePage() {
             emptyText={employeeListFilter === 'resigned' ? 'ยังไม่มีรายชื่อพนักงานลาออก' : employeeListFilter === 'all' ? 'ยังไม่มีรายชื่อพนักงานในระบบ' : 'ยังไม่มีรายชื่อพนักงานปกติ'}
             exportFileName="wisdomai-employees"
             minWidth={760}
+            compactToolbar
+            hideBuiltInToolbarActions
+            onToolsReady={(tools) => { employeeTableToolsRef.current = tools }}
+            onSearchReady={(actions) => { employeeSearchActionsRef.current = actions }}
             columns={[
             {
               id: 'employee', label: 'พนักงาน', minWidth: 230,

@@ -1,5 +1,20 @@
 # WisdomAI — สถานะงานและรายการตรวจรับ
 
+## รอบปิดงาน 26/8/2569 — HR และ Intake
+
+### ทำใน release นี้
+
+- `HR-UI-ACTION-20260826`: หน้า `/employees` ใช้ Action กลางที่หัวหน้าเพจสำหรับเพิ่ม รีเฟรช กรอง ค้นหา ตั้งค่าคอลัมน์ และส่งออก โดยตัด Toolbar ตัวกรองที่ซ้ำออกและคง Drawer/Onboarding รุ่นล่าสุดไว้
+- `INTAKE-EVIDENCE-SPLIT-20260826`: Drawer สลิปหน้า `/accounting-documents` แยก 3 ชั้นชัดเจน: หลักฐานเดิมอ่านอย่างเดียว, OCR/Derived ที่แก้พร้อม Audit และข้อมูลธุรกิจที่ยืนยันแล้วสำหรับกระทบยอด
+- ไม่มีการเขียนทับ Raw/รูปสลิป/Source Reference และไม่มีการแก้ยอด Production ในขั้นพัฒนา
+
+### งานค้างหลัง deploy
+
+- `INTAKE-CONFIRMED-MAPPING-UAT`: เปิดสลิปที่มีผู้โอนตามหลักฐานต่างจากผู้จ่ายจริงอย่างน้อย 1 รายการ ตรวจว่าทั้งสองค่าปรากฏพร้อมกันและสถานะยืนยันถูกต้อง
+- `ADVANCE-PAYROLL-DATA-CLOSE`: รายการ Advance/ค่าแรงเงินจริงยังต้องให้บัญชีตรวจ Allocation, Owner, วันที่ และหลักฐานก่อนสร้าง Payroll Line หรือตัดยอด ห้าม Final Lock อัตโนมัติ
+- `AUTO-CHECKPOINT-MERGE`: branch `codex/auto-checkpoint-guard` commit `30d36a4` ยังรอ Pull Request/merge แยกจาก release นี้
+- ถ้า push/deploy ถูกปฏิเสธ ให้เก็บ commit release บน branch นี้ พร้อมบันทึกคำสั่งที่ล้มเหลวและ revision ปลายทาง ห้าม force-push หรือทับ `main`
+
 ## งานรอดำเนินการ: Employee Identity & Completeness
 
 ### EMP-IDENTITY-004 — Existing Employee Resolution ก่อนสร้าง Preboarding

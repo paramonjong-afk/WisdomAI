@@ -1486,12 +1486,31 @@ export function AccountingDocumentsPage() {
         <Paper variant="outlined" sx={{ p: 1.5 }}><Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Source Reference</Typography><Typography variant="body2">{selectedSlip.sourceChannel ?? 'ไม่ระบุ'} · {selectedSlip.sourceRoomName ?? 'ไม่ระบุห้อง'} · {selectedSlip.sourceSenderName ?? 'ไม่ระบุผู้ส่ง'}</Typography><Typography variant="caption" color="text.secondary">Message ID: {selectedSlip.sourceMessageId ?? '-'}</Typography></Paper>
         </>}
         {slipDetailTab === 1 && slipReviewDraft && slipMoneyLineageDraft && <>
-          <Alert severity="info">แก้ค่าที่อ่านไม่ได้ได้ทันที ค่า AI เป็นเพียงข้อเสนอ ระบบบันทึกผู้แก้ เวลา และค่าก่อน/หลังทุกครั้ง</Alert>
+          <Alert severity="info">ข้อมูลถูกแยกเป็น 3 ชั้น: หลักฐานต้นฉบับ, ข้อมูล OCR/Derived ที่ตรวจแก้ได้ และข้อมูลธุรกิจที่ยืนยันแล้ว ระบบไม่ลบรูปหรือ Source เดิม และบันทึกผู้แก้ เวลา พร้อมค่าก่อน/หลังทุกครั้ง</Alert>
           <Paper variant="outlined" sx={{ p: 1.5, borderLeft: 4, borderLeftColor: 'primary.main' }}><Stack spacing={1}>
             <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>เส้นทางเอกสารและเส้นทางเงิน</Typography>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap sx={{ alignItems: { sm: 'center' }, flexWrap: 'wrap' }}><Chip label="ต้นทาง: Intake" /><Typography>→</Typography><Chip color="primary" label="ปัจจุบัน: บัญชีตรวจสลิป" /><Typography>→</Typography><Chip color={slipMoneyLineageDraft.allocations.some(allocation => allocation.purposeType === 'unknown') ? 'warning' : 'secondary'} label={`ถัดไป: ${moneyAllocationDestinations(slipMoneyLineageDraft.allocations).map(route => route.replace('บัญชี → ', '')).join(' + ')}`} /></Stack>
             {slipMoneyLineageStatus && <Typography variant="caption" color="text.secondary">สถานะสายเงิน: {slipMoneyLineageStatus.routeStatus} · ปลายทางระบบ: {slipMoneyLineageStatus.nextDestination}</Typography>}
           </Stack></Paper>
+          <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'grey.50' }}><Stack spacing={1}>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>1. หลักฐานเดิมจากสลิป · อ่านอย่างเดียว</Typography>
+              <Chip size="small" label="SOURCE / ไม่เขียนทับ" />
+            </Stack>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1 }}>
+              <Typography variant="body2"><strong>ผู้โอนตามหลักฐาน:</strong> {selectedSlip.senderName ?? 'อ่านไม่ได้'}</Typography>
+              <Typography variant="body2"><strong>บัญชีผู้โอน:</strong> {selectedSlip.senderBankName ?? 'ไม่ระบุ'} · •••• {selectedSlip.senderAccountLast4 ?? '----'}</Typography>
+              <Typography variant="body2"><strong>ผู้รับตามหลักฐาน:</strong> {selectedSlip.recipientName ?? 'อ่านไม่ได้'}</Typography>
+              <Typography variant="body2"><strong>บัญชีผู้รับ:</strong> {selectedSlip.recipientBankName ?? 'ไม่ระบุ'} · •••• {selectedSlip.recipientAccountLast4 ?? '----'}</Typography>
+              <Typography variant="body2"><strong>ยอดตามหลักฐาน:</strong> {money(selectedSlip.amount)}</Typography>
+              <Typography variant="body2"><strong>เวลาโอน:</strong> {selectedSlip.transferAt ? new Date(selectedSlip.transferAt).toLocaleString('th-TH') : 'ไม่ระบุ'}</Typography>
+            </Box>
+            <Typography variant="caption" color="text.secondary">แหล่งอ้างอิง: Document ID {selectedSlip.intakeId ?? selectedSlip.itemId} · Message ID {selectedSlip.sourceMessageId ?? '-'}</Typography>
+          </Stack></Paper>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>2. ข้อมูล OCR / Derived ที่บัญชีตรวจแก้</Typography>
+            <Chip size="small" color="warning" label="ทุกการแก้มี Audit" />
+          </Stack>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
             <TextField label="วันที่และเวลาโอน" type="datetime-local" value={slipReviewDraft.transferAt} onChange={event => setSlipReviewDraft(current => current && ({ ...current, transferAt: event.target.value }))} slotProps={{ inputLabel: { shrink: true } }} />
             <TextField label="จำนวนเงินตามสลิป" type="number" value={slipReviewDraft.amount} onChange={event => { const amount = event.target.value; setSlipReviewDraft(current => current && ({ ...current, amount })); setSlipMoneyLineageDraft(current => current && ({ ...current, paidAmount: amount, remainingAmount: calculateUnallocatedAmount(amount === '' ? null : Number(amount), current.allocations, current.returnedAmount) })) }} />
@@ -1503,13 +1522,20 @@ export function AccountingDocumentsPage() {
             <TextField label="เลขบัญชีผู้รับ 4 ตัวท้าย" value={slipReviewDraft.recipientAccountLast4} onChange={event => setSlipReviewDraft(current => current && ({ ...current, recipientAccountLast4: event.target.value.replace(/\D/g, '').slice(0, 4) }))} />
             <TextField label="เลขอ้างอิงธนาคาร" value={slipReviewDraft.bankReference} onChange={event => setSlipReviewDraft(current => current && ({ ...current, bankReference: event.target.value }))} sx={{ gridColumn: { sm: '1 / -1' } }} />
           </Box>
-          <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>แหล่งเงินและความสัมพันธ์กับเส้นเงินก่อนหน้า</Typography>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>3. ข้อมูลธุรกิจที่ยืนยัน · แหล่งเงินและผู้จ่ายจริง</Typography>
+            <Chip
+              size="small"
+              color={!slipMoneyLineageStatus ? 'warning' : ['draft', 'accounting_review'].includes(slipMoneyLineageStatus.routeStatus) ? 'warning' : 'success'}
+              label={!slipMoneyLineageStatus ? 'ยังไม่มีข้อมูลยืนยัน' : ['draft', 'accounting_review'].includes(slipMoneyLineageStatus.routeStatus) ? 'บันทึกแล้ว · รอยืนยัน' : 'ยืนยันแล้ว'}
+            />
+          </Stack>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
             <TextField select label="เงินที่จ่ายมาจากไหน" value={slipMoneyLineageDraft.fundingSourceType} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, fundingSourceType: event.target.value as MoneyFundingSource }))}><MenuItem value="unknown">ยังไม่ทราบ</MenuItem><MenuItem value="company_account">บัญชีบริษัท</MenuItem><MenuItem value="reserve_fund">เงินสำรองจ่าย</MenuItem><MenuItem value="employee_advance">เงินทดลองจ่าย/เบิกล่วงหน้า</MenuItem><MenuItem value="personal_reimbursement">เงินส่วนตัวสำรองก่อน</MenuItem></TextField>
             <TextField label="รหัสกองเงิน / Advance ID" value={slipMoneyLineageDraft.fundingSourceReference} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, fundingSourceReference: event.target.value }))} />
-            <TextField label="ผู้ถือเงิน" value={slipMoneyLineageDraft.fundHolderName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, fundHolderName: event.target.value }))} helperText="บังคับเมื่อเป็นเงินสำรองหรือเงินทดลองจ่าย" />
-            <TextField label="ผู้จ่ายจริง" value={slipMoneyLineageDraft.payerName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, payerName: event.target.value }))} />
-            <TextField label="ผู้รับตามสลิป" value={slipMoneyLineageDraft.finalBeneficiaryName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, finalBeneficiaryName: event.target.value }))} />
+            <TextField label="ผู้ถือเงินจริงที่ยืนยัน" value={slipMoneyLineageDraft.fundHolderName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, fundHolderName: event.target.value }))} helperText="บังคับเมื่อเป็นเงินสำรองหรือเงินทดลองจ่าย · ไม่เปลี่ยนชื่อบนสลิป" />
+            <TextField label="ผู้จ่ายจริงที่ยืนยัน" value={slipMoneyLineageDraft.payerName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, payerName: event.target.value }))} helperText="ใช้สำหรับกระทบยอดและรายงาน ไม่เขียนทับผู้โอนตามหลักฐาน" />
+            <TextField label="ผู้รับจริงที่ยืนยัน" value={slipMoneyLineageDraft.finalBeneficiaryName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, finalBeneficiaryName: event.target.value }))} helperText="แยกจากผู้รับที่ AI/OCR อ่านจากสลิป" />
             <TextField select label="เชื่อมจากเส้นเงินก่อนหน้า (ถ้ามี)" value={slipMoneyLineageDraft.parentLineageId} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, parentLineageId: event.target.value }))} helperText="ใช้เชื่อม บริษัท → ผู้ถือเงิน → ค่าแรง/วัสดุ/โครงการ โดยไม่สร้างสลิปซ้ำ"><MenuItem value="">เป็นต้นทางใหม่</MenuItem>{moneyLineageOptions.map(option => <MenuItem key={option.id} value={option.id}>{option.payer_name ?? 'ไม่ทราบผู้จ่าย'} → {option.final_beneficiary_name ?? 'ไม่ทราบผู้รับ'} · {money(option.paid_amount)} · {new Date(option.updated_at).toLocaleDateString('th-TH')}</MenuItem>)}</TextField>
           </Box>
 

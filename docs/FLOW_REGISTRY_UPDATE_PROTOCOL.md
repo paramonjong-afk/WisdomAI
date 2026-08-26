@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: HR Action Standard + Intake Evidence Split — 26/8/2569
+
+- **HR:** `/employees` รวม Action เพิ่ม/รีเฟรช/กรอง/ค้นหา/ส่งออกไว้ที่ PageHeader และใช้ `StandardDataTable` เป็นเครื่องมือกลาง โดยคง Employee Drawer/Onboarding ล่าสุด
+- **Intake → Accounting:** Drawer สลิปแสดง `หลักฐานเดิม → OCR/Derived → ข้อมูลธุรกิจที่ยืนยัน → Allocation/ปลายทาง` เพื่อไม่ให้ชื่อผู้โอนบนสลิปปนกับผู้จ่ายจริงหรือผู้ถือเงิน
+- **Data rule:** รูป/Raw/Source Reference read-only; การแก้ Derived และข้อมูลธุรกิจต้องมี before/after, actor, เวลา และ Audit เดิม
+- **Verification:** HR UI contract, Accounting transfer-slip contract, lint, typecheck, build และ authenticated Cloudflare smoke
+- **Rollback:** revert UI release ได้โดยไม่ลบ Raw, Money Lineage, Allocation หรือ Audit
+
 ## ล่าสุด: Employee advance UUID matching fix — 26/8/2569
 
 - **Scope:** Master Data → reviewed transfer parties → Accounting → Advance Finance.
