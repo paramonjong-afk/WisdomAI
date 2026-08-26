@@ -25,7 +25,7 @@
 - **ผลกระทบ:** หลัง Accounting ยืนยัน Allocation `payroll`/`advance_transfer` ระบบจับคู่ exact normalized name หรือ confirmed alias แล้วสร้างบัญชีพัก `matched_pending_review`; `/advance-settlements` แสดง Advance, ค่าแรงจ่ายแล้ว และยอดรอตรวจแยกรายช่าง โดยยังไม่เปลี่ยน Payroll Final
 - **Gate/Math:** duplicate/dismissed ไม่เข้า ledger, ชื่อไม่ตรงหรือกำกวมเข้าคิวตรวจ, วันที่ผิดเป็น `unverified`; ค่าแรงสุทธิ = ค่าแรงเกิดจริง + เพิ่ม - หักอื่น - ค่าแรงจ่ายแล้ว - Advance recovery และ recovery ไม่เกินยอดที่ยังจ่ายได้
 - **Data/Audit:** Source Transaction/OCR/Document ID คงเดิม; entry ใช้ `source_key`/`event_key` กันซ้ำ, Review เก็บ before/after และ correction สร้าง Adjustment ที่อ้างรายการเดิม ห้าม delete/rewrite
-- **Migration:** `20260826231000_employee_money_ledger.sql`
+- **Migration:** `20260826231000_employee_money_ledger.sql`, `20260826231500_employee_money_legacy_backfill.sql`
 - **Verification:** ledger math/name/duplicate/date/adjustment contract, migration checks, typecheck, lint, build และ authenticated Advance page smoke
 - **Rollback:** ปิด allocation projection trigger และ revoke RPC/ซ่อนตารางสรุป; เก็บ ledger/audit/source ไว้เพื่อ recovery และไม่ย้อนหรือลบ Payroll/สลิปเดิม
 

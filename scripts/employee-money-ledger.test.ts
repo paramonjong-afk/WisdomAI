@@ -43,6 +43,7 @@ assert.deepEqual(calculatePayrollOffsetPreview({
 })
 
 const migration = readFileSync('supabase/migrations/20260826231000_employee_money_ledger.sql', 'utf8')
+const backfill = readFileSync('supabase/migrations/20260826231500_employee_money_legacy_backfill.sql', 'utf8')
 for (const marker of [
   'employee_money_ledger_entries',
   'employee_money_ledger_audit',
@@ -58,5 +59,10 @@ for (const marker of [
 ]) assert.match(migration, new RegExp(marker), `migration should contain ${marker}`)
 assert.doesNotMatch(migration, /delete\s+from\s+public\.employee_money_ledger_entries/i)
 assert.match(migration, /revoke\s+insert\s*,\s*update\s*,\s*delete[\s\S]+employee_money_ledger_entries/i)
+assert.match(backfill, /employee_money_legacy_candidates/i)
+assert.match(backfill, /expense_type = 'advance'/i)
+assert.match(backfill, /expense_type = 'labor' and review_status = 'confirmed'/i)
+assert.match(backfill, /project_employee_money_source/i)
+assert.doesNotMatch(backfill, /employee_payrolls|employee_payroll_lines|delete\s+from/i)
 
 console.log('employee money ledger contract and math: PASS')
