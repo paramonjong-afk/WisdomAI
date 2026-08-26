@@ -5,6 +5,9 @@
 ```mermaid
 flowchart LR
   A[เอกสาร/LINE/กรอก Manual] --> B[Bank Candidate: ชื่อ ธนาคาร เลขท้าย]
+  B --> B1[Admin ค้นด้วยเลขท้าย 4 ตัว\ncompany-scoped + masked result]
+  B1 -->|ชื่อตรงและยังไม่ผูก| C
+  B1 -->|ชื่อไม่ตรง/ผูกคนอื่น| D
   B --> C{Admin/การเงินยืนยันเจ้าของและเลขเต็ม}
   C -->|ยังไม่ครบ| D[แสดงมีเพียงเลขท้าย\nยังไม่พร้อมใช้จ่าย]
   C -->|ครบ| E[HMAC Fingerprint + AES256 Encryption]
@@ -17,6 +20,7 @@ flowchart LR
 ```
 
 - **Input/Output:** รับ Candidate เดิมหรือกรอกเลขเต็มจากหลักฐาน; Public Master เก็บเฉพาะธนาคาร/4 ตัวท้าย/fingerprint/status ส่วนเลขเต็มเป็น ciphertext ใน private schema
+- **Candidate search:** Admin ค้นด้วยเลขท้าย 4 ตัวได้เฉพาะบัญชีในบริษัทปัจจุบัน ผลลัพธ์แสดงแบบปกปิด; ผูกได้เมื่อชื่อเจ้าของตรงและบัญชียังไม่ผูกกับบุคคลอื่นเท่านั้น
 - **States:** candidate → last4_only → secure_verified → primary/secondary → inactive/archived; รายการเดิมไม่ถูกเดาและคง `last4_only` จน Admin เติมเลขเต็ม
 - **Roles/Permissions:** เพิ่ม แก้ และเปิดดูเลขเต็มได้เฉพาะ Platform Admin หรือ company role `company_admin`, `executive`, `accounting_hr`; anonymous/พนักงานทั่วไป/ผู้คุมไซต์ถูกปฏิเสธ
 - **Integrations:** Employee Drawer, Master Data Candidate, Supabase Vault key, pgcrypto, Workforce Audit; Payroll/Payment อ่านเลขเต็มผ่าน audited RPC เท่านั้นในงานถัดไป
@@ -24,6 +28,7 @@ flowchart LR
 - **Audit:** เพิ่ม/แก้/เปิดดูเก็บ actor, company, employee, bank id, reason, before/after แบบปกปิด; ห้ามบันทึกเลขเต็ม
 - **Owner:** Finance/HR Data Controller และ Platform Security Owner
 - **Migration/Verification/Rollback:** `20260826203000_employee_bank_account_secure_store.sql` และ `20260826204500_employee_bank_secret_audit_fk_indexes.sql`; ตรวจ ciphertext/fingerprint/RPC privilege/idempotency/Audit, FK advisor และหน้า authenticated; rollback ซ่อน Action/revoke RPC โดยคง ciphertext, Master และ Audit เพื่อ recovery
+- **v3.2 (27/8/2569):** เพิ่ม `20260826232000_employee_bank_candidate_last4_search.sql` สำหรับค้นหา Candidate ด้วยเลขท้าย 4 ตัวแบบ company-scoped/masked; rollback โดย revoke RPC และซ่อนช่องค้นหา โดยไม่ลบบัญชีหรือ Audit
 
 ## Employee Contact Action v3.0 — 26/8/2569
 

@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Employee Bank Last-4 Candidate Search v3.2 — 27/8/2569
+
+- **เหตุผล:** Admin มีเลขท้ายบัญชี 4 ตัว แต่ Candidate เดิมค้นจากชื่อเท่านั้น จึงหาและนำบัญชีเดิมมาใช้ไม่ได้
+- **ผลกระทบ:** Employee Drawer → บัญชี/ติดต่อ → เพิ่มบัญชี รองรับค้นหาเลขท้าย 4 ตัวและแสดงธนาคาร/ชื่อเจ้าของแบบปกปิด
+- **Gate/Security:** ค้นเฉพาะบริษัทปัจจุบันและบทบาทที่จัดการข้อมูลธนาคารได้; ชื่อไม่ตรงหรือผูกบุคคลอื่นแสดงเพื่อทบทวนแต่เลือกผูกไม่ได้
+- **Migration:** `20260826232000_employee_bank_candidate_last4_search.sql`; ไม่แก้ Raw/OCR เลขเต็ม หรือบัญชีเดิม
+- **Verification/Rollback:** RPC contract, permission/name/linked guard, typecheck/lint/build และ authenticated Employee Drawer smoke; rollback โดย revoke RPC/ซ่อนช่องค้นหาและคงข้อมูลเดิม
+
 ## ล่าสุด: Master Data Manual Bank Account Entry v2.6 — 26/8/2569
 
 - **เหตุผล:** เมื่อระบบยังไม่พบบัญชีของพนักงาน Admin ต้องเพิ่มข้อมูลที่ขาดได้จากทะเบียนกลาง โดยไม่เดาหรือยืนยันบัญชีให้อัตโนมัติ

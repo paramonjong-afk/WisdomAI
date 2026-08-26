@@ -74,7 +74,7 @@ type EmployeeDocumentAccess = EmployeePersonDocument & { storage_bucket: string;
 type EmployeeLineAccount = { id: string; profile_id: string; line_user_id: string; verified_at: string; active: boolean; is_primary: boolean; account_label: string | null; line_senders: { display_name: string | null } | null }
 type EmployeeLineCandidate = { line_user_id: string; display_name: string | null; picture_url: string | null; profile_id: string | null; updated_at: string }
 type EmployeeBankAccount = { id: string; profile_id: string | null; employee_person_id: string | null; bank_name: string | null; account_last4: string; verification_status: string; verified_at: string | null; secure_number_available: boolean; is_primary: boolean }
-type EmployeeBankCandidate = { id: string; owner_name: string; bank_name: string | null; account_last4: string; verification_status: string; secure_number_available: boolean; is_primary: boolean; evidence_source_table: string | null; evidence_source_id: string | null; verified_at: string | null; link_status: 'available' | 'linked_same' | 'linked_other' }
+type EmployeeBankCandidate = { id: string; owner_name: string; bank_name: string | null; account_last4: string; verification_status: string; secure_number_available: boolean; is_primary: boolean; evidence_source_table: string | null; evidence_source_id: string | null; verified_at: string | null; link_status: 'available' | 'linked_same' | 'linked_other' | 'name_mismatch' }
 type EmployeeContact = { employee_person_id: string; phone: string | null }
 type EmployeeSiteOption = { id: string; name: string; work_policy_id: string | null; projects: { name: string } | null }
 type EmployeeSiteAssignment = { id: string; profile_id: string; site_id: string; starts_on: string; ends_on: string | null; is_primary: boolean; project_sites: { name: string; projects: { name: string } | null } | null }
@@ -386,6 +386,7 @@ export function EmployeePage() {
   const [bankCandidates, setBankCandidates] = useState<EmployeeBankCandidate[]>([])
   const [bankCandidateId, setBankCandidateId] = useState('')
   const [bankCandidatesLoading, setBankCandidatesLoading] = useState(false)
+  const [bankLast4Search, setBankLast4Search] = useState('')
   const [bankRevealTarget, setBankRevealTarget] = useState<EmployeeBankAccount | null>(null)
   const [bankRevealReason, setBankRevealReason] = useState('ใช้ตรวจสอบหรือจัดทำรายการจ่ายให้พนักงาน')
   const [bankRevealing, setBankRevealing] = useState(false)
@@ -822,6 +823,7 @@ export function EmployeePage() {
     setBankReason('Admin ตรวจสอบจากเอกสารต้นฉบับและเจ้าของบัญชีแล้ว')
     setBankCandidates([])
     setBankCandidateId('')
+    setBankLast4Search('')
     setBankEntryMode(account ? 'manual' : 'candidate')
     if (!account) {
       setBankCandidatesLoading(true)
@@ -839,6 +841,26 @@ export function EmployeePage() {
       if (available) setBankCandidateId(available.id)
       else setBankEntryMode('manual')
     }
+  }
+
+  const searchBankCandidatesByLast4 = async () => {
+    if (!bankEmployee || !/^\d{4}$/.test(bankLast4Search)) return
+    setBankCandidatesLoading(true)
+    setErrorMessage('')
+    try {
+      const { data, error } = await supabase.rpc('search_employee_bank_account_candidates', {
+        target_profile_id: bankEmployee.id,
+        target_account_last4: bankLast4Search,
+      })
+      if (error) throw error
+      const candidates = (data ?? []) as EmployeeBankCandidate[]
+      setBankCandidates(candidates)
+      setBankCandidateId(candidates.find((candidate) => candidate.link_status === 'available')?.id ?? '')
+      setBankEntryMode('candidate')
+    } catch (error) {
+      const friendly = toFriendlyError({ error, module: 'employee_bank_candidate_last4_search', fallback: 'ค้นหาบัญชีจากเลขท้ายไม่สำเร็จ' })
+      setErrorMessage(`${userError(friendly)}\nแนวทางแก้: ${friendly.action}`)
+    } finally { setBankCandidatesLoading(false) }
   }
 
   const linkEmployeeBankCandidate = async () => {
@@ -2755,8 +2777,8 @@ export function EmployeePage() {
       <Dialog open={Boolean(bankEmployee)} onClose={() => !bankSaving && setBankEmployee(null)} fullWidth maxWidth="xs">
         <DialogTitle>{bankTarget ? (bankTarget.secure_number_available ? 'แก้ไขบัญชีธนาคาร' : 'เติมเลขบัญชีเต็ม') : 'เพิ่มบัญชีธนาคาร'} · {bankEmployee?.full_name || bankEmployee?.email}</DialogTitle>
         <DialogContent><Stack spacing={1.5} sx={{ mt: 1 }}>
-          {!bankTarget && <><Stack direction="row" spacing={1}><Button variant={bankEntryMode === 'candidate' ? 'contained' : 'outlined'} onClick={() => setBankEntryMode('candidate')} disabled={!bankCandidates.length}>เลือกบัญชีที่ระบบพบ</Button><Button variant={bankEntryMode === 'manual' ? 'contained' : 'outlined'} onClick={() => setBankEntryMode('manual')}>กรอกบัญชีใหม่</Button></Stack>{bankCandidatesLoading && <Alert severity="info">กำลังค้นหาบัญชีที่ชื่อเจ้าของตรงกับพนักงาน…</Alert>}</>}
-          {bankEntryMode === 'candidate' && !bankTarget ? <><Alert severity="info">ระบบเสนอเฉพาะบัญชีในบริษัทที่ชื่อเจ้าของตรงกัน Admin ต้องตรวจหลักฐานก่อนผูก และบัญชีของบุคคลอื่นจะเลือกไม่ได้</Alert>{bankCandidates.length === 0 && !bankCandidatesLoading ? <Alert severity="warning">ไม่พบบัญชีเดิมที่ชื่อตรงกัน กรุณากรอกบัญชีใหม่</Alert> : <TextField select fullWidth label="บัญชีที่ระบบพบ" value={bankCandidateId} onChange={(event) => setBankCandidateId(event.target.value)}>{bankCandidates.map((candidate) => <MenuItem key={candidate.id} value={candidate.id} disabled={candidate.link_status !== 'available'}>{candidate.bank_name || 'ไม่ระบุธนาคาร'} · •••• {candidate.account_last4} · {candidate.owner_name}{candidate.link_status === 'linked_other' ? ' · ผูกกับบุคคลอื่นแล้ว' : candidate.link_status === 'linked_same' ? ' · ผูกอยู่แล้ว' : ''}</MenuItem>)}</TextField>}{bankCandidateId && (() => { const candidate = bankCandidates.find((item) => item.id === bankCandidateId); return candidate ? <Alert severity={candidate.secure_number_available ? 'success' : 'warning'}>{candidate.secure_number_available ? 'มีเลขเต็มใน Secure Store พร้อมใช้จ่ายหลังผูก' : 'มีเพียงเลขท้าย หลังผูกต้องเติมเลขเต็มก่อนใช้จ่าย'} · แหล่งที่มา {candidate.evidence_source_table || 'Master Data'}{candidate.evidence_source_id ? ` / …${candidate.evidence_source_id.slice(-8)}` : ''}</Alert> : null })()}</> : <><Alert severity="info">เลขเต็มจะเข้ารหัสใน Secure Store; หน้าจอ รายงาน และ Log แสดงเพียง 4 ตัวท้าย</Alert><TextField autoFocus fullWidth label="เลขบัญชีเต็ม" value={bankFullNumber} onChange={(event) => setBankFullNumber(event.target.value)} placeholder={bankTarget ? `บัญชีเดิม •••• ${bankTarget.account_last4}` : 'กรอกตัวเลข 8–20 หลัก'} /><TextField fullWidth label="ธนาคาร" value={bankName} onChange={(event) => setBankName(event.target.value)} /></>}
+          {!bankTarget && <><Stack direction="row" spacing={1}><Button variant={bankEntryMode === 'candidate' ? 'contained' : 'outlined'} onClick={() => setBankEntryMode('candidate')}>ค้นหา/เลือกบัญชีเดิม</Button><Button variant={bankEntryMode === 'manual' ? 'contained' : 'outlined'} onClick={() => setBankEntryMode('manual')}>กรอกบัญชีใหม่</Button></Stack>{bankCandidatesLoading && <Alert severity="info">กำลังค้นหาบัญชีภายในบริษัท…</Alert>}</>}
+          {bankEntryMode === 'candidate' && !bankTarget ? <><Alert severity="info">กรอกเลขท้าย 4 ตัวเพื่อค้นหาบัญชีภายในบริษัท ระบบแสดงข้อมูลแบบปกปิดและยังตรวจชื่อเจ้าของก่อนอนุญาตให้ผูก</Alert><Stack direction="row" spacing={1}><TextField autoFocus fullWidth label="เลขท้ายบัญชี 4 ตัว" value={bankLast4Search} onChange={(event) => setBankLast4Search(event.target.value.replace(/\D/g, '').slice(0, 4))} slotProps={{ htmlInput: { inputMode: 'numeric', maxLength: 4 } }} /><Button variant="outlined" disabled={bankCandidatesLoading || !/^\d{4}$/.test(bankLast4Search)} onClick={() => void searchBankCandidatesByLast4()}>ค้นหา</Button></Stack>{bankCandidates.length === 0 && !bankCandidatesLoading ? <Alert severity="warning">ยังไม่พบบัญชีที่ตรงกัน ลองค้นด้วยเลขท้าย 4 ตัว หรือกรอกบัญชีใหม่</Alert> : <TextField select fullWidth label="บัญชีที่ระบบพบ" value={bankCandidateId} onChange={(event) => setBankCandidateId(event.target.value)}>{bankCandidates.map((candidate) => <MenuItem key={candidate.id} value={candidate.id} disabled={candidate.link_status !== 'available'}>{candidate.bank_name || 'ไม่ระบุธนาคาร'} · •••• {candidate.account_last4} · {candidate.owner_name}{candidate.link_status === 'linked_other' ? ' · ผูกกับบุคคลอื่นแล้ว' : candidate.link_status === 'linked_same' ? ' · ผูกอยู่แล้ว' : candidate.link_status === 'name_mismatch' ? ' · ชื่อไม่ตรง ต้องตรวจหลักฐาน' : ''}</MenuItem>)}</TextField>}{bankCandidateId && (() => { const candidate = bankCandidates.find((item) => item.id === bankCandidateId); return candidate ? <Alert severity={candidate.secure_number_available ? 'success' : 'warning'}>{candidate.secure_number_available ? 'มีเลขเต็มใน Secure Store พร้อมใช้จ่ายหลังผูก' : 'มีเพียงเลขท้าย หลังผูกต้องเติมเลขเต็มก่อนใช้จ่าย'} · แหล่งที่มา {candidate.evidence_source_table || 'Master Data'}{candidate.evidence_source_id ? ` / …${candidate.evidence_source_id.slice(-8)}` : ''}</Alert> : null })()}</> : <><Alert severity="info">เลขเต็มจะเข้ารหัสใน Secure Store; หน้าจอ รายงาน และ Log แสดงเพียง 4 ตัวท้าย</Alert><TextField autoFocus fullWidth label="เลขบัญชีเต็ม" value={bankFullNumber} onChange={(event) => setBankFullNumber(event.target.value)} placeholder={bankTarget ? `บัญชีเดิม •••• ${bankTarget.account_last4}` : 'กรอกตัวเลข 8–20 หลัก'} /><TextField fullWidth label="ธนาคาร" value={bankName} onChange={(event) => setBankName(event.target.value)} /></>}
           <TextField select fullWidth label="ประเภทบัญชี" value={bankPrimary ? 'primary' : 'secondary'} onChange={(event) => setBankPrimary(event.target.value === 'primary')}><MenuItem value="primary">บัญชีหลักสำหรับรับเงิน</MenuItem><MenuItem value="secondary">บัญชีรอง</MenuItem></TextField><TextField multiline minRows={2} fullWidth label="เหตุผล / หลักฐาน" value={bankReason} onChange={(event) => setBankReason(event.target.value)} />
         </Stack></DialogContent>
         <DialogActions><Button disabled={bankSaving} onClick={() => setBankEmployee(null)}>ยกเลิก</Button>{bankEntryMode === 'candidate' && !bankTarget ? <Button variant="contained" disabled={bankSaving || !bankCandidateId || bankReason.trim().length < 3} onClick={() => void linkEmployeeBankCandidate()}>{bankSaving ? <CircularProgress size={20} color="inherit" /> : 'ตรวจแล้ว · ผูกบัญชีนี้'}</Button> : <Button variant="contained" disabled={bankSaving || !/^[0-9\s-]{8,24}$/.test(bankFullNumber.trim()) || bankName.trim().length < 2 || bankReason.trim().length < 3} onClick={() => void saveEmployeeBankAccount()}>{bankSaving ? <CircularProgress size={20} color="inherit" /> : 'เข้ารหัสและบันทึก'}</Button>}</DialogActions>
