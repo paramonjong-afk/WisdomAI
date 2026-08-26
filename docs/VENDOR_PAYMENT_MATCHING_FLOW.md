@@ -49,10 +49,10 @@ Record a payment made from a personal or employee-held bank account without mist
 ## Verification and rollback
 
 - Local contract covers exact-tax match, name-only candidate, ambiguous candidates, missing evidence and idempotent event keys; typecheck/lint/build and Accounting Drawer smoke are required.
-- Migration `20260826230000_transfer_slip_vendor_payment_matching.sql` is additive, company-scoped and does not touch Raw/OCR. Rollback is to disable the new Vendor Payment fields/trigger/RPC and hide the controls; existing lineage, source and Audit remain available.
+- Migrations `20260826044252_transfer_slip_vendor_payment_matching.sql` and `20260826044610_revoke_transfer_slip_vendor_match_trigger_execute.sql` are additive, company-scoped and do not touch Raw/OCR. Rollback is to disable the new Vendor Payment fields/trigger/RPC and hide the controls; existing lineage, source and Audit remain available.
 
 ## Change record
 
 | Version | Date | Rationale | Impact | Migration | Verification | Rollback |
 | --- | --- | --- | --- | --- | --- | --- |
-| v1.0 | 26/8/2569 | Separate employee/personal payer from the actual vendor and stop name-only routing | Accounting transfer-slip Drawer, vendor match evidence, reusable bank aliases and confirmation gate | `20260826230000_transfer_slip_vendor_payment_matching.sql` | matching contract, schema/RLS review, typecheck/lint/build and authenticated Accounting smoke | Disable trigger/RPC/UI; retain all source, lineage, match and Audit rows |
+| v1.0 | 26/8/2569 | Separate employee/personal payer from the actual vendor and stop name-only routing | Accounting transfer-slip Drawer, vendor match evidence, reusable bank aliases and confirmation gate | `20260826044252_transfer_slip_vendor_payment_matching.sql`, `20260826044610_revoke_transfer_slip_vendor_match_trigger_execute.sql` | matching contract, schema/RLS review, typecheck/lint/build and authenticated Accounting smoke | Disable trigger/RPC/UI; retain all source, lineage, match and Audit rows |

@@ -33,6 +33,7 @@ create table if not exists public.employee_money_ledger_entries (
   employee_profile_id uuid not null references public.profiles(id) on delete restrict,
   financial_transaction_id uuid references public.financial_transactions(id) on delete restrict,
   allocation_id uuid references public.transfer_slip_money_allocations(id) on delete restrict,
+  daily_wage_confirmation_id uuid references public.daily_wage_transfer_confirmations(id) on delete restrict,
   source_flow_item_id uuid references public.document_flow_items(id) on delete restrict,
   source_key text not null,
   source_fingerprint text not null,
@@ -276,12 +277,13 @@ begin
     nullif(transaction_row.bank_reference, ''), transaction_row.id::text);
 
   insert into public.employee_money_ledger_entries(
-    company_id, employee_profile_id, financial_transaction_id, allocation_id, source_flow_item_id,
+    company_id, employee_profile_id, financial_transaction_id, allocation_id, daily_wage_confirmation_id, source_flow_item_id,
     source_key, source_fingerprint, source_name, normalized_source_name, account_scope, entry_type,
     amount, effective_on, evidence_date_status, match_method, entry_status, reason, source_snapshot,
     event_key, created_by
   ) values (
-    transaction_row.company_id, candidate_ids[1], transaction_row.id, target_allocation_id, source_item.id,
+    transaction_row.company_id, candidate_ids[1], transaction_row.id, target_allocation_id,
+    (select confirmation.id from public.daily_wage_transfer_confirmations confirmation where confirmation.financial_transaction_id = transaction_row.id), source_item.id,
     source_key_value, source_fingerprint_value, source_name_value, normalized_name_value, account_scope_value, entry_type_value,
     amount_value, effective_on_value, date_status_value, match_method_value, 'matched_pending_review',
     'จับคู่ชื่อช่างรายวันและบันทึกเข้าบัญชีพัก รอผู้มีสิทธิ์ตรวจ',
@@ -470,11 +472,11 @@ begin
   if length(btrim(coalesce(target_reason, ''))) < 3 then raise exception 'employee_money_adjustment_reason_required'; end if;
   select * into result from public.employee_money_ledger_entries where company_id = source_row.company_id and event_key = target_event_key;
   if result.id is not null then return result; end if;
-  insert into public.employee_money_ledger_entries(company_id, employee_profile_id, financial_transaction_id, allocation_id,
+  insert into public.employee_money_ledger_entries(company_id, employee_profile_id, financial_transaction_id, allocation_id, daily_wage_confirmation_id,
     source_flow_item_id, source_key, source_fingerprint, source_name, normalized_source_name, account_scope, entry_type,
     amount, effective_on, evidence_date_status, match_method, entry_status, adjusts_entry_id, reason, source_snapshot,
     event_key, created_by)
-  values(source_row.company_id, source_row.employee_profile_id, source_row.financial_transaction_id, source_row.allocation_id,
+  values(source_row.company_id, source_row.employee_profile_id, source_row.financial_transaction_id, source_row.allocation_id, source_row.daily_wage_confirmation_id,
     source_row.source_flow_item_id, 'adjustment:' || target_event_key, source_row.source_fingerprint, source_row.source_name,
     source_row.normalized_source_name, target_account_scope, target_adjustment_type, target_amount, target_effective_on,
     case when target_effective_on is null then 'unverified' else 'verified' end, 'manual_adjustment',
