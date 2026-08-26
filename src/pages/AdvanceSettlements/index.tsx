@@ -309,6 +309,7 @@ export function AdvanceSettlementsPage() {
       { id: 'status', label: 'สถานะ', minWidth: 140, render: (row) => labels[row.status] ?? row.status },
       { id: 'route', label: 'เส้นทางอัตโนมัติ', minWidth: 340, render: (row) => routeText(row), exportValue: (row) => routeText(row) },
       { id: 'source', label: 'อ้างอิงสลิป', minWidth: 170, render: (row) => row.bank_reference ?? '-' },
+      { id: 'action', label: 'ดำเนินการ', minWidth: 150, render: (row) => <Button size="small" variant="outlined" onClick={() => setSelected(row)}>เปิดรายละเอียด</Button> },
     ]} />
     <Drawer anchor="right" open={Boolean(selected)} onClose={() => setSelected(null)} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 640 }, maxWidth: '100vw' } } }}>
       <Stack sx={{ height: '100%' }}>
