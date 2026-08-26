@@ -15,6 +15,8 @@ import { supabase } from '../../lib/supabase'
 import { documentFlowGateway } from '../../services/documentFlowGateway'
 import { filterTransferSlipQueue, transferSlipContinuation, transferSlipQueueBucket, transferSlipQueueCounts } from '../../services/accountingTransferSlipQueue'
 import type { TransferSlipQueueFilter, TransferSlipQueueRow } from '../../services/accountingTransferSlipQueue'
+import { mapTransferSlipTruth } from '../../services/transferSlipOperationalTruth'
+import type { TransferSlipOperationalTruthRow } from '../../services/transferSlipOperationalTruth'
 import { calculateUnallocatedAmount, emptyMoneyAllocation, emptyMoneyLineage, moneyAllocationDestinations, moneyAllocationTotal, moneyPurposeRoute, validateMoneyLineage } from '../../services/transferSlipMoneyLineage'
 import type { MoneyAllocationDraft, MoneyFundingSource, MoneyLineageDraft, MoneyPurpose } from '../../services/transferSlipMoneyLineage'
 import type { VendorMatchStatus } from '../../services/vendorPaymentMatching'
@@ -233,43 +235,16 @@ export function AccountingDocumentsPage() {
     ])
     const firstError = [documentResult.error, inventoryResult.error, projectInventoryResult.error, productPriceResult.error, actualPriceResult.error, projectResult.error, siteResult.error, categoryResult.error, vendorResult.error].find(Boolean)
     if (firstError) setError(userError(firstError))
-    // Transfer slips are intentionally not accounting_documents until reviewed. Read the
-    // accounting destination queue separately so pending work is visible without duplicating
-    // or mutating the raw Intake record.
-    const { data: taskRows, error: taskError } = await supabase
-      .from('document_flow_destination_tasks')
-      .select('id,item_id,status,created_at')
-      .eq('department', 'accounting')
-      .in('status', ['queued', 'claimed', 'completed', 'returned', 'recheck_required'])
-      .order('created_at', { ascending: false })
+    // All transfer-slip modules consume one database projection. Evidence remains
+    // visible for review, but only canonical_* values are operational/postable.
+    const { data: truthRows, error: truthError } = await supabase
+      .from('transfer_slip_operational_truth_v1')
+      .select('*')
+      .in('task_status', ['queued', 'claimed', 'completed', 'returned', 'recheck_required'])
+      .order('task_created_at', { ascending: false })
       .limit(1000)
-    if (taskError) setError(current => current ?? userError(taskError))
-    const taskList = (taskRows ?? []) as Array<{ id: string; item_id: string; status: string; created_at: string }>
-    const itemIds = [...new Set(taskList.map(row => row.item_id).filter(Boolean))]
-    let pending: AccountingPendingSlip[] = []
-    if (itemIds.length) {
-      const { data: itemRows, error: itemError } = await supabase
-        .from('document_flow_items')
-        .select('id,intake_id,source_message_id,document_type,current_room,route_target,updated_at,source_channel,source_room_name,source_sender_name,source_received_at,data_review_status,data_review_note,candidate_departments')
-        .in('id', itemIds)
-        .eq('document_type', 'transfer_slip')
-      if (itemError) setError(current => current ?? userError(itemError))
-      const items = (itemRows ?? []) as Array<{ id: string; intake_id: string | null; source_message_id: string | null; current_room: string | null; route_target: string | null; updated_at: string; source_channel: string | null; source_room_name: string | null; source_sender_name: string | null; source_received_at: string | null; data_review_status: string | null; data_review_note: string | null; candidate_departments: string[] | null }>
-      const sourceIds = [...new Set(items.map(item => item.source_message_id).filter((id): id is string => Boolean(id)))]
-      const { data: txRows, error: txError } = sourceIds.length
-        ? await supabase.from('financial_transactions').select('id,source_message_id,sender_name,sender_bank_name,sender_account_last4,recipient_name,recipient_bank_name,recipient_account_last4,amount_total,transfer_at,bank_reference,review_status,expense_type,labor_amount,duplicate_of,payment_party_confidence,analysis_confidence,analysis_model,notes').in('source_message_id', sourceIds).neq('review_status', 'dismissed')
-        : { data: [], error: null }
-      if (txError) setError(current => current ?? userError(txError))
-      const txBySource = new Map(((txRows ?? []) as Array<Record<string, unknown> & { source_message_id: string }>).map(row => [row.source_message_id, row]))
-      const itemById = new Map(items.map(item => [item.id, item]))
-      pending = taskList.flatMap(task => {
-        const item = itemById.get(task.item_id)
-        if (!item) return []
-        const tx = item.source_message_id ? txBySource.get(item.source_message_id) : undefined
-        return [{ taskId: task.id, itemId: item.id, intakeId: item.intake_id, sourceMessageId: item.source_message_id, createdAt: task.created_at, taskStatus: task.status, senderName: tx?.sender_name as string ?? null, recipientName: tx?.recipient_name as string ?? null, amount: tx?.amount_total == null ? null : Number(tx.amount_total), transferAt: tx?.transfer_at as string ?? null, reviewStatus: tx?.review_status as string ?? null, route: item.route_target ?? item.current_room, sourceChannel: item.source_channel, sourceRoomName: item.source_room_name, sourceSenderName: item.source_sender_name, sourceReceivedAt: item.source_received_at, dataReviewStatus: item.data_review_status, dataReviewNote: item.data_review_note, candidateDepartments: item.candidate_departments ?? [], expenseType: tx?.expense_type as string ?? null, laborAmount: tx?.labor_amount == null ? null : Number(tx.labor_amount), duplicateOf: tx?.duplicate_of as string ?? null, transactionId: tx?.id as string ?? null, senderBankName: tx?.sender_bank_name as string ?? null, senderAccountLast4: tx?.sender_account_last4 as string ?? null, recipientBankName: tx?.recipient_bank_name as string ?? null, recipientAccountLast4: tx?.recipient_account_last4 as string ?? null, bankReference: tx?.bank_reference as string ?? null, paymentPartyConfidence: tx?.payment_party_confidence == null ? null : Number(tx.payment_party_confidence), analysisConfidence: tx?.analysis_confidence == null ? null : Number(tx.analysis_confidence), analysisModel: tx?.analysis_model as string ?? null, notes: tx?.notes as string ?? null }]
-      })
-    }
-    setPendingSlips(pending)
+    if (truthError) setError(current => current ?? userError(truthError))
+    setPendingSlips(((truthRows ?? []) as unknown as TransferSlipOperationalTruthRow[]).map(mapTransferSlipTruth))
     setDocuments((documentResult.data ?? []) as unknown as AccountingDocument[])
     setInventory((inventoryResult.data ?? []) as InventoryBalance[])
     setProjectInventory((projectInventoryResult.data ?? []) as unknown as ProjectInventoryBalance[])
@@ -1332,11 +1307,11 @@ export function AccountingDocumentsPage() {
               columns={[
                 { id: 'id', label: 'Document ID', minWidth: 180, render: row => <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{(row.intakeId ?? row.itemId).slice(0, 12)}…</Typography>, exportValue: row => row.intakeId ?? row.itemId },
                 { id: 'date', label: 'วันที่โอน', minWidth: 150, render: row => row.transferAt ? new Date(row.transferAt).toLocaleString('th-TH') : 'ยังอ่านไม่ได้' },
-                { id: 'sender', label: 'ผู้โอน', minWidth: 190, render: row => row.senderName ?? 'ยังอ่านไม่ได้' },
-                { id: 'recipient', label: 'ผู้รับ', minWidth: 190, render: row => row.recipientName ?? 'ยังอ่านไม่ได้' },
-                { id: 'amount', label: 'จำนวนเงิน', minWidth: 130, align: 'right', render: row => money(row.amount) },
+                { id: 'sender', label: 'ผู้จ่าย / ผู้โอน', minWidth: 210, render: row => <Box><Typography variant="body2">{row.isPostable ? row.canonicalPayerName ?? 'ไม่ระบุ' : row.senderName ?? 'ยังอ่านไม่ได้'}</Typography><Typography variant="caption" color="text.secondary">{row.isPostable ? 'ข้อมูลใช้งานจริง' : 'หลักฐานรอตรวจ'}</Typography></Box> },
+                { id: 'recipient', label: 'ผู้รับ', minWidth: 210, render: row => <Box><Typography variant="body2">{row.isPostable ? row.canonicalBeneficiaryName ?? 'ไม่ระบุ' : row.recipientName ?? 'ยังอ่านไม่ได้'}</Typography><Typography variant="caption" color="text.secondary">{row.isPostable ? 'ข้อมูลใช้งานจริง' : 'หลักฐานรอตรวจ'}</Typography></Box> },
+                { id: 'amount', label: 'จำนวนเงิน', minWidth: 140, align: 'right', render: row => <Box><Typography variant="body2">{money(row.isPostable ? row.canonicalAmount : row.amount)}</Typography><Typography variant="caption" color="text.secondary">{row.isPostable ? 'Canonical' : 'Evidence'}</Typography></Box> },
                 { id: 'source', label: 'Source', minWidth: 220, render: row => <Box><Typography variant="body2">{row.sourceChannel ?? 'ไม่ระบุช่องทาง'} · {row.sourceRoomName ?? 'ไม่ระบุห้อง'}</Typography><Typography variant="caption" color="text.secondary">{row.sourceSenderName ?? 'ไม่ระบุผู้ส่ง'}</Typography></Box> },
-                { id: 'status', label: 'สถานะตรวจ', minWidth: 150, render: row => { const bucket = transferSlipQueueBucket(row); return <Chip size="small" color={bucket === 'reviewed' ? 'success' : bucket === 'duplicate' ? 'error' : bucket === 'incomplete' ? 'warning' : 'info'} label={bucket === 'reviewed' ? 'ตรวจแล้ว' : bucket === 'duplicate' ? 'รายการซ้ำ' : bucket === 'incomplete' ? 'ข้อมูลไม่ครบ' : row.taskStatus === 'claimed' ? 'บัญชีรับงานแล้ว' : 'รอตรวจ'} /> } },
+                { id: 'status', label: 'สถานะข้อมูลกลาง', minWidth: 170, render: row => { const bucket = transferSlipQueueBucket(row); return <Chip size="small" color={bucket === 'reviewed' ? 'success' : bucket === 'duplicate' ? 'error' : bucket === 'incomplete' ? 'warning' : 'info'} label={row.isPostable ? 'Canonical · ใช้งานได้' : bucket === 'duplicate' ? 'รายการซ้ำ · ห้ามใช้' : row.truthStatus === 'needs_information' ? 'รอข้อมูลเพิ่ม' : bucket === 'incomplete' ? 'หลักฐานไม่ครบ' : 'รอตรวจ · ห้ามลงบัญชี'} /> } },
                 { id: 'next', label: 'ปลายทางถัดไป', minWidth: 210, render: row => { const continuation = transferSlipContinuation(row); return <Stack direction="row" spacing={.5} sx={{ alignItems: 'center' }}>{continuation.label && <Chip size="small" color="secondary" label={continuation.label} />}<Typography variant="body2">{continuation.route}</Typography></Stack> } },
                 { id: 'open', label: 'หลักฐาน', minWidth: 120, render: row => <Button size="small" variant="outlined" onClick={() => void openSlipDetail(row)}>เปิดรูป/Audit</Button>, exportable: false },
               ]}
@@ -1486,7 +1461,7 @@ export function AccountingDocumentsPage() {
         <Paper variant="outlined" sx={{ p: 1.5 }}><Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Source Reference</Typography><Typography variant="body2">{selectedSlip.sourceChannel ?? 'ไม่ระบุ'} · {selectedSlip.sourceRoomName ?? 'ไม่ระบุห้อง'} · {selectedSlip.sourceSenderName ?? 'ไม่ระบุผู้ส่ง'}</Typography><Typography variant="caption" color="text.secondary">Message ID: {selectedSlip.sourceMessageId ?? '-'}</Typography></Paper>
         </>}
         {slipDetailTab === 1 && slipReviewDraft && slipMoneyLineageDraft && <>
-          <Alert severity="info">ข้อมูลถูกแยกเป็น 3 ชั้น: หลักฐานต้นฉบับ, ข้อมูล OCR/Derived ที่ตรวจแก้ได้ และข้อมูลธุรกิจที่ยืนยันแล้ว ระบบไม่ลบรูปหรือ Source เดิม และบันทึกผู้แก้ เวลา พร้อมค่าก่อน/หลังทุกครั้ง</Alert>
+          <Alert severity="info">ข้อมูลใช้งานจริงมีชุดเดียวจาก Canonical projection เท่านั้น รูปสลิปและค่าที่ AI อ่านเป็นหลักฐานอ้างอิง ไม่ใช่ข้อมูลธุรกิจและห้ามนำไปลงบัญชีก่อนยืนยัน ระบบเก็บ Source และ Audit เดิมเพื่อย้อนตรวจได้</Alert>
           <Paper variant="outlined" sx={{ p: 1.5, borderLeft: 4, borderLeftColor: 'primary.main' }}><Stack spacing={1}>
             <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>เส้นทางเอกสารและเส้นทางเงิน</Typography>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap sx={{ alignItems: { sm: 'center' }, flexWrap: 'wrap' }}><Chip label="ต้นทาง: Intake" /><Typography>→</Typography><Chip color="primary" label="ปัจจุบัน: บัญชีตรวจสลิป" /><Typography>→</Typography><Chip color={slipMoneyLineageDraft.allocations.some(allocation => allocation.purposeType === 'unknown') ? 'warning' : 'secondary'} label={`ถัดไป: ${moneyAllocationDestinations(slipMoneyLineageDraft.allocations).map(route => route.replace('บัญชี → ', '')).join(' + ')}`} /></Stack>
@@ -1508,8 +1483,8 @@ export function AccountingDocumentsPage() {
             <Typography variant="caption" color="text.secondary">แหล่งอ้างอิง: Document ID {selectedSlip.intakeId ?? selectedSlip.itemId} · Message ID {selectedSlip.sourceMessageId ?? '-'}</Typography>
           </Stack></Paper>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>2. ข้อมูล OCR / Derived ที่บัญชีตรวจแก้</Typography>
-            <Chip size="small" color="warning" label="ทุกการแก้มี Audit" />
+            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>2. ค่าที่อ่านจากหลักฐาน · Candidate สำหรับตรวจ</Typography>
+            <Chip size="small" color="warning" label="ยังไม่ใช่ข้อมูลใช้งานจริง" />
           </Stack>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
             <TextField label="วันที่และเวลาโอน" type="datetime-local" value={slipReviewDraft.transferAt} onChange={event => setSlipReviewDraft(current => current && ({ ...current, transferAt: event.target.value }))} slotProps={{ inputLabel: { shrink: true } }} />
@@ -1523,7 +1498,7 @@ export function AccountingDocumentsPage() {
             <TextField label="เลขอ้างอิงธนาคาร" value={slipReviewDraft.bankReference} onChange={event => setSlipReviewDraft(current => current && ({ ...current, bankReference: event.target.value }))} sx={{ gridColumn: { sm: '1 / -1' } }} />
           </Box>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>3. ข้อมูลธุรกิจที่ยืนยัน · แหล่งเงินและผู้จ่ายจริง</Typography>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>3. ข้อมูลใช้งานจริงชุดเดียว · Canonical</Typography>
             <Chip
               size="small"
               color={!slipMoneyLineageStatus ? 'warning' : ['draft', 'accounting_review'].includes(slipMoneyLineageStatus.routeStatus) ? 'warning' : 'success'}

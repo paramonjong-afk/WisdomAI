@@ -75,8 +75,8 @@ export type AdvanceReportSummary = { holder: string; holderId: string | null; co
 export function summarizeAdvanceRows(rows: AdvanceReportRow[]): AdvanceReportSummary[] {
   const grouped = new Map<string, AdvanceReportSummary>()
   for (const row of rows) {
-    const key = row.holder_id ?? `raw:${row.holder_name ?? row.transaction?.recipient_name ?? row.id}`
-    const current = grouped.get(key) ?? { holder: row.holder_name ?? row.transaction?.recipient_name ?? 'ยังจับคู่ชื่อไม่ได้', holderId: row.holder_id, count: 0, total: 0, approved: 0, pending: 0, returned: 0, closed: 0 }
+    const key = row.holder_id ?? `unmatched:${row.id}`
+    const current = grouped.get(key) ?? { holder: row.holder_name ?? 'ยังไม่ยืนยันผู้ถือเงิน', holderId: row.holder_id, count: 0, total: 0, approved: 0, pending: 0, returned: 0, closed: 0 }
     current.count += 1; current.total += Number(row.amount_received)
     if (['approved', 'settlement_required', 'closed'].includes(row.status)) current.approved += Number(row.amount_received)
     if (['draft', 'collecting_evidence', 'submitted', 'under_review'].includes(row.status)) current.pending += Number(row.amount_received)
@@ -121,7 +121,8 @@ function mapRow(row: RawAdvanceRow): AdvanceReportRow {
     ...row,
     project_name: row.projects?.name ?? null,
     holder_id: row.holder_profile_id ?? row.holder_person_id ?? null,
-    holder_name: row.holder_profile?.full_name ?? row.holder_person?.full_name ?? row.financial_transactions?.recipient_name ?? null,
+    // OCR recipient is evidence only. Operational reports use the confirmed holder registry.
+    holder_name: row.holder_profile?.full_name ?? row.holder_person?.full_name ?? null,
     source_flow: row.document_flow_items,
     transaction: row.financial_transactions,
     settlement_items: row.employee_advance_settlement_items ?? [],
