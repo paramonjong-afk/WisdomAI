@@ -54,9 +54,14 @@ Production frontend ใช้เส้นทางเดียวเป็นค
 
 ## วิธีรับมือปัญหาที่เกิดซ้ำ
 
+### Git worktree เขียนไม่ได้ (`index.lock` / `.git/objects` / `COMMIT_EDITMSG`)
+
+ให้ถือเป็นปัญหาสิทธิ์ของ checkout ไม่ใช่ test หรือ source code ห้ามลบ lock แบบกว้าง ห้าม `reset --hard` และห้ามเปลี่ยนสิทธิ์ทั้ง workspace ขั้นตอนมาตรฐานคือ: ตรวจว่าไม่มี Git process ค้าง → บันทึก changed files → clone GitHub `main` แบบ clean ไปยังโฟลเดอร์ที่เขียนได้ → นำเข้าเฉพาะ patch ของงาน → ตรวจ migration history กับ Production → รัน targeted test, typecheck, lint และ build ใหม่ใน clone → fetch/rebase latest `main` → commit/push ผ่าน Git Integration หาก network หรือ credential ใช้ไม่ได้ ให้รายงาน `blocked` พร้อมคำสั่ง/ข้อความผิดพลาดและเก็บ clone ไว้กู้ต่อ ห้ามประกาศ deploy สำเร็จ
+
 | อาการ | สาเหตุที่ต้องตรวจ | การดำเนินการมาตรฐาน |
 | --- | --- | --- |
 | `401 Unauthorized` จาก Token | Token หมดอายุ/ถูกยกเลิก/ไม่ใช่ Account Pages token | ถ้า Git Integration ปกติ ให้ใช้เส้นทาง Git ต่อและบันทึกว่า manual fallback ใช้ไม่ได้; ห้ามลอง Token เดิมซ้ำ |
+| Git worktree ขึ้น `Permission denied` | shared Git metadata เขียนไม่ได้หรือมี process จับ lock | ใช้ clean clone จาก latest GitHub `main`, ย้ายเฉพาะ patch, รัน Local gate ใหม่; เก็บ dirty workspace เดิมไว้ |
 | Working tree ไม่สะอาด | มีงานหลาย Module หรือไฟล์ของผู้ใช้อยู่ | สร้าง clean release clone/worktree จาก latest main; ห้าม reset/delete งานเดิม |
 | GitHub CI ผ่านแต่ Cloudflare ยังรุ่นเก่า | Pages build ยังไม่เสร็จ/cache manifest | ตรวจ workflow และ poll `release.json` แบบ no-cache จน revision ตรง หรือรายงาน Pages blocker |
 | `origin/main`, local HEAD และ Production ไม่ตรง | push/deploy คนละ revision | fetch latest main, rebase/cherry-pick ใน release cloneอย่างปลอดภัย, ทดสอบใหม่ แล้ว push commit เดียว |

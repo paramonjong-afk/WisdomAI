@@ -76,6 +76,23 @@ Track money transferred to a monthly employee for company disbursements, then re
 
 ## Change record
 
+### Daily wage transfer confirmation (v2.0 · 26/8/2569)
+
+```mermaid
+flowchart LR
+  A[Intake transfer slip] --> B{Exact active daily employee?}
+  B -->|Yes| C[Confirmation projection<br/>employee + Bangkok transfer date]
+  B -->|No / duplicate| X[Keep source for Admin review]
+  C --> D[Web Chat delivery ledger]
+  D -->|Sent| E[Employee confirmation pending]
+  D -->|Failed / room missing| F[Admin retry queue]
+  E -->|Confirmed or Admin approved| G[Eligible for wage-period review]
+  E -->|Disputed / no response| H[Admin review and adjustment]
+  G --> I[Payroll only after confirmation gate]
+```
+
+ระบบเก็บสลิปต้นทางเดิม ตรวจชื่อผู้รับแบบตรงกับพนักงานรายวันที่ยังทำงานอยู่ และรวมมุมมองตามพนักงานกับวันที่โอนในเขตเวลาไทย การแจ้งเตือนใช้ Web Chat พร้อม delivery key กันส่งซ้ำ; รายการยังไม่กระทบค่าแรงจนกว่าจะยืนยันหรือ Admin อนุมัติ หากห้องไม่พร้อมหรือข้อมูลไม่ตรงจะคงหลักฐานและส่งให้ Admin ตรวจ ไม่ลบ Raw/OCR เดิม
+
 | Version | Date | Rationale / impact | Migration | Rollback |
 |---|---|---|---|---|
 | v2.0 | 26/8/2569 | Persist both sender and recipient of an advance-funding slip before Accounting/Advance continuation; prevent one-sided or half-saved Master references | `20260826223000_master_data_transfer_party_review.sql` | Revoke v2 RPC and revert Drawer; retain pair/account/audit/source records for reconciliation |
@@ -91,3 +108,4 @@ Track money transferred to a monthly employee for company disbursements, then re
 | v1.7 | 23/8/2569 | Harden the SECURITY DEFINER room-provisioning helper: only authenticated managers (or internal system callers) may invoke it; anonymous/PUBLIC execution is revoked while authenticated/service-role execution remains available | `20260823035600_fix_advance_confirmation_room_scope.sql`, `20260823041021_lock_advance_confirmation_room_rpc.sql` (Production baseline; supersedes local timestamp `20260823035700`) | Production privilege query confirms `anon=false`, `authenticated=true`, `service_role=true`, manager guard present; contract tests, lint, typecheck, and build pass | Revoke the helper grants and disable confirmation provisioning if rollback is required; retain existing rooms, messages, deliveries, and Audit |
 | v1.8 | 23/8/2569 | Require reviewed fund source, custodian and multi-hop balance before an Accounting slip can continue to Advance Finance | `20260823122135_transfer_slip_money_lineage_routing.sql` | Money-lineage contract, RPC/schema checks, lint/typecheck/build and Accounting Drawer smoke | Disable lineage routing RPC/UI; existing source slip, Advance Case and audit remain recoverable |
 | v1.9 | 26/8/2569 | Link every downstream spending/refund slip back to the original advance and allow project/purpose splits without duplicating Intake evidence | `20260826220000_transfer_slip_money_allocations_v2.sql` | allocation balance/root-parent/idempotency contracts, migration dry-run, lint/typecheck/build and Accounting/Advance smoke | Disable v2 allocation RPC/UI; retain source, root/parent links, allocation versions and audit for recovery |
+| v2.0 | 26/8/2569 | Route exact active daily-employee transfer slips into per-employee/per-transfer-date confirmation and expose Web Chat delivery status without posting payroll early | `20260826042045_daily_wage_transfer_intake_routing.sql`, `20260826042334_daily_wage_transfer_route_trigger.sql` | routing contract, Production schema/history parity, typecheck, lint, build and authenticated report smoke | Disable the routing trigger and hide the delivery projection; retain source slips, confirmations, deliveries and audit for reconciliation |

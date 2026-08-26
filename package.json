@@ -113,6 +113,7 @@
     "test:employee-bank-candidate": "node --experimental-strip-types scripts/employee-bank-candidate-link.test.ts",
     "test:line-hr-document-routing": "node --experimental-strip-types scripts/line-hr-document-routing.test.ts",
     "test:advance-report": "node --experimental-strip-types scripts/advance-report-contract.test.ts",
+    "test:daily-wage-transfer-routing": "node --experimental-strip-types scripts/daily-wage-transfer-routing.test.ts",
     "test:advance-confirmation": "node --experimental-strip-types scripts/advance-confirmation-contract.test.ts",
     "test:advance-settlement-slip-preview": "node --experimental-strip-types scripts/advance-settlement-slip-preview.test.ts",
     "test:advance-reconciliation": "node --experimental-strip-types scripts/advance-reconciliation.test.ts",
