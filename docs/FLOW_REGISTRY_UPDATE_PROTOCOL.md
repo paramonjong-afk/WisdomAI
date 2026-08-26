@@ -1,5 +1,14 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Employee advance UUID matching fix — 26/8/2569
+
+- **Scope:** Master Data → reviewed transfer parties → Accounting → Advance Finance.
+- **Incident:** Confirmation failed before persistence because PostgreSQL does not provide `min(uuid)`.
+- **Fix:** The canonical holder-match RPC now selects a deterministic first UUID from an ordered distinct array; no Raw/OCR/source or business routing behavior changes.
+- **Migration:** `20260826224000_fix_master_advance_uuid_min.sql`.
+- **Verification:** UUID-fix contract, migration dry-run/apply, typecheck, lint, build and authenticated Drawer error-path smoke.
+- **Rollback:** Restore the previous RPC definition; retain all source, candidate, pair, task, lineage, version and Audit rows.
+
 ## ล่าสุด: Master Data Transfer Party Pair v2.4 — 26/8/2569
 
 - **เหตุผล:** Drawer แสดงผู้โอนและผู้รับจากสลิปได้ แต่ RPC ยืนยันเฉพาะผู้รับ/ผู้ถือเงิน ทำให้ผู้โอนไม่มี Master reference และผู้ใช้อาจเข้าใจว่าตรวจครบแล้วทั้งที่บันทึกเพียงฝั่งเดียว
