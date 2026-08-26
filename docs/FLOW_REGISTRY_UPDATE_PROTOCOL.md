@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Employee Bank All-source Search v3.3 — 27/8/2569
+
+- **เหตุผล:** ค้นเลขท้ายจาก Master Account อย่างเดียวทำให้เอกสาร/สลิปที่มีข้อมูลแล้วถูกแจ้งว่าไม่พบ
+- **ผลกระทบ:** ค้นเลขท้าย 4 ตัวรวม Master Account, Master Candidate/OCR, สลิปฝั่งผู้รับ/ผู้โอน และบัญชีผู้ขาย พร้อมชื่อ ธนาคาร แหล่งที่มาและสถานะ
+- **Gate/Security:** company-scoped/masked; ผลจาก Source ใช้เป็นหลักฐานและห้ามผูกทันที ต้องยืนยันเป็น Master Account ก่อน; ชื่อไม่ตรงหรือผูกคนอื่นยังถูกบล็อก
+- **Migration:** `20260826232500_employee_bank_all_source_last4_search.sql`; ไม่แก้หรือลบ Raw/OCR/สลิป/บัญชีเดิม
+- **Verification/Rollback:** all-source contract, permission/source-only/name guard, typecheck/lint/build และ authenticated Employee Drawer smoke; rollback RPC เป็น v3.2 โดยคงข้อมูลทั้งหมด
+
 ## ล่าสุด: Employee Bank Last-4 Candidate Search v3.2 — 27/8/2569
 
 - **เหตุผล:** Admin มีเลขท้ายบัญชี 4 ตัว แต่ Candidate เดิมค้นจากชื่อเท่านั้น จึงหาและนำบัญชีเดิมมาใช้ไม่ได้

@@ -1,0 +1,66 @@
+drop function if exists public.search_employee_bank_account_candidates(uuid,text);
+
+create function public.search_employee_bank_account_candidates(target_profile_id uuid,target_account_last4 text)
+returns table(
+  id uuid, owner_name text, bank_name text, account_last4 text,
+  verification_status text, secure_number_available boolean, is_primary boolean,
+  evidence_source_table text, evidence_source_id uuid, verified_at timestamptz,
+  link_status text, source_kind text, source_at timestamptz
+) language plpgsql security definer set search_path = '' as $$
+declare
+  target_company_id uuid := public.current_company_id();
+  target_name text;
+  target_normalized_name text;
+  normalized_last4 text := regexp_replace(coalesce(target_account_last4, ''), '[^0-9]', '', 'g');
+begin
+  if (select auth.uid()) is null then raise exception 'กรุณาเข้าสู่ระบบ'; end if;
+  if not public.can_manage_sensitive_employee_bank_data(target_company_id) then raise exception 'คุณไม่มีสิทธิ์ค้นหาบัญชีธนาคารพนักงาน'; end if;
+  if length(normalized_last4) <> 4 then raise exception 'กรุณาระบุเลขท้ายบัญชี 4 หลัก'; end if;
+  if not exists(select 1 from public.company_members member where member.company_id=target_company_id and member.profile_id=target_profile_id and member.active and (member.ends_on is null or member.ends_on>=current_date)) then raise exception 'ไม่พบพนักงานในบริษัทปัจจุบัน'; end if;
+  select coalesce(nullif(trim(profile.full_name), ''),profile.email) into target_name from public.profiles profile where profile.id=target_profile_id;
+  target_normalized_name := public.normalize_master_data_name(target_name);
+
+  return query
+  with all_sources as (
+    select account.id,account.owner_name,account.bank_name,account.account_last4,account.verification_status,
+      account.secure_number_available,account.is_primary,account.evidence_source_table,account.evidence_source_id,
+      account.verified_at,
+      case when account.profile_id=target_profile_id then 'linked_same'
+        when account.profile_id is not null or account.employee_person_id is not null then 'linked_other'
+        when account.normalized_owner_name<>target_normalized_name then 'name_mismatch' else 'available' end as link_status,
+      'master_registry'::text as source_kind,account.updated_at as source_at
+    from public.master_bank_accounts account
+    where account.company_id=target_company_id and account.verification_status<>'archived' and account.account_last4=normalized_last4
+    union all
+    select candidate.id,candidate.display_name,candidate.candidate_data->>'bank_name',candidate.candidate_data->>'account_last4',candidate.status,
+      false,false,candidate.source_table,candidate.source_id,candidate.reviewed_at,'source_only','master_candidate',candidate.updated_at
+    from public.master_data_candidates candidate
+    where candidate.company_id=target_company_id and candidate.entity_type='bank_account'
+      and public.normalize_master_data_account_last4(candidate.candidate_data->>'account_last4')=normalized_last4
+    union all
+    select transaction.id,coalesce(transaction.recipient_name,'ไม่พบชื่อผู้รับ'),transaction.recipient_bank_name,transaction.recipient_account_last4,transaction.review_status,
+      false,false,'financial_transactions',transaction.id,transaction.reviewed_at,'source_only','transfer_recipient',coalesce(transaction.transfer_at,transaction.created_at)
+    from public.financial_transactions transaction
+    where transaction.company_id=target_company_id and transaction.recipient_account_last4=normalized_last4 and transaction.review_status<>'dismissed'
+    union all
+    select transaction.id,coalesce(transaction.sender_name,'ไม่พบชื่อผู้โอน'),transaction.sender_bank_name,transaction.sender_account_last4,transaction.review_status,
+      false,false,'financial_transactions',transaction.id,transaction.reviewed_at,'source_only','transfer_sender',coalesce(transaction.transfer_at,transaction.created_at)
+    from public.financial_transactions transaction
+    where transaction.company_id=target_company_id and transaction.sender_account_last4=normalized_last4 and transaction.review_status<>'dismissed'
+    union all
+    select alias.id,coalesce(alias.alias_name,'ไม่พบชื่อผู้ขาย'),alias.bank_name,alias.account_last4,alias.status,
+      false,false,'vendor_bank_account_aliases',alias.source_match_id,alias.verified_at,'source_only','vendor_alias',alias.updated_at
+    from public.vendor_bank_account_aliases alias
+    where alias.company_id=target_company_id and alias.account_last4=normalized_last4 and alias.status not in ('rejected','archived')
+  )
+  select source.id,source.owner_name,source.bank_name,source.account_last4,source.verification_status,
+    source.secure_number_available,source.is_primary,source.evidence_source_table,source.evidence_source_id,
+    source.verified_at,source.link_status,source.source_kind,source.source_at
+  from all_sources source
+  order by case source.source_kind when 'master_registry' then 0 when 'master_candidate' then 1 when 'transfer_recipient' then 2 when 'transfer_sender' then 3 else 4 end,source.source_at desc nulls last
+  limit 100;
+end $$;
+
+revoke all on function public.search_employee_bank_account_candidates(uuid,text) from public,anon;
+grant execute on function public.search_employee_bank_account_candidates(uuid,text) to authenticated;
+notify pgrst,'reload schema';
