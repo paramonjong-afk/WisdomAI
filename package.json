@@ -67,6 +67,7 @@
     "test:utility-direct-ap": "node --experimental-strip-types scripts/utility-direct-ap.test.ts",
     "test:accounting-duplicate-filter": "node --experimental-strip-types scripts/accounting-duplicate-filter.test.ts",
     "test:accounting-transfer-slips": "node --experimental-strip-types scripts/accounting-transfer-slip-queue.test.ts",
+    "test:transfer-slip-analysis-gate": "node --experimental-strip-types scripts/transfer-slip-analysis-gate.test.ts",
     "test:accounting-transfer-slip-review": "node --experimental-strip-types scripts/accounting-transfer-slip-review.test.ts",
     "test:transfer-slip-operational-truth": "node --experimental-strip-types scripts/transfer-slip-operational-truth.test.ts",
     "test:transfer-slip-money-lineage": "node --experimental-strip-types scripts/transfer-slip-money-lineage.test.ts",

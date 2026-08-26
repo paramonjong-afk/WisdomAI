@@ -2,7 +2,10 @@
 flowchart TD
   A[เอกสารผ่าน Intake / Filter] --> B{ประเภทข้อมูล}
   A0[Master Data ยืนยันคู่โอน\nCompany/Internal → Employee/Technician\nเติมเงินทดลองจ่าย] --> Q
-  B -->|สลิปโอนเงิน| Q[Accounting Pending Queue]
+  B -->|สลิปโอนเงิน| S0[Slip Analysis Gate<br/>ประเภทเงิน · คู่บัญชี · ยอด · เวลา · ซ้ำ]
+  S0 -->|มีข้อมูลขาดหรือขัดแย้ง| Q[Accounting Pending Queue<br/>แสดงเฉพาะจุดที่ต้องยืนยัน/แก้]
+  S0 -->|ข้อมูลยืนยันครบ| SA[เตรียม Auto Route ตามประเภทเงิน]
+  SA --> Q
   Q --> Q0[Tab สลิปโอนเงินและตัวกรองสถานะ]
   Q0 --> B1[Drawer แท็บ 1 รูปต้นฉบับและ AI อ่านใหม่เฉพาะรายการ]
   B1 --> B2[Drawer แท็บ 2 ตรวจและแก้ค่ารายช่อง]
@@ -64,6 +67,7 @@ flowchart TD
 - Audit: ทุก mutation ผ่าน `runWithMutationAttempt`; correction/confirmation เก็บผู้ทำ เวลา เหตุผล และ document id
 - Owner: Accounting Admin/Manager; ทีมระบบเป็นเจ้าของ RPC, validation และ error contract
 - Accounting Pending Queue แยก `สลิปโอนเงิน` ออกจาก `เอกสารบัญชีทั่วไป`; ยอดสลิปหลักไม่นับ duplicate, system/context หรือ non-slip และตัวกรองทุกตัวใช้รายการ projection ชุดเดียวกัน
+- ทุกสลิปผ่าน `Slip Analysis Gate` เพื่อเสนอประเภทเงิน เหตุผล ความมั่นใจ คู่บัญชี ยอด เวลา รายการซ้ำ และปลายทางก่อนแสดงฟอร์ม Drawer; Drawer แสดงเฉพาะฟิลด์ที่ประเภทนั้นต้องใช้ พร้อมรายการ blocker แบบแก้เฉพาะจุด. เมื่อ Canonical truth ยืนยัน, postable และไม่มี blocker ระบบใช้ RPC/idempotency เดิมส่งต่ออัตโนมัติ; รายการที่ยังค้างจึงต้องมีเหตุผลให้คนยืนยันหรือแก้จริง
 - Master Data mode `เติมเงินทดลองจ่าย` ยืนยันเฉพาะบุคคล/บัญชีและสร้างหรือเปิด Accounting destination task เดิมแบบ idempotent; Project ยังเป็น `awaiting allocation`. บัญชีต้องตรวจ Money Lineage ก่อนส่ง Advance Finance และไม่มีการ posting/ตัดยอด/ปิด Job จาก Master Data action นี้
 - Master Data ต้องยืนยันคู่ผู้โอน–ผู้รับของสลิปเดียวกันก่อน: ผู้โอนเป็น `Company/Internal`, ผู้รับเป็น `Employee/Technician`, มี Master Bank Account แยกสองรายการและผูกกลับ Transaction/Message/Document เดิมผ่าน `master_data_transfer_party_reviews`. ถ้าฝั่งใดขาดชื่อหรือเลขท้ายบัญชีจะยังไม่สร้างผลสำเร็จครึ่งเดียวและไม่ส่งต่อบัญชี.
 - Drawer ของสลิปอ่านไฟล์จาก Source Contract กลางและ Timeline จาก `document_flow_events`; ไม่คัดลอกไฟล์ ไม่สร้าง destination task ใหม่ และไม่แก้ raw source

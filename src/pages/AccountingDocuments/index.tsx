@@ -19,9 +19,11 @@ import { mapTransferSlipTruth } from '../../services/transferSlipOperationalTrut
 import type { TransferSlipOperationalTruthRow } from '../../services/transferSlipOperationalTruth'
 import { calculateUnallocatedAmount, emptyMoneyAllocation, emptyMoneyLineage, moneyAllocationDestinations, moneyAllocationTotal, moneyPurposeRoute, validateMoneyLineage } from '../../services/transferSlipMoneyLineage'
 import type { MoneyAllocationDraft, MoneyFundingSource, MoneyLineageDraft, MoneyPurpose } from '../../services/transferSlipMoneyLineage'
+import { buildSlipAnalysisGate, inferSlipMoneyPurpose, slipPurposeNeedsFundHolder, slipPurposeNeedsProject } from '../../services/transferSlipAnalysisGate'
 import type { VendorMatchStatus } from '../../services/vendorPaymentMatching'
 import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 import { userError } from '../../utils/userError'
+import { TransferSlipAnalysisGateCard } from './TransferSlipAnalysisGateCard'
 
 type DocumentStatus = 'pending' | 'confirmed' | 'duplicate' | 'dismissed' | 'needs_correction'
 type ItemType = 'stock' | 'direct_project' | 'tool_asset' | 'expense' | 'service' | 'labor' | 'unknown'
@@ -1008,6 +1010,7 @@ export function AccountingDocumentsPage() {
   const slipTransferAmount = slipReviewDraft?.amount.trim() ? Number(slipReviewDraft.amount) : null
   const slipAllocationTotal = slipMoneyLineageDraft ? moneyAllocationTotal(slipMoneyLineageDraft.allocations) : 0
   const slipLineageValidation = slipMoneyLineageDraft ? validateMoneyLineage(slipMoneyLineageDraft, slipTransferAmount) : { missing: [], errors: [] }
+  const slipAnalysis = useMemo(() => selectedSlip ? buildSlipAnalysisGate(selectedSlip, slipMoneyLineageDraft) : null, [selectedSlip, slipMoneyLineageDraft])
 
   const closeSlipDetail = () => {
     ++slipRequestRef.current
@@ -1022,8 +1025,15 @@ export function AccountingDocumentsPage() {
 
   const openSlipDetail = async (slip: AccountingPendingSlip) => {
     const requestId = ++slipRequestRef.current
+    const suggestion = inferSlipMoneyPurpose(slip)
+    const suggestedPurpose = suggestion.purpose
+    const suggestedLineage = emptyMoneyLineage(slip.senderName ?? '', slip.recipientName ?? '', slip.amount, slip.transferAt ? new Date(slip.transferAt).toISOString().slice(0, 16) : '')
+    if (suggestedPurpose !== 'unknown') {
+      suggestedLineage.purposeType = suggestedPurpose
+      suggestedLineage.allocations = suggestedLineage.allocations.map(allocation => ({ ...allocation, purposeType: suggestedPurpose, confidence: String(suggestion.confidence) }))
+    }
     setSelectedSlip(slip)
-    setSlipDetailTab(0); setSlipReviewDraft(slipDraftFromRow(slip)); setSlipMoneyLineageDraft(emptyMoneyLineage(slip.senderName ?? '', slip.recipientName ?? '', slip.amount, slip.transferAt ? new Date(slip.transferAt).toISOString().slice(0, 16) : '')); setSlipMoneyLineageStatus(null); setMoneyLineageOptions([]); setSlipAiGuidance('')
+    setSlipDetailTab(0); setSlipReviewDraft(slipDraftFromRow(slip)); setSlipMoneyLineageDraft(suggestedLineage); setSlipMoneyLineageStatus(null); setMoneyLineageOptions([]); setSlipAiGuidance('')
     setSlipPreviewFiles([])
     setSlipPreviewIndex(0)
     setSlipPreviewMessage('กำลังเปิดไฟล์ต้นฉบับ…')
@@ -1462,6 +1472,7 @@ export function AccountingDocumentsPage() {
         </>}
         {slipDetailTab === 1 && slipReviewDraft && slipMoneyLineageDraft && <>
           <Alert severity="info">ข้อมูลใช้งานจริงมีชุดเดียวจาก Canonical projection เท่านั้น รูปสลิปและค่าที่ AI อ่านเป็นหลักฐานอ้างอิง ไม่ใช่ข้อมูลธุรกิจและห้ามนำไปลงบัญชีก่อนยืนยัน ระบบเก็บ Source และ Audit เดิมเพื่อย้อนตรวจได้</Alert>
+          {slipAnalysis && <TransferSlipAnalysisGateCard analysis={slipAnalysis} />}
           <Paper variant="outlined" sx={{ p: 1.5, borderLeft: 4, borderLeftColor: 'primary.main' }}><Stack spacing={1}>
             <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>เส้นทางเอกสารและเส้นทางเงิน</Typography>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap sx={{ alignItems: { sm: 'center' }, flexWrap: 'wrap' }}><Chip label="ต้นทาง: Intake" /><Typography>→</Typography><Chip color="primary" label="ปัจจุบัน: บัญชีตรวจสลิป" /><Typography>→</Typography><Chip color={slipMoneyLineageDraft.allocations.some(allocation => allocation.purposeType === 'unknown') ? 'warning' : 'secondary'} label={`ถัดไป: ${moneyAllocationDestinations(slipMoneyLineageDraft.allocations).map(route => route.replace('บัญชี → ', '')).join(' + ')}`} /></Stack>
@@ -1507,8 +1518,8 @@ export function AccountingDocumentsPage() {
           </Stack>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
             <TextField select label="เงินที่จ่ายมาจากไหน" value={slipMoneyLineageDraft.fundingSourceType} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, fundingSourceType: event.target.value as MoneyFundingSource }))}><MenuItem value="unknown">ยังไม่ทราบ</MenuItem><MenuItem value="company_account">บัญชีบริษัท</MenuItem><MenuItem value="reserve_fund">เงินสำรองจ่าย</MenuItem><MenuItem value="employee_advance">เงินทดลองจ่าย/เบิกล่วงหน้า</MenuItem><MenuItem value="personal_reimbursement">เงินส่วนตัวสำรองก่อน</MenuItem></TextField>
-            <TextField label="รหัสกองเงิน / Advance ID" value={slipMoneyLineageDraft.fundingSourceReference} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, fundingSourceReference: event.target.value }))} />
-            <TextField label="ผู้ถือเงินจริงที่ยืนยัน" value={slipMoneyLineageDraft.fundHolderName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, fundHolderName: event.target.value }))} helperText="บังคับเมื่อเป็นเงินสำรองหรือเงินทดลองจ่าย · ไม่เปลี่ยนชื่อบนสลิป" />
+            {slipAnalysis && slipPurposeNeedsFundHolder(slipAnalysis.purpose) && <><TextField label="รหัสกองเงิน / Advance ID" value={slipMoneyLineageDraft.fundingSourceReference} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, fundingSourceReference: event.target.value }))} />
+            <TextField label="ผู้ถือเงินจริงที่ยืนยัน" value={slipMoneyLineageDraft.fundHolderName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, fundHolderName: event.target.value }))} helperText="จำเป็นสำหรับเงินเบิกล่วงหน้า/เงินสำรอง/เงินคืน · ไม่เปลี่ยนชื่อบนสลิป" /></>}
             <TextField label="ผู้จ่ายจริงที่ยืนยัน" value={slipMoneyLineageDraft.payerName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, payerName: event.target.value }))} helperText="ใช้สำหรับกระทบยอดและรายงาน ไม่เขียนทับผู้โอนตามหลักฐาน" />
             <TextField label="ผู้รับจริงที่ยืนยัน" value={slipMoneyLineageDraft.finalBeneficiaryName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, finalBeneficiaryName: event.target.value }))} helperText="แยกจากผู้รับที่ AI/OCR อ่านจากสลิป" />
             <TextField select label="เชื่อมจากเส้นเงินก่อนหน้า (ถ้ามี)" value={slipMoneyLineageDraft.parentLineageId} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, parentLineageId: event.target.value }))} helperText="ใช้เชื่อม บริษัท → ผู้ถือเงิน → ค่าแรง/วัสดุ/โครงการ โดยไม่สร้างสลิปซ้ำ"><MenuItem value="">เป็นต้นทางใหม่</MenuItem>{moneyLineageOptions.map(option => <MenuItem key={option.id} value={option.id}>{option.payer_name ?? 'ไม่ทราบผู้จ่าย'} → {option.final_beneficiary_name ?? 'ไม่ทราบผู้รับ'} · {money(option.paid_amount)} · {new Date(option.updated_at).toLocaleDateString('th-TH')}</MenuItem>)}</TextField>
@@ -1520,10 +1531,10 @@ export function AccountingDocumentsPage() {
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1 }}>
               <TextField select size="small" label="วัตถุประสงค์/ปลายทาง" value={allocation.purposeType} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => item.key === allocation.key ? { ...item, purposeType: event.target.value as MoneyPurpose, ...(['general_expense','vendor_payment','bank_fee','tax','inter_account','cash_withdrawal'].includes(event.target.value) ? { projectId: '', siteId: '' } : {}) } : item) }))}><MenuItem value="unknown">ยังไม่ชัดเจน</MenuItem><MenuItem value="payroll">ค่าแรง</MenuItem><MenuItem value="advance_transfer">เติมเงินสำรอง/เบิกล่วงหน้า</MenuItem><MenuItem value="materials">ซื้อวัสดุ/อุปกรณ์</MenuItem><MenuItem value="project_expense">ค่าใช้จ่ายโครงการ</MenuItem><MenuItem value="vendor_payment">จ่ายผู้ขาย</MenuItem><MenuItem value="subcontractor">ผู้รับเหมา/ผู้รับเหมาช่วง</MenuItem><MenuItem value="travel">เดินทาง/หน้างาน</MenuItem><MenuItem value="bank_fee">ค่าธรรมเนียมธนาคาร</MenuItem><MenuItem value="tax">ภาษี</MenuItem><MenuItem value="refund_return">เงินคืน/คืนเงินสำรอง</MenuItem><MenuItem value="inter_account">โอนระหว่างบัญชี</MenuItem><MenuItem value="cash_withdrawal">ถอนเงินสด</MenuItem><MenuItem value="general_expense">ค่าใช้จ่ายทั่วไป</MenuItem><MenuItem value="onward_transfer">ส่งต่อให้ผู้ถือเงินอีกคน</MenuItem></TextField>
               <TextField size="small" type="number" label="จำนวนเงินที่จัดสรร" value={allocation.amount} onChange={event => { const amount = event.target.value; setSlipMoneyLineageDraft(current => { if (!current) return current; const allocations = current.allocations.map(item => item.key === allocation.key ? { ...item, amount } : item); return { ...current, allocations, remainingAmount: calculateUnallocatedAmount(slipTransferAmount, allocations, current.returnedAmount) } }) }} />
-              <TextField select size="small" label="โครงการ" value={allocation.projectId} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => item.key === allocation.key ? { ...item, projectId: event.target.value, siteId: '' } : item) }))}><MenuItem value="">ไม่ระบุ</MenuItem>{projects.map(project => <MenuItem key={project.id} value={project.id}>{project.code ? `${project.code} · ` : ''}{project.name}</MenuItem>)}</TextField>
-              <TextField select size="small" label="ไซต์งาน" value={allocation.siteId} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => item.key === allocation.key ? { ...item, siteId: event.target.value } : item) }))}><MenuItem value="">ไม่ระบุ</MenuItem>{sites.filter(site => site.project_id === allocation.projectId).map(site => <MenuItem key={site.id} value={site.id}>{site.name}</MenuItem>)}</TextField>
+              {slipPurposeNeedsProject(allocation.purposeType) && <><TextField select size="small" label="โครงการ (จำเป็นสำหรับประเภทนี้)" value={allocation.projectId} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => item.key === allocation.key ? { ...item, projectId: event.target.value, siteId: '' } : item) }))}><MenuItem value="">ยังไม่เลือกโครงการ</MenuItem>{projects.map(project => <MenuItem key={project.id} value={project.id}>{project.code ? `${project.code} · ` : ''}{project.name}</MenuItem>)}</TextField>
+              <TextField select size="small" label="ไซต์งาน" value={allocation.siteId} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => item.key === allocation.key ? { ...item, siteId: event.target.value } : item) }))}><MenuItem value="">ไม่ระบุไซต์</MenuItem>{sites.filter(site => site.project_id === allocation.projectId).map(site => <MenuItem key={site.id} value={site.id}>{site.name}</MenuItem>)}</TextField></>}
               <TextField size="small" label="ผู้รับ/ผู้ขาย/ช่าง" value={allocation.payeeName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => item.key === allocation.key ? { ...item, payeeName: event.target.value } : item) }))} />
-              <TextField size="small" label="ผู้รับผิดชอบขั้นตอนถัดไป" value={allocation.responsibleName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => item.key === allocation.key ? { ...item, responsibleName: event.target.value } : item) }))} />
+              {(slipPurposeNeedsProject(allocation.purposeType) || slipPurposeNeedsFundHolder(allocation.purposeType) || allocation.purposeType === 'payroll') && <TextField size="small" label="ผู้รับผิดชอบขั้นตอนถัดไป" value={allocation.responsibleName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => item.key === allocation.key ? { ...item, responsibleName: event.target.value } : item) }))} />}
               <TextField size="small" label="รายละเอียดการใช้เงิน" value={allocation.description} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => item.key === allocation.key ? { ...item, description: event.target.value } : item) }))} sx={{ gridColumn: { sm: '1 / -1' } }} />
               {allocation.purposeType === 'vendor_payment' && <>
                 <TextField select size="small" label="ร้านค้า/ผู้ขายจากทะเบียน" value={allocation.vendorId} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => {

@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Transfer Slip Analysis Gate + Adaptive Drawer v1.0 — 27/8/2569
+
+- **เหตุผล:** Drawer เดิมแสดงฟิลด์ทุกประเภทพร้อมกันและไม่อธิบายว่ารายการค้างเพราะอะไร ทำให้ Admin ต้องตีความสลิปซ้ำ
+- **Flow:** สลิปทุกใบ → วิเคราะห์ประเภทเงิน/คู่บัญชี/ยอด/เวลา/duplicate → เสนอปลายทางและฟิลด์เฉพาะประเภท → ครบทุก Gate จึงยืนยัน Canonical และ Auto route ด้วย event key เดิม; ถ้าไม่ครบค้างพร้อม blocker ที่แก้ได้ตรงจุด
+- **ประเภท:** ค่าแรง, เงินเบิกล่วงหน้า/เงินสำรอง, ผู้ขาย, วัสดุ, โครงการ, เงินคืน, โอนภายใน, ภาษี/ค่าธรรมเนียม/ถอนเงิน และไม่ทราบ
+- **Data/Security:** ไม่สร้างตารางใหม่ ไม่แก้ Raw/OCR; ใช้ `financial_transactions`, Canonical truth, Money Lineage/Allocation, destination tasks และ Audit/RLS/RPC เดิม
+- **Verification/Rollback:** type fixture, blocker/auto-route contract, typecheck, lint, build และ authenticated Accounting Drawer; revert projection/UI โดยคง Transaction, Lineage, Allocation, Task และ Audit
+
 ## ล่าสุด: Master Data Transfer Slip Party Binding v3.4 — 27/8/2569
 
 - **เหตุผล:** หน้า Project Gate ทำให้ Admin มองไม่เห็นขั้นตอนยืนยันบัญชีสองฝั่งของสลิปเงินเบิกล่วงหน้า แม้ระบบหลังบ้านรองรับแล้ว
