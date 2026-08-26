@@ -69,6 +69,8 @@
     "test:accounting-transfer-slip-review": "node --experimental-strip-types scripts/accounting-transfer-slip-review.test.ts",
     "test:transfer-slip-money-lineage": "node --experimental-strip-types scripts/transfer-slip-money-lineage.test.ts",
     "test:transfer-slip-lineage": "node --experimental-strip-types scripts/transfer-slip-money-lineage.test.ts",
+    "test:vendor-payment-matching": "node --experimental-strip-types scripts/vendor-payment-matching.test.ts",
+    "test:vendor-payment-matching-migration": "node --experimental-strip-types scripts/vendor-payment-matching-migration.test.ts",
     "test:quotation-confirmed-ui-state": "node --experimental-strip-types scripts/quotation-confirmed-ui-state.test.ts",
     "test:product-name-billing-delivery": "node --experimental-strip-types scripts/product-name-billing-delivery.test.ts",
     "test:purchase-vendor-stock-detail": "node --experimental-strip-types scripts/purchase-vendor-stock-detail.test.ts",
