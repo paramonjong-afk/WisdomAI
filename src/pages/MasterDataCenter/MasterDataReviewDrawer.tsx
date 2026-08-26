@@ -3,7 +3,7 @@ import { EvidenceSplitReviewWorkspace, type EvidencePreviewState } from '../../c
 import type { MasterClassification, MasterClassificationType } from '../../services/masterDataClassification'
 import { classificationLabel } from '../../services/masterDataClassification'
 import type { MasterAutoRoute } from '../../services/masterDataAutoInput'
-import type { MasterRecordingMode } from '../../services/masterDataAdvanceFunding'
+import { isAdvancePartyReviewConfirmed, type MasterRecordingMode, type TransferPartyDraft } from '../../services/masterDataAdvanceFunding'
 import type { MasterProjectOption, MasterWorkPackageOption } from '../../services/masterDataProjectGate'
 import type { MasterReviewAction, MasterReviewReceipt } from '../../services/masterDataReviewWorkflow'
 import { MasterDataProjectGatePanel, type ProjectGateAction } from './MasterDataProjectGatePanel'
@@ -26,6 +26,7 @@ type Props = {
   receipt: MasterReviewReceipt
   reviewerName: (id: string | null) => string
   correction: Correction
+  partyDraft: TransferPartyDraft
   reason: string
   saving: boolean
   message: DrawerMessage | null
@@ -39,6 +40,7 @@ type Props = {
   onConfirmAdvanceFunding: () => void
   onTabChange: (tab: number) => void
   onCorrectionChange: (correction: Correction) => void
+  onPartyDraftChange: (draft: TransferPartyDraft) => void
   onReasonChange: (reason: string) => void
   onProjectAction: (action: ProjectGateAction, payload: Record<string, unknown>) => Promise<void>
   onCreateWorkPackage: (input: { projectId: string; parentId: string | null; name: string; description: string }) => Promise<MasterWorkPackageOption | null>
@@ -62,14 +64,38 @@ function PartyCard({ title, name, bank, account, tone = 'default' }: { title: st
   </Paper>
 }
 
+function PartyEditor({ title, classification, name, bank, account, onNameChange, onBankChange, onAccountChange }: {
+  title: string
+  classification: string
+  name: string
+  bank: string
+  account: string
+  onNameChange: (value: string) => void
+  onBankChange: (value: string) => void
+  onAccountChange: (value: string) => void
+}) {
+  return <Paper variant="outlined" sx={{ p: 1.25, flex: 1 }}>
+    <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', mb: 1 }}>
+      <Typography sx={{ fontWeight: 800, flex: 1 }}>{title}</Typography>
+      <Chip size="small" color="info" label={classification} />
+    </Stack>
+    <Stack spacing={1}>
+      <TextField size="small" label="ชื่อจากสลิป *" value={name} onChange={(event) => onNameChange(event.target.value)} />
+      <TextField size="small" label="เลขท้ายบัญชี *" value={account} onChange={(event) => onAccountChange(event.target.value)} />
+      <TextField size="small" label="ธนาคาร" value={bank} onChange={(event) => onBankChange(event.target.value)} />
+    </Stack>
+  </Paper>
+}
+
 export function MasterDataReviewDrawer(props: Props) {
   const { candidate, source, classification, route } = props
   if (!candidate || !classification || !route) return null
   const masterName = typeof candidate.candidate_data.master_name === 'string' ? candidate.candidate_data.master_name : null
   const masterAccount = typeof candidate.candidate_data.master_account_last4 === 'string' ? candidate.candidate_data.master_account_last4 : null
   const nameMismatch = isNameMismatch(candidate, source)
-  const terminal = ['confirmed', 'approved', 'locked'].includes(candidate.status)
   const advanceFunding = props.recordingMode === 'employee_advance_funding'
+  const advancePartiesConfirmed = isAdvancePartyReviewConfirmed(candidate)
+  const terminal = ['confirmed', 'approved', 'locked'].includes(candidate.status) && (!advanceFunding || advancePartiesConfirmed)
 
   const reviewPane = <>
     <DialogTitle>ตรวจข้อมูลใหม่ · {candidate.display_name}</DialogTitle>
@@ -86,26 +112,31 @@ export function MasterDataReviewDrawer(props: Props) {
         </Alert>}
         {props.activeTab === 0 ? <>
           <Alert severity={advanceFunding ? 'info' : props.requiresCorrection ? 'warning' : 'success'}>
-            {advanceFunding ? 'เลือกโหมดเงินทดลองจ่ายแล้ว: ยืนยันบุคคล/บัญชีและส่งบัญชีได้ในคำสั่งเดียว โดยยังไม่ต้องผูก Project' : props.requiresCorrection ? 'พบข้อมูลขาดหรือขัดแย้ง ให้แก้เฉพาะช่องที่จำเป็นแล้วบันทึกเป็น Version ใหม่' : 'ข้อมูลจากหลักฐานตรงกับข้อเสนอเดิม ไม่ต้องกรอกหรือบันทึก Correction ซ้ำ'}
+            {advanceFunding ? 'เลือกโหมดเงินทดลองจ่ายแล้ว: ตรวจผู้โอนและผู้รับครบสองฝั่งก่อนส่งบัญชี โดยยังไม่ต้องผูก Project' : props.requiresCorrection ? 'พบข้อมูลขาดหรือขัดแย้ง ให้แก้เฉพาะช่องที่จำเป็นแล้วบันทึกเป็น Version ใหม่' : 'ข้อมูลจากหลักฐานตรงกับข้อเสนอเดิม ไม่ต้องกรอกหรือบันทึก Correction ซ้ำ'}
           </Alert>
           <MasterDataProjectGatePanel key={candidate.id} candidate={candidate} source={source} projects={props.projects} workPackages={props.workPackages} saving={props.saving} reason={props.reason} recordingMode={props.recordingMode} advanceBlockers={props.advanceBlockers} onRecordingModeChange={props.onRecordingModeChange} onAction={props.onProjectAction} onOpenSource={props.onOpenSource} onCreateWorkPackage={props.onCreateWorkPackage} />
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
             <Paper variant="outlined" sx={{ p: 1.25, flex: 1 }}><Typography sx={{ fontWeight: 800 }}>ข้อมูลเดิม</Typography><Typography variant="body2">ชื่อ: {masterName ?? 'ยังไม่มี Master เดิม'}</Typography><Typography variant="body2">บัญชี: {masterAccount ? `•••• ${masterAccount.slice(-4)}` : '-'} · ธนาคาร: {(candidate.candidate_data.master_bank_name as string | undefined) ?? '-'}</Typography></Paper>
             <Paper variant="outlined" sx={{ p: 1.25, flex: 1, borderColor: nameMismatch ? 'error.main' : 'success.main' }}><Typography sx={{ fontWeight: 800 }}>หลักฐานใหม่</Typography><Typography variant="body2">ชื่อ: {source.extractedName ?? candidate.display_name}</Typography><Typography variant="body2">บัญชี: {candidateAccount(candidate) ? `•••• ${candidateAccount(candidate)}` : '-'} · ธนาคาร: {(candidate.candidate_data.bank_name as string | undefined) ?? source.transferRecipientBank ?? '-'}</Typography><Chip size="small" color={nameMismatch ? 'error' : 'success'} label={nameMismatch ? `ข้อมูลไม่ตรง: ${mismatchStage(candidate, source)}` : 'ข้อมูลตรงกับข้อเสนอ'} /></Paper>
           </Stack>
-          {(source.transferSenderName || source.transferRecipientName) && <Paper variant="outlined" sx={{ p: 1.25 }}>
-            <Typography sx={{ fontWeight: 800, mb: 1 }}>คู่โอนเงินจากสลิป</Typography>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><PartyCard title="ผู้โอน / แหล่งเงิน" name={source.transferSenderName} bank={source.transferSenderBank} account={source.transferSenderAccountLast4} /><PartyCard title="ผู้รับ / ผู้ถือเงิน" name={source.transferRecipientName} bank={source.transferRecipientBank} account={source.transferRecipientAccountLast4} tone={nameMismatch ? 'warning' : 'default'} /></Stack>
+          {(advanceFunding || source.transferSenderName || source.transferRecipientName) && <Paper variant="outlined" sx={{ p: 1.25 }}>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}><Typography sx={{ fontWeight: 800, flex: 1 }}>คู่โอนเงินจากสลิป · ตรวจและเก็บทั้งสองฝั่ง</Typography>{advancePartiesConfirmed && <Chip size="small" color="success" label="ยืนยันครบสองฝั่งแล้ว" />}</Stack>
+            {advanceFunding && <Alert severity="info" sx={{ mb: 1 }}>ค่าต้นฉบับ: {source.transferSenderName ?? 'อ่านผู้โอนไม่ได้'} · •••• {source.transferSenderAccountLast4 ?? '-'} → {source.transferRecipientName ?? 'อ่านผู้รับไม่ได้'} · •••• {source.transferRecipientAccountLast4 ?? '-'} · การแก้ด้านล่างบันทึกเป็น Derived Version โดยไม่เขียนทับสลิป/OCR</Alert>}
+            {advanceFunding ? <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              <PartyEditor title="ผู้โอน / แหล่งเงิน" classification="Company/Internal" name={props.partyDraft.senderName} bank={props.partyDraft.senderBankName} account={props.partyDraft.senderAccountLast4} onNameChange={(value) => props.onPartyDraftChange({ ...props.partyDraft, senderName: value })} onBankChange={(value) => props.onPartyDraftChange({ ...props.partyDraft, senderBankName: value })} onAccountChange={(value) => props.onPartyDraftChange({ ...props.partyDraft, senderAccountLast4: value })} />
+              <PartyEditor title="ผู้รับ / ผู้ถือเงิน" classification="Employee/Technician" name={props.partyDraft.recipientName} bank={props.partyDraft.recipientBankName} account={props.partyDraft.recipientAccountLast4} onNameChange={(value) => props.onPartyDraftChange({ ...props.partyDraft, recipientName: value })} onBankChange={(value) => props.onPartyDraftChange({ ...props.partyDraft, recipientBankName: value })} onAccountChange={(value) => props.onPartyDraftChange({ ...props.partyDraft, recipientAccountLast4: value })} />
+            </Stack> : <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><PartyCard title="ผู้โอน / แหล่งเงิน" name={source.transferSenderName} bank={source.transferSenderBank} account={source.transferSenderAccountLast4} /><PartyCard title="ผู้รับ / ผู้ถือเงิน" name={source.transferRecipientName} bank={source.transferRecipientBank} account={source.transferRecipientAccountLast4} tone={nameMismatch ? 'warning' : 'default'} /></Stack>}
             <Typography variant="body2" sx={{ mt: 1 }}>ยอด {money(source.transferAmount)} · อ้างอิง {source.bankReference ?? '-'} · ความมั่นใจคู่โอน {source.paymentPartyConfidence == null ? '-' : `${Math.round(source.paymentPartyConfidence * 100)}%`}</Typography>
+            {advanceFunding && <Typography variant="caption" color="text.secondary">บันทึกเป็นคู่เดียวกันด้วย Transaction/Document/Message เดิม · ผู้โอนและผู้รับมี Master Account แยกกัน · ไม่แก้ Raw/OCR</Typography>}
           </Paper>}
-          {(props.requiresCorrection || advanceFunding) && <Paper variant="outlined" sx={{ p: 1.25 }}>
-            <Typography sx={{ fontWeight: 800, mb: 1 }}>{advanceFunding ? 'ข้อมูลบุคคล/บัญชีที่จะบันทึก · ไม่แก้ Raw/OCR' : 'แก้เฉพาะข้อมูล Derived · ไม่แก้ Raw/OCR'}</Typography>
+          {props.requiresCorrection && !advanceFunding && <Paper variant="outlined" sx={{ p: 1.25 }}>
+            <Typography sx={{ fontWeight: 800, mb: 1 }}>แก้เฉพาะข้อมูล Derived · ไม่แก้ Raw/OCR</Typography>
             <Stack spacing={1}>
               <TextField size="small" label="ชื่อที่แก้ไข" value={props.correction.display_name} onChange={(event) => props.onCorrectionChange({ ...props.correction, display_name: event.target.value })} />
-              <Select size="small" disabled={advanceFunding} value={props.correction.classification_type} onChange={(event) => props.onCorrectionChange({ ...props.correction, classification_type: event.target.value as MasterClassificationType })}>{advanceFunding ? <MenuItem value="employee_technician">Employee/Technician</MenuItem> : Object.entries(classificationLabel).map(([key, label]) => <MenuItem key={key} value={key}>{label}</MenuItem>)}</Select>
+              <Select size="small" value={props.correction.classification_type} onChange={(event) => props.onCorrectionChange({ ...props.correction, classification_type: event.target.value as MasterClassificationType })}>{Object.entries(classificationLabel).map(([key, label]) => <MenuItem key={key} value={key}>{label}</MenuItem>)}</Select>
               <TextField size="small" label="เลขท้ายบัญชี" value={props.correction.account_last4} onChange={(event) => props.onCorrectionChange({ ...props.correction, account_last4: event.target.value })} />
               <TextField size="small" label="ธนาคาร" value={props.correction.bank_name} onChange={(event) => props.onCorrectionChange({ ...props.correction, bank_name: event.target.value })} />
-              {!advanceFunding && <TextField size="small" label="เลขภาษี" value={props.correction.tax_id} onChange={(event) => props.onCorrectionChange({ ...props.correction, tax_id: event.target.value })} />}
+              <TextField size="small" label="เลขภาษี" value={props.correction.tax_id} onChange={(event) => props.onCorrectionChange({ ...props.correction, tax_id: event.target.value })} />
             </Stack>
             <Typography variant="caption" color="text.secondary">การบันทึก append before/after, actor, เวลา, reason และ Source ลง Audit/Version</Typography>
           </Paper>}
@@ -113,8 +144,10 @@ export function MasterDataReviewDrawer(props: Props) {
           <MasterDataReviewProgress candidate={candidate} receipt={props.receipt} reason={props.reason} actorName={props.reviewerName} requiresCorrection={props.requiresCorrection} recordingMode={props.recordingMode} advanceBlockers={props.advanceBlockers} />
           <Paper variant="outlined" sx={{ p: 1.25 }}>
             <Typography sx={{ fontWeight: 800 }}>สรุปก่อนยืนยัน</Typography>
-            <Typography variant="body2">ชื่อ: {props.correction.display_name || candidate.display_name}</Typography>
-            <Typography variant="body2">ประเภท: {classificationLabel[props.correction.classification_type]} · ความมั่นใจ {Math.round(classification.confidence * 100)}%</Typography>
+            {advanceFunding ? <>
+              <Typography variant="body2">ผู้โอน: {props.partyDraft.senderName || '-'} · •••• {props.partyDraft.senderAccountLast4 || '-'} · Company/Internal</Typography>
+              <Typography variant="body2">ผู้รับ: {props.partyDraft.recipientName || '-'} · •••• {props.partyDraft.recipientAccountLast4 || '-'} · Employee/Technician</Typography>
+            </> : <><Typography variant="body2">ชื่อ: {props.correction.display_name || candidate.display_name}</Typography><Typography variant="body2">ประเภท: {classificationLabel[props.correction.classification_type]} · ความมั่นใจ {Math.round(classification.confidence * 100)}%</Typography></>}
             <Typography variant="body2">ปลายทาง: {route.destination} · ผู้รับผิดชอบ: {route.owner}</Typography>
             <Typography variant="body2">สิ่งที่ต้องทำต่อ: {route.nextAction}</Typography>
             <Typography variant="body2" color={classification.conflicts.length ? 'error' : 'success.main'}>Conflict: {classification.conflicts.join(', ') || 'ไม่พบ'}</Typography>

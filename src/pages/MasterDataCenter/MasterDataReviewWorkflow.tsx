@@ -1,7 +1,7 @@
 import { CheckOutlined, MoreHorizOutlined, NavigateNextOutlined } from '@mui/icons-material'
 import { Alert, Button, Chip, Divider, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Stack, Typography } from '@mui/material'
 import { useState } from 'react'
-import type { MasterRecordingMode } from '../../services/masterDataAdvanceFunding'
+import { isAdvancePartyReviewConfirmed, type MasterRecordingMode } from '../../services/masterDataAdvanceFunding'
 import {
   masterReviewBlockers,
   masterReviewPersistenceNotice,
@@ -40,7 +40,7 @@ export function MasterDataReviewProgress({ candidate, receipt, reason, actorName
   const stage = masterReviewStage(candidate)
   const advanceFunding = recordingMode === 'employee_advance_funding'
   const blockers = advanceFunding ? advanceBlockers : masterReviewBlockers(candidate, reason, requiresCorrection)
-  const terminal = stage === 'confirmed'
+  const terminal = stage === 'confirmed' && (!advanceFunding || isAdvancePartyReviewConfirmed(candidate))
   const persistedNotice = masterReviewPersistenceNotice(candidate)
   return <Stack spacing={1.25}>
     <Paper variant="outlined" sx={{ p: 1.25 }}>
@@ -92,13 +92,13 @@ export function MasterDataReviewActions({ candidate, reason, saving, hasNext, re
   const advanceFunding = recordingMode === 'employee_advance_funding'
   const blockers = advanceFunding ? advanceBlockers : masterReviewBlockers(candidate, reason, requiresCorrection)
   const isReasonMissing = reason.trim().length < 3
-  const terminal = stage === 'confirmed'
+  const terminal = stage === 'confirmed' && (!advanceFunding || isAdvancePartyReviewConfirmed(candidate))
   const primary = terminal
     ? { label: hasNext ? 'รายการถัดไป' : 'กลับคิว', disabled: false, run: hasNext ? onNext : onClose }
     : advanceFunding
       ? activeTab === 0
         ? { label: 'ไปสรุปและยืนยัน', disabled: false, run: () => onTabChange(1) }
-        : { label: 'ยืนยันบุคคล/บัญชี และส่งบัญชี', disabled: saving || blockers.length > 0, run: onConfirmAdvanceFunding }
+        : { label: 'ยืนยันผู้โอน–ผู้รับ และส่งบัญชี', disabled: saving || blockers.length > 0, run: onConfirmAdvanceFunding }
     : stage === 'project_ready' && activeTab === 0 && requiresCorrection
     ? { label: 'บันทึกข้อมูลที่แก้และส่งตรวจซ้ำ', disabled: saving || isReasonMissing, run: onCorrect }
     : (stage === 'project_ready' || stage === 'awaiting_rereview') && activeTab === 0

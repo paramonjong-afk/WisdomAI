@@ -1,15 +1,11 @@
-# Employee Advance & Settlement Flow
-
-## Purpose
-
-Track money transferred to a monthly employee for company disbursements, then reconcile each downstream use without losing the original Intake/document route.
-
 ```mermaid
 flowchart LR
   A[Source message + transfer slip] --> B[Intake ID / Document Flow Item]
   B --> C[AI extracts transfer facts]
   C --> MD{Admin records as\nemployee advance funding?}
-  MD -->|Yes: amount + recipient/account + source complete| MA[Master Data confirms Employee/Technician\nProject allocation awaiting]
+  MD -->|Yes: both transfer parties + amount + source complete| MP[Review sender Company/Internal\nand recipient Employee/Technician]
+  MP --> MA[Master Data confirms both Master Accounts\nProject allocation awaiting]
+  MP -->|Missing/conflict| R
   MA --> MQ[Accounting Pending Queue first]
   MQ --> ML
   MD -->|No| D
@@ -43,10 +39,16 @@ flowchart LR
   P -->|Success| R[Audit + close notification Job]
 ```
 
+# Employee Advance & Settlement Flow
+
+## Purpose
+
+Track money transferred to a monthly employee for company disbursements, then reconcile each downstream use without losing the original Intake/document route.
+
 ## Data, roles, and route
 
 - `employee_advance_cases` is the advance header. A root case references one financial transaction and its original `document_flow_items` row; it never creates another Intake ID or source file. A technician sub-advance references its parent case instead, so the complete source route is inherited rather than copied.
-- Master Data may explicitly confirm a qualifying transfer as `employee_advance_funding` before a Project is known. That command confirms only the internal employee/account reference, stores `project_allocation=awaiting`, creates/reopens one Accounting task and records the Advance Finance money lineage. It does not approve an advance case, post an accounting entry or close a balance. Project/work scope is assigned to the later expense/settlement lines.
+- Master Data may explicitly confirm a qualifying transfer as `employee_advance_funding` before a Project is known. The command confirms the sender `Company/Internal` bank reference and recipient `Employee/Technician` bank reference as one reviewed Transfer Party Pair, stores `project_allocation=awaiting`, creates/reopens one Accounting task and records the Advance Finance money lineage. It does not approve an advance case, post an accounting entry or close a balance. Project/work scope is assigned to the later expense/settlement lines.
 - `employee_advance_settlement_items` splits one advance into daily-wage payments, material purchases, travel, other expense, returned cash, or payroll offset. Every line retains project/WBS, payee, date, evidence reference, and approval state.
 - Accounting verifies the funding slip and final reconciliation. HR verifies daily-worker wage lines. Managers create/submit/approve/return/cancel according to company permission.
 - A holder may issue one or more technician sub-advances. Each is recorded as an approved `employee_advance` line on the parent and creates a child case; a parent cannot close until every child is closed. A technician closes only after their actual spending/return exactly offsets their child advance.
@@ -76,6 +78,7 @@ flowchart LR
 
 | Version | Date | Rationale / impact | Migration | Rollback |
 |---|---|---|---|---|
+| v2.0 | 26/8/2569 | Persist both sender and recipient of an advance-funding slip before Accounting/Advance continuation; prevent one-sided or half-saved Master references | `20260826223000_master_data_transfer_party_review.sql` | Revoke v2 RPC and revert Drawer; retain pair/account/audit/source records for reconciliation |
 | v1.9 | 26/8/2569 | Add a strict Master Data intake path for company advance top-ups: employee/account first, Accounting pending first, Advance Finance lineage next, and Project allocation deferred to actual use/settlement | `20260826190500_master_data_employee_advance_funding.sql` | Revoke RPC/restore Project gate and hide recording mode; retain source, task, lineage, Master data and Audit |
 | v1.0 | 21/8/2569 | Create a central advance/settlement registry linked to the source slip and Document Flow for reports and traceability | `20260820233529_employee_advance_settlement_flow.sql` | Disable UI/RPCs; retain source routes, evidence and audit |
 | v1.1 | 21/8/2569 | Add traceable technician sub-advances; parent funding route is inherited, and parent close is blocked until all child advances close | `20260821001815_employee_sub_advance_flow.sql` | Hide sub-advance action/RPC; retain linked cases, audit and source route |

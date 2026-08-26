@@ -1,5 +1,15 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Master Data Transfer Party Pair v2.4 — 26/8/2569
+
+- **เหตุผล:** Drawer แสดงผู้โอนและผู้รับจากสลิปได้ แต่ RPC ยืนยันเฉพาะผู้รับ/ผู้ถือเงิน ทำให้ผู้โอนไม่มี Master reference และผู้ใช้อาจเข้าใจว่าตรวจครบแล้วทั้งที่บันทึกเพียงฝั่งเดียว
+- **ผลกระทบ:** `/master-data` โหมดเงินทดลองจ่ายแก้และยืนยันผู้โอน `Company/Internal` กับผู้รับ `Employee/Technician` ในหน้าเดียว; ทั้งสอง Master Bank Account ผูกกับ Transaction/Message/Document เดิมผ่าน `master_data_transfer_party_reviews`
+- **Gate/Route:** ชื่อและเลขท้ายบัญชีทั้งสองฝั่งต้องครบ; คำสั่ง v2 เขียนคู่โอน, Candidate, Accounting task, Money Lineage, Version และ Audit ใน transaction เดียว แล้วส่ง Accounting ก่อน Advance Finance โดย Project ยังรอจัดสรร
+- **Security/Idempotency:** RLS อ่านเฉพาะ Company Manager, mutation ผ่าน SECURITY DEFINER ที่ `search_path=''`, revoke `PUBLIC/anon`; event key replay ไม่สร้าง Master/task/audit ซ้ำ และ Raw/OCR/financial source read-only
+- **Migration:** `20260826223000_master_data_transfer_party_review.sql`
+- **Verification:** two-party contract, migration/RLS/idempotency, targeted/full lint, typecheck, build, Local responsive browser, Production revision/accounting/audit smoke
+- **Rollback:** revoke v2 RPC และ revert UI; คง pair/account/version/audit/source ทั้งหมดเพื่อ recovery ห้ามลบข้อมูลต้นฉบับ
+
 ## ล่าสุด: Accounting Money Allocation & Root/Parent Lineage v1.5 — 26/8/2569
 
 - **เหตุผล:** Money Lineage เดิมเก็บวัตถุประสงค์เดียวต่อสลิปและหลายทอดใน JSON เดียว จึงแบ่งค่าแรง/วัสดุ/หลายโครงการหรือเชื่อมสลิปการใช้เงินกลับกองเงินต้นทางไม่ได้อย่างตรวจสอบได้

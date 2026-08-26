@@ -8,7 +8,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
 import { documentFlowGateway } from '../../services/documentFlowGateway'
-import { advanceFundingRoute, applyLocalAdvanceFunding, inferMasterRecordingMode, validateAdvanceFundingInput, validatePersistedAdvanceFunding, type AdvanceFundingRpcResult, type MasterRecordingMode } from '../../services/masterDataAdvanceFunding'
+import { advanceFundingRoute, applyLocalAdvanceFunding, inferMasterRecordingMode, transferPartyDraft, validateAdvanceFundingInput, validatePersistedAdvanceFunding, type AdvanceFundingRpcResult, type MasterRecordingMode, type TransferPartyDraft } from '../../services/masterDataAdvanceFunding'
 import { autoInputAuditPayload, buildMasterAutoCorrection, masterAutoRoute } from '../../services/masterDataAutoInput'
 import { classificationLabel, classifyMasterCandidate, type MasterClassificationType } from '../../services/masterDataClassification'
 import { emptyMasterSourceEvidence, loadMasterSourceEvidence } from '../../services/masterDataSourceGateway'
@@ -72,6 +72,7 @@ export function MasterDataCenterPage() {
   const [reviewVisibleCount, setReviewVisibleCount] = useState(0)
   const [confirmedVisibleCount, setConfirmedVisibleCount] = useState(0)
   const [correction, setCorrection] = useState({ display_name: '', classification_type: 'unknown_review' as MasterClassificationType, account_last4: '', bank_name: '', tax_id: '' })
+  const [partyDraft, setPartyDraft] = useState<TransferPartyDraft>({ senderName: '', senderAccountLast4: '', senderBankName: '', recipientName: '', recipientAccountLast4: '', recipientBankName: '' })
 
   const load = useCallback(async () => {
     if (localTestData) {
@@ -209,18 +210,20 @@ export function MasterDataCenterPage() {
     setReviewReason('')
     setDrawerMessage(null)
     setCorrection({ display_name: auto.display_name.value, classification_type: auto.classification_type.value, account_last4: auto.account_last4.value, bank_name: auto.bank_name.value, tax_id: auto.tax_id.value })
+    setPartyDraft(transferPartyDraft(candidate, source))
   }
   const changeRecordingMode = (mode: MasterRecordingMode) => {
     setRecordingMode(mode)
     setDrawerMessage(null)
     if (mode === 'employee_advance_funding') {
       setCorrection((current) => ({ ...current, classification_type: 'employee_technician' }))
+      if (selected) setPartyDraft(transferPartyDraft(selected, evidence[selected.id] ?? emptyEvidence()))
     }
   }
   const confirmAdvanceFunding = async () => {
     if (!selected) return
     const source = evidence[selected.id] ?? emptyEvidence()
-    const input = { displayName: correction.display_name, classificationType: correction.classification_type, accountLast4: correction.account_last4, bankName: correction.bank_name, reason: reviewReason }
+    const input = { ...partyDraft, classificationType: 'employee_technician', reason: reviewReason }
     const validation = validateAdvanceFundingInput(selected, source, input)
     if (!validation.valid) { setDrawerMessage({ severity: 'error', text: `ยังบันทึกเงินทดลองจ่ายไม่ได้: ${validation.blockers.join(' · ')}` }); return }
     if (reviewActionInFlightRef.current.has(selected.id)) { setDrawerMessage({ severity: 'info', text: 'กำลังบันทึกรายการนี้ กรุณารอผลยืนยันจากฐานข้อมูลก่อน' }); return }
@@ -237,13 +240,16 @@ export function MasterDataCenterPage() {
     setSavingId(selected.id); setDrawerMessage(null); setError('')
     const eventKey = crypto.randomUUID()
     try {
-      const { data, error: rpcError } = await supabase.rpc('confirm_master_data_employee_advance_funding', {
+      const { data, error: rpcError } = await supabase.rpc('confirm_master_data_employee_advance_funding_v2', {
         target_candidate_id: selected.id,
         target_event_key: eventKey,
         target_reason: reviewReason.trim(),
-        target_display_name: correction.display_name.trim(),
-        target_account_last4: normalizeAccountLast4(correction.account_last4),
-        target_bank_name: correction.bank_name.trim() || null,
+        target_sender_name: partyDraft.senderName.trim(),
+        target_sender_account_last4: normalizeAccountLast4(partyDraft.senderAccountLast4),
+        target_sender_bank_name: partyDraft.senderBankName.trim() || null,
+        target_recipient_name: partyDraft.recipientName.trim(),
+        target_recipient_account_last4: normalizeAccountLast4(partyDraft.recipientAccountLast4),
+        target_recipient_bank_name: partyDraft.recipientBankName.trim() || null,
       })
       if (rpcError) { setDrawerMessage({ severity: 'error', text: masterReviewError(rpcError), incidentId: eventKey, persisted: false }); return }
       const result = data && typeof data === 'object' ? data as AdvanceFundingRpcResult : null
@@ -254,7 +260,7 @@ export function MasterDataCenterPage() {
       setSelected(persisted)
       setReviewReason('')
       const holderText = result?.holder_match_status?.startsWith('matched_') ? 'จับคู่ผู้ถือเงินเดิมแล้ว' : 'รอบัญชีจับคู่ผู้ถือเงิน'
-      setDrawerMessage({ severity: 'success', persisted: true, incidentId: eventKey, text: `บันทึก Employee/Technician และบัญชีแล้ว · ส่ง Accounting Pending Queue แล้ว · ${holderText} · Project รอจัดสรรตอนลงค่าใช้จ่าย` })
+      setDrawerMessage({ severity: 'success', persisted: true, incidentId: eventKey, text: `ยืนยันผู้โอน Company/Internal และผู้รับ Employee/Technician ครบสองฝั่งแล้ว · ส่ง Accounting Pending Queue แล้ว · ${holderText} · Project รอจัดสรรตอนลงค่าใช้จ่าย` })
     } catch (actionError) {
       setDrawerMessage({ severity: 'error', text: userError(actionError, 'บันทึกเงินทดลองจ่ายไม่สำเร็จ'), incidentId: eventKey, persisted: false })
     } finally {
@@ -398,7 +404,7 @@ export function MasterDataCenterPage() {
   const selectedClassification = selected ? classifications[selected.id] ?? classifyMasterCandidate(selected, selectedSource, duplicateIds.has(selected.id)) : null
   const selectedRequiresCorrection = selected && selectedClassification ? masterDataRequiresCorrection(selected, selectedSource, selectedClassification.conflicts, selectedClassification.type) : false
   const selectedRoute = selectedClassification ? recordingMode === 'employee_advance_funding' ? { ...advanceFundingRoute, requiresReview: true } : masterAutoRoute(correction.classification_type, selectedClassification.confidence, selectedClassification.conflicts) : null
-  const selectedAdvanceValidation = selected ? validateAdvanceFundingInput(selected, selectedSource, { displayName: correction.display_name, classificationType: correction.classification_type, accountLast4: correction.account_last4, bankName: correction.bank_name, reason: reviewReason }) : { valid: false, blockers: [] }
+  const selectedAdvanceValidation = selected ? validateAdvanceFundingInput(selected, selectedSource, { ...partyDraft, classificationType: 'employee_technician', reason: reviewReason }) : { valid: false, blockers: [] }
   const selectedSourceCount = selected ? duplicateGroups.find((group) => group.candidateIds.includes(selected.id))?.candidateIds.length ?? 1 : 0
   const closeDrawer = () => { setSelected(null); closeEvidencePreview(); setReviewReason(''); setDrawerMessage(null); setDrawerTab(0); setRecordingMode('project_scoped') }
 
@@ -422,7 +428,7 @@ export function MasterDataCenterPage() {
       { id: 'status', label: 'สถานะข้อมูล', minWidth: 190, render: (row) => <Chip size="small" color={['confirmed', 'approved', 'auto_verified'].includes(row.status) ? 'success' : row.status === 'locked' ? 'primary' : row.status === 'rejected' ? 'error' : row.status === 'archived' ? 'default' : 'warning'} label={candidateStatus[row.status] ?? row.status} /> },
       { id: 'actions', label: 'ตรวจรายละเอียด', minWidth: 170, render: (row) => <Button size="small" startIcon={<CompareArrowsOutlined />} onClick={(event) => { event.stopPropagation(); openCandidate(row) }}>เปิด Detail</Button> },
     ]} />
-    <MasterDataReviewDrawer open={Boolean(selected)} candidate={selected} source={selectedSource} classification={selectedClassification} route={selectedRoute} sourceCount={selectedSourceCount} projects={projects} workPackages={workPackages} receipt={selected ? reviewReceipts[selected.id] ?? { projectCandidate: null, correction: null } : { projectCandidate: null, correction: null }} reviewerName={(id) => id ? reviewerNames[id] ?? id : '-'} correction={correction} reason={reviewReason} saving={Boolean(selected && savingId === selected.id)} message={drawerMessage} activeTab={drawerTab} requiresCorrection={selectedRequiresCorrection} hasNext={summaryRows.length > 1} preview={evidencePreview} recordingMode={recordingMode} advanceBlockers={selectedAdvanceValidation.blockers} onRecordingModeChange={changeRecordingMode} onConfirmAdvanceFunding={() => void confirmAdvanceFunding()} onTabChange={setDrawerTab} onCorrectionChange={setCorrection} onReasonChange={setReviewReason} onProjectAction={saveProjectGate} onCreateWorkPackage={createWorkPackage} onOpenSource={() => selected && void openSource(selected)} onClosePreview={closeEvidencePreview} onRetryPreview={retryEvidencePreview} onOpenPreviewExternal={openEvidenceInNewTab} onCorrect={() => void correctCandidate()} onReview={(action) => selected && void review(selected, action)} onNext={openNextCandidate} onClose={closeDrawer} />
+    <MasterDataReviewDrawer open={Boolean(selected)} candidate={selected} source={selectedSource} classification={selectedClassification} route={selectedRoute} sourceCount={selectedSourceCount} projects={projects} workPackages={workPackages} receipt={selected ? reviewReceipts[selected.id] ?? { projectCandidate: null, correction: null } : { projectCandidate: null, correction: null }} reviewerName={(id) => id ? reviewerNames[id] ?? id : '-'} correction={correction} partyDraft={partyDraft} reason={reviewReason} saving={Boolean(selected && savingId === selected.id)} message={drawerMessage} activeTab={drawerTab} requiresCorrection={selectedRequiresCorrection} hasNext={summaryRows.length > 1} preview={evidencePreview} recordingMode={recordingMode} advanceBlockers={selectedAdvanceValidation.blockers} onRecordingModeChange={changeRecordingMode} onConfirmAdvanceFunding={() => void confirmAdvanceFunding()} onTabChange={setDrawerTab} onCorrectionChange={setCorrection} onPartyDraftChange={setPartyDraft} onReasonChange={setReviewReason} onProjectAction={saveProjectGate} onCreateWorkPackage={createWorkPackage} onOpenSource={() => selected && void openSource(selected)} onClosePreview={closeEvidencePreview} onRetryPreview={retryEvidencePreview} onOpenPreviewExternal={openEvidenceInNewTab} onCorrect={() => void correctCandidate()} onReview={(action) => selected && void review(selected, action)} onNext={openNextCandidate} onClose={closeDrawer} />
     <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ alignItems: { md: 'center' } }}><Typography variant="h6" sx={{ flex: 1 }}>Confirmed Data Reports</Typography><Select size="small" value={reportType} onChange={(event) => setReportType(event.target.value as MasterClassificationType | 'all')}><MenuItem value="all">ทุกประเภท</MenuItem>{Object.entries(classificationLabel).filter(([key]) => key !== 'unknown_review').map(([key, label]) => <MenuItem key={key} value={key}>{label}</MenuItem>)}</Select><TextField size="small" type="date" label="วันที่ยืนยัน" value={reportDate} onChange={(event) => setReportDate(event.target.value)} slotProps={{ inputLabel: { shrink: true } }} /><Chip label={`${confirmedVisibleCount} รายการ`} /></Stack>
     <StandardDataTable rows={confirmedRows} onFilteredRowCountChange={setConfirmedVisibleCount} getRowId={(row) => row.id} onRowClick={openCandidate} getSearchText={(row) => `${row.display_name} ${candidateAccount(row) ?? ''} ${classificationLabel[classifications[row.id].type]} ${reviewerNames[row.reviewed_by ?? ''] ?? row.reviewed_by ?? ''} ${evidence[row.id]?.messageId ?? ''} ${evidence[row.id]?.sourceRoom ?? ''}`} searchLabel="ค้นหาชื่อ บัญชี ประเภท ผู้ยืนยัน หรือ Source" emptyText="ยังไม่มีข้อมูลยืนยันตามตัวกรอง" minWidth={1120} columns={[
       { id: 'report_type', label: 'ประเภท', minWidth: 190, render: (row) => classificationLabel[classifications[row.id].type] },
