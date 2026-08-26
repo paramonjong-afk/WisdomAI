@@ -1,5 +1,15 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Master Data Manual Bank Account Entry v2.6 — 26/8/2569
+
+- **เหตุผล:** เมื่อระบบยังไม่พบบัญชีของพนักงาน Admin ต้องเพิ่มข้อมูลที่ขาดได้จากทะเบียนกลาง โดยไม่เดาหรือยืนยันบัญชีให้อัตโนมัติ
+- **ผลกระทบ:** `/master-data` รองรับการเลือกชื่อพนักงานเป็นคำแนะนำ แล้วระบุประเภทเจ้าของ ธนาคาร และเลขท้าย 4 หลัก; รายการที่บันทึกใหม่อยู่สถานะ `unverified`
+- **Validation/Retry:** ตรวจ owner/type/bank/last-four ซ้ำก่อนบันทึก; ข้อมูลไม่ครบหรือซ้ำต้องคง Dialog ไว้พร้อมเหตุผลให้แก้แล้วลองใหม่
+- **Security/Data:** ไม่แสดงหรือเก็บเลขบัญชีเต็มในหน้าทั่วไป, ไม่ auto-link/auto-verify และไม่แก้ Raw/OCR/Source Reference เดิม
+- **Migration:** ไม่มี ใช้ทะเบียน `master_bank_accounts` และสิทธิ์ company-scoped เดิม
+- **Verification:** Flow contract, typecheck, lint, build และ authenticated `/master-data` account-list smoke
+- **Rollback:** revert UI/เอกสาร manual-entry; คง Master Account, Source และ Audit เดิมทั้งหมด
+
 ## ล่าสุด: HR Action Standard + Intake Evidence Split — 26/8/2569
 
 - **HR:** `/employees` รวม Action เพิ่ม/รีเฟรช/กรอง/ค้นหา/ส่งออกไว้ที่ PageHeader และใช้ `StandardDataTable` เป็นเครื่องมือกลาง โดยคง Employee Drawer/Onboarding ล่าสุด

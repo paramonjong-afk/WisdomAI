@@ -1,6 +1,11 @@
 ```mermaid
 flowchart LR
   A[Intake / LINE / document / Admin input] --> B[Master-data candidate]
+  A --> MA[Manual Admin bank-account entry]
+  MA --> MV{Validate owner / type / bank / last 4\nand check duplicate}
+  MV -->|invalid or duplicate| MER[Keep dialog open\nshow recoverable reason]
+  MV -->|valid| MR[Create company-scoped Master Bank Account\nstatus: unverified]
+  MR --> H
   B --> S[Source Reference Gateway\nCandidate → Transaction → Message]
   S --> VM[Vendor payment evidence\nผู้จ่ายบุคคล ≠ ผู้ขายร้านค้า]
   VM -->|เลขภาษี/บัญชี alias ตรง| VMA[Vendor Match ที่ยืนยันแล้ว]
@@ -69,6 +74,7 @@ Create one company-scoped master-data path for people, vendors, customers, proje
 ## Inputs and outputs
 
 - Inputs: extracted name/account facts from transfer evidence, AI/document classification, and authorised Admin entry.
+- Manual bank-account entry may suggest an active employee name, but Admin must explicitly confirm owner type, bank and the final four digits. A matching owner/type/bank/last-four record is rejected as a duplicate; a valid row is stored as `unverified` and becomes visible after refresh.
 - Outputs: candidate rows, verified aliases and bank accounts, links to the existing person/vendor/customer master, and append-only audit.
 - Existing source documents, Intake IDs, transactions and document-flow rows remain canonical; a master candidate stores only a reference to evidence and never duplicates or deletes it.
 - Before a Project-scoped candidate can be confirmed or locked, the Project-first Gate must either link one active Project plus an active Work Package in the same company, or save a complete Project Candidate with a proposed work scope. A missing work scope can be created inline under the selected Project and then selected. A Project Candidate is only a request to open a project; it never creates a real `projects` row automatically. Every Gate command uses one `event_key`; replay returns the prior result and a conflicting reuse is rejected, so retries do not append duplicate Audit/Version rows.
@@ -91,6 +97,7 @@ Create one company-scoped master-data path for people, vendors, customers, proje
 - Account numbers are stored only as a protected value in the central account registry; standard screens expose bank name, account owner and last four digits. Full account values must not be rendered in ordinary tables.
 - Bank-account approval normalizes the derived candidate value before writing `master_bank_accounts.account_last4`: a full or formatted value such as `0856872573` becomes `2573`. Raw message, image, OCR and Source Reference remain unchanged. Fewer than four digits are rejected before any candidate/account/audit state changes, and the Drawer shows the blocking reason without closing.
 - Exact normalized matches may create a pending candidate automatically. They do not replace a verified account or enable payment automatically.
+- Employee-name suggestions in the manual dialog are a UI aid only. They never auto-link, auto-verify or expose a full account number; validation and duplicate failures keep the dialog open so the Admin can correct the entry.
 - On approval, an account fact is linked to an employee/profile only when exactly one active person has the same normalized name. Unknown or ambiguous names remain a verified-but-unlinked account for Admin resolution; no person is guessed.
 - Duplicate candidates are preserved as audit evidence and marked rejected/linked instead of being deleted.
 - Admin correction changes derived candidate fields only. Raw/OCR/source evidence is unchanged; each correction appends before/after, actor, timestamp, reason, Source Reference and a candidate version, then returns to review as `admin_reviewed`. When existing Master data matches the evidence and there is no conflict, correction is skipped; when sender/recipient/name/account evidence differs, the mismatch is highlighted and an explicit correction or review decision is required.
@@ -113,6 +120,7 @@ Create one company-scoped master-data path for people, vendors, customers, proje
 
 | Version | Date | Rationale / impact | Migration | Verification | Rollback |
 |---|---|---|---|---|---|
+| v2.6 | 26/8/2569 | Document the explicit Admin path for adding a missing bank-account reference: employee-name suggestion, last-four validation, duplicate guard, `unverified` state and visible retry feedback | No migration; uses the existing company-scoped Master Bank Account registry | Flow contract, typecheck, lint, build and authenticated `/master-data` account-list smoke | Revert the manual-entry UI/flow note; preserve existing Master Accounts, source evidence and Audit |
 | v2.4 | 26/8/2569 | Close the one-sided slip review gap: edit and persist sender Company/Internal plus recipient Employee/Technician as one transaction-linked pair before advance funding can leave Master Data | `20260826223000_master_data_transfer_party_review.sql` adds the RLS-protected pair projection and atomic v2 RPC; no Raw/OCR/source backfill | Pair validation/idempotency/RLS/migration contracts, targeted/full lint, typecheck, build, Local two-tab/browser persistence and authenticated Production source/accounting/audit smoke | Revoke v2 RPC and deploy v2.3 UI; retain pair projection, Master Accounts, Version/Audit and source rows for recovery |
 | v2.3 | 26/8/2569 | Let an Admin record a company advance top-up without inventing a Project: confirm the internal employee/account, keep Project allocation awaiting, send Accounting first and link Advance Finance with idempotent Audit | `20260826190500_master_data_employee_advance_funding.sql` adds the strict company-scoped RPC and narrows the Project-gate exception to verified financial evidence | Advance-funding contract, migration/schema/privilege checks, targeted/full lint, typecheck, build, Local fixture persistence and authenticated Production route smoke | Revoke the new RPC and restore the previous gate function/UI mode; retain Raw/OCR, Candidate, Master account, Accounting task, lineage, Version and Audit for recovery |
 | v2.2 | 26/8/2569 | Keep private image/PDF evidence beside the Master Data review form, preserve Drawer state on responsive screens and prevent stale signed-preview results from crossing Candidates; establish the shared Evidence Drawer standard for future Modules | No migration; uses the existing company-scoped Source Reference and private Storage signed URL path | Evidence split contract, existing Master Data contracts, targeted/full lint, typecheck, build, Desktop/Tablet/Mobile Local smoke and authenticated Production exact-source smoke | Revert the workspace integration and restore the secondary external-open action; Raw/OCR, Candidate, Source Reference, Version and Audit remain unchanged |
