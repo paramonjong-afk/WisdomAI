@@ -19,6 +19,16 @@
 - **Verification:** two-party contract, migration/RLS/idempotency, targeted/full lint, typecheck, build, Local responsive browser, Production revision/accounting/audit smoke
 - **Rollback:** revoke v2 RPC และ revert UI; คง pair/account/version/audit/source ทั้งหมดเพื่อ recovery ห้ามลบข้อมูลต้นฉบับ
 
+## ล่าสุด: Daily Employee Money Holding Ledger v2.0 — 26/8/2569
+
+- **เหตุผล:** สลิปค่าแรง/เงินเบิกล่วงหน้าของช่างรายวันมีชื่อผู้รับอยู่แล้ว แต่การส่งเพียง HR/Payroll queue ยังไม่ทำให้เห็นยอดยกเก่ารายช่าง และการลง Payroll ทันทีเสี่ยงตัดซ้ำเมื่อเส้นทางเงินยังไม่ครบ
+- **ผลกระทบ:** หลัง Accounting ยืนยัน Allocation `payroll`/`advance_transfer` ระบบจับคู่ exact normalized name หรือ confirmed alias แล้วสร้างบัญชีพัก `matched_pending_review`; `/advance-settlements` แสดง Advance, ค่าแรงจ่ายแล้ว และยอดรอตรวจแยกรายช่าง โดยยังไม่เปลี่ยน Payroll Final
+- **Gate/Math:** duplicate/dismissed ไม่เข้า ledger, ชื่อไม่ตรงหรือกำกวมเข้าคิวตรวจ, วันที่ผิดเป็น `unverified`; ค่าแรงสุทธิ = ค่าแรงเกิดจริง + เพิ่ม - หักอื่น - ค่าแรงจ่ายแล้ว - Advance recovery และ recovery ไม่เกินยอดที่ยังจ่ายได้
+- **Data/Audit:** Source Transaction/OCR/Document ID คงเดิม; entry ใช้ `source_key`/`event_key` กันซ้ำ, Review เก็บ before/after และ correction สร้าง Adjustment ที่อ้างรายการเดิม ห้าม delete/rewrite
+- **Migration:** `20260826231000_employee_money_ledger.sql`
+- **Verification:** ledger math/name/duplicate/date/adjustment contract, migration checks, typecheck, lint, build และ authenticated Advance page smoke
+- **Rollback:** ปิด allocation projection trigger และ revoke RPC/ซ่อนตารางสรุป; เก็บ ledger/audit/source ไว้เพื่อ recovery และไม่ย้อนหรือลบ Payroll/สลิปเดิม
+
 ## ล่าสุด: Accounting Money Allocation & Root/Parent Lineage v1.5 — 26/8/2569
 
 - **เหตุผล:** Money Lineage เดิมเก็บวัตถุประสงค์เดียวต่อสลิปและหลายทอดใน JSON เดียว จึงแบ่งค่าแรง/วัสดุ/หลายโครงการหรือเชื่อมสลิปการใช้เงินกลับกองเงินต้นทางไม่ได้อย่างตรวจสอบได้

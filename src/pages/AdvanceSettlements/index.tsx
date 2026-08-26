@@ -27,6 +27,30 @@ type AdvanceCase = {
   employee_advance_settlement_items: SettlementItem[] | null; employee_advance_audit: Audit[] | null
 }
 type DailyEmployee = { profile_id: string; profiles: { full_name: string | null } | null }
+type EmployeeMoneySummary = {
+  company_id: string
+  employee_profile_id: string
+  employee_name: string
+  employee_code: string | null
+  entry_count: number
+  pending_count: number
+  approved_advance_balance: number
+  pending_advance_amount: number
+  approved_wage_paid: number
+  pending_wage_paid: number
+  updated_at: string
+}
+type LegacyEmployeeMoneyCandidate = {
+  financial_transaction_id: string
+  employee_profile_id: string
+  employee_name: string
+  sender_name: string | null
+  recipient_name: string | null
+  amount_total: number
+  transfer_at: string | null
+  proposed_entry_type: 'advance_issued' | 'wage_paid'
+  evidence_date_status: 'verified' | 'unverified'
+}
 type PreviewState =
   | { status: 'idle' | 'loading'; message: string; file: null; signedUrl: null }
   | { status: 'missing' | 'error' | 'non_image'; message: string; file: AdvanceSlipPreviewFile | null; signedUrl: string | null }
@@ -130,6 +154,9 @@ export function AdvanceSettlementsPage() {
   const [slipPreviewDialogOpen, setSlipPreviewDialogOpen] = useState(false)
   const [reconciliation, setReconciliation] = useState<AdvanceReconciliation | null>(null)
   const [dailyEmployees, setDailyEmployees] = useState<DailyEmployee[]>([])
+  const [employeeMoneyRows, setEmployeeMoneyRows] = useState<EmployeeMoneySummary[]>([])
+  const [legacyMoneyCandidates, setLegacyMoneyCandidates] = useState<LegacyEmployeeMoneyCandidate[]>([])
+  const [employeeMoneyWarning, setEmployeeMoneyWarning] = useState('')
   const [line, setLine] = useState({ expense_type: 'materials', amount: '', description: '', evidence_reference: '', expense_date: new Date().toLocaleDateString('en-CA') })
   const [subAdvance, setSubAdvance] = useState({ holderProfileId: '', amount: '', description: '' })
   const previewRequestRef = useRef(0)
@@ -137,7 +164,7 @@ export function AdvanceSettlementsPage() {
   const canEditReconciliation = profile?.role === 'admin' || profile?.role === 'manager'
   const load = useCallback(async () => {
     if (!companyId) return
-    const [{ data, error: loadError }, { data: dailyData, error: dailyError }] = await Promise.all([supabase.from('employee_advance_cases').select(`
+    const [{ data, error: loadError }, { data: dailyData, error: dailyError }, { data: employeeMoneyData, error: employeeMoneyError }, { data: legacyData, error: legacyError }] = await Promise.all([supabase.from('employee_advance_cases').select(`
       id,advance_number,amount_received,bank_reference,status,parent_case_id,purpose_note,source_flow_item_id,
       financial_transactions(recipient_name,sender_name,sender_bank_name,sender_account_last4,recipient_bank_name,recipient_account_last4,transfer_at,payment_party_confidence),
       source_flow:document_flow_items!employee_advance_cases_source_flow_item_id_fkey(id,current_flow,current_room,state,version,updated_at),
@@ -145,9 +172,11 @@ export function AdvanceSettlementsPage() {
       holder_person:employee_people!employee_advance_cases_holder_person_id_fkey(full_name),
       employee_advance_settlement_items!employee_advance_settlement_items_case_id_fkey(id,expense_type,amount,approval_status,description,expense_date,evidence_reference),
       employee_advance_audit!employee_advance_audit_case_id_fkey(id,action,reason,created_at)
-    `).eq('company_id', companyId).order('updated_at', { ascending: false }), supabase.from('employee_employment_records').select('profile_id,profiles!employee_employment_records_profile_id_fkey(full_name)').eq('company_id', companyId).eq('employment_type', 'daily').in('employment_status', ['active', 'probation', 'notice'])])
+    `).eq('company_id', companyId).order('updated_at', { ascending: false }), supabase.from('employee_employment_records').select('profile_id,profiles!employee_employment_records_profile_id_fkey(full_name)').eq('company_id', companyId).eq('employment_type', 'daily').in('employment_status', ['active', 'probation', 'notice']), supabase.from('employee_money_balance_summary').select('*').eq('company_id', companyId).order('updated_at', { ascending: false }), supabase.from('employee_money_legacy_candidates').select('*').eq('company_id', companyId).order('transfer_at', { ascending: false, nullsFirst: false })])
     if (loadError || dailyError) setError(userError(loadError ?? dailyError))
     else { setError(''); setRows((data ?? []) as unknown as AdvanceCase[]); setDailyEmployees((dailyData ?? []) as unknown as DailyEmployee[]) }
+    if (employeeMoneyError || legacyError) { setEmployeeMoneyRows([]); setLegacyMoneyCandidates([]); setEmployeeMoneyWarning('บัญชีพักช่างยังไม่พร้อมใช้งาน กรุณาตรวจ Migration employee_money_ledger') }
+    else { setEmployeeMoneyRows((employeeMoneyData ?? []) as unknown as EmployeeMoneySummary[]); setLegacyMoneyCandidates((legacyData ?? []) as unknown as LegacyEmployeeMoneyCandidate[]); setEmployeeMoneyWarning('') }
   }, [companyId])
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0)
@@ -222,6 +251,14 @@ export function AdvanceSettlementsPage() {
   const addLine = async () => { if (!selected) return; setSaving(true); const { error: rpcError } = await supabase.rpc('add_employee_advance_settlement_item', { target_case_id: selected.id, target_event_key: crypto.randomUUID(), target_expense_type: line.expense_type, target_amount: Number(line.amount), target_expense_date: line.expense_date, target_payee_name: null, target_project_id: null, target_work_package_id: null, target_evidence_flow_item_id: null, target_evidence_reference: line.evidence_reference || null, target_description: line.description }); setSaving(false); if (rpcError) { setError(userError(rpcError)); return }; setLineOpen(false); await load() }
   const transition = async (action: string) => { if (!selected) return; setSaving(true); const { error: rpcError } = await supabase.rpc('transition_employee_advance_case', { target_case_id: selected.id, target_event_key: crypto.randomUUID(), target_action: action, target_expected_version: selected.version, target_reason: null }); setSaving(false); if (rpcError) { setError(userError(rpcError)); return }; setSelected(null); await load() }
   const createSubAdvance = async () => { if (!selected) return; setSaving(true); const { data: created, error: rpcError } = await supabase.rpc('create_employee_sub_advance', { target_parent_case_id: selected.id, target_event_key: crypto.randomUUID(), target_holder_profile_id: subAdvance.holderProfileId, target_holder_person_id: null, target_amount: Number(subAdvance.amount), target_description: subAdvance.description, target_project_id: null, target_work_package_id: null }); if (rpcError) { setSaving(false); setError(userError(rpcError)); return }; try { const delivery = await queueAdvanceConfirmation((created as { id: string }).id); setConfirmation(delivery); setError('') } catch (confirmationError) { setConfirmation(null); setError(`บันทึกรายการสำเร็จแล้ว แต่คิว MSG Confirm ยังไม่พร้อมส่ง: ${userError(confirmationError as { message?: string })}`) }; setSaving(false); setSubAdvanceOpen(false); await load() }
+  const queueLegacyEmployeeMoney = async (candidate: LegacyEmployeeMoneyCandidate) => {
+    setSaving(true)
+    const { error: rpcError } = await supabase.rpc('queue_legacy_employee_money_match', { target_transaction_id: candidate.financial_transaction_id, target_event_key: `legacy-employee-money:${candidate.financial_transaction_id}:${crypto.randomUUID()}` })
+    setSaving(false)
+    if (rpcError) { setError(userError(rpcError)); return }
+    setError('')
+    await load()
+  }
   const saveReconciliation = (next: AdvanceReconciliation, reason: string) => {
     if (!selected || !reconciliation || !profile) return
     const result = saveLocalReconciliation(companyId, reconciliation, next, { id: profile.id, name: profile.full_name ?? profile.email ?? profile.id }, reason)
@@ -234,6 +271,33 @@ export function AdvanceSettlementsPage() {
     {error && <Alert severity="error">{error}</Alert>}
     {confirmation && <Alert severity={['failed', 'pending_room_setup', 'room_setup_failed'].includes(confirmation.status) ? 'warning' : 'success'} onClose={() => setConfirmation(null)}><strong>System MSG Confirm: {confirmation.status === 'queued' ? 'ปิดงานแล้ว/รอส่ง MSG' : confirmation.status}</strong><br />รหัสรายการ: {confirmation.advance_case_id}<br />{confirmation.message_text}</Alert>}
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><Metric label="เงินทดรองรับมา" value={money(received)} /><Metric label="ยอดคงค้างที่ยังไม่ปิด" value={money(openBalance)} /><Metric label="สร้าง/ยืนยันอัตโนมัติ" value={`${automaticCount} เคส`} /></Stack>
+    <Paper variant="outlined" sx={{ p: 1.5 }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' }, gap: 1, mb: 1 }}>
+        <Box><Typography sx={{ fontWeight: 800 }}>บัญชีพักช่างรายวัน</Typography><Typography variant="body2" color="text.secondary">จับคู่จากสลิปด้วยชื่อมาตรฐาน · ยังไม่หัก Payroll จนกว่าจะอนุมัติ · รายการผิดแก้ด้วย Adjustment</Typography></Box>
+        <Chip size="small" color="warning" label="Holding ledger / ไม่ใช่ยอดจ่าย Final" />
+      </Stack>
+      {employeeMoneyWarning && <Alert severity="warning" sx={{ mb: 1 }}>{employeeMoneyWarning}</Alert>}
+      <StandardDataTable rows={employeeMoneyRows} getRowId={(row) => row.employee_profile_id} getSearchText={(row) => `${row.employee_name} ${row.employee_code ?? ''}`} searchLabel="ค้นหาช่างหรือรหัสพนักงาน" minWidth={1060} columns={[
+        { id: 'employee', label: 'ช่างรายวัน', minWidth: 190, render: (row) => row.employee_name },
+        { id: 'code', label: 'รหัสพนักงาน', minWidth: 130, render: (row) => row.employee_code ?? '-' },
+        { id: 'advance', label: 'Advance ยืนยันแล้ว', minWidth: 150, align: 'right', render: (row) => money(Number(row.approved_advance_balance)) },
+        { id: 'pendingAdvance', label: 'Advance รอตรวจ', minWidth: 150, align: 'right', render: (row) => money(Number(row.pending_advance_amount)) },
+        { id: 'wagePaid', label: 'ค่าแรงจ่ายแล้ว', minWidth: 150, align: 'right', render: (row) => money(Number(row.approved_wage_paid)) },
+        { id: 'pendingWage', label: 'ค่าแรงรอตรวจ', minWidth: 150, align: 'right', render: (row) => money(Number(row.pending_wage_paid)) },
+        { id: 'status', label: 'สถานะ', minWidth: 130, render: (row) => <Chip size="small" color={Number(row.pending_count) > 0 ? 'warning' : 'success'} label={Number(row.pending_count) > 0 ? `รอตรวจ ${row.pending_count}` : 'ตรวจครบ'} /> },
+      ]} />
+      {legacyMoneyCandidates.length > 0 && <Box sx={{ mt: 2 }}>
+        <Typography sx={{ fontWeight: 800, mb: 0.5 }}>สลิปเก่าที่ชื่อตรงและพร้อมเข้าบัญชีพัก</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>ระบบไม่นับสลิปซ้ำ ค่าแรงเก่าต้องผ่านบัญชียืนยันแล้ว ส่วนวันที่ผิดจะติดป้ายรอตรวจ</Typography>
+        <StandardDataTable rows={legacyMoneyCandidates} getRowId={(row) => row.financial_transaction_id} getSearchText={(row) => `${row.employee_name} ${row.sender_name ?? ''} ${row.recipient_name ?? ''}`} searchLabel="ค้นหาสลิปเก่าหรือชื่อช่าง" minWidth={920} columns={[
+          { id: 'employee', label: 'ช่างรายวัน', minWidth: 180, render: (row) => row.employee_name },
+          { id: 'type', label: 'ประเภทเสนอ', minWidth: 150, render: (row) => row.proposed_entry_type === 'advance_issued' ? 'เงินเบิกล่วงหน้า' : 'ค่าแรงจ่ายแล้ว' },
+          { id: 'amount', label: 'ยอด', minWidth: 120, align: 'right', render: (row) => money(Number(row.amount_total)) },
+          { id: 'date', label: 'วันที่หลักฐาน', minWidth: 180, render: (row) => row.evidence_date_status === 'verified' ? dateTime(row.transfer_at) : <Chip size="small" color="warning" label="วันที่รอตรวจ" /> },
+          { id: 'action', label: 'ดำเนินการ', minWidth: 180, render: (row) => <Button size="small" variant="outlined" disabled={!canEditReconciliation || saving} onClick={() => void queueLegacyEmployeeMoney(row)}>บันทึกเข้าบัญชีพัก</Button> },
+        ]} />
+      </Box>}
+    </Paper>
     <StandardDataTable rows={rows} getRowId={(row) => row.id} getSearchText={(row) => `${row.advance_number} ${holderName(row)} ${row.bank_reference ?? ''} ${routeText(row)}`} searchLabel="ค้นหารหัส ผู้ถือเงิน สลิป หรือเส้นทาง" onRowClick={setSelected} minWidth={1820} columns={[
       { id: 'number', label: 'รหัสเงินทดรอง', minWidth: 160, render: (row) => row.advance_number },
       { id: 'holder', label: 'ผู้ถือเงิน (มาตรฐาน)', minWidth: 190, render: (row) => holderName(row) },

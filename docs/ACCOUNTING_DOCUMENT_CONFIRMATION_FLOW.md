@@ -26,7 +26,10 @@ flowchart TD
   VM --> C2[ยืนยัน Allocation ผู้ขาย]
   C2 --> C
   QV -->|แก้หลักฐาน/เลือก Vendor| VP
-  C -->|ค่าแรงหนึ่งหรือหลาย Allocation| M1[ปิด Accounting task และสร้าง HR/Payroll task]
+  C -->|ค่าแรงหนึ่งหรือหลาย Allocation| M01{ชื่อผู้รับตรงทะเบียนช่างรายวัน?}
+  M01 -->|ตรงชื่อ/alias ที่ยืนยัน| M02[สร้างบัญชีพักช่าง\nmatched pending review]
+  M01 -->|ไม่ตรง/กำกวม| M03[คิวตรวจชื่อ ห้ามเดา]
+  M02 --> M1[ปิด Accounting task และสร้าง HR/Payroll task]
   C -->|วัสดุหนึ่งหรือหลาย Allocation| M2[ปิด Accounting task และสร้าง Inventory + Project task]
   C -->|โครงการ/ผู้รับเหมา/เดินทาง| M3[ปิด Accounting task และสร้าง Project task]
   C -->|เงินสำรอง/ส่งต่อ| M4{จับคู่ผู้ถือเงินในทะเบียนได้หรือไม่}
@@ -71,6 +74,8 @@ flowchart TD
 - `review_transfer_slip_money_lineage` บันทึกข้อมูลสลิปและสายเงินใน transaction เดียว ใช้ `event_key` ป้องกันคำสั่งซ้ำ และสร้างงานต่อเฉพาะตอน `confirm`: ค่าแรง→HR, วัสดุ→Inventory+Project, ค่าใช้จ่ายโครงการ→Project, ค่าใช้จ่ายทั่วไป→Accounting Posting, เงินสำรอง→Advance Case เมื่อจับคู่ผู้ถือเงินได้
 - เงินสำรองที่ยังจับคู่ผู้ถือเงินไม่ได้จะคง Accounting task เป็น `recheck_required`; ระบบไม่เดาชื่อ ไม่สร้าง Advance ซ้ำ และไม่ถือว่าเดินทางถึงปลายทางแล้ว
 - Money Lineage v2 แยก `Transfer Fact` (ข้อเท็จจริงจากสลิป) ออกจาก `transfer_slip_money_allocations` (วัตถุประสงค์/จำนวน/โครงการ/ผู้รับผิดชอบ) สลิปหนึ่งใบจึงแบ่งค่าแรง วัสดุ ผู้รับเหมา หรือหลายโครงการได้ โดยไม่แก้ Raw/OCR
+- Allocation ที่ยืนยันเป็น `payroll` หรือ `advance_transfer` จะลองจับคู่ชื่อผู้รับกับพนักงานรายวันของบริษัทแบบ exact normalized name หรือ alias ที่เคยยืนยันเท่านั้น เมื่อพบหนึ่งคนพอดีจะสร้าง Employee Money Holding Ledger แบบ idempotent; ถ้าไม่พบ/พบหลายคน/สลิปซ้ำจะคง Match Queue พร้อมเหตุผล และไม่สร้าง Payroll Line
+- Holding Ledger แยก `wage_paid` ออกจาก `advance_issued`; รายการเริ่มที่ `matched_pending_review` และการแก้ผิดใช้ Reject/Reversal/Adjustment แบบ append-only จึงย้อนเส้นทางเงินภายหลังได้โดยไม่เปลี่ยน Transfer Fact
 - `root_lineage_id` และ `parent_lineage_id` เชื่อมสลิปคนละใบเป็นสายเงินเดียวกัน เช่น บริษัท → ผู้ถือเงิน → ช่าง/ร้านค้า/โครงการ → เงินคืน; สลิปเติมเงินสำรองต้องเป็น Allocation เดียว ส่วนการใช้เงินจริงเชื่อมเป็นสลิปลูกเพื่อไม่คาดเดาการใช้เงินล่วงหน้า
 - ยืนยันและส่งปลายทางได้ต่อเมื่อ `ยอดตามสลิป = รวม Allocation + ยอดคืน + ยอดยังไม่จัดสรร` และยอดยังไม่จัดสรรเป็นศูนย์; หากไม่ครบยังบันทึก Draft/ขอข้อมูลเพิ่มได้และ Accounting task ไม่ถูกปิด
 - Allocation ที่แก้ไขไม่ถูกลบ: เวอร์ชันก่อนถูกทำเครื่องหมาย `superseded` และ `document_flow_events` เก็บ before/after, actor, เวลา, Root/Parent และยอดกระทบทั้งหมดด้วย `event_key` เดิม
@@ -91,3 +96,4 @@ flowchart TD
 | v1.4 | 23/8/2569 | ติดตามว่าเงินมาจากกองใด ผ่านใครบ้าง และส่งงานต่อหลังบัญชียืนยัน | เพิ่ม Money Lineage, balance gate, multi-hop route, project/site และ idempotent destination routing | `20260823122135_transfer_slip_money_lineage_routing.sql` | money-lineage/review/queue tests, migration query, lint/typecheck/build และ authenticated page smoke | ปิดปุ่มยืนยันและส่งต่อ, revoke RPC/ตัด UI; เก็บ Raw, transaction, lineage และ audit เพื่อ recovery |
 | v1.5 | 26/8/2569 | สลิปหนึ่งใบอาจแบ่งหลายวัตถุประสงค์/หลายโครงการ และการใช้เงินหลายใบต้องย้อนกลับถึงกองเงินต้นทางได้ | แยก Transfer Fact กับ Allocation, เพิ่ม Root/Parent Lineage, balance gate และ multi-destination routing แบบ idempotent | `20260826220000_transfer_slip_money_allocations_v2.sql` | allocation/lineage contracts, migration dry-run, lint/typecheck/build และ authenticated Accounting Drawer smoke | ปิด RPC/UI v2 แล้วกลับใช้ RPC v1; เก็บ Allocation/Root/Parent/Audit ที่เกิดแล้วเพื่อ recovery ห้ามลบ Raw/OCR |
 | v1.6 | 26/8/2569 | แยกบัญชีบุคคลผู้จ่ายจากร้านค้าจริง ป้องกันการจับคู่ด้วยชื่ออย่างเดียว และค้างรายการคลุมเครือก่อนยืนยัน | เพิ่ม Vendor Match/บัญชี alias, ด่าน DB และช่องจับคู่ใน Drawer; ไม่แก้ Raw/OCR/Source | `20260826230000_transfer_slip_vendor_payment_matching.sql` | matching contract, schema/RLS review, typecheck/lint/build และ Accounting Drawer smoke | ปิด trigger/RPC/controls; คง lineage, source, match และ Audit เดิม |
+| v1.7 | 26/8/2569 | ให้สลิปค่าแรง/เงินเบิกล่วงหน้าที่ชื่อช่างรายวันตรงทะเบียนมีบัญชีพักก่อน Payroll และรองรับแก้ย้อนหลังโดยไม่ลบหลักฐาน | เพิ่ม exact-name/alias gate, Match Queue, Employee Money Ledger, append-only adjustment และหน้า Summary ใน Advance Settlements | `20260826231000_employee_money_ledger.sql` | name/duplicate/date/math/adjustment contracts, typecheck/lint/build และ authenticated Advance smoke | ปิด projection trigger/RPC และซ่อน Summary; เก็บ Source/Ledger/Audit เพื่อ recovery และไม่เปลี่ยน Payroll เดิม |

@@ -17,7 +17,11 @@ flowchart LR
   D -->|Yes| E{Recipient exact-matches\nactive monthly employee?}
   E -->|Yes| F[Auto-create Advance Case: draft]
   E -->|No| G{Recipient exact-matches\nactive daily employee?}
-  G -->|Yes| H[HR + Accounting queue\nawait parent advance]
+  G -->|Yes| H[Employee Money Holding Ledger\nmatched pending review]
+  H --> H1{Accounting/Manager review}
+  H1 -->|Approve wage paid| H2[ยอดค่าแรงจ่ายแล้ว\nรอตัดกับงวด]
+  H1 -->|Approve advance| H3[ยอดเบิกล่วงหน้าคงเหลือ\nรอหักตามสิทธิ์]
+  H1 -->|Wrong| H4[Reject/Reversal + Adjustment ใหม่\nห้ามลบหลักฐานเดิม]
   G -->|No| X[Normal accounting route]
   F --> V[Auto-update case projection\nmatching status + source quality + route]
   V --> W[Click case row or amount\nopen Advance Detail Drawer]
@@ -56,7 +60,10 @@ Track money transferred to a monthly employee for company disbursements, then re
 - Accounting confirmation now also records a Money Lineage projection. A reserve/advance transfer must identify its funding source and holder and reconcile the paid amount with the slip. Only a holder-registry match creates or links the draft Advance Case; otherwise the Accounting task remains `recheck_required` with a visible reason.
 - The advance funding slip is the Root Lineage. Each later wage/material/vendor/project/refund slip is a child through `parent_lineage_id` and inherits the same `root_lineage_id`; the child can contain multiple reviewed allocations without rewriting or copying the source slip.
 - An advance transfer/onward transfer must be exclusive to one funding slip. Actual wage/material/project uses are recorded from their own evidence slips and reconciled against the root, preventing the system from guessing future spending at the time money is handed to the custodian.
-- An exact daily-worker match does not create a standalone technician advance because a sub-advance must always have a parent advance. It remains a shared HR/Accounting queue item until an authorised holder and parent advance are selected.
+- An exact daily-worker match does not create a standalone technician advance. A confirmed `payroll` or `advance_transfer` allocation creates an idempotent `employee_money_ledger_entries` holding entry linked to the original transaction/allocation. The entry starts as `matched_pending_review`; it does not create a Payroll Line, deduct wages, close an Advance, or change the source slip.
+- Historical exact-name `labor`/`advance` slips are exposed as legacy candidates. A manager can queue the same transaction once; duplicate/dismissed slips are excluded, confirmed wage slips are required for legacy wage projection, and invalid/missing dates stay `unverified` rather than being invented.
+- Approved ledger math keeps two balances separate: prior wage payments reduce wages still payable, while approved advances are recovered only up to the remaining payable wage. A negative net payment is never created; unrecovered advance and excess wage credit carry forward.
+- A correction never rewrites OCR, the transaction, or an earlier ledger fact. Reject/reverse changes status with Audit, and any debit/credit correction is a new entry linked through `adjusts_entry_id`, with reason, actor, time, before/after and event key.
 - Every extracted source/destination field is presented independently. A missing field is recorded as `missing`/`needs_review`, never filled by inference.
 - Reconciliation is fixed: `amount_received - approved expenses/sub-advances - cash return - payroll offset = outstanding_balance`. A case cannot close while the outstanding balance is non-zero or an item is still pending/rejected.
 - Every central command uses an event key, version check, audit row, and linked Document Flow event. Duplicate commands do not create duplicate cases/items.
@@ -109,3 +116,4 @@ flowchart LR
 | v1.8 | 23/8/2569 | Require reviewed fund source, custodian and multi-hop balance before an Accounting slip can continue to Advance Finance | `20260823122135_transfer_slip_money_lineage_routing.sql` | Money-lineage contract, RPC/schema checks, lint/typecheck/build and Accounting Drawer smoke | Disable lineage routing RPC/UI; existing source slip, Advance Case and audit remain recoverable |
 | v1.9 | 26/8/2569 | Link every downstream spending/refund slip back to the original advance and allow project/purpose splits without duplicating Intake evidence | `20260826220000_transfer_slip_money_allocations_v2.sql` | allocation balance/root-parent/idempotency contracts, migration dry-run, lint/typecheck/build and Accounting/Advance smoke | Disable v2 allocation RPC/UI; retain source, root/parent links, allocation versions and audit for recovery |
 | v2.0 | 26/8/2569 | Route exact active daily-employee transfer slips into per-employee/per-transfer-date confirmation and expose Web Chat delivery status without posting payroll early | `20260826042045_daily_wage_transfer_intake_routing.sql`, `20260826042334_daily_wage_transfer_route_trigger.sql` | routing contract, Production schema/history parity, typecheck, lint, build and authenticated report smoke | Disable the routing trigger and hide the delivery projection; retain source slips, confirmations, deliveries and audit for reconciliation |
+| v2.1 | 26/8/2569 | Put exact daily-worker wage/advance transfers into a reversible holding ledger before Payroll, including safe legacy projection and carry-forward math | `20260826231000_employee_money_ledger.sql` | name normalization, duplicate/date gates, ledger math, adjustment/audit contracts, typecheck/lint/build and Advance page smoke | Disable projection trigger/RPC and hide holding summary; retain source, ledger and Audit, and never delete or rewrite Payroll/source evidence |

@@ -117,6 +117,7 @@
     "test:advance-confirmation": "node --experimental-strip-types scripts/advance-confirmation-contract.test.ts",
     "test:advance-settlement-slip-preview": "node --experimental-strip-types scripts/advance-settlement-slip-preview.test.ts",
     "test:advance-reconciliation": "node --experimental-strip-types scripts/advance-reconciliation.test.ts",
+    "test:employee-money-ledger": "node --experimental-strip-types scripts/employee-money-ledger.test.ts",
     "test:program-development-room": "node --experimental-strip-types scripts/program-development-room.test.ts",
     "test:general-work-room": "node --experimental-strip-types scripts/general-work-room.test.ts",
     "test:web-chat-operational-core": "node --experimental-strip-types scripts/web-chat-operational-core.test.ts",
