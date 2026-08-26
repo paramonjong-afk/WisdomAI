@@ -1,5 +1,12 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Master Data Transfer Slip Party Binding v3.4 — 27/8/2569
+
+- **เหตุผล:** หน้า Project Gate ทำให้ Admin มองไม่เห็นขั้นตอนยืนยันบัญชีสองฝั่งของสลิปเงินเบิกล่วงหน้า แม้ระบบหลังบ้านรองรับแล้ว
+- **ผลกระทบ:** Candidate จาก `financial_transactions` แสดงปุ่ม `เลือกและตรวจ 2 ฝั่ง`; สัญญาณ `transaction_purpose=advance_transfer` หรือ `expense_type=advance` เปิดโหมดเงินเบิกล่วงหน้าอัตโนมัติ ผู้โอนผูก `Company/Internal` และผู้รับผูก `Employee/Technician` คนละ Master Account
+- **Migration:** ไม่มี ใช้ `master_data_transfer_party_reviews` และ `confirm_master_data_employee_advance_funding_v2` เดิม
+- **Verification/Rollback:** targeted contract, typecheck, lint, build, Cloudflare revision และ authenticated `/master-data` Drawer; rollback UI/inference โดยไม่ลบ Raw/OCR, Candidate, Master Account, Party Review หรือ Audit
+
 ## ล่าสุด: Employee Bank All-source Search v3.3 — 27/8/2569
 
 - **เหตุผล:** ค้นเลขท้ายจาก Master Account อย่างเดียวทำให้เอกสาร/สลิปที่มีข้อมูลแล้วถูกแจ้งว่าไม่พบ

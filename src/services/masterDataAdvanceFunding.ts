@@ -51,7 +51,11 @@ export const advanceFundingRoute = {
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : ''
 
 export function inferMasterRecordingMode(candidate: Pick<MasterCandidate, 'candidate_data'> | null): MasterRecordingMode {
-  return candidate?.candidate_data.business_flow === 'employee_advance_funding' ? 'employee_advance_funding' : 'project_scoped'
+  return candidate?.candidate_data.business_flow === 'employee_advance_funding'
+    || candidate?.candidate_data.transaction_purpose === 'advance_transfer'
+    || candidate?.candidate_data.expense_type === 'advance'
+    ? 'employee_advance_funding'
+    : 'project_scoped'
 }
 
 export function transferPartyDraft(candidate: MasterCandidate, source: MasterSourceEvidence): TransferPartyDraft {

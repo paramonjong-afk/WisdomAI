@@ -93,12 +93,15 @@ export function MasterDataProjectGatePanel({ candidate, source, projects, workPa
     <Stack spacing={1.25}>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'center' } }}>
         <Typography sx={{ fontWeight: 800, flex: 1 }}>1. รูปแบบการบันทึกและข้อมูลที่ต้องเติม</Typography>
-        <Chip size="small" color={recordingMode === 'employee_advance_funding' || gate === 'linked_existing_project' || gate === 'awaiting_new_project' || gate === 'confirmed' ? 'success' : 'warning'} label={recordingMode === 'employee_advance_funding' ? 'เงินทดลองจ่าย · ไม่บังคับ Project' : projectGateStatusLabel[gate]} />
+        <Chip size="small" color={recordingMode === 'employee_advance_funding' || gate === 'linked_existing_project' || gate === 'awaiting_new_project' || gate === 'confirmed' ? 'success' : 'warning'} label={recordingMode === 'employee_advance_funding' ? 'เงินเบิกล่วงหน้า · ยืนยัน 2 ฝั่ง' : projectGateStatusLabel[gate]} />
       </Stack>
       <Select size="small" value={recordingMode} onChange={(event) => onRecordingModeChange(event.target.value as MasterRecordingMode)}>
         <MenuItem value="project_scoped">ค่าใช้จ่าย/ข้อมูลที่ต้องผูก Project</MenuItem>
-        <MenuItem value="employee_advance_funding">เติมเงินทดลองจ่าย/เงินสำรองจ่ายให้พนักงาน</MenuItem>
+        <MenuItem value="employee_advance_funding">เงินเบิกล่วงหน้า/เงินสำรองจ่ายให้พนักงาน · ยืนยันบัญชี 2 ฝั่ง</MenuItem>
       </Select>
+      {candidate.source_table === 'financial_transactions' && recordingMode !== 'employee_advance_funding' && <Alert severity="info" action={<Button size="small" variant="contained" onClick={() => onRecordingModeChange('employee_advance_funding')}>เลือกและตรวจ 2 ฝั่ง</Button>}>
+        ถ้าสลิปนี้เป็นเงินเบิกล่วงหน้า ให้เลือกโหมดนี้เพื่อผูกผู้โอนกับ Company/Internal และผู้รับกับ Employee/Technician พร้อมกัน โดยยังไม่บังคับ Project
+      </Alert>}
       <Typography variant="body2">{recordingMode === 'employee_advance_funding' ? 'ตรวจและบันทึกผู้โอน Company/Internal กับผู้รับ Employee/Technician แยกสองฝั่งก่อน ส่งบัญชีตรวจสลิป แล้วจึงส่งเงินสำรองจ่าย ส่วน Project จะผูกตอนนำเงินไปใช้หรือกระทบยอด' : 'Project-first Gate: ระบบค้น Project เดิมจากชื่อ ลูกค้า ไซต์ เลขอ้างอิง ผู้รับผิดชอบ และห้องต้นทางก่อนเสมอ ถ้าไม่พบจึงสร้าง Project Candidate รอเปิดโครงการ'}</Typography>
       {message && <Alert severity={message.severity} sx={{ position: 'fixed', top: { xs: 112, sm: 136 }, right: { xs: 12, sm: 28 }, width: { xs: 'calc(100% - 24px)', sm: 624 }, maxWidth: 'calc(100vw - 24px)', zIndex: 1400, boxShadow: 6 }}>
         <Typography variant="subtitle2">{message.severity === 'error' ? 'บันทึกไม่สำเร็จ · ข้อมูลยังไม่เปลี่ยน' : message.persisted ? 'ตรวจสอบการบันทึกในฐานข้อมูลแล้ว' : 'สถานะการดำเนินการ'}</Typography>

@@ -21,6 +21,8 @@ const input = {
 
 assert.equal(isProjectGateReady(candidate), false, 'ordinary Project-first candidate must remain blocked')
 assert.equal(inferMasterRecordingMode(candidate), 'project_scoped')
+assert.equal(inferMasterRecordingMode({ candidate_data: { transaction_purpose: 'advance_transfer' } }), 'employee_advance_funding')
+assert.equal(inferMasterRecordingMode({ candidate_data: { expense_type: 'advance' } }), 'employee_advance_funding')
 assert.deepEqual(validateAdvanceFundingInput(candidate, source, input), { valid: true, blockers: [] })
 assert.ok(validateAdvanceFundingInput(candidate, source, { ...input, reason: '' }).blockers.includes('เหตุผลอย่างน้อย 3 ตัวอักษร'))
 assert.ok(validateAdvanceFundingInput(candidate, { ...source, transferAmount: null }, input).blockers.includes('ยอดโอนที่มากกว่า 0'))
@@ -60,7 +62,7 @@ const migration = readFileSync('supabase/migrations/20260826190500_master_data_e
 const partyMigration = readFileSync('supabase/migrations/20260826223000_master_data_transfer_party_review.sql', 'utf8')
 
 for (const token of ['confirm_master_data_employee_advance_funding_v2', 'validatePersistedAdvanceFunding', 'await load()', 'Accounting Pending Queue']) assert.match(page, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
-for (const token of ['เติมเงินทดลองจ่าย/เงินสำรองจ่ายให้พนักงาน', 'ไม่บังคับ Project', 'Accounting Pending Queue → Advance Finance', 'ไม่สร้าง Project Candidate ปลอม', 'Company/Internal', 'Employee/Technician', 'ตรวจและเก็บทั้งสองฝั่ง']) assert.match(panel + drawer, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+for (const token of ['เงินเบิกล่วงหน้า/เงินสำรองจ่ายให้พนักงาน', 'ยืนยันบัญชี 2 ฝั่ง', 'เลือกและตรวจ 2 ฝั่ง', 'ไม่บังคับ Project', 'Accounting Pending Queue → Advance Finance', 'ไม่สร้าง Project Candidate ปลอม', 'Company/Internal', 'Employee/Technician', 'ตรวจและเก็บทั้งสองฝั่ง']) assert.match(panel + drawer, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 for (const token of ['ยืนยันผู้โอน–ผู้รับ และส่งบัญชี', 'Project รอจัดสรร']) assert.match(actions + drawer, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 assert.doesNotMatch(panel + drawer, /บทบาทเพิ่มเติม/)
 for (const token of [

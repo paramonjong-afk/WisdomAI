@@ -112,7 +112,7 @@ export function MasterDataReviewDrawer(props: Props) {
         </Alert>}
         {props.activeTab === 0 ? <>
           <Alert severity={advanceFunding ? 'info' : props.requiresCorrection ? 'warning' : 'success'}>
-            {advanceFunding ? 'เลือกโหมดเงินทดลองจ่ายแล้ว: ตรวจผู้โอนและผู้รับครบสองฝั่งก่อนส่งบัญชี โดยยังไม่ต้องผูก Project' : props.requiresCorrection ? 'พบข้อมูลขาดหรือขัดแย้ง ให้แก้เฉพาะช่องที่จำเป็นแล้วบันทึกเป็น Version ใหม่' : 'ข้อมูลจากหลักฐานตรงกับข้อเสนอเดิม ไม่ต้องกรอกหรือบันทึก Correction ซ้ำ'}
+            {advanceFunding ? 'เลือกโหมดเงินเบิกล่วงหน้าแล้ว: ระบบจะผูกผู้โอนกับ Company/Internal และผู้รับกับ Employee/Technician แยกกัน พร้อมยืนยันครบสองฝั่งก่อนส่งบัญชี โดยยังไม่ต้องผูก Project' : props.requiresCorrection ? 'พบข้อมูลขาดหรือขัดแย้ง ให้แก้เฉพาะช่องที่จำเป็นแล้วบันทึกเป็น Version ใหม่' : 'ข้อมูลจากหลักฐานตรงกับข้อเสนอเดิม ไม่ต้องกรอกหรือบันทึก Correction ซ้ำ'}
           </Alert>
           <MasterDataProjectGatePanel key={candidate.id} candidate={candidate} source={source} projects={props.projects} workPackages={props.workPackages} saving={props.saving} reason={props.reason} recordingMode={props.recordingMode} advanceBlockers={props.advanceBlockers} onRecordingModeChange={props.onRecordingModeChange} onAction={props.onProjectAction} onOpenSource={props.onOpenSource} onCreateWorkPackage={props.onCreateWorkPackage} />
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
