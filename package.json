@@ -133,6 +133,7 @@
     "test:master-data-account-last4": "node --experimental-strip-types scripts/master-data-account-last4-confirmation.test.ts",
     "test:master-data-auto-input": "node --experimental-strip-types scripts/master-data-auto-input.test.ts",
     "test:master-data-advance-funding": "node --experimental-strip-types scripts/master-data-advance-funding.test.ts",
+    "test:master-data-duplicate-reconciliation": "node --experimental-strip-types scripts/master-data-duplicate-reconciliation.test.ts",
     "test:evidence-split-review": "node --experimental-strip-types scripts/evidence-split-review.test.ts",
     "test:document-flow-backfill-removed": "node --experimental-strip-types scripts/document-flow-backfill-removed.test.ts",
     "test:payroll-forecast": "node --experimental-strip-types scripts/realtime-payroll-forecast.test.ts",

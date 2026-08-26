@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Confirmed Master Duplicate Group Reconciliation v3.5 — 27/8/2569
+
+- **เหตุผล:** ยืนยัน Candidate หนึ่งต้นทางแล้ว แต่หลักฐานชื่อ+เลขท้ายเดียวกันที่เหลือยังคงสถานะเปิด ทำให้กลุ่มเดิมย้อนมาแสดงใน Review Queue
+- **Flow:** Confirm/Approve/Lock canonical → หาเฉพาะบริษัท+ประเภท+normalized name+account last4 เดียวกัน → archived sibling + `duplicate_of` → Version/Audit → คิวและตัวเลขรีเฟรช; Raw/OCR/Source ไม่ถูกลบ
+- **ข้อมูลเดิม:** migration reconcile กลุ่มที่มี canonical ยืนยันแล้วกับ sibling ที่ยังเปิด โดยเลือก canonical ล่าสุดและไม่แตะ confirmed/terminal อื่น
+- **Migration:** `20260826233000_reconcile_confirmed_master_duplicate_groups.sql`; trigger function ไม่เปิดให้ client เรียกโดยตรง
+- **Verification/Rollback:** group/status/audit/idempotency contract, dry-run/apply, Production counts และ authenticated `/master-data`; rollback drop trigger/function และ restore จาก Audit `before_data` แบบ audited correction
+
 ## ล่าสุด: Transfer Slip Analysis Gate + Adaptive Drawer v1.0 — 27/8/2569
 
 - **เหตุผล:** Drawer เดิมแสดงฟิลด์ทุกประเภทพร้อมกันและไม่อธิบายว่ารายการค้างเพราะอะไร ทำให้ Admin ต้องตีความสลิปซ้ำ

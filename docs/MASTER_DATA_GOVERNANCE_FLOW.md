@@ -43,7 +43,9 @@ flowchart LR
   N4 -->|missing / fewer than 4 digits| ER
   E -->|Confirm non-bank data| G
   E -->|Reject / request info| F[Hold with reason + audit]
-  G --> R[Reports: Vendor / Employee-Technician\nCustomer / Company-Internal]
+  G --> DG[Reconcile exact duplicate group\ncompany + type + normalized name + account last4]
+  DG --> DA[Archive open siblings + duplicate_of\nVersion/Audit; keep every Source]
+  DA --> R[Reports: Vendor / Employee-Technician\nCustomer / Company-Internal]
   G --> H[Employee / vendor / customer / project / bank-account reference]
   H --> I[Transactions and workflow routes]
   subgraph UX[Detail Drawer: 2 tabs]
@@ -120,6 +122,7 @@ Create one company-scoped master-data path for people, vendors, customers, proje
 
 | Version | Date | Rationale / impact | Migration | Verification | Rollback |
 |---|---|---|---|---|---|
+| v3.5 | 27/8/2569 | เมื่อยืนยัน Candidate หลัก ให้ปิด Candidate ซ้ำที่ชื่อ normalized และเลขท้ายบัญชีตรงกันทั้งกลุ่ม เพื่อไม่ให้ข้อมูลเดิมย้อนเข้าคิว โดยเก็บ Source/Version/Audit ครบ | `20260826233000_reconcile_confirmed_master_duplicate_groups.sql` | historical reconciliation, trigger/idempotency/Audit contract, counts, typecheck, lint, build และ Production queue | drop trigger/function; restore sibling status from Audit before_data ด้วย audited correction |
 | v3.4 | 27/8/2569 | Make advance-slip party binding explicit: show a direct two-party action and infer the mode from persisted advance purpose; sender remains Company/Internal and recipient remains Employee/Technician in separate Master Accounts | No migration; reuses the existing transfer-party review table and atomic v2 RPC | Advance contract, typecheck, lint, build and authenticated Production Drawer | Revert UI/inference; retain source, party reviews, Master Accounts and Audit |
 | v2.6 | 26/8/2569 | Document the explicit Admin path for adding a missing bank-account reference: employee-name suggestion, last-four validation, duplicate guard, `unverified` state and visible retry feedback | No migration; uses the existing company-scoped Master Bank Account registry | Flow contract, typecheck, lint, build and authenticated `/master-data` account-list smoke | Revert the manual-entry UI/flow note; preserve existing Master Accounts, source evidence and Audit |
 | v2.4 | 26/8/2569 | Close the one-sided slip review gap: edit and persist sender Company/Internal plus recipient Employee/Technician as one transaction-linked pair before advance funding can leave Master Data | `20260826223000_master_data_transfer_party_review.sql` adds the RLS-protected pair projection and atomic v2 RPC; no Raw/OCR/source backfill | Pair validation/idempotency/RLS/migration contracts, targeted/full lint, typecheck, build, Local two-tab/browser persistence and authenticated Production source/accounting/audit smoke | Revoke v2 RPC and deploy v2.3 UI; retain pair projection, Master Accounts, Version/Audit and source rows for recovery |
