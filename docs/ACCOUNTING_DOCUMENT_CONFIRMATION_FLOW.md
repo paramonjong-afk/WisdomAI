@@ -20,6 +20,12 @@ flowchart TD
   A1 -->|สมดุลและเหลือ 0| C1[ตรวจผู้โอน ผู้รับ ยอด และหลักฐานครบ]
   C1 -->|ไม่ชัด/ซ้ำ| Q1[ค้างตรวจพร้อมเหตุผลและ Audit]
   C1 -->|ผ่าน| C[ตรวจชนิดและวัตถุประสงค์]
+  C -->|จ่ายผู้ขาย| VP{แยกผู้จ่ายจากร้านค้า}
+  VP -->|Tax ID/บัญชี alias ตรง| VM[Vendor match + Audit]
+  VP -->|ชื่ออย่างเดียว/หลายราย| QV[ค้างจับคู่ร้านค้า]
+  VM --> C2[ยืนยัน Allocation ผู้ขาย]
+  C2 --> C
+  QV -->|แก้หลักฐาน/เลือก Vendor| VP
   C -->|ค่าแรงหนึ่งหรือหลาย Allocation| M1[ปิด Accounting task และสร้าง HR/Payroll task]
   C -->|วัสดุหนึ่งหรือหลาย Allocation| M2[ปิด Accounting task และสร้าง Inventory + Project task]
   C -->|โครงการ/ผู้รับเหมา/เดินทาง| M3[ปิด Accounting task และสร้าง Project task]
@@ -68,6 +74,7 @@ flowchart TD
 - `root_lineage_id` และ `parent_lineage_id` เชื่อมสลิปคนละใบเป็นสายเงินเดียวกัน เช่น บริษัท → ผู้ถือเงิน → ช่าง/ร้านค้า/โครงการ → เงินคืน; สลิปเติมเงินสำรองต้องเป็น Allocation เดียว ส่วนการใช้เงินจริงเชื่อมเป็นสลิปลูกเพื่อไม่คาดเดาการใช้เงินล่วงหน้า
 - ยืนยันและส่งปลายทางได้ต่อเมื่อ `ยอดตามสลิป = รวม Allocation + ยอดคืน + ยอดยังไม่จัดสรร` และยอดยังไม่จัดสรรเป็นศูนย์; หากไม่ครบยังบันทึก Draft/ขอข้อมูลเพิ่มได้และ Accounting task ไม่ถูกปิด
 - Allocation ที่แก้ไขไม่ถูกลบ: เวอร์ชันก่อนถูกทำเครื่องหมาย `superseded` และ `document_flow_events` เก็บ before/after, actor, เวลา, Root/Parent และยอดกระทบทั้งหมดด้วย `event_key` เดิม
+- กรณีจ่ายร้านค้าจากบัญชีบุคคล ให้แยก `payer_name`/ผู้ถือเงินออกจาก `vendor_id`/ร้านค้าจริงเสมอ: เลขภาษีเป็นหลักฐานตรงที่สุด, บัญชีธนาคารใช้ได้ต่อเมื่อเป็น alias ที่ Admin ยืนยัน, ส่วนชื่อหรือบริบทอย่างเดียวเป็นเพียง Candidate. การยืนยัน `vendor_payment` จะถูกฐานข้อมูลปฏิเสธถ้ายังไม่มี Vendor Match ที่มีหลักฐาน
 
 ## Change record
 
@@ -83,3 +90,4 @@ flowchart TD
 | v1.3 | 23/8/2569 | ให้ทีมบัญชีแก้ค่าที่ AI อ่านไม่ได้และสั่งอ่านใหม่จากรูปเดียวกันโดยไม่หลุด Flow | Drawer 2 แท็บ, single-item AI reread, manual draft/confirm/request info และ before/after Audit | `20260823111848_transfer_slip_drawer_review.sql`; deploy `reprocess-transfer-slips` | review contract, queue test, typecheck, lint, build และ authenticated page smoke | ซ่อน action/UI, ถอน EXECUTE RPC และ rollback Edge Function; raw source/task/audit เดิมไม่ถูกลบ |
 | v1.4 | 23/8/2569 | ติดตามว่าเงินมาจากกองใด ผ่านใครบ้าง และส่งงานต่อหลังบัญชียืนยัน | เพิ่ม Money Lineage, balance gate, multi-hop route, project/site และ idempotent destination routing | `20260823122135_transfer_slip_money_lineage_routing.sql` | money-lineage/review/queue tests, migration query, lint/typecheck/build และ authenticated page smoke | ปิดปุ่มยืนยันและส่งต่อ, revoke RPC/ตัด UI; เก็บ Raw, transaction, lineage และ audit เพื่อ recovery |
 | v1.5 | 26/8/2569 | สลิปหนึ่งใบอาจแบ่งหลายวัตถุประสงค์/หลายโครงการ และการใช้เงินหลายใบต้องย้อนกลับถึงกองเงินต้นทางได้ | แยก Transfer Fact กับ Allocation, เพิ่ม Root/Parent Lineage, balance gate และ multi-destination routing แบบ idempotent | `20260826220000_transfer_slip_money_allocations_v2.sql` | allocation/lineage contracts, migration dry-run, lint/typecheck/build และ authenticated Accounting Drawer smoke | ปิด RPC/UI v2 แล้วกลับใช้ RPC v1; เก็บ Allocation/Root/Parent/Audit ที่เกิดแล้วเพื่อ recovery ห้ามลบ Raw/OCR |
+| v1.6 | 26/8/2569 | แยกบัญชีบุคคลผู้จ่ายจากร้านค้าจริง ป้องกันการจับคู่ด้วยชื่ออย่างเดียว และค้างรายการคลุมเครือก่อนยืนยัน | เพิ่ม Vendor Match/บัญชี alias, ด่าน DB และช่องจับคู่ใน Drawer; ไม่แก้ Raw/OCR/Source | `20260826230000_transfer_slip_vendor_payment_matching.sql` | matching contract, schema/RLS review, typecheck/lint/build และ Accounting Drawer smoke | ปิด trigger/RPC/controls; คง lineage, source, match และ Audit เดิม |

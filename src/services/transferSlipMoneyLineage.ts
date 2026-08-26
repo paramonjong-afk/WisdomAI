@@ -26,6 +26,14 @@ export type MoneyAllocationDraft = {
   responsibleName: string
   description: string
   confidence: string
+  vendorId: string
+  vendorName: string
+  vendorTaxId: string
+  vendorBankName: string
+  vendorAccountLast4: string
+  vendorMatchStatus: 'matched' | 'candidate' | 'ambiguous' | 'needs_review' | 'not_applicable'
+  vendorMatchConfidence: string
+  vendorMatchReason: string
 }
 
 export type MoneyLineageHop = {
@@ -62,7 +70,8 @@ const allocationKey = () => typeof crypto !== 'undefined' && 'randomUUID' in cry
 
 export const emptyMoneyAllocation = (amount: number | null = null, payeeName = ''): MoneyAllocationDraft => ({
   key: allocationKey(), purposeType: 'unknown', amount: amount == null ? '' : String(amount), projectId: '', siteId: '',
-  payeeName, responsibleName: '', description: '', confidence: '',
+  payeeName, responsibleName: '', description: '', confidence: '', vendorId: '', vendorName: '', vendorTaxId: '',
+  vendorBankName: '', vendorAccountLast4: '', vendorMatchStatus: 'needs_review', vendorMatchConfidence: '', vendorMatchReason: '',
 })
 
 export const emptyMoneyLineage = (senderName = '', recipientName = '', amount: number | null = null, transferredAt = ''): MoneyLineageDraft => ({
@@ -116,6 +125,7 @@ export const validateMoneyLineage = (draft: MoneyLineageDraft, transferAmount: n
     const amount = numberOrNull(allocation.amount)
     if (allocation.purposeType === 'unknown') missing.push(`วัตถุประสงค์รายการที่ ${index + 1}`)
     if (['materials', 'project_expense'].includes(allocation.purposeType) && !allocation.projectId) missing.push(`โครงการรายการที่ ${index + 1}`)
+    if (allocation.purposeType === 'vendor_payment' && (allocation.vendorMatchStatus !== 'matched' || !allocation.vendorId)) missing.push(`ร้านค้า/ผู้ขายรายการที่ ${index + 1} ต้องจับคู่และยืนยันก่อนส่งต่อ`)
     if (amount == null || !Number.isFinite(amount) || amount <= 0) errors.push(`รายการจัดสรรที่ ${index + 1} จำนวนเงินไม่ถูกต้อง`)
     return sum + (amount != null && Number.isFinite(amount) ? amount : 0)
   }, 0)

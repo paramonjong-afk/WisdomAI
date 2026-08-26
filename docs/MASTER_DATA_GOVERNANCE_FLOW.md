@@ -2,6 +2,10 @@
 flowchart LR
   A[Intake / LINE / document / Admin input] --> B[Master-data candidate]
   B --> S[Source Reference Gateway\nCandidate → Transaction → Message]
+  S --> VM[Vendor payment evidence\nผู้จ่ายบุคคล ≠ ผู้ขายร้านค้า]
+  VM -->|เลขภาษี/บัญชี alias ตรง| VMA[Vendor Match ที่ยืนยันแล้ว]
+  VM -->|ชื่ออย่างเดียว/ขัดแย้ง| E
+  VMA --> S2
   S --> S2[Document Flow + Attachment\nEvent + Master Audit]
   S2 --> ER[Evidence Split Review<br/>same-page signed image/PDF<br/>stale-response guard]
   ER --> AI[Auto Input<br/>name/type/account/bank/tax<br/>project/date/owner/route]
@@ -124,3 +128,4 @@ Create one company-scoped master-data path for people, vendors, customers, proje
 | v1.4 | 25/8/2569 | Add Project-first Gate so the 53-item Local regression queue can be linked to an existing Project or a complete Project Candidate before confirmation; surface Drawer validation and next-item flow | `20260825105559_master_data_project_first_gate.sql` (applied to Production before revision `0809107`) | 53→52 fixture reconciliation after explicit confirm, existing/new/missing Project cases, append-only audit/version contract, RLS, targeted lint/typecheck/build and authenticated browser smoke | Disable the Gate RPC/trigger and preserve Project Candidate/Audit/Version rows for recovery—never delete Raw/OCR |
 | v1.5 | 25/8/2569 | Make the Project-first review path explicit in the Drawer, reduce crowded actions to one state-aware Primary Action, and surface persisted Project/Correction evidence | No schema change; reads existing Project Candidate, Candidate Version and Master Audit records | Step contract, rollback-only RPC persistence probe, 53-item fixture, typecheck/lint/build and Local responsive browser smoke | Revert the Step/receipt UI and loader; existing candidate, Project Candidate, Version, Audit and Raw/OCR rows remain unchanged |
 | v1.6 | 25/8/2569 | Fix Production incident where `request_info` persisted but looked unfinished/unchanged, prevent false success on null/stale RPC results, and reconcile the 55-new + 1-follow-up = 56 active queue | No schema change; read-after-write verification over existing RPCs and source tables | Exact Message ID/read-only audit trace, 55+1 projection contract, RPC/refetch guards, rollback-only persistence probe, typecheck/lint/build and authenticated Production smoke | Revert v1.6 UI/projection guards; existing request-info Version/Audit and Raw/OCR remain unchanged |
+| v2.5 | 26/8/2569 | แยกผู้จ่ายบุคคลออกจากผู้ขายร้านค้าในการตรวจสลิป เพื่อให้การจ่ายผ่านบัญชีส่วนตัวผูกกลับร้านค้าที่รับเงินจริงได้อย่างมีหลักฐาน โดยไม่เดาร้านค้าจากชื่อหรือบัญชีเพียงอย่างเดียว | `20260826230000_transfer_slip_vendor_payment_matching.sql` เพิ่ม projection การจับคู่, alias บัญชีผู้ขายที่ต้องอนุมัติ, RPC idempotent และ trigger กันการยืนยันโดยไม่มีคู่ผู้ขาย; ไม่แก้ Raw/OCR | Vendor-match contract, migration/RLS contract, typecheck/lint/build และ Local Accounting Drawer smoke; Production migration/deploy ต้องผ่าน release gate แยก | ปิดการจับคู่ผู้ขายและ revoke RPC/trigger หลัง rollback ได้ โดยคง Raw/OCR, Source Reference, สลิป, Version/Audit และรายการค้างตรวจไว้กู้คืน |

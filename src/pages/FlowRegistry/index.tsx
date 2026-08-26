@@ -62,6 +62,15 @@ const accountingFlows = [
     path: '/advance-settlements',
     action: 'ไปหน้าเงินสำรองจ่าย',
   },
+  {
+    title: 'จับคู่ผู้จ่ายบุคคลกับผู้ขาย',
+    version: 'Vendor Payment Matching v1.0 · 26/8/2569',
+    icon: <PaymentsOutlinedIcon color="primary" />,
+    summary: 'แยกผู้ถือบัญชีส่วนบุคคลออกจากร้านค้าที่รับเงินจริง ตรวจหลักฐานหลายชั้นก่อนยืนยันรายการจ่าย และค้างตรวจเมื่อข้อมูลไม่พอ',
+    bullets: ['อ่านจาก docs/VENDOR_PAYMENT_MATCHING_FLOW.md', 'ตรวจเลขภาษี/บัญชี alias ที่อนุมัติ/ชื่อ/ใบเสร็จ/โครงการตามลำดับหลักฐาน', 'ผู้จ่ายอาจเป็น Employee/Technician แต่ผู้ขายต้องเป็น Vendor Master; ข้อมูลกำกวมไม่ถูกเดา', 'ยืนยัน vendor_payment ไม่ได้หากไม่มี match สถานะ matched และมี Audit/Source Reference ครบ'],
+    path: '/accounting-documents',
+    action: 'ไปตรวจสลิปและจับคู่ผู้ขาย',
+  },
 ] as const
 
 const systemFlows = [
