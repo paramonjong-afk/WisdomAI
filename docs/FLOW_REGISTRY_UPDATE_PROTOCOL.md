@@ -1,5 +1,12 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Transfer Slip Allocation Project Reference Fix v1.9 — 27/8/2569
+
+- **เหตุผล:** RPC จัดสรรสลิปใช้ตัวแปร `project_id`/`site_id` ชื่อเดียวกับคอลัมน์ ทำให้ Draft/Confirm หยุดด้วย PostgreSQL 42702 ก่อนบันทึก
+- **ผลกระทบ:** เปลี่ยนชื่อตัวแปรภายใน RPC ให้แยกจากคอลัมน์ชัดเจน; Validation, Routing, Audit, RLS และข้อมูลเดิมไม่เปลี่ยน
+- **Migration:** `20260826233010_fix_transfer_slip_allocation_project_ambiguity.sql`; ไม่แก้/ลบ Transaction, Allocation, Lineage, Task หรือ Audit เดิม
+- **Verification/Rollback:** RPC definition contract, Draft/Confirm runtime, targeted test, typecheck, lint, build; rollback คืน function definition ก่อนหน้าโดยไม่ย้อนข้อมูลธุรกิจ
+
 ## ล่าสุด: Reserve-fund Vendor via Personal Account UI v1.8 — 27/8/2569
 
 - **เหตุผล:** ประเภทเดิมชื่อ `จ่ายผู้ขาย` ทำให้ Admin ไม่ทราบว่าใช้กับกรณีเงินสำรองจ่ายซึ่งสลิปเข้าบัญชีบุคคลได้
