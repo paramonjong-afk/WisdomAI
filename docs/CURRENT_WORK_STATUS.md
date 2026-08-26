@@ -10,7 +10,7 @@
 
 ### งานค้างหลัง deploy
 
-- `RELEASE-HR-INTAKE-20260826`: โค้ดผ่าน test/typecheck/lint/build และ push branch `codex/finish-hr-intake-20260826` แล้ว แต่การ push ตรงเข้า default branch `main` ถูก approval reviewer ปฏิเสธ; ต้อง merge ผ่าน Pull Request เท่านั้น แล้วจึงตรวจ Cloudflare revision ให้ตรงกับ merge commit
+- `RELEASE-HR-INTAKE-20260826`: `DONE` — GitHub `main` และ Cloudflare revision `44f5a98` ตรงกัน; authenticated smoke ผ่านหน้า `/employees` และ `/accounting-documents`, Drawer เคส ฿1,487 แสดงหลักฐานเดิม/OCR/ข้อมูลยืนยันครบ และไม่พบ console error
 - `INTAKE-CONFIRMED-MAPPING-UAT`: เปิดสลิปที่มีผู้โอนตามหลักฐานต่างจากผู้จ่ายจริงอย่างน้อย 1 รายการ ตรวจว่าทั้งสองค่าปรากฏพร้อมกันและสถานะยืนยันถูกต้อง
 - `ADVANCE-PAYROLL-DATA-CLOSE`: รายการ Advance/ค่าแรงเงินจริงยังต้องให้บัญชีตรวจ Allocation, Owner, วันที่ และหลักฐานก่อนสร้าง Payroll Line หรือตัดยอด ห้าม Final Lock อัตโนมัติ
 - `AUTO-CHECKPOINT-MERGE`: branch `codex/auto-checkpoint-guard` commit `30d36a4` ยังรอ Pull Request/merge แยกจาก release นี้
