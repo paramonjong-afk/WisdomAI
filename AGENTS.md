@@ -25,7 +25,7 @@ The Admin Flow Registry (`/flow-registry`) is the user-facing index. Flow docume
 Every Codex thread that changes or deploys the application must read and follow `docs/RELEASE_INCIDENT_PLAYBOOK.md`.
 
 - Primary Production path: validated clean commit → GitHub `main` → GitHub verification → Cloudflare Git Integration → `release.json` parity → authenticated runtime smoke.
-- `CLOUDFLARE_API_TOKEN` and direct Wrangler deployment are emergency fallback only. A local Token `401` must not block or replace the healthy Git integration path, and the same failed Token must not be retried repeatedly.
+- Cloudflare Git Integration is the only Production deployment path. Never upload a locally built `dist`; restore service by fixing Git Integration or rolling back to a successful Git-built deployment.
 - If the shared workspace is dirty, preserve all existing changes and release from an isolated clean clone/worktree based on the latest GitHub `main`.
 - Do not declare deploy complete from a push, CI success, HTTP 200, or build alone. Record the live URL/revision and verify the changed page plus its destination/Intake/Audit path with the relevant authenticated role.
 - Every release handoff must include commit, workflow status, Production revision, test/build evidence, remaining blocker (or “none found”), and rollback/recovery instructions.

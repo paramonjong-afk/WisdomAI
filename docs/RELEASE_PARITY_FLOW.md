@@ -6,13 +6,11 @@ flowchart TD
   V -->|ไม่ผ่าน| X[Fix and push a new commit]
   B --> C[Vercel Production deploy]
   B --> D[Cloudflare Git Integration deploy]
-  R[Manual Wrangler + Account Token] --> S[Emergency fallback only<br/>when Git Integration unavailable]
-  S --> B
   C --> E[Smart Entry probes health and release revision]
   D --> E
   E --> F{Cloudflare revision equals Vercel revision?}
   F -->|Yes| G[Both current: choose the faster available host]
-  F -->|No or missing| H[Cloudflare stale: disable auto/manual fallback]
+  F -->|No or missing| H[Cloudflare stale: stop routing and repair Git Integration]
   G --> I[Show host + revision in top bar]
   H --> J[Use Vercel only or show retry]
   I --> K[User enters authenticated application]
@@ -57,9 +55,9 @@ flowchart TD
 - Working tree ต้องสะอาดและ release commit ต้องไม่ตามหลัง GitHub `main`; ถ้า workspace หลักมีงานอื่นค้าง ให้ใช้ clean clone/worktree โดยไม่ reset หรือลบงานเดิม
 - ก่อน push ต้องผ่าน targeted tests, lint, typecheck และ build จาก commit เดียวกัน
 - หลัง push ต้องตรวจ workflow ของ commit นั้น, remote `release.json` และ authenticated UAT หน้า Module/ปลายทาง/Intake/Audit ที่เปลี่ยน
-- `npm run deploy:cloudflare` และ **Account API Token** ที่มี `Pages Write` เป็น emergency fallback เท่านั้นเมื่อ Git Integration ใช้ไม่ได้และได้รับอนุมัติ
-- หาก fallback Token ตอบ `401` ให้หยุด retry Token เดิมและรายงาน credential blocker; ถ้า Git Integration ยังปกติให้ใช้เส้นทางหลักต่อ ไม่ถือ local Token เป็น blocker ของ Production
-- Token/Environment อยู่ใน GitHub/Cloudflare Secret; ห้ามเขียนลง Git, log, เอกสาร หรือข้อความสนทนา
+- `npm run verify:cloudflare-production` ใช้รอและตรวจ revision จาก Automatic Deployment เท่านั้น ไม่ build หรือ upload artifact จากเครื่อง
+- หาก Git Integration ขัดข้อง ให้แก้ Integration หรือ rollback ไป deployment ที่ Cloudflare build จาก GitHub สำเร็จ ห้ามอัปโหลด `dist` จากเครื่อง
+- Environment อยู่ใน Cloudflare Secret ชุดกลาง; ห้ามคัดลอกมาไว้ใน Git, log, เอกสาร หรือข้อความสนทนา
 
 ## Audit and owner
 
@@ -73,4 +71,5 @@ flowchart TD
 |---|---|---|---|---|---|---|
 | v1.0 | 23/8/2569 | แก้ปัญหา Vercel/Cloudflare แสดง frontend คนละรุ่นโดยไม่ชัดเจน | เพิ่ม manifest, parity gate, ป้าย host/revision และ no-cache header ของ Cloudflare | ไม่มี schema/data migration | release/smart-entry tests, lint/build, ตรวจ manifest และ deployment ทั้งสอง host | rollback ทั้งสอง host ไป revision เดียวกัน หรือ revert parity gate ชั่วคราว; ข้อมูลผู้ใช้ไม่ถูกกระทบ |
 | v1.1 | 23/8/2569 | ป้องกัน User Token ผ่าน verify แต่ deploy Pages ไม่ได้ และป้องกัน clean worktree build โดยไม่มี `.env` จนหน้าขาว | เพิ่มคำสั่ง deploy กลาง, Account Token/Pages preflight, environment/release/runtime gates | ไม่มี | contract test, lint, typecheck, build และ Cloudflare revision smoke | ใช้ revision ก่อนหน้าที่ผ่าน smoke test หรือ deploy commit เดิมผ่านคำสั่งกลาง; ไม่กระทบฐานข้อมูล |
-| v1.2 | 24/8/2569 | ยุติความสับสนที่ทุกห้องพยายามใช้ local Token ซ้ำ ทั้งที่ Production ใช้ Git Integration | กำหนด GitHub main/Git verification/Cloudflare Git Integration เป็นเส้นทางหลัก และ Token เป็น emergency fallback เท่านั้น | ไม่มี | release playbook contract, GitHub workflow, Cloudflare revision และ authenticated runtime smoke | revert เอกสาร/contract และใช้ release revision ก่อนหน้า; ไม่กระทบข้อมูลธุรกิจ |
+| v1.2 | 24/8/2569 | ยุติความสับสนจากการพยายามใช้ local credential ซ้ำ ทั้งที่ Production ใช้ Git Integration | กำหนด GitHub main/Git verification/Cloudflare Git Integration เป็นเส้นทางมาตรฐาน | ไม่มี | release playbook contract, GitHub workflow, Cloudflare revision และ authenticated runtime smoke | revert เอกสาร/contract และใช้ release revision ก่อนหน้า; ไม่กระทบข้อมูลธุรกิจ |
+| v1.3 | 26/8/2569 | ป้องกัน local artifact ข้ามค่ากลางของ Cloudflare | บังคับ Git Integration เป็นเส้นทางเดียวและเปลี่ยน deploy command เป็น revision verifier | ไม่มี | deployment contract, typecheck, lint, release revision smoke | rollback ไป Git-built deployment ก่อนหน้า; ไม่กระทบข้อมูลธุรกิจ |

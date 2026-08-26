@@ -17,8 +17,6 @@ flowchart TD
   K -->|ตรง| M[Authenticated runtime smoke<br/>หน้าที่แก้ + ปลายทาง + Intake/Audit]
   M -->|ไม่ผ่าน| N[Revert/Rollback commit<br/>แล้วตรวจ revision ซ้ำ]
   M -->|ผ่าน| O[บันทึก URL + revision + tests + blocker/none]
-  P[Manual Wrangler + API Token] --> Q[ใช้เฉพาะ Git Integration ใช้ไม่ได้<br/>และได้รับอนุมัติ fallback]
-  Q --> C
 ```
 
 # Release and Deployment Incident Playbook
@@ -33,8 +31,8 @@ Production frontend ใช้เส้นทางเดียวเป็นค
 
 `clean tested commit → GitHub main → GitHub verification → Cloudflare Git Integration → release.json → authenticated runtime smoke`
 
-- ห้ามใช้ `CLOUDFLARE_API_TOKEN` ใน `.env.local` เป็นเงื่อนไขของการ deploy ปกติ
-- Direct Wrangler (`npm run deploy:cloudflare`) เป็น emergency fallback เท่านั้น
+- ห้าม build/upload Production จาก local environment หรือ local `dist`
+- `npm run verify:cloudflare-production` มีหน้าที่รอและตรวจ Automatic Deployment เท่านั้น
 - ถ้า workspace หลักมีงานอื่นค้าง ให้สร้าง clean release clone/worktree จาก GitHub `main` ล่าสุด ห้ามรวม/ลบ/รีเซ็ตงานของผู้อื่น
 - ก่อน push ต้อง fetch GitHub และยืนยัน release commit ไม่ตามหลัง `main`
 - หลัง push ต้องตรวจ GitHub workflow และ Cloudflare `release.json`; CI ผ่านอย่างเดียวไม่เท่ากับ Production พร้อมใช้
@@ -49,7 +47,7 @@ Production frontend ใช้เส้นทางเดียวเป็นค
 
 - ผู้พัฒนา/Release Owner รับผิดชอบ Local gate, commit, push, revision และ runtime smoke
 - GitHub/Cloudflare credentials เก็บในระบบ Secret/Pages Integration ไม่ใส่ในเอกสาร, commit, log หรือข้อความสนทนา
-- Token ใหม่หรือการเปลี่ยนสิทธิ์ Cloudflare ต้องได้รับจากเจ้าของบัญชีเท่านั้น และใช้เฉพาะ fallback ที่ได้รับอนุมัติ
+- ค่าต่อระบบ Production เก็บใน Cloudflare Pages Settings ชุดกลางและถูกใช้โดย Git Integration เท่านั้น
 - เจ้าของข้อมูลธุรกิจยังเป็น Module Owner; การ deploy ห้ามปิดหรือแก้รายการเงินจริงเพื่อทำให้ smoke test ดูผ่าน
 
 ## วิธีรับมือปัญหาที่เกิดซ้ำ
@@ -60,7 +58,7 @@ Production frontend ใช้เส้นทางเดียวเป็นค
 
 | อาการ | สาเหตุที่ต้องตรวจ | การดำเนินการมาตรฐาน |
 | --- | --- | --- |
-| `401 Unauthorized` จาก Token | Token หมดอายุ/ถูกยกเลิก/ไม่ใช่ Account Pages token | ถ้า Git Integration ปกติ ให้ใช้เส้นทาง Git ต่อและบันทึกว่า manual fallback ใช้ไม่ได้; ห้ามลอง Token เดิมซ้ำ |
+| มีคำขอ Token หรือ `401 Unauthorized` จาก manual deploy | กำลังใช้เส้นทาง deploy ที่เลิกใช้แล้ว | หยุด manual deploy และกลับไปตรวจ GitHub `main` กับ Cloudflare Git Integration; ห้ามอัปโหลด local artifact |
 | Git worktree ขึ้น `Permission denied` | shared Git metadata เขียนไม่ได้หรือมี process จับ lock | ใช้ clean clone จาก latest GitHub `main`, ย้ายเฉพาะ patch, รัน Local gate ใหม่; เก็บ dirty workspace เดิมไว้ |
 | Working tree ไม่สะอาด | มีงานหลาย Module หรือไฟล์ของผู้ใช้อยู่ | สร้าง clean release clone/worktree จาก latest main; ห้าม reset/delete งานเดิม |
 | GitHub CI ผ่านแต่ Cloudflare ยังรุ่นเก่า | Pages build ยังไม่เสร็จ/cache manifest | ตรวจ workflow และ poll `release.json` แบบ no-cache จน revision ตรง หรือรายงาน Pages blocker |
