@@ -1,5 +1,4 @@
 import { supabase } from '../lib/supabase'
-import { localOmniTasks, localQueuePage } from './documentFlowLocalFixture'
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const queryChunkSize = 100
@@ -40,7 +39,6 @@ export type DocumentFlowScope = {
   sender?: string
   fileKind?: 'all' | 'image_or_scan' | 'pdf' | 'document' | 'unknown'
   project?: string
-  localTestData?: boolean
   conversationType?: 'all' | 'hr_confirmation'
 }
 
@@ -131,7 +129,6 @@ const dateRange = (date?: string) => {
  */
 export const documentFlowGateway = {
   async loadQueuePage(cursor?: { updatedAt: string; id: string } | null, limit = 100, flow?: 'intake' | 'filter' | 'posting' | null, scope: DocumentFlowScope = {}) {
-    if (scope.localTestData) return localQueuePage(scope, flow ?? null)
     const range = dateRange(scope.date)
     return supabase.rpc('document_flow_queue_page_for_flow', {
       target_limit: Math.max(1, Math.min(limit, 100)),
@@ -149,7 +146,6 @@ export const documentFlowGateway = {
   },
 
   async loadQueueFacets(scope: DocumentFlowScope = {}) {
-    if (scope.localTestData) return { data: [], error: null }
     const range = dateRange(scope.date)
     return supabase.rpc('document_flow_queue_facets', {
       target_channel: scope.channel ?? 'all',
@@ -176,7 +172,7 @@ export const documentFlowGateway = {
       .order('updated_at', { ascending: false })
       .limit(2000)
     if (filters?.channel && ['line', 'telegram', 'web_chat'].includes(filters.channel)) employeeQuery = employeeQuery.eq('channel', filters.channel)
-    if (filters?.channel === 'unknown' || filters.localTestData) employeeQuery = employeeQuery.limit(0)
+    if (filters?.channel === 'unknown') employeeQuery = employeeQuery.limit(0)
     if (start && end) employeeQuery = employeeQuery.gte('source_started_at', start).lt('source_started_at', new Date(end).toISOString())
     if (filters.room?.trim()) employeeQuery = employeeQuery.ilike('external_chat_id', `%${filters.room.trim()}%`)
     if (filters.sender?.trim()) employeeQuery = employeeQuery.ilike('external_user_id', `%${filters.sender.trim()}%`)
@@ -187,7 +183,6 @@ export const documentFlowGateway = {
   },
 
   async loadOmniFilterTasks(filters: DocumentFlowScope = {}) {
-    if (filters.localTestData) return localOmniTasks(filters)
     const { from: start, to: end } = dateRange(filters.date)
     let query = supabase
       .from('omni_filter_tasks')

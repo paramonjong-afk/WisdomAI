@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { reviewFilterMatches } from '../src/pages/MasterDataCenter/masterDataReview.ts'
 import { applyLocalProjectGate, autoSelectedProjectId, findProjectMatches, isProjectGateReady, projectDraftFromCandidate, projectGateStatus, validateProjectDraft } from '../src/services/masterDataProjectGate.ts'
-import { createMasterDataProjectGateFixture } from '../src/services/masterDataProjectGateFixture.ts'
+import { createMasterDataProjectGateFixture } from './fixtures/masterDataProjectGateFixture.ts'
 
 const fixture = createMasterDataProjectGateFixture()
 assert.equal(fixture.count, 53, 'local regression dataset must stay deterministic at 53 pending candidates')
@@ -53,7 +53,8 @@ const workflow = readFileSync('src/pages/MasterDataCenter/MasterDataReviewWorkfl
 const projectService = readFileSync('src/services/masterDataProjectGate.ts', 'utf8')
 const migration = readFileSync('supabase/migrations/20260825105559_master_data_project_first_gate.sql', 'utf8')
 const workScopeMigration = readFileSync('supabase/migrations/20260826173000_master_data_two_tab_work_scope.sql', 'utf8')
-for (const token of ['LOCAL TEST DATA', 'MasterDataProjectGatePanel', 'save_master_data_project_gate', 'MasterDataReviewActions']) assert.match(page, new RegExp(token))
+for (const token of ['MasterDataProjectGatePanel', 'save_master_data_project_gate', 'MasterDataReviewActions']) assert.match(page, new RegExp(token))
+assert.doesNotMatch(page, /LOCAL TEST DATA|local_test_data/)
 for (const token of ['linked_existing_project', 'awaiting_new_project']) assert.match(projectService, new RegExp(token))
 for (const token of ['Project-first Gate', 'ผูก Project และเนื้องาน', 'เพิ่ม Project Candidate', 'เพิ่มเนื้องานของ Project นี้', 'ข้อมูลที่ยังขาด', 'เปิดต้นทาง']) assert.match(panel, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 for (const token of ['ขอข้อมูลเพิ่ม', 'กลับคิว', 'รายการถัดไป']) assert.match(workflow, new RegExp(token))

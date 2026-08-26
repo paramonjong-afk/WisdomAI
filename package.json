@@ -144,7 +144,8 @@
     "test:filter-rule-pack": "node --experimental-strip-types scripts/filter-rule-pack.test.ts",
     "preview": "vite preview",
     "deploy:cloudflare": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-cloudflare-production.ps1",
-    "test:cloudflare-deploy": "node --experimental-strip-types scripts/cloudflare-production-deploy.test.ts"
+    "test:cloudflare-deploy": "node --experimental-strip-types scripts/cloudflare-production-deploy.test.ts",
+    "test:runtime-data-source-guard": "node --experimental-strip-types scripts/runtime-data-source-guard.test.ts"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

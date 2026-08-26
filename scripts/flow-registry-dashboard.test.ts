@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { loadLocalFlowRegistrySnapshot } from '../src/services/flowRegistryLocalFixture.ts'
+import { loadLocalFlowRegistrySnapshot } from './fixtures/flowRegistryLocalFixture.ts'
 
 const page = fs.readFileSync('src/pages/FlowRegistry/FlowRegistryDashboard.tsx', 'utf8')
 const gateway = fs.readFileSync('src/services/flowRegistryGateway.ts', 'utf8')
@@ -20,10 +20,9 @@ assert.match(page, /Source \/ Document ID/)
 assert.match(page, /Count reconciliation/)
 assert.match(page, /Evidence:/)
 assert.match(page, /Blocker:/)
-assert.match(page, /LOCAL FIXTURE/)
-assert.match(page, /loadLocalFlowRegistrySnapshot/)
-assert.match(protectedRoute, /local_test_data/)
-assert.match(roleRoute, /local_test_data/)
+assert.doesNotMatch(page, /LOCAL FIXTURE|loadLocalFlowRegistrySnapshot|local_test_data/)
+assert.doesNotMatch(protectedRoute, /local_test_data/)
+assert.doesNotMatch(roleRoute, /local_test_data/)
 assert.match(gateway, /omni_intake_sources/)
 assert.match(gateway, /chat_attendance_approval_jobs/)
 assert.match(gateway, /employee_advance_cases/)

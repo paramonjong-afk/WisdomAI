@@ -23,20 +23,19 @@ export function NotificationCenterPage() {
   usePageTitle('ศูนย์การแจ้งเตือน')
   const { profile, user, currentCompany } = useAuth()
   const [params, setParams] = useSearchParams()
-  const localFixture = import.meta.env.DEV && params.get('local_test_data') === '1'
   const filter = (params.get('filter') as NotificationFilter | null) ?? 'all'
   const moduleFilter = params.get('module') ?? 'all'
   const [snapshot, setSnapshot] = useState<NotificationSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const companyId = localFixture ? 'local-fixture-company' : currentCompany?.company_id ?? ''
-  const profileId = user?.id ?? 'local-fixture-user'
-  const canViewNotifications = localFixture || canManageCompany(profile, currentCompany)
-  const load = async () => { if (!canViewNotifications || (!user?.id && !localFixture)) return; setLoading(true); setError(''); try { setSnapshot(await loadNotificationSnapshot({ companyId, profileId, localFixture })) } catch (loadError) { setError(loadError instanceof Error ? loadError.message : 'โหลดแจ้งเตือนไม่สำเร็จ') } finally { setLoading(false) } }
-  useEffect(() => { const refresh = async () => { if (!canViewNotifications || (!profileId && !localFixture)) return; setLoading(true); try { setSnapshot(await loadNotificationSnapshot({ companyId, profileId, localFixture })) } catch { setError('โหลดแจ้งเตือนไม่สำเร็จ') } finally { setLoading(false) } }; const initial = window.setTimeout(() => void refresh(), 0); const timer = window.setInterval(() => void refresh(), 30_000); return () => { window.clearTimeout(initial); window.clearInterval(timer) } }, [canViewNotifications, companyId, localFixture, profileId])
+  const companyId = currentCompany?.company_id ?? ''
+  const profileId = user?.id ?? ''
+  const canViewNotifications = canManageCompany(profile, currentCompany)
+  const load = async () => { if (!canViewNotifications || !user?.id) return; setLoading(true); setError(''); try { setSnapshot(await loadNotificationSnapshot({ companyId, profileId })) } catch (loadError) { setError(loadError instanceof Error ? loadError.message : 'โหลดแจ้งเตือนไม่สำเร็จ') } finally { setLoading(false) } }
+  useEffect(() => { const refresh = async () => { if (!canViewNotifications || !profileId) return; setLoading(true); try { setSnapshot(await loadNotificationSnapshot({ companyId, profileId })) } catch { setError('โหลดแจ้งเตือนไม่สำเร็จ') } finally { setLoading(false) } }; const initial = window.setTimeout(() => void refresh(), 0); const timer = window.setInterval(() => void refresh(), 30_000); return () => { window.clearTimeout(initial); window.clearInterval(timer) } }, [canViewNotifications, companyId, profileId])
   const visibleItems = snapshot?.items.filter((item) => (moduleFilter === 'all' || item.module === moduleFilter) && (filter === 'all' || (filter === 'unread' && !item.read) || (filter === 'actionable' && item.kind === 'actionable') || (filter === 'system' && item.kind === 'informational'))) ?? []
   const markRead = async (item: CenterNotification) => {
-    if (!user?.id || item.read || localFixture) return
+    if (!user?.id || item.read) return
     try {
       await runWithMutationAttempt({ module: 'Notifications', action: 'บันทึกสถานะอ่านแจ้งเตือน', actorProfileId: user.id, companyId: currentCompany?.company_id ?? null, request: { notification_key: item.id }, operation: async () => supabase.from('notification_read_states').upsert({ profile_id: user.id, notification_key: item.id, read_at: new Date().toISOString() }) })
       setSnapshot((current) => current ? { ...current, items: current.items.map((row) => row.id === item.id ? { ...row, read: true } : row), unreadCount: Math.max(0, current.unreadCount - 1) } : current)
@@ -49,7 +48,6 @@ export function NotificationCenterPage() {
   if (!canViewNotifications) return <Alert severity="info">ศูนย์การแจ้งเตือนสำหรับ Admin และผู้จัดการบริษัท</Alert>
   return <Stack spacing={2} sx={{ minWidth: 0 }}>
     <PageHeader title="ศูนย์การแจ้งเตือน" description="รวมแจ้งเตือนและงานที่ต้องทำจาก Module ต่าง ๆ" action={<Button onClick={() => void load()} startIcon={<RefreshOutlinedIcon />}>รีเฟรช</Button>} />
-    {localFixture && <Alert severity="warning">LOCAL FIXTURE: ข้อมูลทดสอบเท่านั้น ไม่เขียนข้อมูล Production</Alert>}
     {error && <Alert severity="error">{error}</Alert>}
     {snapshot?.warning && <Alert severity="warning">{snapshot.warning}</Alert>}
     {snapshot && <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><Paper variant="outlined" sx={{ p: 1.5, flex: 1 }}><Typography variant="caption">ยังไม่อ่าน</Typography><Typography variant="h4" sx={{ fontWeight: 900 }}>{snapshot.unreadCount}</Typography></Paper><Paper variant="outlined" sx={{ p: 1.5, flex: 1 }}><Typography variant="caption">งานที่ต้องทำ</Typography><Typography variant="h4" sx={{ fontWeight: 900 }}>{snapshot.actionableCount}</Typography></Paper><Paper variant="outlined" sx={{ p: 1.5, flex: 1 }}><Typography variant="caption">อัปเดตล่าสุด</Typography><Typography variant="body2" sx={{ mt: 1 }}>{new Date(snapshot.lastUpdated).toLocaleString('th-TH')}</Typography></Paper></Stack>}

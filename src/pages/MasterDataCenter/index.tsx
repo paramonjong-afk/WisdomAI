@@ -8,14 +8,13 @@ import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
 import { documentFlowGateway } from '../../services/documentFlowGateway'
-import { advanceFundingRoute, applyLocalAdvanceFunding, inferMasterRecordingMode, transferPartyDraft, validateAdvanceFundingInput, validatePersistedAdvanceFunding, type AdvanceFundingRpcResult, type MasterRecordingMode, type TransferPartyDraft } from '../../services/masterDataAdvanceFunding'
+import { advanceFundingRoute, inferMasterRecordingMode, transferPartyDraft, validateAdvanceFundingInput, validatePersistedAdvanceFunding, type AdvanceFundingRpcResult, type MasterRecordingMode, type TransferPartyDraft } from '../../services/masterDataAdvanceFunding'
 import { autoInputAuditPayload, buildMasterAutoCorrection, masterAutoRoute } from '../../services/masterDataAutoInput'
 import { classificationLabel, classifyMasterCandidate, type MasterClassificationType } from '../../services/masterDataClassification'
 import { emptyMasterSourceEvidence, loadMasterSourceEvidence } from '../../services/masterDataSourceGateway'
-import { applyLocalProjectGate, isProjectGateReady, projectGateStatus, type MasterProjectOption, type MasterWorkPackageOption } from '../../services/masterDataProjectGate'
-import { createMasterDataProjectGateFixture } from '../../services/masterDataProjectGateFixture'
+import { isProjectGateReady, type MasterProjectOption, type MasterWorkPackageOption } from '../../services/masterDataProjectGate'
 import { loadMasterDataReviewReceipts } from '../../services/masterDataReviewReceipts'
-import { buildMasterReviewProjection, localReviewReceipt, validatePersistedCorrection, validatePersistedProjectGate, validatePersistedReviewAction, type MasterReviewAction, type MasterReviewReceipt } from '../../services/masterDataReviewWorkflow'
+import { buildMasterReviewProjection, validatePersistedCorrection, validatePersistedProjectGate, validatePersistedReviewAction, type MasterReviewAction, type MasterReviewReceipt } from '../../services/masterDataReviewWorkflow'
 import { userError } from '../../utils/userError'
 import { type ProjectGateAction } from './MasterDataProjectGatePanel'
 import { MasterDataReviewDrawer } from './MasterDataReviewDrawer'
@@ -30,11 +29,6 @@ const accountStatus: Record<string, string> = { verified: 'ยืนยันแ
 const entityLabel: Record<string, string> = { employee: 'พนักงาน', vendor: 'ผู้ขาย', customer: 'ลูกค้า', project: 'โครงการ', work_package: 'งานย่อย', bank_account: 'บัญชีธนาคาร' }
 const dateTime = (value: string | null) => value ? new Date(value).toLocaleString('th-TH') : '-'
 const emptyEvidence = emptyMasterSourceEvidence
-const localEvidencePreviewUrl = (candidate: Pick<Candidate, 'id' | 'display_name'>) => {
-  const safeName = candidate.display_name.replace(/[<>&'"]/g, '')
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="1280" viewBox="0 0 960 1280"><rect width="960" height="1280" fill="#f4f0ea"/><rect x="70" y="70" width="820" height="1140" rx="24" fill="#fff" stroke="#b45d3f" stroke-width="5"/><text x="480" y="210" text-anchor="middle" font-family="Arial,sans-serif" font-size="42" font-weight="700" fill="#2b2927">LOCAL TEST EVIDENCE</text><text x="480" y="300" text-anchor="middle" font-family="Arial,sans-serif" font-size="28" fill="#5d554f">${safeName}</text><text x="480" y="360" text-anchor="middle" font-family="monospace" font-size="20" fill="#756b64">${candidate.id}</text><path d="M220 520h520v360H220z" fill="#f7e6de" stroke="#b45d3f" stroke-width="4"/><circle cx="360" cy="650" r="72" fill="#d58a6e"/><path d="M250 840l165-150 110 95 90-75 95 130z" fill="#b45d3f" opacity=".78"/><text x="480" y="1010" text-anchor="middle" font-family="Arial,sans-serif" font-size="28" fill="#2b2927">ตัวอย่างสำหรับ Local Browser UAT เท่านั้น</text><text x="480" y="1060" text-anchor="middle" font-family="Arial,sans-serif" font-size="22" fill="#756b64">ไม่ใช่ข้อมูล Production</text></svg>`
-  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
-}
 const masterReviewError = (error: unknown) => {
   const message = error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error ?? '')
   const generic = userError(error)
@@ -48,7 +42,6 @@ export function MasterDataCenterPage() {
   usePageTitle('ศูนย์ข้อมูลกลาง')
   const { currentCompany } = useAuth()
   const companyId = currentCompany?.company_id ?? ''
-  const localTestData = new URLSearchParams(window.location.search).get('local_test_data') === '1'
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [evidence, setEvidence] = useState<Record<string, MasterSourceEvidence>>({})
   const [accounts, setAccounts] = useState<BankAccount[]>([])
@@ -75,18 +68,6 @@ export function MasterDataCenterPage() {
   const [partyDraft, setPartyDraft] = useState<TransferPartyDraft>({ senderName: '', senderAccountLast4: '', senderBankName: '', recipientName: '', recipientAccountLast4: '', recipientBankName: '' })
 
   const load = useCallback(async () => {
-    if (localTestData) {
-      const fixture = createMasterDataProjectGateFixture()
-      setCandidates(fixture.candidates)
-      setEvidence(fixture.evidence)
-      setProjects(fixture.projects)
-      setWorkPackages(fixture.workPackages)
-      setAccounts([])
-      setReviewerNames({})
-      setReviewReceipts(Object.fromEntries(fixture.candidates.map((candidate) => [candidate.id, localReviewReceipt(candidate)])))
-      setError('')
-      return fixture.candidates as Candidate[]
-    }
     if (!companyId) return [] as Candidate[]
     const [candidateResult, accountResult, projectResult, workPackageResult] = await Promise.all([
       supabase.from('master_data_candidates').select('id,entity_type,display_name,normalized_name,candidate_data,confidence,status,source_table,source_id,duplicate_of,review_reason,reviewed_by,reviewed_at,classification_type,classification_confidence,classification_evidence,classification_conflicts,classification_version,classified_at,created_at,archive_after').eq('company_id', companyId).order('created_at', { ascending: false }).limit(500),
@@ -112,7 +93,7 @@ export function MasterDataCenterPage() {
     setReviewReceipts(receiptResult.data)
     setError(sourceResult.error ? `โหลด Source Reference ไม่ครบ: ${userError(sourceResult.error)}` : receiptResult.error ? `โหลด Audit/Version ไม่ครบ: ${userError(receiptResult.error)}` : '')
     return rows
-  }, [companyId, localTestData])
+  }, [companyId])
 
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer) }, [load])
   const review = async (candidate: Candidate, action: MasterReviewAction) => {
@@ -129,17 +110,6 @@ export function MasterDataCenterPage() {
     const source = evidence[candidate.id] ?? emptyEvidence()
     const classification = classifyMasterCandidate(candidate, source, duplicateIds.has(candidate.id))
     if (action === 'approve' && masterDataRequiresCorrection(candidate, source, classification.conflicts, classification.type) && candidate.status !== 'admin_reviewed') { setDrawerMessage({ severity: 'error', text: 'พบข้อมูลขาดหรือขัดแย้ง ต้องบันทึกข้อมูลที่แก้และส่งตรวจซ้ำก่อนยืนยัน' }); return }
-    if (localTestData) {
-      const status = action === 'approve' || action === 'keep_existing' || action === 'match_master' ? 'confirmed' : action === 'reject' ? 'rejected' : action === 'archive' ? 'archived' : action === 'lock' ? 'locked' : action === 'request_info' ? 'needs_more_info' : 'needs_review'
-      const updated = { ...candidate, status, review_reason: reviewReason.trim() || null, reviewed_at: new Date().toISOString(), candidate_data: { ...candidate.candidate_data, ...(status === 'confirmed' || status === 'locked' ? { project_gate_resolution: projectGateStatus(candidate), project_gate_status: 'confirmed' } : {}), local_review_action: action } }
-      const nextRows = candidates.map((row) => row.id === updated.id ? updated : row)
-      setCandidates(nextRows)
-      setSelected(updated)
-      setReviewReceipts((current) => ({ ...current, [updated.id]: localReviewReceipt(updated) }))
-      setReviewReason('')
-      setDrawerMessage({ severity: 'success', text: ['confirmed', 'locked', 'rejected', 'archived'].includes(status) ? `Local fixture: ${candidateStatus[status] ?? status} แล้ว · คิวและตัวเลขรีเฟรชแล้ว` : `Local fixture: ${candidateStatus[status] ?? status} แล้ว · รายการยังอยู่คิวและยังไม่ยืนยัน Master Data` })
-      return
-    }
     reviewActionInFlightRef.current.add(candidate.id)
     setSavingId(candidate.id); setDrawerMessage(null); setError('')
     const eventKey = crypto.randomUUID()
@@ -174,12 +144,6 @@ export function MasterDataCenterPage() {
     const previewBase = { recordId: candidate.id, fileName: source.fileName ?? `หลักฐาน-${candidate.id.slice(0, 8)}`, contentType: source.attachmentContentType }
     setDrawerMessage(null)
     setEvidencePreview({ ...previewBase, url: null, loading: true, error: null })
-    if (localTestData) {
-      await Promise.resolve()
-      if (requestId !== evidencePreviewRequestRef.current) return
-      setEvidencePreview({ ...previewBase, fileName: source.fileName ?? 'local-test-evidence.svg', contentType: 'image/svg+xml', url: localEvidencePreviewUrl(candidate), loading: false, error: null })
-      return
-    }
     if (!source.bucket || !source.path) {
       if (requestId !== evidencePreviewRequestRef.current) return
       setEvidencePreview({ ...previewBase, url: null, loading: false, error: 'ไม่พบไฟล์ต้นฉบับของรายการนี้ กรุณาใช้ Document/Message ID ใน Source Reference ตรวจต้นทาง' })
@@ -227,15 +191,6 @@ export function MasterDataCenterPage() {
     const validation = validateAdvanceFundingInput(selected, source, input)
     if (!validation.valid) { setDrawerMessage({ severity: 'error', text: `ยังบันทึกเงินทดลองจ่ายไม่ได้: ${validation.blockers.join(' · ')}` }); return }
     if (reviewActionInFlightRef.current.has(selected.id)) { setDrawerMessage({ severity: 'info', text: 'กำลังบันทึกรายการนี้ กรุณารอผลยืนยันจากฐานข้อมูลก่อน' }); return }
-    if (localTestData) {
-      const local = applyLocalAdvanceFunding(selected, source, input)
-      const updated = local.candidate as Candidate
-      setCandidates((current) => current.map((row) => row.id === updated.id ? updated : row))
-      setSelected(updated)
-      setReviewReceipts((current) => ({ ...current, [updated.id]: localReviewReceipt(updated) }))
-      setDrawerMessage({ severity: 'success', persisted: true, text: 'Local fixture: ยืนยัน Employee/Technician แล้ว · ไม่บังคับ Project · สร้าง Accounting task และ Money Lineage รอส่ง Advance Finance แล้ว' })
-      return
-    }
     reviewActionInFlightRef.current.add(selected.id)
     setSavingId(selected.id); setDrawerMessage(null); setError('')
     const eventKey = crypto.randomUUID()
@@ -282,13 +237,6 @@ export function MasterDataCenterPage() {
       suggested_owner: selectedRoute.owner,
       suggested_next_action: selectedRoute.nextAction,
     }
-    if (localTestData) {
-      const now = new Date().toISOString()
-      const eventKey = `local-correction-${selected.id}-${Date.parse(now)}`
-      const afterData = { ...selected, display_name: correction.display_name.trim() || selected.display_name, classification_type: correction.classification_type, status: 'admin_reviewed', review_reason: reviewReason.trim(), reviewed_at: now }
-      const updated = { ...afterData, candidate_data: { ...selected.candidate_data, ...correctionPayload, admin_corrected_at: now, admin_corrected_by: 'local-admin', local_correction_version: Number(selected.candidate_data.local_correction_version ?? 0) + 1, local_correction_audit: [...(Array.isArray(selected.candidate_data.local_correction_audit) ? selected.candidate_data.local_correction_audit : []), { event_key: eventKey, actor_id: 'local-admin', at: now, before: selected, after: afterData }] } }
-      setSelected(updated); setCandidates((current) => current.map((row) => row.id === updated.id ? updated : row)); setReviewReceipts((current) => ({ ...current, [updated.id]: localReviewReceipt(updated) })); setDrawerMessage({ severity: 'success', text: 'Local fixture: append ฉบับแก้ไข/Version/Audit แล้ว รายการเปลี่ยนเป็นรอตรวจซ้ำ' }); return
-    }
     setSavingId(selected.id); setDrawerMessage(null); setError('')
     const eventKey = crypto.randomUUID()
     try {
@@ -309,12 +257,6 @@ export function MasterDataCenterPage() {
     }
   }
   const createWorkPackage = async (input: { projectId: string; parentId: string | null; name: string; description: string }) => {
-    if (localTestData) {
-      const created: MasterWorkPackageOption = { id: `local-work-package-${crypto.randomUUID()}`, project_id: input.projectId, parent_id: input.parentId, code: null, name: input.name, description: input.description || null, status: 'active' }
-      setWorkPackages((current) => [...current, created])
-      setDrawerMessage({ severity: 'success', persisted: true, text: 'Local fixture: เพิ่มเนื้องานแล้วและเลือกใช้งานต่อได้' })
-      return created
-    }
     if (!selected) return null
     setSavingId(selected.id); setDrawerMessage(null)
     try {
@@ -331,13 +273,6 @@ export function MasterDataCenterPage() {
   const saveProjectGate = async (action: ProjectGateAction, payload: Record<string, unknown>) => {
     if (!selected) return
     if (reviewReason.trim().length < 3) { setDrawerMessage({ severity: 'error', text: 'กรุณาระบุเหตุผลอย่างน้อย 3 ตัวอักษรก่อนบันทึก Project Gate' }); return }
-    if (localTestData) {
-      const updated = applyLocalProjectGate(selected, action, payload, new Date().toISOString(), crypto.randomUUID(), 'local-admin')
-      setSelected(updated as Candidate); setCandidates((current) => current.map((row) => row.id === updated.id ? updated as Candidate : row))
-      setReviewReceipts((current) => ({ ...current, [updated.id]: localReviewReceipt(updated) }))
-      setDrawerMessage({ severity: 'success', text: action === 'link_existing_project' ? 'Local fixture: ผูก Project เดิมและ append Audit/Version แล้ว' : action === 'save_project_candidate' ? 'Local fixture: สร้าง Project Candidate รอเปิดโครงการและ append Audit/Version แล้ว' : action === 'request_information' ? 'Local fixture: ส่งไปรอข้อมูลเพิ่มแล้ว' : 'Local fixture: ส่งกลับคิวตรวจแล้ว' })
-      return
-    }
     setSavingId(selected.id); setDrawerMessage(null); setError('')
     const eventKey = crypto.randomUUID()
     try {
@@ -410,7 +345,6 @@ export function MasterDataCenterPage() {
 
   return <Stack spacing={2}>
     <PageHeader title="ศูนย์ข้อมูลกลาง" description="ข้อมูลจากสลิปและเอกสารจะเข้ารอตรวจ ก่อนยืนยันเป็นข้อมูลใช้ร่วมกันทุก Module · ไม่มีการลบข้อมูลที่มีการอ้างอิง" action={<Button startIcon={<RefreshOutlined />} onClick={() => void load()}>รีเฟรช</Button>} />
-    {localTestData && <Alert severity="info">LOCAL TEST DATA · master-data-project-first-v1 · 53 รายการ · ไม่มีการอ่านหรือเขียน Production</Alert>}
     {error && <Alert severity="error">{error}</Alert>}
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><Metric label="คิวที่ต้องจัดการ" value={`${reviewProjection.active.length} รายการ`} /><Metric label="ข้อมูลใหม่" value={`${reviewProjection.incoming.length} รายการ`} /><Metric label="รอตรวจ/รอข้อมูล" value={`${reviewProjection.followUp.length} รายการ`} /><Metric label="Auto Verified" value={`${reviewProjection.autoVerified.length} รายการ`} /><Metric label="ขัดแย้ง" value={`${conflictCount} รายการ`} /><Metric label="ยืนยันแล้ว" value={`${reviewProjection.confirmed.length} รายการ`} /><Metric label="แก้ไขโดย Admin" value={`${reviewProjection.adminReviewed.length} รายการ`} /></Stack>
     <Alert severity="info">สูตรคิวเดียวกัน: คิวที่ต้องจัดการ = ข้อมูลใหม่ + รอตรวจ/รอข้อมูล + Auto Verified + แก้ไขโดย Admin · ตารางและตัวกรอง “รอตรวจ” ใช้ชุดสถานะเดียวกัน</Alert>

@@ -1,5 +1,5 @@
-import type { MasterCandidate, MasterSourceEvidence } from '../pages/MasterDataCenter/masterDataReview'
-import type { MasterProjectOption, MasterWorkPackageOption } from './masterDataProjectGate'
+import type { MasterCandidate, MasterSourceEvidence } from '../../src/pages/MasterDataCenter/masterDataReview'
+import type { MasterProjectOption, MasterWorkPackageOption } from '../../src/services/masterDataProjectGate'
 
 export type ProjectGateFixtureCandidate = MasterCandidate & { archive_after: string }
 

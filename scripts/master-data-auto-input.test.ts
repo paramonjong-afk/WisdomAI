@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { autoInputAuditPayload, buildMasterAutoCorrection, detectProjectStartDate, masterAutoRoute } from '../src/services/masterDataAutoInput.ts'
 import { projectDraftAuditPayload, projectDraftFromCandidate, validateProjectDraft } from '../src/services/masterDataProjectGate.ts'
-import { createMasterDataProjectGateFixture } from '../src/services/masterDataProjectGateFixture.ts'
+import { createMasterDataProjectGateFixture } from './fixtures/masterDataProjectGateFixture.ts'
 import { masterReviewStepLabels } from '../src/services/masterDataReviewWorkflow.ts'
 
 const fixture = createMasterDataProjectGateFixture()

@@ -16,7 +16,6 @@ import { supabase } from '../../lib/supabase'
 import { queueAdvanceConfirmation, type AdvanceConfirmationDelivery } from '../../services/advanceConfirmationGateway'
 import { documentFlowGateway } from '../../services/documentFlowGateway'
 import { userError } from '../../utils/userError'
-import { isLocalReconciliationRuntime, loadLocalReconciliation, saveLocalReconciliation, type AdvanceRemark, type AdvanceReconciliation } from './advanceReconciliation'
 import { isExpiredPreviewUrlError, isImageContentType, normalizePreviewFile, previewLoadMessage, previewSignedUrlErrorMessage, type AdvanceSlipPreviewFile, type PreviewFilePayload } from './advanceSlipPreview'
 import { advanceAuditAttemptLabel, buildAdvanceAuditTimeline, type AdvanceAuditEvent } from './advanceAuditTimeline'
 
@@ -67,7 +66,7 @@ type PreviewState =
   | { status: 'missing' | 'error' | 'non_image'; message: string; file: AdvanceSlipPreviewFile | null; signedUrl: string | null }
   | { status: 'ready'; message: string; file: AdvanceSlipPreviewFile; signedUrl: string }
 type FlowNodeStatus = 'passed' | 'waiting' | 'missing' | 'rejected'
-type FlowNode = { key: string; label: string; status: FlowNodeStatus; time: string | null; owner: string; documentId: string; audit: Audit[]; remarks?: AdvanceRemark[]; detail: string }
+type FlowNode = { key: string; label: string; status: FlowNodeStatus; time: string | null; owner: string; documentId: string; audit: Audit[]; detail: string }
 
 const labels: Record<string, string> = {
   draft: 'รอแตกยอด', collecting_evidence: 'กำลังรวบรวมหลักฐาน', submitted: 'ส่งตรวจแล้ว', approved: 'อนุมัติแล้ว', closed: 'ปิดยอดแล้ว', returned: 'ส่งกลับแก้ไข', cancelled: 'ยกเลิก',
@@ -118,7 +117,7 @@ function latestAudit(audits: Audit[], actions: string[]) {
   return audits.filter((audit) => actions.includes(audit.action)).sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null
 }
 
-function flowNodes(row: AdvanceCase, reconciliation: AdvanceReconciliation | null): FlowNode[] {
+function flowNodes(row: AdvanceCase): FlowNode[] {
   const audits = row.employee_advance_audit ?? []
   const documentId = row.source_flow?.id ?? row.source_flow_item_id ?? '-'
   const routeOwner = row.source_flow?.current_room || 'ระบบ/ไม่ระบุจาก audit'
@@ -131,12 +130,10 @@ function flowNodes(row: AdvanceCase, reconciliation: AdvanceReconciliation | nul
   const closeAudit = latestAudit(audits, ['close'])
   const settlementReady = (row.employee_advance_settlement_items ?? []).some((item) => item.approval_status === 'approved')
   const statusFor = (passed: boolean, missing: boolean, audit: Audit | null): FlowNodeStatus => rejected ? 'rejected' : missing ? 'missing' : passed ? 'passed' : audit ? 'waiting' : 'waiting'
-  const remarkNode: FlowNode = { key: 'reconciliation', label: 'กระทบยอดเงินเข้า', status: reconciliation?.remarks.length ? (reconciliation.status === 'จับคู่แล้ว' ? 'passed' : reconciliation.status === 'ยอดไม่ตรง' ? 'rejected' : 'waiting') : 'missing', time: reconciliation?.remarks[0]?.at ?? null, owner: reconciliation?.remarks[0]?.actorName ?? 'ยังไม่บันทึก', documentId, audit: audits, remarks: reconciliation?.remarks ?? [], detail: reconciliation?.remarks.length ? `${reconciliation.remarks.length} Remark · ${reconciliation.transferredAmount === null ? 'ไม่ระบุยอด' : money(reconciliation.transferredAmount)}` : 'ยังไม่บันทึก Remark กระทบยอด' }
   return [
     { key: 'slip', label: 'สลิปต้นทาง', status: statusFor(Boolean(row.financial_transactions), !row.financial_transactions, sourceAudit), time: sourceAudit?.created_at ?? row.financial_transactions?.transfer_at ?? null, owner: 'Intake / ระบบ', documentId, audit: audits, detail: row.financial_transactions ? 'พบ metadata สลิปต้นทาง' : 'ยังไม่พบข้อมูลสลิปต้นทาง' },
     { key: 'intake', label: 'Intake', status: statusFor(Boolean(row.source_flow), !row.source_flow, intakeAudit), time: row.source_flow?.updated_at ?? intakeAudit?.created_at ?? null, owner: row.source_flow?.current_room ?? 'Intake / ไม่ระบุ', documentId, audit: audits, detail: row.source_flow ? `สถานะ ${row.source_flow.state}` : 'ไม่พบ Document Flow Item' },
     { key: 'classify', label: 'ตรวจ/แยกประเภท', status: statusFor(Boolean(classifyAudit), !sourceQuality(row).label.includes('ครบ'), classifyAudit), time: classifyAudit?.created_at ?? null, owner: 'ระบบ/ผู้ตรวจจาก audit', documentId, audit: audits, detail: sourceQuality(row).label },
-    remarkNode,
     { key: 'accounting', label: 'บัญชี', status: statusFor(Boolean(accountingAudit) || row.source_flow?.current_room?.includes('accounting') === true, !row.source_flow, accountingAudit), time: accountingAudit?.created_at ?? row.source_flow?.updated_at ?? null, owner: routeOwner, documentId, audit: audits, detail: row.source_flow ? `${row.source_flow.current_flow} / ${row.source_flow.current_room}` : 'ยังไม่ถึงบัญชี' },
     { key: 'advance', label: 'เงินสำรองจ่าย', status: statusFor(Boolean(row.id), false, sourceAudit), time: sourceAudit?.created_at ?? null, owner: holderName(row), documentId: row.id, audit: audits, detail: `Advance ID: ${row.id}` },
     { key: 'settlement', label: 'ค่าแรง/ตัดยอด', status: statusFor(settlementReady || row.status === 'closed', !row.employee_advance_settlement_items?.length, settlementAudit), time: settlementAudit?.created_at ?? null, owner: 'ผู้ตรวจรายการจ่าย / ไม่ระบุ', documentId: row.id, audit: audits, detail: settlementReady ? 'มีรายการจ่ายที่อนุมัติแล้ว' : 'ยังไม่มีรายการจ่ายที่อนุมัติ' },
@@ -163,7 +160,6 @@ export function AdvanceSettlementsPage() {
   const [subAdvanceOpen, setSubAdvanceOpen] = useState(false)
   const [slipPreview, setSlipPreview] = useState<PreviewState>({ status: 'idle', message: 'ยังไม่ได้เลือกรายการ', file: null, signedUrl: null })
   const [slipPreviewDialogOpen, setSlipPreviewDialogOpen] = useState(false)
-  const [reconciliation, setReconciliation] = useState<AdvanceReconciliation | null>(null)
   const [dailyEmployees, setDailyEmployees] = useState<DailyEmployee[]>([])
   const [employeeMoneyRows, setEmployeeMoneyRows] = useState<EmployeeMoneySummary[]>([])
   const [legacyMoneyCandidates, setLegacyMoneyCandidates] = useState<LegacyEmployeeMoneyCandidate[]>([])
@@ -172,7 +168,7 @@ export function AdvanceSettlementsPage() {
   const [subAdvance, setSubAdvance] = useState({ holderProfileId: '', amount: '', description: '' })
   const previewRequestRef = useRef(0)
   const companyId = currentCompany?.company_id ?? ''
-  const canEditReconciliation = profile?.role === 'admin' || profile?.role === 'manager'
+  const canManageAdvance = profile?.role === 'admin' || profile?.role === 'manager'
   const load = useCallback(async () => {
     if (!companyId) return
     const [{ data, error: loadError }, { data: dailyData, error: dailyError }, { data: employeeMoneyData, error: employeeMoneyError }, { data: legacyData, error: legacyError }] = await Promise.all([supabase.from('employee_advance_cases').select(`
@@ -246,14 +242,6 @@ export function AdvanceSettlementsPage() {
     }, 0)
     return () => window.clearTimeout(timer)
   }, [openSlipPreview, selected])
-  useEffect(() => {
-    if (!selected || !companyId) {
-      const timer = window.setTimeout(() => setReconciliation(null), 0)
-      return () => window.clearTimeout(timer)
-    }
-    const timer = window.setTimeout(() => setReconciliation(loadLocalReconciliation(companyId, { advanceId: selected.id, advanceNumber: selected.advance_number, amountReceived: Number(selected.amount_received), slipSender: selected.financial_transactions?.sender_name ?? null })), 0)
-    return () => window.clearTimeout(timer)
-  }, [companyId, selected])
   const total = (row: AdvanceCase) => (row.employee_advance_settlement_items ?? []).filter((item) => item.approval_status === 'approved').reduce((sum, item) => sum + Number(item.amount), 0)
   const outstanding = (row: AdvanceCase) => Number(row.amount_received) - total(row)
   const addLine = async () => { if (!selected) return; setSaving(true); const { error: rpcError } = await supabase.rpc('add_employee_advance_settlement_item', { target_case_id: selected.id, target_event_key: crypto.randomUUID(), target_expense_type: line.expense_type, target_amount: Number(line.amount), target_expense_date: line.expense_date, target_payee_name: null, target_project_id: null, target_work_package_id: null, target_evidence_flow_item_id: null, target_evidence_reference: line.evidence_reference || null, target_description: line.description }); setSaving(false); if (rpcError) { setError(userError(rpcError)); return }; setLineOpen(false); await load() }
@@ -266,13 +254,6 @@ export function AdvanceSettlementsPage() {
     if (rpcError) { setError(userError(rpcError)); return }
     setError('')
     await load()
-  }
-  const saveReconciliation = (next: AdvanceReconciliation, reason: string) => {
-    if (!selected || !reconciliation || !profile) return
-    const result = saveLocalReconciliation(companyId, reconciliation, next, { id: profile.id, name: profile.full_name ?? profile.email ?? profile.id }, reason)
-    if (result.error) { setError(result.error); return }
-    setError('')
-    setReconciliation(result.data)
   }
   return <Stack spacing={2}>
     <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}><BoxTitle /><Button startIcon={<RefreshOutlined />} onClick={() => void load()}>รีเฟรช</Button></Stack>
@@ -302,7 +283,7 @@ export function AdvanceSettlementsPage() {
           { id: 'type', label: 'ประเภทเสนอ', minWidth: 150, render: (row) => row.proposed_entry_type === 'advance_issued' ? 'เงินเบิกล่วงหน้า' : 'ค่าแรงจ่ายแล้ว' },
           { id: 'amount', label: 'ยอด', minWidth: 120, align: 'right', render: (row) => money(Number(row.amount_total)) },
           { id: 'date', label: 'วันที่หลักฐาน', minWidth: 180, render: (row) => row.evidence_date_status === 'verified' ? dateTime(row.transfer_at) : <Chip size="small" color="warning" label="วันที่รอตรวจ" /> },
-          { id: 'action', label: 'ดำเนินการ', minWidth: 180, render: (row) => <Button size="small" variant="outlined" disabled={!canEditReconciliation || saving} onClick={() => void queueLegacyEmployeeMoney(row)}>บันทึกเข้าบัญชีพัก</Button> },
+          { id: 'action', label: 'ดำเนินการ', minWidth: 180, render: (row) => <Button size="small" variant="outlined" disabled={!canManageAdvance || saving} onClick={() => void queueLegacyEmployeeMoney(row)}>บันทึกเข้าบัญชีพัก</Button> },
         ]} />
       </Box>}
     </Paper>
@@ -312,7 +293,7 @@ export function AdvanceSettlementsPage() {
           <Box><Typography variant="h6" sx={{ fontWeight: 800 }}>{selected?.advance_number}</Typography><Typography variant="body2" color="text.secondary">รายละเอียดเงินทดรองและรายการจ่าย</Typography></Box>
           <IconButton aria-label="ปิดรายละเอียดเงินทดรอง" onClick={() => setSelected(null)}><CloseOutlined /></IconButton>
         </Stack>
-        <Box sx={{ p: 2, overflowY: 'auto', flex: 1 }}>{selected && <CaseDetail row={selected} total={total(selected)} outstanding={outstanding(selected)} slipPreview={slipPreview} onReloadSlipPreview={() => void openSlipPreview(selected)} onOpenSlipPreviewDialog={() => setSlipPreviewDialogOpen(true)} onCloseSlipPreviewDialog={() => setSlipPreviewDialogOpen(false)} slipPreviewDialogOpen={slipPreviewDialogOpen} onPreviewImageError={() => setSlipPreview((current) => current.status === 'ready' ? { status: 'error', message: isExpiredPreviewUrlError('expired') ? 'ลิงก์รูปหมดอายุหรือเปิดไม่ได้' : 'ลิงก์รูปเปิดไม่ได้', file: current.file, signedUrl: current.signedUrl } : current)} reconciliation={reconciliation} canEditReconciliation={canEditReconciliation} onSaveReconciliation={saveReconciliation} />}</Box>
+        <Box sx={{ p: 2, overflowY: 'auto', flex: 1 }}>{selected && <CaseDetail row={selected} total={total(selected)} outstanding={outstanding(selected)} slipPreview={slipPreview} onReloadSlipPreview={() => void openSlipPreview(selected)} onOpenSlipPreviewDialog={() => setSlipPreviewDialogOpen(true)} onCloseSlipPreviewDialog={() => setSlipPreviewDialogOpen(false)} slipPreviewDialogOpen={slipPreviewDialogOpen} onPreviewImageError={() => setSlipPreview((current) => current.status === 'ready' ? { status: 'error', message: isExpiredPreviewUrlError('expired') ? 'ลิงก์รูปหมดอายุหรือเปิดไม่ได้' : 'ลิงก์รูปเปิดไม่ได้', file: current.file, signedUrl: current.signedUrl } : current)} />}</Box>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
           <Button startIcon={<AddOutlined />} disabled={selected?.status === 'closed'} onClick={() => setSubAdvanceOpen(true)}>เบิกให้ช่าง</Button><Button startIcon={<AddOutlined />} disabled={selected?.status === 'closed'} onClick={() => setLineOpen(true)}>เพิ่มรายการใช้เงิน</Button><Button disabled={saving || selected?.status === 'closed'} onClick={() => void transition('submit')}>ส่งตรวจ</Button><Button disabled={saving || selected?.status !== 'submitted'} onClick={() => void transition('approve')}>อนุมัติ</Button><Button disabled={saving || selected?.status !== 'approved'} variant="contained" onClick={() => void transition('close')}>ปิดยอด</Button>
         </Stack>
@@ -333,9 +314,6 @@ function CaseDetail({
   onCloseSlipPreviewDialog,
   onReloadSlipPreview,
   onPreviewImageError,
-  reconciliation,
-  canEditReconciliation,
-  onSaveReconciliation,
 }: {
   row: AdvanceCase
   total: number
@@ -346,13 +324,10 @@ function CaseDetail({
   onCloseSlipPreviewDialog: () => void
   onReloadSlipPreview: () => void
   onPreviewImageError: () => void
-  reconciliation: AdvanceReconciliation | null
-  canEditReconciliation: boolean
-  onSaveReconciliation: (next: AdvanceReconciliation, reason: string) => void
 }) {
   const source = row.financial_transactions
   const sourceFlowId = row.source_flow?.id ?? row.source_flow_item_id ?? '-'
-  const nodes = flowNodes(row, reconciliation)
+  const nodes = flowNodes(row)
   const [auditNode, setAuditNode] = useState<FlowNode | null>(null)
   return <Stack spacing={2}>
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><Chip color={updateState(row).color} label={updateState(row).label} /><Chip color={sourceQuality(row).color} label={sourceQuality(row).label} /></Stack>
@@ -368,7 +343,6 @@ function CaseDetail({
       <Typography variant="body2" color="text.secondary">Version: {row.source_flow?.version ?? row.version}</Typography>
       {row.source_flow && <Typography variant="body2" color="text.secondary">สถานะทะเบียนกลาง: {row.source_flow.current_flow} / {row.source_flow.current_room} / {row.source_flow.state}</Typography>}
     </Paper>
-    {isLocalReconciliationRuntime() && reconciliation && <ReconciliationPanel key={row.id} value={reconciliation} canEdit={canEditReconciliation} onSave={onSaveReconciliation} />}
     <Paper variant="outlined" sx={{ p: 1.5 }}>
       <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
         <Box><Typography sx={{ fontWeight: 700 }}>Document Flow</Typography><Typography variant="caption" color="text.secondary">คลิกแต่ละขั้นเพื่อดู Audit รายละเอียด</Typography></Box>
@@ -447,38 +421,12 @@ function CaseDetail({
           <Typography variant="body2">Document ID: {auditNode.documentId}</Typography>
           <Typography variant="body2">Advance ID: {row.id}</Typography>
           <Typography variant="body2">ผู้รับผิดชอบ: {auditNode.owner}</Typography>
-          {auditNode.remarks?.length ? <><Typography sx={{ fontWeight: 700 }}>ประวัติ Remark กระทบยอดเงินเข้า</Typography>{auditNode.remarks.map((remark) => <Paper key={remark.id} variant="outlined" sx={{ p: 1 }}><Typography sx={{ fontWeight: 700 }}>{remark.text || 'ไม่มีข้อความ Remark'}</Typography><Typography variant="caption" color="text.secondary">{dateTime(remark.at)} · {remark.actorName} · {remark.status} · {remark.reason}</Typography><Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>ยอดคาดหวัง {remark.expectedAmount ?? '-'} · ยอดโอน {remark.transferredAmount ?? '-'} · ส่วนต่าง {remark.difference ?? '-'} · Document ID {remark.documentId}</Typography></Paper>)}</> : auditNode.audit.length ? buildAdvanceAuditTimeline(auditNode.audit).reverse().map((audit) => { const attemptLabel = advanceAuditAttemptLabel(audit); return <Paper key={audit.id} variant="outlined" sx={{ p: 1 }}><Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}><Typography sx={{ fontWeight: 700 }}>{labels[audit.action] ?? audit.action}</Typography>{attemptLabel && <Chip size="small" color={audit.retryNumber === null ? 'default' : 'warning'} label={attemptLabel} />}</Stack><Typography variant="caption" color="text.secondary">{dateTime(audit.created_at)} · ผู้ดำเนินการ: ระบบ/ไม่ระบุจาก audit{audit.reason ? ` · เหตุผล: ${audit.reason}` : ''}</Typography></Paper> }) : <Typography variant="body2" color="text.secondary">ยังไม่มี Audit รายละเอียดสำหรับขั้นตอนนี้</Typography>}
+          {auditNode.audit.length ? buildAdvanceAuditTimeline(auditNode.audit).reverse().map((audit) => { const attemptLabel = advanceAuditAttemptLabel(audit); return <Paper key={audit.id} variant="outlined" sx={{ p: 1 }}><Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}><Typography sx={{ fontWeight: 700 }}>{labels[audit.action] ?? audit.action}</Typography>{attemptLabel && <Chip size="small" color={audit.retryNumber === null ? 'default' : 'warning'} label={attemptLabel} />}</Stack><Typography variant="caption" color="text.secondary">{dateTime(audit.created_at)} · ผู้ดำเนินการ: ระบบ/ไม่ระบุจาก audit{audit.reason ? ` · เหตุผล: ${audit.reason}` : ''}</Typography></Paper> }) : <Typography variant="body2" color="text.secondary">ยังไม่มี Audit รายละเอียดสำหรับขั้นตอนนี้</Typography>}
         </Stack>}
       </DialogContent>
       <DialogActions><Button onClick={() => setAuditNode(null)}>ปิด</Button></DialogActions>
     </Dialog>
   </Stack>
-}
-function ReconciliationPanel({ value, canEdit, onSave }: { value: AdvanceReconciliation; canEdit: boolean; onSave: (next: AdvanceReconciliation, reason: string) => void }) {
-  const [draft, setDraft] = useState(value)
-  const [reason, setReason] = useState('')
-  const changed = JSON.stringify({ ...draft, audit: undefined, updatedAt: undefined, updatedBy: undefined, difference: undefined }) !== JSON.stringify({ ...value, audit: undefined, updatedAt: undefined, updatedBy: undefined, difference: undefined })
-  const difference = draft.expectedAmount === null || draft.transferredAmount === null ? null : draft.transferredAmount - draft.expectedAmount
-  return <Paper variant="outlined" sx={{ p: 1.5, borderColor: 'info.main' }}>
-    <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' }, gap: 1, mb: 1 }}>
-      <Box><Typography sx={{ fontWeight: 700 }}>Remark กระทบยอดเงินเข้า</Typography><Typography variant="caption" color="text.secondary">Append-only history · แยกจาก OCR/หลักฐานสลิป · ไม่เขียน Production</Typography></Box>
-      <Chip size="small" color={canEdit ? 'success' : 'default'} label={canEdit ? 'Admin/Manager แก้ไขได้' : 'อ่านอย่างเดียว'} />
-    </Stack>
-    <Stack spacing={1}>
-      <TextField select size="small" label="วัตถุประสงค์เงินเข้า/ประเภท" value={draft.purposeType} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, purposeType: event.target.value as AdvanceReconciliation['purposeType'] })}>{['ทดลองจ่าย', 'เงินสำรองจ่าย', 'ค่าแรง', 'อื่นๆ'].map((item) => <MenuItem key={item} value={item}>{item}</MenuItem>)}</TextField>
-      <TextField size="small" label="หน่วยงาน/โครงการที่เกี่ยวข้อง" value={draft.projectName} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, projectName: event.target.value })} placeholder="เช่น Wisdom Power" />
-      <TextField size="small" label="ผู้โอนตามสลิป (หลักฐานเดิม)" value={draft.slipSender} disabled helperText="อ่านจาก OCR/ข้อมูลสลิป ห้ามแก้ทับ" />
-      <TextField size="small" label="ผู้โอนที่ยืนยันแล้ว/ผู้จ่ายจริง" value={draft.confirmedPayer} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, confirmedPayer: event.target.value })} placeholder="เช่น XX" />
-      <TextField select size="small" label="สถานะกระทบยอด" value={draft.status} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, status: event.target.value as AdvanceReconciliation['status'] })}>{['รอตรวจ', 'จับคู่แล้ว', 'ยอดไม่ตรง', 'ต้องขอข้อมูลเพิ่ม'].map((item) => <MenuItem key={item} value={item}>{item}</MenuItem>)}</TextField>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><TextField fullWidth size="small" type="number" label="ยอดที่คาดหวัง" value={draft.expectedAmount ?? ''} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, expectedAmount: event.target.value === '' ? null : Number(event.target.value) })} /><TextField fullWidth size="small" type="number" label="ยอดที่โอน (มุมมองกระทบยอด)" value={draft.transferredAmount ?? ''} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, transferredAmount: event.target.value === '' ? null : Number(event.target.value) })} /></Stack>
-      <Typography variant="body2" color={difference === null ? 'text.secondary' : difference === 0 ? 'success.main' : 'warning.main'}>ส่วนต่าง: {difference === null ? 'ยังคำนวณไม่ได้' : money(difference)}</Typography>
-      <TextField multiline minRows={2} size="small" label="Remark กระทบยอดเงินเข้า" value={draft.note} disabled={!canEdit} onChange={(event) => setDraft({ ...draft, note: event.target.value })} placeholder="เช่น ยอดมาจาก Wisdom Power แต่ชื่อผู้โอนตามสลิปเป็น XX" />
-      {canEdit && <TextField size="small" label="เหตุผลการแก้ไขข้อมูลสำคัญ" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="ระบุเหตุผลก่อนบันทึก" />}
-      {canEdit && <Button variant="contained" disabled={!changed} onClick={() => { onSave({ ...draft, difference }, reason); setReason('') }}>เพิ่ม Remark กระทบยอดเงินเข้า</Button>}
-      {value.updatedAt && <Typography variant="caption" color="text.secondary">แก้ไขล่าสุด: {dateTime(value.updatedAt)} · {value.updatedBy}</Typography>}
-      <Box><Typography variant="caption" sx={{ fontWeight: 700 }}>ประวัติ Remark ({value.remarks.length})</Typography>{value.remarks.length ? value.remarks.slice(0, 5).map((remark) => <Typography key={remark.id} variant="caption" color="text.secondary" sx={{ display: 'block' }}>{dateTime(remark.at)} · {remark.actorName} · {remark.text || 'ไม่มีข้อความ'} · {remark.reason}</Typography>) : <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>ยังไม่บันทึก Remark กระทบยอด</Typography>}</Box>
-    </Stack>
-  </Paper>
 }
 function AdvanceTreeTable({ rows, onSelect }: { rows: AdvanceCase[]; onSelect: (row: AdvanceCase) => void }) {
   const [search, setSearch] = useState('')

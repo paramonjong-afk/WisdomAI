@@ -419,17 +419,6 @@ const developmentTaskStatusColor: Record<DevelopmentTaskStatus, 'default' | 'inf
   blocked: 'error',
 }
 
-const hrLocalFixtureEnabled = () => import.meta.env.DEV && typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('hr_fixture') === '1'
-const hrLocalFixture = {
-  counts: { raw_total: 12, pending: 1, context: 2, duplicate: 1, already_confirmed: 1, not_hr: 1, low_confidence: 3, candidate: 2, needs_more_info: 1, rejected: 0, confirmed: 0 } as HrIntakeCounts,
-  summary: { date: '2026-08-23', total: 1, pending_review: 0, needs_more_info: 0, pending_approval: 1, recorded: 0, closed: 0, overdue: 0, escalated: 0 } as HrDailySummary,
-  bundle: { id: 'fixture-bundle-1', employee_profile_id: 'fixture-employee-1', work_date: '2026-08-23', project_id: 'fixture-project-1', status: 'pending_approval', validation_summary: { employee_name: 'ช่างทดสอบ Local', item_count: 2, clock_in_at: '2026-08-23T01:00:00Z', clock_out_at: '2026-08-23T10:00:00Z', missing_fields: [], conflicts: [] }, confirmation_status: 'sent', owner_profile_id: 'fixture-owner-1', next_action: 'approve', sla_due_at: new Date(Date.now() + 30 * 60_000).toISOString(), escalation_level: 0, decision_note: null, last_error: null, updated_at: new Date().toISOString() } as HrConfirmationBundle,
-  evidence: [
-    { id: 'fixture-evidence-in', bundle_id: 'fixture-bundle-1', source_kind: 'attendance_job', source_ref: 'ATT-IN-001', source_message_id: 'MSG-IN-001', document_flow_item_id: null, attendance_job_id: 'ATT-IN-001', attendance_session_id: null, attachment_name: 'selfie-in.jpg' },
-    { id: 'fixture-evidence-out', bundle_id: 'fixture-bundle-1', source_kind: 'attendance_job', source_ref: 'ATT-OUT-001', source_message_id: 'MSG-OUT-001', document_flow_item_id: 'DOC-001', attendance_job_id: 'ATT-OUT-001', attendance_session_id: null, attachment_name: 'selfie-out.jpg' },
-  ] as HrConfirmationEvidence[],
-}
-
 const operationalStatusLabel: Record<OperationalStatus, string> = {
   received: 'รับเข้า',
   in_progress: 'กำลังทำ',
@@ -1420,11 +1409,7 @@ export function ChatPage() {
     ])
     const schemaMissing = [countsResult.error, intakeResult.error, bundleResult.error, summaryResult.error].find((error) => error?.code === '42P01' || error?.code === '42703' || error?.code === 'PGRST202')
     if (schemaMissing) {
-      if (hrLocalFixtureEnabled()) {
-        setHrIntakeItems([]); setHrIntakeCounts(hrLocalFixture.counts); setHrConfirmationBundles([hrLocalFixture.bundle]); setHrConfirmationEvidence(hrLocalFixture.evidence); setHrDailySummary(hrLocalFixture.summary)
-      } else {
-        setHrIntakeItems([]); setHrIntakeCounts(null); setHrConfirmationBundles([]); setHrConfirmationEvidence([]); setHrDailySummary(null)
-      }
+      setHrIntakeItems([]); setHrIntakeCounts(null); setHrConfirmationBundles([]); setHrConfirmationEvidence([]); setHrDailySummary(null)
       return
     }
     const error = countsResult.error || intakeResult.error || bundleResult.error || summaryResult.error

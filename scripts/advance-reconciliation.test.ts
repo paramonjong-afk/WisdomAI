@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { defaultReconciliation, saveLocalReconciliation } from '../src/pages/AdvanceSettlements/advanceReconciliation.ts'
+import { defaultReconciliation, saveLocalReconciliation } from './fixtures/advanceReconciliationFixture.ts'
 
 const page = readFileSync('src/pages/AdvanceSettlements/index.tsx', 'utf8')
 const source = { advanceId: 'fixture-advance-001', advanceNumber: 'ADV-202608-9E7829', amountReceived: 3100, slipSender: 'XX ตามสลิป' }
@@ -23,7 +23,5 @@ assert.deepEqual(saved.data.audit[0]?.changes.confirmedPayer, { old: '', new: '�
 assert.match(storage.values().next().value ?? '', /ผู้จ่ายจริง/)
 Object.defineProperty(globalThis, 'window', { value: originalWindow, configurable: true })
 
-for (const needle of ['Remark กระทบยอดเงินเข้า', 'ผู้โอนตามสลิป (หลักฐานเดิม)', 'ผู้โอนที่ยืนยันแล้ว/ผู้จ่ายจริง', 'เหตุผลการแก้ไขข้อมูลสำคัญ', 'ประวัติ Remark', 'ไม่เขียน Production', 'กระทบยอดเงินเข้า']) {
-  assert.match(page, new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `page should contain ${needle}`)
-}
-console.log('advance reconciliation local fixture tests passed')
+assert.doesNotMatch(page, /local-advance-reconciliation|saveLocalReconciliation|ไม่เขียน Production/)
+console.log('advance reconciliation fixture isolation tests passed')

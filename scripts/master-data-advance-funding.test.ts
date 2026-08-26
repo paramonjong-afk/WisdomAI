@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { applyLocalAdvanceFunding, inferMasterRecordingMode, validateAdvanceFundingInput, validatePersistedAdvanceFunding } from '../src/services/masterDataAdvanceFunding.ts'
 import { classifyMasterCandidate } from '../src/services/masterDataClassification.ts'
-import { createMasterDataProjectGateFixture } from '../src/services/masterDataProjectGateFixture.ts'
+import { createMasterDataProjectGateFixture } from './fixtures/masterDataProjectGateFixture.ts'
 import { isProjectGateReady } from '../src/services/masterDataProjectGate.ts'
 
 const fixture = createMasterDataProjectGateFixture()

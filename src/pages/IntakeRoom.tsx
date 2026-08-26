@@ -360,7 +360,7 @@ export function IntakeRoomPanel({
     const chequeEvidenceMap = new Map<string, ChequePaymentEvidence>()
     const senderNameMap = new Map<string, string | null>()
     const groupNameMap = new Map<string, string | null>()
-    if (sourceMessageIds.length > 0 && !globalScope?.localTestData) {
+    if (sourceMessageIds.length > 0) {
       const { messages: messageResponse, senders: sendersResponse, groups: groupsResponse } = await documentFlowGateway.loadSourceMessages(sourceMessageIds)
 
       if (messageResponse.error) {
@@ -608,9 +608,7 @@ export function IntakeRoomPanel({
         <StandardDataTable
           key={`intake-room-table-${inputChannelTab}-${queueView}`}
           rows={visible}
-          emptyText={visible.length === 0
-            ? (globalScope?.localTestData ? 'ไม่พบข้อมูลตามตัวกรองปัจจุบัน · ล้างตัวกรองเพื่อดูชุด Local Test Data' : 'ไม่พบข้อมูลตามตัวกรองปัจจุบัน · ล้างตัวกรองหรือเลือกช่วงวันที่ใหม่')
-            : 'ไม่พบข้อมูล'}
+          emptyText={visible.length === 0 ? 'ไม่พบข้อมูลตามตัวกรองปัจจุบัน · ล้างตัวกรองหรือเลือกช่วงวันที่ใหม่' : 'ไม่พบข้อมูล'}
           getRowId={(row) => row.id}
           exportFileName="intake-room-queue"
           hideBuiltInToolbarActions

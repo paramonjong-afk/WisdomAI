@@ -10,15 +10,12 @@ let employeeEntryRedirectPending = true
 export function ProtectedRoute() {
   const location = useLocation()
   const { session, profile, loading, error, refreshProfile } = useAuth()
-  const localTestMode = import.meta.env.DEV && new URLSearchParams(location.search).get('local_test_data') === '1'
-
   if (shouldRouteToResetPassword(location.pathname, location.search, location.hash)) {
     return <Navigate to={passwordResetRouteFromCurrentUrl(location.search, location.hash)} replace />
   }
 
   if (loading) return <AuthLoadingScreen />
-  if (!session && !localTestMode) return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />
-  if (localTestMode) return <Outlet />
+  if (!session) return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />
 
   if (error) {
     return (

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { createMasterDataProjectGateFixture } from '../src/services/masterDataProjectGateFixture.ts'
+import { createMasterDataProjectGateFixture } from './fixtures/masterDataProjectGateFixture.ts'
 import { applyLocalProjectGate } from '../src/services/masterDataProjectGate.ts'
 import { buildMasterReviewProjection, localReviewReceipt, masterReviewActiveStep, masterReviewBlockers, masterReviewPersistenceNotice, masterReviewStage, validatePersistedCorrection, validatePersistedProjectGate, validatePersistedReviewAction } from '../src/services/masterDataReviewWorkflow.ts'
 
