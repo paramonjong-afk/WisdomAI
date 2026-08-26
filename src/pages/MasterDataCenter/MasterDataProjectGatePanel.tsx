@@ -99,7 +99,7 @@ export function MasterDataProjectGatePanel({ candidate, source, projects, workPa
         <MenuItem value="project_scoped">ค่าใช้จ่าย/ข้อมูลที่ต้องผูก Project</MenuItem>
         <MenuItem value="employee_advance_funding">เติมเงินทดลองจ่าย/เงินสำรองจ่ายให้พนักงาน</MenuItem>
       </Select>
-      <Typography variant="body2">{recordingMode === 'employee_advance_funding' ? 'บันทึกบุคคลและบัญชีก่อน ส่งบัญชีตรวจสลิป แล้วจึงส่งเงินสำรองจ่าย ส่วน Project จะผูกตอนนำเงินไปใช้หรือกระทบยอด' : 'Project-first Gate: ระบบค้น Project เดิมจากชื่อ ลูกค้า ไซต์ เลขอ้างอิง ผู้รับผิดชอบ และห้องต้นทางก่อนเสมอ ถ้าไม่พบจึงสร้าง Project Candidate รอเปิดโครงการ'}</Typography>
+      <Typography variant="body2">{recordingMode === 'employee_advance_funding' ? 'ตรวจและบันทึกผู้โอน Company/Internal กับผู้รับ Employee/Technician แยกสองฝั่งก่อน ส่งบัญชีตรวจสลิป แล้วจึงส่งเงินสำรองจ่าย ส่วน Project จะผูกตอนนำเงินไปใช้หรือกระทบยอด' : 'Project-first Gate: ระบบค้น Project เดิมจากชื่อ ลูกค้า ไซต์ เลขอ้างอิง ผู้รับผิดชอบ และห้องต้นทางก่อนเสมอ ถ้าไม่พบจึงสร้าง Project Candidate รอเปิดโครงการ'}</Typography>
       {message && <Alert severity={message.severity} sx={{ position: 'fixed', top: { xs: 112, sm: 136 }, right: { xs: 12, sm: 28 }, width: { xs: 'calc(100% - 24px)', sm: 624 }, maxWidth: 'calc(100vw - 24px)', zIndex: 1400, boxShadow: 6 }}>
         <Typography variant="subtitle2">{message.severity === 'error' ? 'บันทึกไม่สำเร็จ · ข้อมูลยังไม่เปลี่ยน' : message.persisted ? 'ตรวจสอบการบันทึกในฐานข้อมูลแล้ว' : 'สถานะการดำเนินการ'}</Typography>
         <Typography variant="body2">{message.text}</Typography>
@@ -156,7 +156,7 @@ export function MasterDataProjectGatePanel({ candidate, source, projects, workPa
       </Stack>
       <Typography variant="caption" color="text.secondary">Project Candidate ไม่ใช่ Project จริงและยังใช้ปิดบัญชี/ตัดยอดไม่ได้ · Raw/OCR ไม่ถูกเขียนทับ · ทุกการบันทึกมี Version/Audit</Typography></> : <Alert severity={advanceBlockers.length ? 'warning' : 'success'}>
         <Typography variant="subtitle2">เส้นทาง: Accounting Pending Queue → Advance Finance</Typography>
-        <Typography variant="body2">ประเภทข้อมูลจะบันทึกเป็น Employee/Technician และไม่สร้าง Project Candidate ปลอม</Typography>
+        <Typography variant="body2">ผู้โอนบันทึกเป็น Company/Internal และผู้รับบันทึกเป็น Employee/Technician โดยอ้างสลิปเดียวกันและไม่สร้าง Project Candidate ปลอม</Typography>
         <Typography variant="body2">Project: รอจัดสรรภายหลังเมื่อมีค่าใช้จ่าย/การปิดยอด</Typography>
         {advanceBlockers.length > 0 && <Typography variant="body2">ข้อมูลที่ยังขาด: {advanceBlockers.join(', ')}</Typography>}
       </Alert>}
