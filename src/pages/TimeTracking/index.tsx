@@ -126,6 +126,7 @@ export function TimeTrackingPage() {
     stale_session_mode:'require_clock_out',
   })
   const [form, setForm] = useState({ projectId:'', name:'', latitude:'', longitude:'', radius:'200', lineGroupId:'' })
+  const [editSite, setEditSite] = useState<Site | null>(null)
 
   const loadData = useCallback(async () => {
     if (!user) return
@@ -506,6 +507,27 @@ export function TimeTrackingPage() {
     } finally { setBusy(false) }
   }
 
+  const saveSite = async () => {
+    if (!editSite || !form.name.trim()) return
+    setBusy(true); setMessage('')
+    try {
+      await runWithMutationAttempt({
+        module: 'time-tracking', action: 'แก้ไขไซต์งานสำเร็จ', actorProfileId: user?.id,
+        companyId: currentCompany?.company_id, request: { site_id: editSite.id, form },
+      operation: async () => {
+        const { error } = await supabase.from('project_sites').update({
+          name: form.name.trim(), latitude: Number(form.latitude), longitude: Number(form.longitude),
+          radius_meters: Number(form.radius),
+        }).eq('id', editSite.id)
+        if (error) throw error
+        return error
+      },
+      })
+      setEditSite(null); setMessage('แก้ไขไซต์งานและรัศมีแล้ว'); await loadData()
+    } catch (error) { setMessage(error instanceof Error ? userError(error) : 'แก้ไขไซต์ไม่สำเร็จ') }
+    finally { setBusy(false) }
+  }
+
   const assignSite = async () => {
     const request = { profile_id: assignment.profileId, site_id: assignment.siteId, company_id: currentCompany?.company_id ?? null, type: 'assign-site' }
     setBusy(true)
@@ -657,6 +679,13 @@ export function TimeTrackingPage() {
         </TextField>
         <Button variant="contained" disabled={busy} onClick={() => void addSite()}>เพิ่มไซต์</Button>
       </Stack>
+      <Typography variant="h6" sx={{mt:3}}>แก้ไขไซต์งานเดิม</Typography>
+      <StandardDataTable rows={sites} getRowId={site=>site.id} getSearchText={site=>`${site.projects?.name ?? ''} ${site.name}`} searchLabel="ค้นหาไซต์งาน" emptyText="ยังไม่มีไซต์งาน" exportFileName="attendance-sites" minWidth={720} columns={[
+        {id:'site',label:'โครงการ / ไซต์',minWidth:260,render:site=><>{site.projects?.name ?? '-'} · <strong>{site.name}</strong></>},
+        {id:'radius',label:'รัศมี',render:site=>`${site.radius_meters} เมตร`},
+        {id:'coordinates',label:'พิกัด',render:site=>`${site.latitude}, ${site.longitude}`},
+        {id:'action',label:'จัดการ',render:site=><Button size="small" variant="outlined" onClick={()=>{setEditSite(site);setForm({projectId:'',name:site.name,latitude:String(site.latitude),longitude:String(site.longitude),radius:String(site.radius_meters),lineGroupId:''})}}>แก้ไข</Button>},
+      ]}/>
       <Typography variant="h6" sx={{mt:3}}>มอบหมายพนักงานให้ไซต์ (พนักงานหนึ่งคนเลือกได้หลายไซต์)</Typography>
       <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
         {resignedEmployees.length > 0 && <Chip color="default" label={`พนักงานลาออกถูกซ่อน ${resignedEmployees.length} คน`} />}
@@ -671,6 +700,17 @@ export function TimeTrackingPage() {
         <Button variant="contained" disabled={busy} onClick={() => void assignSite()}>มอบหมาย</Button>
       </Stack>
     </Paper>}
+
+    <Dialog open={Boolean(editSite)} onClose={()=>!busy&&setEditSite(null)} fullWidth maxWidth="sm">
+      <DialogTitle>แก้ไขไซต์งานและรัศมี</DialogTitle>
+      <DialogContent><Stack spacing={2} sx={{pt:1}}>
+        <Typography color="text.secondary">{editSite?.projects?.name ?? '-'} · {editSite?.name ?? '-'}</Typography>
+        <TextField label="ชื่อไซต์" value={form.name} onChange={event=>setForm({...form,name:event.target.value})} fullWidth />
+        <Stack direction={{xs:'column',sm:'row'}} spacing={1}><TextField label="Latitude" value={form.latitude} onChange={event=>setForm({...form,latitude:event.target.value})} fullWidth /><TextField label="Longitude" value={form.longitude} onChange={event=>setForm({...form,longitude:event.target.value})} fullWidth /></Stack>
+        <TextField label="รัศมี (เมตร)" type="number" value={form.radius} onChange={event=>setForm({...form,radius:event.target.value})} fullWidth helperText="ตัวอย่าง 300 เมตร" />
+      </Stack></DialogContent>
+      <DialogActions><Button onClick={()=>setEditSite(null)} disabled={busy}>ยกเลิก</Button><Button variant="contained" onClick={()=>void saveSite()} disabled={busy||!form.name.trim()||!Number.isFinite(Number(form.radius))}>{busy?<CircularProgress size={20} color="inherit"/>:'บันทึกการแก้ไข'}</Button></DialogActions>
+    </Dialog>
     <Paper
       variant="outlined"
       sx={{

@@ -1,12 +1,20 @@
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
-  Chip, Divider, Drawer, MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography,
+  Chip, Divider, Drawer, IconButton, Menu, MenuItem, Paper, Stack, Tab, Tabs, TextField, Tooltip, Typography,
   Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow,
 } from '@mui/material'
+import AddOutlinedIcon from '@mui/icons-material/AddOutlined'
+import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined'
+import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined'
+import FilterListOutlinedIcon from '@mui/icons-material/FilterListOutlined'
+import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined'
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
+import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined'
+import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '../../components/PageHeader'
-import { StandardDataTable } from '../../components/StandardDataTable'
+import { StandardDataTable, type StandardDataTableTools } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
@@ -323,6 +331,9 @@ export function EmployeePage() {
   const { user, profile, refreshProfile, currentCompany, signOut } = useAuth()
   const [searchParams,setSearchParams]=useSearchParams()
   const [employeeListFilter, setEmployeeListFilter]=useState<'active'|'resigned'|'all'>('active')
+  const [employeeFilterAnchor, setEmployeeFilterAnchor] = useState<HTMLElement | null>(null)
+  const [employeeTableTools, setEmployeeTableTools] = useState<StandardDataTableTools | null>(null)
+  const [employeeSearchActions, setEmployeeSearchActions] = useState<{ toggle: () => void } | null>(null)
   const canManage = profile?.role === 'admin'
     || profile?.role === 'manager'
     || ['company_admin', 'executive', 'manager', 'site_supervisor'].includes(currentCompany?.company_role ?? '')
@@ -334,6 +345,7 @@ export function EmployeePage() {
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState('')
   const [employeeDrawer, setEmployeeDrawer] = useState<Employee | null>(null)
+  const [onboardingDrawer, setOnboardingDrawer] = useState<EmployeeIntakeMaster | null>(null)
   const [message, setMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [createEmployeeErrorCode, setCreateEmployeeErrorCode] = useState<CreateEmployeeErrorCode | ''>('')
@@ -1680,25 +1692,38 @@ export function EmployeePage() {
         title="พนักงาน"
         description="กำหนดชื่อที่ใช้แสดงในระบบและข้อความแจ้งเตือน LINE"
         action={canCreate && tab === 0 ? (
-          <Stack direction="row" spacing={1}>
-            <Button variant="outlined" onClick={() => void refreshWithProfile()} disabled={loading}>
-              รีเฟรชรายชื่อ
-            </Button>
-            <Button variant="outlined" onClick={() => void refreshWithProfile()} disabled={loading}>
-              อัปเดตสิทธิ์และรายชื่อ
-            </Button>
-            <Button
-              variant="contained"
-              onClick={() => {
+          <Stack direction="row" spacing={0.5} sx={{ alignSelf: { xs: 'stretch', sm: 'flex-start' }, justifyContent: { xs: 'flex-end', sm: 'initial' } }}>
+            <Tooltip title="รีเฟรชรายชื่อ">
+              <span><IconButton color="primary" onClick={() => void refreshWithProfile()} disabled={loading} aria-label="รีเฟรชรายชื่อ">
+                <RefreshOutlinedIcon />
+              </IconButton></span>
+            </Tooltip>
+            <Tooltip title="อัปเดตสิทธิ์และรายชื่อ">
+              <span><IconButton color="primary" onClick={() => void refreshWithProfile()} disabled={loading} aria-label="อัปเดตสิทธิ์และรายชื่อ">
+                <ManageAccountsOutlinedIcon />
+              </IconButton></span>
+            </Tooltip>
+            <Tooltip title="เพิ่มพนักงาน">
+              <span><IconButton color="primary" onClick={() => {
                 setCreateEmployeeAction('')
                 setCreateEmployeeErrorCode('')
                 setErrorMessage('')
                 clearCreateForm()
                 setCreateOpen(true)
-              }}
-            >
-              เพิ่มพนักงาน
-            </Button>
+              }} aria-label="เพิ่มพนักงาน">
+                <AddOutlinedIcon />
+              </IconButton></span>
+            </Tooltip>
+            <Tooltip title="ตัวกรองรายชื่อ"><IconButton size="small" onClick={(event) => setEmployeeFilterAnchor(event.currentTarget)} aria-label="ตัวกรองรายชื่อ"><FilterListOutlinedIcon /></IconButton></Tooltip>
+            <Menu anchorEl={employeeFilterAnchor} open={Boolean(employeeFilterAnchor)} onClose={() => setEmployeeFilterAnchor(null)}>
+              <MenuItem selected={employeeListFilter === 'active'} onClick={() => { setEmployeeListFilter('active'); setEmployeeFilterAnchor(null) }}>พนักงานปกติ ({activeEmployees.length})</MenuItem>
+              <MenuItem selected={employeeListFilter === 'resigned'} onClick={() => { setEmployeeListFilter('resigned'); setEmployeeFilterAnchor(null) }}>พนักงานลาออก ({resignedEmployees.length})</MenuItem>
+              <MenuItem selected={employeeListFilter === 'all'} onClick={() => { setEmployeeListFilter('all'); setEmployeeFilterAnchor(null) }}>รวมพนักงานทั้งหมด ({employees.length})</MenuItem>
+            </Menu>
+            <Tooltip title="ค้นหา"><IconButton size="small" onClick={() => employeeSearchActions?.toggle()} aria-label="ค้นหาพนักงาน"><SearchOutlinedIcon /></IconButton></Tooltip>
+            <Tooltip title="ตั้งค่าคอลัมน์"><IconButton size="small" onClick={(event) => employeeTableTools?.openColumnSettings(event.currentTarget)} aria-label="ตั้งค่าคอลัมน์"><SettingsOutlinedIcon /></IconButton></Tooltip>
+            <Tooltip title="ส่งออก CSV"><span><IconButton size="small" onClick={() => employeeTableTools?.exportCsv()} disabled={!employeeTableTools} aria-label="ส่งออก CSV"><DownloadOutlinedIcon /></IconButton></span></Tooltip>
+            <Tooltip title="ส่งออก PDF"><span><IconButton size="small" onClick={() => employeeTableTools?.exportPdf()} disabled={!employeeTableTools} aria-label="ส่งออก PDF"><PictureAsPdfOutlinedIcon /></IconButton></span></Tooltip>
           </Stack>
         ) : undefined}
       />
@@ -1720,51 +1745,15 @@ export function EmployeePage() {
         <Stack sx={{ alignItems: 'center', py: 6 }}><CircularProgress /></Stack>
       ) : (
         <Stack spacing={2}>
-          <Paper variant="outlined" sx={{ p: 2 }}>
-            <Stack
-              direction={{ xs: 'column', md: 'row' }}
-              spacing={1}
-              sx={{ alignItems: { xs: 'stretch', md: 'center' } }}
-            >
-              <TextField
-                select
-                value={employeeListFilter}
-                onChange={(event) => setEmployeeListFilter(event.target.value as 'active'|'resigned'|'all')}
-                size="small"
-                label="แสดงรายชื่อ"
-                sx={{ minWidth: 220 }}
-              >
-                <MenuItem value="active">พนักงานปกติ ({activeEmployees.length})</MenuItem>
-                <MenuItem value="resigned">พนักงานลาออก ({resignedEmployees.length})</MenuItem>
-                <MenuItem value="all">รวมพนักงานทั้งหมด ({employees.length})</MenuItem>
-              </TextField>
-              <Chip size="small" label={`ลาออก: ${resignedEmployees.length}`} color="warning" variant={employeeListFilter === 'resigned' ? 'filled' : 'outlined'} />
-            </Stack>
-          </Paper>
-          {canManage && intakeEmployeePeople.length > 0 && <Paper variant="outlined" sx={{ p: 2 }}>
-            <Stack spacing={1.25}>
-              <Box>
-                <Typography sx={{ fontWeight: 800 }}>คิว HR Onboarding จาก Intake ({intakeEmployeePeople.length})</Typography>
-                <Typography variant="body2" color="text.secondary">รายการที่อนุมัติแล้วออกจาก Intake และอยู่ที่นี่เพื่อให้ HR ตั้งค่าก่อนเริ่มงาน โดยเอกสารต้นทางเชื่อมกับทะเบียนพนักงานแล้ว</Typography>
-              </Box>
-              <TableContainer>
-                <Table size="small"><TableHead><TableRow><TableCell>พนักงาน</TableCell><TableCell>สถานะ</TableCell><TableCell>เอกสารแนบ</TableCell></TableRow></TableHead><TableBody>
-                  {intakeEmployeePeople.map((person) => <TableRow key={person.id}>
-                    <TableCell><Typography sx={{ fontWeight: 700 }}>{person.full_name}</Typography><Typography variant="caption" color="text.secondary">{person.employee_code} · {employmentLabels[person.employment_type] ?? person.employment_type}</Typography></TableCell>
-                    <TableCell><Chip size="small" color={person.employee_status === 'active' ? 'success' : 'warning'} label={person.employee_status === 'preboarding' ? 'รอตั้งค่าก่อนเริ่มงาน' : person.employee_status} /></TableCell>
-                    <TableCell><Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
-                      {person.documents.length === 0 ? <Typography variant="caption" color="text.secondary">ยังไม่มีเอกสารแนบ</Typography> : person.documents.map((document) => <Chip key={document.id} size="small" color={document.link_status === 'available' ? 'success' : 'default'} label={intakeDocumentLabels[document.document_type] ?? document.document_type} />)}
-                    </Stack></TableCell>
-                  </TableRow>)}
-                </TableBody></Table>
-              </TableContainer>
-            </Stack>
-          </Paper>}
           <StandardDataTable
             rows={visibleEmployees}
             getRowId={(employee) => employee.id}
             getSearchText={(employee) => `${employee.employee_code??''} ${employee.full_name ?? ''} ${employee.email ?? ''} ${employee.employment_type??''} ${employee.job_title??''} ${employee.department??''} ${employee.role} ${employmentStatusLabel(employee.employment_status)}`}
             searchLabel="ค้นหารหัส ชื่อ ประเภทจ้าง ตำแหน่ง หรือสิทธิ์"
+            compactToolbar
+            hideBuiltInToolbarActions
+            onToolsReady={(tools) => setEmployeeTableTools((current) => current ?? tools)}
+            onSearchReady={(actions) => setEmployeeSearchActions((current) => current ?? actions)}
             emptyText={employeeListFilter === 'resigned' ? 'ยังไม่มีรายชื่อพนักงานลาออก' : employeeListFilter === 'all' ? 'ยังไม่มีรายชื่อพนักงานในระบบ' : 'ยังไม่มีรายชื่อพนักงานปกติ'}
             exportFileName="wisdomai-employees"
             minWidth={760}
@@ -1821,6 +1810,25 @@ export function EmployeePage() {
             },
           ]}
           />
+          {canManage && intakeEmployeePeople.length > 0 && <Paper variant="outlined" sx={{ p: 2 }}>
+            <Stack spacing={1.25}>
+              <Box>
+                <Typography sx={{ fontWeight: 800 }}>คิว HR Onboarding จาก Intake ({intakeEmployeePeople.length})</Typography>
+                <Typography variant="body2" color="text.secondary">รายการที่อนุมัติแล้วออกจาก Intake และอยู่ที่นี่เพื่อให้ HR ตั้งค่าก่อนเริ่มงาน โดยเอกสารต้นทางเชื่อมกับทะเบียนพนักงานแล้ว</Typography>
+              </Box>
+              <TableContainer>
+                <Table size="small"><TableHead><TableRow><TableCell>พนักงาน</TableCell><TableCell>สถานะ</TableCell><TableCell>เอกสารแนบ</TableCell></TableRow></TableHead><TableBody>
+                  {intakeEmployeePeople.map((person) => <TableRow key={person.id} hover onClick={() => setOnboardingDrawer(person)} sx={{ cursor: 'pointer' }}>
+                    <TableCell><Typography sx={{ fontWeight: 700 }}>{person.full_name}</Typography><Typography variant="caption" color="text.secondary">{person.employee_code} · {employmentLabels[person.employment_type] ?? person.employment_type}</Typography></TableCell>
+                    <TableCell><Chip size="small" color={person.employee_status === 'active' ? 'success' : 'warning'} label={person.employee_status === 'preboarding' ? 'รอตั้งค่าก่อนเริ่มงาน' : person.employee_status} /></TableCell>
+                    <TableCell><Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                      {person.documents.length === 0 ? <Typography variant="caption" color="text.secondary">ยังไม่มีเอกสารแนบ</Typography> : person.documents.map((document) => <Chip key={document.id} size="small" color={document.link_status === 'available' ? 'success' : 'default'} label={intakeDocumentLabels[document.document_type] ?? document.document_type} />)}
+                    </Stack></TableCell>
+                  </TableRow>)}
+                </TableBody></Table>
+              </TableContainer>
+            </Stack>
+          </Paper>}
         </Stack>
       ))}
 
@@ -2218,6 +2226,38 @@ export function EmployeePage() {
                 <Button color="warning" variant="outlined" onClick={() => { setEmployeeDrawer(null); void openManageEmployee(employeeDrawer) }}>จัดการสถานะ / ลบข้อมูล</Button>
               </>}
             </>}
+          </Stack>}
+        </Box>
+      </Drawer>
+
+      <Drawer anchor="right" open={Boolean(onboardingDrawer)} onClose={() => setOnboardingDrawer(null)}>
+        <Box sx={{ width: { xs: '100vw', sm: 460 }, maxWidth: '100vw', p: 3 }}>
+          <Stack direction="row" spacing={2} sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <Box>
+              <Typography variant="overline" color="text.secondary">คิว HR Onboarding</Typography>
+              <Typography variant="h5" sx={{ fontWeight: 800 }}>{onboardingDrawer?.full_name || 'ยังไม่ระบุชื่อ'}</Typography>
+              <Typography color="text.secondary">{onboardingDrawer?.employee_code || 'ยังไม่มีรหัสพนักงาน'}</Typography>
+            </Box>
+            <Button onClick={() => setOnboardingDrawer(null)}>ปิด</Button>
+          </Stack>
+          <Divider sx={{ my: 2 }} />
+          {onboardingDrawer && <Stack spacing={2}>
+            <Alert severity={onboardingDrawer.employee_status === 'active' ? 'success' : 'warning'}>
+              {onboardingDrawer.employee_status === 'active' ? 'พร้อมใช้งาน' : 'รอตั้งค่าก่อนเริ่มงาน'}
+            </Alert>
+            <Box>
+              <Typography variant="subtitle2">ข้อมูลตั้งต้น</Typography>
+              <Typography>ประเภทการจ้าง: <strong>{employmentLabels[onboardingDrawer.employment_type] ?? onboardingDrawer.employment_type}</strong></Typography>
+              <Typography>สถานะ: <strong>{onboardingDrawer.employee_status}</strong></Typography>
+            </Box>
+            <Divider />
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>เอกสารแนบ</Typography>
+              <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                {onboardingDrawer.documents.length === 0 ? <Typography color="text.secondary">ยังไม่มีเอกสาร</Typography> : onboardingDrawer.documents.map((document) => <Chip key={document.id} size="small" color={document.link_status === 'available' ? 'success' : 'default'} label={intakeDocumentLabels[document.document_type] ?? document.document_type} />)}
+              </Stack>
+            </Box>
+            <Alert severity="info">หากข้อมูลยังขาด ให้กดเพิ่ม/อัปเดตข้อมูลจากรายการพนักงาน แล้วกลับมาตรวจคิวนี้อีกครั้ง</Alert>
           </Stack>}
         </Box>
       </Drawer>

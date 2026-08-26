@@ -1802,7 +1802,7 @@ async function handleAttendancePostback(event: LineEvent) {
     await replyLine(event.replyToken, [{ type: 'text', text: command === 'reject' ? 'บันทึกไม่อนุมัติแล้ว' : 'บันทึกขอข้อมูลเพิ่มเติมแล้ว กรุณาให้พนักงานส่งคำขอใหม่พร้อมแจ้งรายละเอียด' }]); return true
   }
   if (command !== 'approve') return true
-  let sessionId: string | null = null
+  let sessionId: string | null
   if (request.action === 'clock_in') {
     const { data: existing } = await supabase.from('attendance_sessions').select('id,clock_in_at')
       .eq('company_id',request.company_id).eq('profile_id', request.profile_id).is('clock_out_at', null)
@@ -2028,7 +2028,7 @@ async function processMessage(event: LineEvent, companyId: string): Promise<'pro
       await updateIngestion(event.webhookEventId,{processing_stage:'image_optimization'})
       const optimized=await optimizeIncomingImage(bytes)
       if(optimized.main.byteLength+optimized.thumbnail.byteLength<bytes.byteLength){
-        const base=originalPath.replace(/\.[^.\/]+$/,'')
+        const base=originalPath.replace(/\.[^./]+$/,'')
         path=`${base}.optimized.webp`;thumbnailPath=`${base}.thumb.webp`
         optimizedThumbnail=optimized.thumbnail
         storedBytes=optimized.main;storedContentType='image/webp';optimizationStatus='optimized';storageBytesSaved=optimized.savedBytes

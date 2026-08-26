@@ -5,7 +5,8 @@
 ```mermaid
 flowchart LR
   A[Page supplies rows + permitted columns] --> B[StandardDataTable]
-  B --> C[Search / Sort / Column visibility]
+  B --> S[Compact search toggle or built-in search field]
+  S --> C[Search / Sort / Column visibility]
   C --> D[Filtered rows in current permission scope]
   D --> E{User action}
   E -->|CSV| F[Create CSV Blob and download]
@@ -26,6 +27,7 @@ flowchart LR
 ## State, roles and integrations
 
 - Browser state stores search, pagination, sort and column visibility per table key in local/session storage.
+- When `compactToolbar` is enabled, the page can open search on demand through `onSearchReady`; the table keeps the same filtered rows and export scope, but the search field starts collapsed.
 - `allowedCompanyRoles` is applied before rendering, export and column settings.
 - PDF integration uses browser-side `html2canvas` and `jsPDF`; no document data is sent to a new external service.
 - Export records central `logAppEvent` event `export_data` with format, file name, row count and company id.
@@ -44,3 +46,4 @@ flowchart LR
 |---|---|---|---|---|---|
 | v1.0 | 20/8/2569 | Registered the shared table flow and changed PDF export from print-window flow to direct browser PDF download. | None | TypeScript, lint, standard-table test, build and real Document Flow page export | Restore prior `window.print()` implementation and remove direct-export dependencies; no business data changes. |
 | v1.1 | 20/8/2569 | Fixed blank PDFs: the temporary report is rendered inside the layout viewport while a separate export mask prevents it from flashing on screen. | None | TypeScript, lint, build and direct PDF download from Document Flow | Restore the previous temporary-report placement; no business data changes. |
+| v1.2 | 26/8/2569 | Add compact toolbar and on-demand search control so pages can collapse the built-in search field into a top-level icon action without changing rows, export scope, or stored table state. | None | `test:standard-table-sorting`, lint, build and the pages that now open search from their own header | Revert the compact toolbar/search toggle wiring; table rows, exports and persistence remain unchanged. |

@@ -12,11 +12,15 @@ flowchart LR
   F --> G[attendance-clock]
   G --> H[attendance_sessions]
   C --> I[กด Web Chat จากทางลัด]
+  C --> M[Site list row]
   D --> J[เปิด Web Chat จาก Sidebar]
   E --> J
   I --> K[/chat ภายใน Auth session เดิม]
   J --> K
   H --> L[HR Chat Bridge เมื่อเปิด integration]
+  M[Site list row] --> N[Edit site drawer]
+  N --> O[project_sites update]
+  O --> P[Reload site list + mutation audit]
 ```
 
 กราฟนี้แสดงจุดเข้าหลักหลัง Login: ระบบตรวจอุปกรณ์และบทบาทก่อนเลือกหน้าเริ่มต้น โดยมือถือเข้า `/` Launcher ที่มีปุ่มระดับเดียวกัน 2 ปุ่มคือ ลงเวลา (`/time-tracking`) และ Web Chat (`/chat`), คอมพิวเตอร์ที่เป็นผู้ดูแล/ผู้จัดการเข้า Dashboard รวม และพนักงานเข้า `/my-profile`; การลงเวลายังคงตรวจสอบผ่าน `attendance-clock` ก่อนเขียน `attendance_sessions`
@@ -45,6 +49,8 @@ flowchart LR
 - Backend `attendance-clock` ตรวจบริษัท, employment, assignment, GPS, Selfie และ duplicate ซ้ำก่อนเขียนข้อมูล
 
 ## Integrations
+- `StandardDataTable` â†’ compact toolbar + on-demand search toggle สำหรับรายการไซต์งาน
+- `project_sites` â†’ edit drawer สำหรับชื่อไซต์ พิกัด และรัศมี
 
 - Time Tracking UI → Supabase Storage `attendance-selfies`
 - Time Tracking UI → Edge Function `attendance-clock`
@@ -59,6 +65,7 @@ flowchart LR
 - การส่ง Log HR ล้มเหลวไม่ทำให้ `attendance_sessions` ต้นทางล้มเหลว; bridge เก็บ retry ledger แยก
 
 ## Audit / Owner
+- Site editing is company-scoped and must be recorded through mutation audit; attendance history is not rewritten.
 
 - Audit การลงเวลาผ่าน `mutation_attempts` และ attendance audit เดิม
 - การเปิด Web Chat เป็น navigation event ของ client ไม่ส่งข้อมูลส่วนตัวเพิ่ม
@@ -97,3 +104,10 @@ flowchart LR
 - Migration: ไม่มี
 - Verification: auth-routing/launcher contract test, lint, build และตรวจ route `/` บน mobile viewport
 - Rollback: เปลี่ยน mobile destination กลับ `/time-tracking` ได้ โดยไม่ลบข้อมูลลงเวลา ห้องแชต หรือ audit
+### v1.5 — 26/8/2569
+
+- เหตุผล: ให้ทีมที่ดูแล Time Tracking ปรับชื่อไซต์ พิกัด และรัศมีได้จากรายการไซต์เดิมโดยไม่ต้องแก้ data model หรือกระทบประวัติลงเวลา
+- ผลกระทบ: `/time-tracking` เพิ่มตารางแก้ไขไซต์งานเดิมด้วย `StandardDataTable`, เปิด edit drawer เฉพาะบริษัทปัจจุบัน และอัปเดต `project_sites` ผ่าน mutation attempt audit
+- Migration: ไม่มี
+- Verification: lint, build, `test:standard-table-sorting` และตรวจหน้าจอ Time Tracking ที่มีรายการไซต์งาน
+- Rollback: ซ่อนตาราง/Drawer แก้ไขไซต์งานและกลับไปใช้รายการอ่านอย่างเดียว; attendance history และ audit เดิมไม่ถูกลบ

@@ -45,7 +45,7 @@ export function MasterDataProjectGatePanel({ candidate, source, projects, saving
       </Stack>
       <Typography variant="body2">ต้องผูก Project เดิม หรือบันทึก Project Candidate ที่ข้อมูลขั้นต่ำครบ ก่อนยืนยันรายการออกจากคิว</Typography>
       {message && <Alert severity={message.severity}>{message.text}</Alert>}
-      {reasonMissing && <Alert severity="info">ระบุเหตุผลอย่างน้อย 3 ตัวอักษรด้านล่างเพื่อเปิดใช้ปุ่มบันทึก/ตัดสินใจ</Alert>}
+      <Alert severity="info">ระบุเหตุผลอย่างน้อย 3 ตัวอักษรสำหรับขั้นตอนตัดสินใจ (`ขอข้อมูลเพิ่ม` / `กลับคิว`)</Alert>
 
       <Paper variant="outlined" sx={{ p: 1 }}>
         <Typography variant="subtitle2">หลักฐานสำหรับหา Project</Typography>
@@ -63,7 +63,7 @@ export function MasterDataProjectGatePanel({ candidate, source, projects, saving
         })}
       </Select>
       {matches.length > 0 && <Alert severity="info">แนะนำ: {matches.slice(0, 3).map((match) => `${match.project.name} (${match.evidence.join(', ')})`).join(' · ')}</Alert>}
-      <Button startIcon={<LinkOutlined />} variant="outlined" disabled={!selectedProject || saving || reasonMissing} onClick={() => selectedProject && void onAction('link_existing_project', { project_id: selectedProject.id, project_name: selectedProject.name, match_evidence: selectedMatch?.evidence ?? ['admin_selected'] })}>ผูก Project เดิม</Button>
+      <Button startIcon={<LinkOutlined />} variant="outlined" disabled={!selectedProject || saving} onClick={() => selectedProject && void onAction('link_existing_project', { project_id: selectedProject.id, project_name: selectedProject.name, match_evidence: selectedMatch?.evidence ?? ['admin_selected'] })}>ผูก Project เดิม</Button>
 
       <Typography variant="subtitle2">2. ไม่พบ Project เดิม — สร้าง/อัปเดต Project Candidate</Typography>
       <TextField size="small" label="ชื่อโครงการ *" value={draft.project_name} onChange={(event) => set('project_name', event.target.value)} />
@@ -73,7 +73,7 @@ export function MasterDataProjectGatePanel({ candidate, source, projects, saving
       <TextField size="small" label="ประเภทงาน *" value={draft.work_type} onChange={(event) => set('work_type', event.target.value)} />
       <TextField size="small" type="date" label="วันที่เริ่มโดยประมาณ *" value={draft.approximate_start_date} onChange={(event) => set('approximate_start_date', event.target.value)} slotProps={{ inputLabel: { shrink: true } }} />
       {!validation.valid && <Alert severity="warning">ข้อมูลที่ยังขาด: {validation.missing.join(', ')}</Alert>}
-      <Button startIcon={<AddBusinessOutlined />} variant="outlined" disabled={!validation.valid || saving || reasonMissing} onClick={() => void onAction('save_project_candidate', draft, draft)}>สร้าง/อัปเดต Project Candidate</Button>
+      <Button startIcon={<AddBusinessOutlined />} variant="outlined" disabled={!validation.valid || saving} onClick={() => void onAction('save_project_candidate', draft, draft)}>สร้าง/อัปเดต Project Candidate</Button>
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
         <Button color="warning" disabled={saving || reasonMissing} onClick={() => void onAction('request_information', {})}>ขอข้อมูลเพิ่ม</Button>

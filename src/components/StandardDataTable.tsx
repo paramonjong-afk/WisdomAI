@@ -2,6 +2,7 @@ import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined'
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
 import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
+import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined'
 import {
   Alert, Box, Checkbox, IconButton, ListItemText, Menu, MenuItem, Paper, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TablePagination, TableRow, TableSortLabel, TextField, Tooltip,
@@ -58,8 +59,10 @@ type StandardDataTableProps<Row> = {
   onRefresh?: () => void
   refreshDisabled?: boolean
   hideToolbar?: boolean
+  compactToolbar?: boolean
   flatToolbar?: boolean
   onToolsReady?: (tools: StandardDataTableTools) => void
+  onSearchReady?: (actions: { toggle: () => void }) => void
   /** Reports the row count after the built-in search predicate is applied. */
   onFilteredRowCountChange?: (count: number) => void
 }
@@ -96,8 +99,10 @@ export function StandardDataTable<Row>({
   onRefresh,
   refreshDisabled,
   hideToolbar,
+  compactToolbar,
   flatToolbar,
   onToolsReady,
+  onSearchReady,
   onFilteredRowCountChange,
 }: StandardDataTableProps<Row>) {
   const {profile,currentCompany}=useAuth()
@@ -110,6 +115,7 @@ export function StandardDataTable<Row>({
     } catch { return {} }
   }, [stateKey])
   const [search, setSearch] = useState(restored.search??'')
+  const [searchOpen, setSearchOpen] = useState(false)
   const [page, setPage] = useState(restored.page??0)
   const [rowsPerPage, setRowsPerPage] = useState(restored.rowsPerPage??initialRowsPerPage)
   const [sortColumn,setSortColumn]=useState(restored.sortColumn??defaultSort?.columnId??'')
@@ -355,14 +361,15 @@ export function StandardDataTable<Row>({
   }
   const tableTools: StandardDataTableTools = { openColumnSettings: openColumnMenu, exportCsv, exportPdf }
   if (onToolsReady) onToolsReady(tableTools)
+  if (onSearchReady) onSearchReady({ toggle: () => setSearchOpen((open) => !open) })
 
   return (
     <Stack spacing={1.5}>
       {exportingPdf ? <Box sx={{ position: 'fixed', inset: 0, zIndex: 1301, display: 'grid', placeItems: 'center', bgcolor: 'rgba(255,255,255,.94)', color: 'text.primary', fontWeight: 700 }}>กำลังสร้างไฟล์ PDF…</Box> : null}
       {pdfExportError ? <Alert severity="error" onClose={() => setPdfExportError('')}>{pdfExportError}</Alert> : null}
-      {!hideToolbar ? <Paper variant={flatToolbar ? undefined : "outlined"} elevation={flatToolbar ? 0 : 1} sx={{ p: flatToolbar ? 0 : 2, bgcolor: flatToolbar ? 'transparent' : undefined }}>
+      {!hideToolbar && (!compactToolbar || searchOpen || Boolean(toolbar) || !hideBuiltInToolbarActions) ? <Paper variant={flatToolbar ? undefined : "outlined"} elevation={flatToolbar ? 0 : 1} sx={{ p: flatToolbar ? 0 : 2, bgcolor: flatToolbar ? 'transparent' : undefined }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
-          {getSearchText && (
+          {getSearchText && (!compactToolbar || searchOpen) && (
             <TextField
               fullWidth
               size="small"
@@ -375,6 +382,12 @@ export function StandardDataTable<Row>({
               }}
             />
           )}
+          {getSearchText && compactToolbar && !onSearchReady ? <>
+            {searchOpen ? <TextField autoFocus size="small" label={searchLabel} value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); saveTableState({search:event.target.value,page:0}) }} sx={{ flex: 1, minWidth: 180 }} /> : null}
+            <Tooltip title={searchOpen ? 'ปิดการค้นหา' : 'ค้นหา'}>
+              <IconButton size="small" color={search ? 'primary' : 'inherit'} onClick={() => setSearchOpen((open) => !open)} aria-label={searchOpen ? 'ปิดการค้นหา' : 'ค้นหา'}><SearchOutlinedIcon fontSize="small" /></IconButton>
+            </Tooltip>
+          </> : null}
           {typeof toolbar === 'function'
             ? toolbar({
                 ...tableTools,

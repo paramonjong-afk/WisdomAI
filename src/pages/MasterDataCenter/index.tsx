@@ -1,5 +1,5 @@
 import { ArchiveOutlined, CheckOutlined, CompareArrowsOutlined, NavigateNextOutlined, OpenInNewOutlined, RefreshOutlined } from '@mui/icons-material'
-import { Alert, Button, Chip, DialogActions, DialogContent, DialogTitle, Divider, Drawer, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Drawer, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
 import { StandardDataTable } from '../../components/StandardDataTable'
@@ -17,6 +17,8 @@ import { candidateAccount, groupDuplicateCandidates, isNameMismatch, mismatchSta
 
 type Candidate = MasterCandidate & { archive_after: string }
 type BankAccount = { id: string; owner_name: string; owner_type: string; bank_name: string | null; account_last4: string; verification_status: string; verified_at: string | null; created_at: string }
+type EmployeeBrief = { id: string; full_name: string }
+type BankAccountInput = { owner_name: string; owner_type: string; bank_name: string; account_last4: string }
 
 const candidateStatus: Record<string, string> = { provisional: 'รับเข้า', auto_verified: 'Auto Verified', admin_reviewed: 'Admin แก้แล้ว/รอตรวจซ้ำ', needs_review: 'รอตรวจสอบ', confirmed: 'ยืนยันแล้ว', locked: 'Locked', pending_review: 'รอตรวจสอบ', approved: 'ยืนยันแล้ว', rejected: 'ยกเลิก', archived: 'เก็บถาวร', needs_more_info: 'รอข้อมูลเพิ่ม' }
 const accountStatus: Record<string, string> = { verified: 'ยืนยันแล้ว', unverified: 'รอตรวจ', inactive: 'ปิดใช้งาน', archived: 'เก็บถาวร' }
@@ -33,6 +35,7 @@ export function MasterDataCenterPage() {
   const [evidence, setEvidence] = useState<Record<string, MasterSourceEvidence>>({})
   const [accounts, setAccounts] = useState<BankAccount[]>([])
   const [projects, setProjects] = useState<MasterProjectOption[]>([])
+  const [employees, setEmployees] = useState<EmployeeBrief[]>([])
   const [error, setError] = useState('')
   const [drawerMessage, setDrawerMessage] = useState<{ severity: 'success' | 'error' | 'info'; text: string } | null>(null)
   const [savingId, setSavingId] = useState('')
@@ -45,6 +48,10 @@ export function MasterDataCenterPage() {
   const [reviewVisibleCount, setReviewVisibleCount] = useState(0)
   const [confirmedVisibleCount, setConfirmedVisibleCount] = useState(0)
   const [correction, setCorrection] = useState({ display_name: '', classification_type: 'unknown_review' as MasterClassificationType, account_last4: '', bank_name: '', tax_id: '' })
+  const [accountDialogOpen, setAccountDialogOpen] = useState(false)
+  const [newAccount, setNewAccount] = useState<BankAccountInput>({ owner_name: '', owner_type: 'employee', bank_name: '', account_last4: '' })
+  const [accountSaveMessage, setAccountSaveMessage] = useState<{ severity: 'success' | 'error' | 'info'; text: string } | null>(null)
+  const [suggestionOwnerName, setSuggestionOwnerName] = useState('')
   const setSourceUrl = (value: string) => { void value }
 
   const load = useCallback(async () => {
@@ -54,22 +61,25 @@ export function MasterDataCenterPage() {
       setEvidence(fixture.evidence)
       setProjects(fixture.projects)
       setAccounts([])
+      setEmployees([])
       setReviewerNames({})
       setError('')
       return
     }
     if (!companyId) return
-    const [candidateResult, accountResult, projectResult] = await Promise.all([
+    const [candidateResult, accountResult, projectResult, employeeResult] = await Promise.all([
       supabase.from('master_data_candidates').select('id,entity_type,display_name,normalized_name,candidate_data,confidence,status,source_table,source_id,duplicate_of,review_reason,reviewed_by,reviewed_at,classification_type,classification_confidence,classification_evidence,classification_conflicts,classification_version,classified_at,created_at,archive_after').eq('company_id', companyId).order('created_at', { ascending: false }).limit(500),
       supabase.from('master_bank_accounts').select('id,owner_name,owner_type,bank_name,account_last4,verification_status,verified_at,created_at').eq('company_id', companyId).neq('verification_status', 'archived').order('updated_at', { ascending: false }).limit(500),
       supabase.from('projects').select('id,name,code,status,project_name,developer_name,province,location_detail,property_type').eq('company_id', companyId).eq('status', 'active').order('name'),
+      supabase.from('employee_people').select('id,full_name').eq('company_id', companyId).eq('employee_status', 'active').order('full_name'),
     ])
-    const loadError = candidateResult.error ?? accountResult.error ?? projectResult.error
+    const loadError = candidateResult.error ?? accountResult.error ?? projectResult.error ?? employeeResult.error
     if (loadError) { setError(userError(loadError)); return }
     const rows = (candidateResult.data ?? []) as Candidate[]
     setCandidates(rows)
     setAccounts((accountResult.data ?? []) as BankAccount[])
     setProjects((projectResult.data ?? []) as MasterProjectOption[])
+    setEmployees((employeeResult.data ?? []) as EmployeeBrief[])
     const reviewerIds = [...new Set(rows.map((row) => row.reviewed_by).filter((id): id is string => Boolean(id)))]
     if (reviewerIds.length) {
       const reviewerResult = await supabase.from('profiles').select('id,full_name').in('id', reviewerIds)
@@ -115,6 +125,69 @@ export function MasterDataCenterPage() {
     setReviewReason('')
     setDrawerMessage(null)
     setCorrection({ display_name: candidate.display_name, classification_type: (candidate.classification_type as MasterClassificationType | null) ?? 'unknown_review', account_last4: candidateAccount(candidate) ?? '', bank_name: String(candidate.candidate_data.bank_name ?? ''), tax_id: String(candidate.candidate_data.tax_id ?? '') })
+  }
+  const ownerSuggestions = useMemo(() => {
+    const value = suggestionOwnerName.trim().toLowerCase()
+    if (!value) return []
+    const deduplicated = new Map<string, EmployeeBrief>()
+    employees.forEach((employee) => {
+      if (employee.full_name.toLowerCase().includes(value) && employee.full_name.trim()) deduplicated.set(employee.full_name.trim(), employee)
+    })
+    return [...deduplicated.values()].slice(0, 8)
+  }, [employees, suggestionOwnerName])
+  const bankHints = useMemo(() => accounts.filter((account) => account.owner_name.trim().toLowerCase() === newAccount.owner_name.trim().toLowerCase()), [accounts, newAccount.owner_name])
+  const sameBankExists = useMemo(() => {
+    const ownerName = newAccount.owner_name.trim().toLowerCase()
+    const ownerType = newAccount.owner_type.trim().toLowerCase()
+    const bankName = newAccount.bank_name.trim().toLowerCase()
+    const last4 = newAccount.account_last4.trim()
+    if (!ownerName || !ownerType || !bankName || last4.length !== 4) return false
+    return accounts.some((account) =>
+      account.owner_name.trim().toLowerCase() === ownerName &&
+      account.owner_type.trim().toLowerCase() === ownerType &&
+      (account.bank_name ?? '').trim().toLowerCase() === bankName &&
+      account.account_last4 === last4,
+    )
+  }, [accounts, newAccount.account_last4, newAccount.bank_name, newAccount.owner_name, newAccount.owner_type])
+  const openAccountDialog = () => {
+    setNewAccount({ owner_name: '', owner_type: 'employee', bank_name: '', account_last4: '' })
+    setSuggestionOwnerName('')
+    setAccountSaveMessage(null)
+    setAccountDialogOpen(true)
+  }
+  const closeAccountDialog = () => {
+    setAccountDialogOpen(false)
+    setSuggestionOwnerName('')
+    setAccountSaveMessage(null)
+  }
+  const saveNewBankAccount = async () => {
+    const owner_name = newAccount.owner_name.trim()
+    const bank_name = newAccount.bank_name.trim()
+    const account_last4 = newAccount.account_last4.trim()
+    if (!owner_name) { setAccountSaveMessage({ severity: 'error', text: 'กรุณาระบุชื่อเจ้าของบัญชี' }); return }
+    if (account_last4.length !== 4 || !/^\d{4}$/.test(account_last4)) { setAccountSaveMessage({ severity: 'error', text: 'กรุณาระบุเลขท้ายบัญชีให้ครบ 4 หลัก' }); return }
+    if (!bank_name) { setAccountSaveMessage({ severity: 'error', text: 'กรุณาระบุชื่อธนาคาร' }); return }
+    if (sameBankExists) { setAccountSaveMessage({ severity: 'error', text: 'บัญชีนี้มีอยู่แล้วในทะเบียนกลาง' }); return }
+    if (localTestData) {
+      setAccounts((current) => [{ id: crypto.randomUUID(), owner_name, owner_type: newAccount.owner_type, bank_name, account_last4, verification_status: 'unverified', verified_at: null, created_at: new Date().toISOString() }, ...current].slice(0, 500))
+      setAccountSaveMessage({ severity: 'success', text: 'เพิ่มบัญชีในโหมดทดสอบแล้ว' })
+      setAccountDialogOpen(false)
+      return
+    }
+    const { error: insertError } = await supabase.from('master_bank_accounts').insert({
+      company_id: companyId,
+      owner_type: newAccount.owner_type,
+      owner_name,
+      bank_name,
+      account_last4,
+      verification_status: 'unverified',
+    })
+    if (insertError) { setAccountSaveMessage({ severity: 'error', text: userError(insertError) }); return }
+    setAccountSaveMessage({ severity: 'success', text: 'บันทึกบัญชีสำเร็จ' })
+    setNewAccount({ owner_name: '', owner_type: 'employee', bank_name: '', account_last4: '' })
+    setSuggestionOwnerName('')
+    setAccountDialogOpen(false)
+    await load()
   }
   const correctCandidate = async () => {
     if (!selected || reviewReason.trim().length < 3) { setDrawerMessage({ severity: 'error', text: 'กรุณาระบุเหตุผลการแก้ไขอย่างน้อย 3 ตัวอักษรใน Drawer' }); return }
@@ -180,7 +253,7 @@ export function MasterDataCenterPage() {
   const confirmedCount = candidates.filter((candidate) => ['confirmed', 'approved', 'locked'].includes(candidate.status)).length
 
   return <Stack spacing={2}>
-    <PageHeader title="ศูนย์ข้อมูลกลาง" description="ข้อมูลจากสลิปและเอกสารจะเข้ารอตรวจ ก่อนยืนยันเป็นข้อมูลใช้ร่วมกันทุก Module · ไม่มีการลบข้อมูลที่มีการอ้างอิง" action={<Button startIcon={<RefreshOutlined />} onClick={() => void load()}>รีเฟรช</Button>} />
+    <PageHeader title="ศูนย์ข้อมูลกลาง" description="ข้อมูลจากสลิปและเอกสารจะเข้ารอตรวจ ก่อนยืนยันเป็นข้อมูลใช้ร่วมกันทุก Module · ไม่มีการลบข้อมูลที่มีการอ้างอิง" action={<Stack direction="row" spacing={1}><Button startIcon={<RefreshOutlined />} onClick={() => void load()}>รีเฟรช</Button><Button variant="contained" onClick={openAccountDialog}>เพิ่มบัญชีในทะเบียนกลาง</Button></Stack>} />
     {localTestData && <Alert severity="info">LOCAL TEST DATA · master-data-project-first-v1 · 53 รายการ · ไม่มีการอ่านหรือเขียน Production</Alert>}
     {error && <Alert severity="error">{error}</Alert>}
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><Metric label="ข้อมูลใหม่" value={`${candidates.filter((item) => ['provisional', 'pending_review'].includes(item.status)).length} รายการ`} /><Metric label="Auto Verified" value={`${autoVerified} รายการ`} /><Metric label="รอตรวจ" value={`${pending} รายการ`} /><Metric label="ขัดแย้ง" value={`${conflictCount} รายการ`} /><Metric label="ยืนยันแล้ว" value={`${confirmedCount} รายการ`} /><Metric label="แก้ไขโดย Admin" value={`${adminReviewed} รายการ`} /></Stack>
@@ -217,6 +290,7 @@ export function MasterDataCenterPage() {
       { id: 'state', label: 'สถานะ', minWidth: 140, render: (row) => <Chip size="small" color={row.verification_status === 'verified' ? 'success' : 'default'} label={accountStatus[row.verification_status] ?? row.verification_status} /> },
       { id: 'verified', label: 'ยืนยันเมื่อ', minWidth: 180, render: (row) => dateTime(row.verified_at) },
     ]} />
+    <Dialog open={accountDialogOpen} onClose={closeAccountDialog} maxWidth="xs" fullWidth><DialogTitle>เพิ่มบัญชีในทะเบียนกลาง</DialogTitle><DialogContent dividers><Stack spacing={1.5}><Typography variant="body2">พิมพ์ชื่อเพื่อดึงรายชื่อพนักงานที่มีอยู่ แล้วเลือกบัญชีที่ตรงกันก่อนบันทึก</Typography>{accountSaveMessage && <Alert severity={accountSaveMessage.severity}>{accountSaveMessage.text}</Alert>}<Select size="small" value={newAccount.owner_type} onChange={(event) => setNewAccount((current) => ({ ...current, owner_type: event.target.value }))}><MenuItem value="employee">พนักงาน</MenuItem><MenuItem value="vendor">ผู้ขาย</MenuItem><MenuItem value="customer">ลูกค้า</MenuItem><MenuItem value="project">โครงการ</MenuItem><MenuItem value="work_package">งานย่อย</MenuItem></Select><TextField size="small" label="ชื่อเจ้าของบัญชี" value={newAccount.owner_name} onChange={(event) => { const value = event.target.value; setSuggestionOwnerName(value); setNewAccount((current) => ({ ...current, owner_name: value })) }} /><Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>{ownerSuggestions.map((employee) => <Chip key={employee.id} size="small" color="info" label={employee.full_name} onClick={() => { setNewAccount((current) => ({ ...current, owner_name: employee.full_name })); setSuggestionOwnerName(employee.full_name) }} />)}</Stack><TextField size="small" label="ชื่อธนาคาร" value={newAccount.bank_name} onChange={(event) => setNewAccount((current) => ({ ...current, bank_name: event.target.value }))} /><TextField size="small" label="เลขท้ายบัญชี (4 หลัก)" value={newAccount.account_last4} slotProps={{ htmlInput: { maxLength: 4, inputMode: 'numeric' } }} onChange={(event) => setNewAccount((current) => ({ ...current, account_last4: event.target.value }))} /><Typography variant="caption" color="text.secondary">ตัวอย่างบัญชีเดียวกันที่เคยมี: {bankHints.length}</Typography><Stack spacing={0.4}>{bankHints.slice(0, 6).map((account) => <Chip key={account.id} size="small" label={`${account.bank_name ?? 'ไม่ระบุธนาคาร'} · •••• ${account.account_last4}`} />)}</Stack></Stack></DialogContent><DialogActions><Button onClick={closeAccountDialog}>ยกเลิก</Button><Button disabled={!newAccount.owner_name.trim() || newAccount.account_last4.trim().length !== 4 || !/^\d{4}$/.test(newAccount.account_last4.trim()) || !newAccount.bank_name.trim() || sameBankExists} variant="contained" onClick={() => void saveNewBankAccount()}>บันทึก</Button></DialogActions></Dialog>
   </Stack>
 }
 

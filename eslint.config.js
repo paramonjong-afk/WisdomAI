@@ -8,7 +8,12 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 export default defineConfig([
   globalIgnores([
     'dist',
+    '.codex/**',
+    '.codex-worktrees/**',
     '.deploy-worktrees/**',
+    '.release-clone-vendor/**',
+    '.release-worktrees/**',
+    'release-clones/**',
     'WisdomAI-React-multi-project-v2/**',
     'supabase/functions/**',
   ]),

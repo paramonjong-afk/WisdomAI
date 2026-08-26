@@ -1,5 +1,14 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Master Data Bank Add Manual Flow v1.6 — 26/8/2569
+
+- **เหตุผล:** เพิ่มทางเลือกสำหรับ Admin ในการใส่บัญชีธนาคารเข้า Master Data Center ด้วยตนเองจาก UI เพื่อแก้ปัญหาข้อมูล OCR ขาดหาย/ยังไม่เข้าระบบได้ทันที และลดภาระการไล่ตามงานซ้ำ
+- **ผลกระทบ:** เพิ่ม flow ใหม่ใน `/master-data` ที่บังคับ validate owner/type/bank/account_last4 (4 หลัก), ตรวจซ้ำตาม company scoped key (`owner_name + owner_type + bank_name + account_last4`) และบันทึกสถานะเริ่มต้นเป็น `unverified`; ไม่แตะ Raw/OCR หรือ Candidate flow
+- **Data/Audit:** รายการซ้ำ/format ผิดถูก block ใน UI ก่อน insert, ข้อความแจ้งจุดผิดพลาดและรายการ match แนะนำแสดงทันที; เมื่อลงสำเร็จ table refresh และมี evidence trail ในงานเดิมที่เกี่ยวข้อง (ไม่มีการเปลี่ยนแปลงบันทึก candidate)
+- **Migration:** ไม่มี
+- **Verification:** fixture/การทดสอบโหมด local first ของ Master Data, typecheck/lint/build และ Admin smoke `/master-data`
+- **Rollback:** ลบโค้ด manual-add และ validation เส้นทางของหน้า Master Data; ข้อมูลที่เคยบันทึกไว้คงอยู่และ candidate/source/audit เดิมไม่เปลี่ยน
+
 ## ล่าสุด: Daily Employee Money Holding Ledger v2.0 — 26/8/2569
 
 - **เหตุผล:** สลิปค่าแรง/เงินเบิกล่วงหน้าของช่างรายวันมีชื่อผู้รับอยู่แล้ว แต่การส่งเพียง HR/Payroll queue ยังไม่ทำให้เห็นยอดยกเก่ารายช่าง และการลง Payroll ทันทีเสี่ยงตัดซ้ำเมื่อเส้นทางเงินยังไม่ครบ
@@ -20,7 +29,16 @@
 - **Verification:** allocation/root-parent/balance/advance-exclusive contracts, migration dry-run, targeted/full lint, typecheck, build และ authenticated Accounting/Project/HR/Advance smoke
 - **Rollback:** revoke/ซ่อน RPC/UI v2 และกลับใช้ Money Lineage v1; เก็บ Allocation/Root/Parent/Audit เพื่อ recovery ห้ามลบ Raw/OCR/Document Flow Item
 
-## ล่าสุด: Master Data Project-first Gate v1.4 — 25/8/2569
+## ล่าสุด: Master Data Project-first Gate v1.5 — 26/8/2569
+
+- **เหตุผล:** UX ปิดกั้นปุ่ม “ผูก Project เดิม” และ “บันทึก Project Candidate” ด้วยเหตุผลเดียวกับการตัดสินใจ ทำให้ผู้ใช้ไม่สามารถผ่าน Project Gate เพื่อค้าง/ยืนยันงานตามลำดับ และเกิดการตีความว่าระบบค้าง
+- **ผลกระทบ:** แก้ให้ปุ่มผูก Project เดิมและสร้าง/อัปเดต Project Candidate ใช้งานได้ทันทีโดยไม่ต้องใส่เหตุผล แต่การตัดสินใจยืนยัน/ปฏิเสธ/ขอข้อมูล/กลับคิว ยังคงบังคับเหตุผลขั้นต่ำ 3 ตัวอักษรเพื่อคง audit intent
+- **Data/Audit:** การเชื่อม Project หรือ Candidate ยังคง append version/audit เดิมเมื่อ RPC สำเร็จ (actor/reason/source/event_key); raw/OCR/source ไม่ถูกเขียนทับ
+- **Migration:** ไม่มี
+- **Verification:** `test:master-data-project-gate`, `test:master-data-candidate-review`, typecheck, eslint, build และ local Master Data Project Gate/UAT smoke
+- **Rollback:** revert เฉพาะเงื่อนไข disable reason ในหน้า Project Gate; ข้อมูล Project Candidate/Audit/เวอร์ชัน/Raw จะคงเดิม
+
+## 26/8/2569 — Master Data Project-first Gate v1.4 — 25/8/2569
 
 - **เหตุผล:** Drawer เดิมแก้ค่าได้แต่ validation อยู่หลัง Drawer และรายการยังค้างโดยไม่บอกว่าต้องจำแนก Project ก่อนยืนยัน
 - **ผลกระทบ:** เพิ่ม Project-first Gate ใน `/master-data`: ค้น/ผูก Project เดิมแบบ company-scoped หรือสร้าง Project Candidate ที่ข้อมูลขั้นต่ำครบ; Project Candidate ไม่สร้าง Project จริงอัตโนมัติ และรายการออกจาก pending เฉพาะ explicit confirm/lock สำเร็จ; ทุกคำสั่งใช้ `event_key` แบบ replay-safe และปฏิเสธ key ที่ขัดกับ Candidate อื่น
@@ -1031,6 +1049,8 @@
 - General Work Room v1.0: added `docs/GENERAL_WORK_ROOM_FLOW.md` and Production baseline migration `20260823035220_general_work_room.sql`; canonical `general_work_primary`, company-scoped membership, safe classification/forwarding, audit, and pending destination retry path.
 - Advance Confirmation RPC hardening v1.1: Production applied `20260823041021_lock_advance_confirmation_room_rpc`; `ensure_advance_confirmation_room` now requires a manager when called with an authenticated session, and `EXECUTE` is revoked from `PUBLIC`/`anon` (retained for `authenticated`/`service_role`). Verify with the privilege query and retain the existing no-fallback room/audit/retry flow.
 - Program Development Command Inbox v1.1: add owner-only Action Cards in `/chat` for `program_development_primary`, task status transitions, Codex/developer dispatch, result drill-down, and System Result guard. Production migration `20260823043451_program_development_actions.sql` adds the idempotent owner-checked dispatch RPC; rollback hides the cards and revokes the action RPC while retaining tasks/audit/messages.
+- Standard Data Table Compact Search v1.2: pages can collapse the built-in search field into a top-right icon and reopen it on demand while keeping the same filtered/export scope. No migration; rollback restores the always-visible toolbar search field.
+- Time Tracking Site Edit v1.5: `/time-tracking` now opens an edit drawer for existing sites and writes name, coordinates, and radius back to `project_sites` with mutation audit. No migration; rollback hides the edit drawer and restores read-only site listing.
 
 - Accounting Pending Queue v1.1 (23/8/2569): `/accounting-documents` now reads pending transfer-slip work from the existing accounting destination task projection and joins the source flow item/financial transaction for display. This is read-only UI behavior; no migration, raw overwrite, reprocess, or new task creation. Verify with Production count reconciliation, typecheck/lint/build, and authenticated page smoke. Rollback is removing the pending queue projection while leaving source items, tasks, financial transactions, and audit history intact.
 
@@ -1056,3 +1076,11 @@
 - **Migration:** `20260825194500_line_hr_document_intake_routing.sql`
 - **Verification:** `test:line-hr-document-routing`, `test:employee-intake`, `test:line-webhook-intake`, typecheck, lint, build, migration dry-run และ authenticated HR Intake smoke
 - **Rollback:** ปิด route ใน Edge Function และ trigger `zz_route_hr_image_review_to_intake`; ห้ามลบ Raw, Intake, private document หรือ Audit ที่เกิดแล้ว
+
+## ล่าสุด: UI Action Standard v1.0 — 26/8/2569
+
+- **เหตุผล:** ทำให้ตำแหน่งไอคอน, Tooltip, aria-label, ขนาดฟอนต์ และ responsive action ของทุกหน้าเป็นมาตรฐานเดียวกัน
+- **ผลกระทบ:** `/employees` เป็นตัวอย่างแรก โดยย้าย Refresh/Manage/Add ไปมุมขวาบนและใช้ไอคอนมาตรฐาน; ไม่เปลี่ยนสิทธิ์หรือข้อมูลธุรกิจ
+- **Flow document:** `docs/UI_ACTION_STANDARD.md` มี Mermaid flowchart, roles, integration, failure/retry, audit และ owner
+- **Verification:** typecheck, lint, build และ authenticated browser smoke; โมดูลถัดไปให้ปรับเมื่อมีการแก้ไขหน้านั้นครั้งต่อไป
+- **Rollback:** revert UI commit ได้ทันที ไม่มี migration และไม่ลบ Audit/ข้อมูลเดิม
