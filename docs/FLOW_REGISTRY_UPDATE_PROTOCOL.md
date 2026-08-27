@@ -1,5 +1,12 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Payroll Summary Wage Day Override Alignment v1.2 — 27/8/2569
+
+- **เหตุผล:** รายละเอียดรายวันของพัฒนรัตน์แสดง 22 ส.ค. เป็น 1 วันหลัง Admin แก้เวลา แต่ Summary ยังนับ `worked_minutes` เก่า 460 นาทีเป็น 0.5 วัน จึงแสดง 8.5 วัน/3,825 บาทผิดจากรายละเอียด
+- **Flow:** Attendance รายวัน → รวมต่อวันที่ → คำนวณ `clock_out - clock_in - excluded` จากหลักฐานปัจจุบัน → อ่าน `employee_wage_day_overrides` → วันสุทธิ/ประมาณการค่าแรง → Summary และ Dialog จากผลคิดวันเดียวกัน
+- **ข้อมูล/Audit:** เป็น read-model correction ไม่มี migration และไม่แก้ Attendance/Override/Audit เดิม; Clock correction และ Admin Override ที่มี Audit เป็น source of truth ตามลำดับ
+- **Verification/Rollback:** fixture มี `worked_minutes` เก่า 460 แต่ Clock evidence ใหม่ 520 ต้องนับ 1 วัน พร้อมกรณี Override, payroll tests, typecheck/lint/build และ authenticated `/reports`; rollback revert utility/import โดยไม่แก้ข้อมูลธุรกิจ
+
 ## ล่าสุด: Employee Money Projection Scope Reconciliation v2.3 — 27/8/2569
 
 - **เหตุผล:** สลิป 400 บาทมีทั้ง Transaction projection เก่าและ Allocation projection ที่ยืนยันแล้ว ทำให้รายงานมี Active Ledger สองแถวสำหรับเงินก้อนเดียวกัน

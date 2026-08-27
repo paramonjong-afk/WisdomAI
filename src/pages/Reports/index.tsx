@@ -14,6 +14,7 @@ import { userError } from '../../utils/userError'
 import { defaultWorkTimeDisplaySettings, formatWorkTime, type WorkTimeDisplaySettings } from '../../utils/timeDisplay'
 import { calculateEffectiveWorkday, type WorkdayOverrideMode } from '../../utils/wageDay'
 import { calculateHolidayWage } from '../../utils/holidayWage'
+import { calculateSummaryDailyUnits } from '../../utils/payrollSummary'
 import { RealtimePayrollForecast } from './RealtimePayrollForecast'
 type Site={id:string;name:string;projects:{name:string}|null}
 type Employee={id:string;full_name:string|null;email:string|null}
@@ -413,7 +414,7 @@ export function ReportsPage(){
     const employeePayrolls=payrolls.filter(item=>item.profile_id===id)
     const payrollPay=employeePayrolls.reduce((sum,item)=>sum+Number(item.net_pay??0),0)
     const scheduleProgress=monthlyScheduleProgress(workPolicy)
-    const dailyUnits=valid.reduce((sum,row)=>{const minutes=Number(row.worked_minutes??0);return sum+(minutes>=standardMinutes?1:minutes>=standardMinutes/2?0.5:0)},0)
+    const dailyUnits=calculateSummaryDailyUnits(id,list,wageDayOverrides,standardMinutes)
     const monthlyAccrued=Number(policy?.monthly_salary??0)*scheduleProgress.elapsedDays/scheduleProgress.scheduledDays
     const estimatedBase=policy?.employment_type==='monthly'?monthlyAccrued:dailyUnits*Number(policy?.daily_rate??0)
     const estimatedOt=valid.reduce((sum,row)=>sum+Number(row.overtime_minutes??0),0)/60*Number(policy?.overtime_hourly_rate??0)
