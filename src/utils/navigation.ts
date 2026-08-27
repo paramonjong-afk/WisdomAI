@@ -51,6 +51,7 @@ export const navigationGroups:NavigationGroup[]=[
   ]},
   {label:'ระบบและตรวจสอบ',items:[
     {label:'Flow Registry',path:'/flow-registry',roles:admins},
+    {label:'ตรวจสอบงานระบบ',path:'/system-inventory',roles:admins},
     {label:'Audit',path:'/system-health?tab=logs',roles:admins},
     {label:'System Errors',path:'/system-health?tab=issues',roles:admins},
     {label:'ศูนย์สั่งงาน',path:'/work-command-center',roles:admins},
