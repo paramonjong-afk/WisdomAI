@@ -50,6 +50,7 @@ export const navigationGroups:NavigationGroup[]=[
   ]},
   {label:'ระบบตรวจสอบ',items:[
     {label:'ทะเบียน Flow ระบบ',path:'/flow-registry',roles:['admin']},
+    {label:'ตรวจสอบงานระบบ',path:'/system-inventory',roles:['admin']},
     {label:'ศูนย์สั่งงาน',path:'/work-command-center',roles:['admin']},
     {label:'สถานะระบบ',path:'/system-health',roles:['admin']},
     {label:'Mutation Attempt Center',path:'/mutation-attempt-center',roles:['admin']},

@@ -46,6 +46,7 @@ const navigationIcons:Record<string,React.ReactNode>={
   '/platform-control-center':<HubOutlinedIcon/>,
   '/mutation-attempt-center':<HistoryOutlinedIcon/>,
   '/flow-registry':<HubOutlinedIcon/>,
+  '/system-inventory':<FactCheckOutlinedIcon/>,
 }
 
 function NavigationContent() {
