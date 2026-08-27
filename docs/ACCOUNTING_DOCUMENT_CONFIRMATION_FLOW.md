@@ -35,9 +35,10 @@ flowchart TD
   M02 --> M1[ปิด Accounting task และสร้าง HR/Payroll task]
   C -->|วัสดุหนึ่งหรือหลาย Allocation| M2[ปิด Accounting task และสร้าง Inventory + Project task]
   C -->|โครงการ/ผู้รับเหมา/เดินทาง| M3[ปิด Accounting task และสร้าง Project task]
-  C -->|เงินสำรอง/ส่งต่อ| M4{จับคู่ผู้ถือเงินในทะเบียนได้หรือไม่}
-  M4 -->|ได้| M5[สร้าง/เชื่อม Advance Case และส่ง Advance Finance]
-  M4 -->|ไม่ได้| QI
+  C -->|เงินเบิกล่วงหน้า/เงินสำรอง| M4{จับคู่ข้อมูล 2 ฝั่งได้หรือไม่}
+  M4 -->|ผู้โอนตรงผู้ถือเงิน 1 คน<br/>ผู้รับตรงพนักงาน 1 คน| M41[เชื่อมบัญชีทั้งสองฝั่ง<br/>บันทึก Alias + Party Link + Audit]
+  M41 --> M5[สร้างบัญชีพักพนักงานและส่ง Advance Finance]
+  M4 -->|ไม่พบ/หลายคน/บัญชีขัดแย้ง| QI
   C -->|ค่าใช้จ่ายทั่วไป| M6[ส่ง Accounting Posting]
   B -->|เอกสารบัญชีอื่น| C
   C --> D[บันทึกประเภทเอกสาร]
@@ -77,6 +78,7 @@ flowchart TD
 - `transfer_slip_money_lineages` เก็บเส้นทางเงินที่ Admin ตรวจแล้วแยกจาก Raw/OCR: แหล่งเงิน, รหัสกองเงิน, ผู้ถือเงิน, ผู้จ่ายจริง, ผู้รับสุดท้าย, โครงการ/ไซต์, ยอดตั้งต้น/จ่าย/คืน/คงเหลือ และทอดการส่งทั้งหมด โดยมีหนึ่ง projection ต่อ Document Flow Item
 - `review_transfer_slip_money_lineage` บันทึกข้อมูลสลิปและสายเงินใน transaction เดียว ใช้ `event_key` ป้องกันคำสั่งซ้ำ และสร้างงานต่อเฉพาะตอน `confirm`: ค่าแรง→HR, วัสดุ→Inventory+Project, ค่าใช้จ่ายโครงการ→Project, ค่าใช้จ่ายทั่วไป→Accounting Posting, เงินสำรอง→Advance Case เมื่อจับคู่ผู้ถือเงินได้
 - เงินสำรองที่ยังจับคู่ผู้ถือเงินไม่ได้จะคง Accounting task เป็น `recheck_required`; ระบบไม่เดาชื่อ ไม่สร้าง Advance ซ้ำ และไม่ถือว่าเดินทางถึงปลายทางแล้ว
+- เงินเบิกล่วงหน้าที่ผู้โอนเป็นผู้ถือเงินสำรองจ่ายและผู้รับเป็นพนักงาน จะตรวจสองฝั่งจาก Transaction เดียวกัน: ชื่อผู้โอน/alias ต้องตรงผู้ถือเงินเพียงหนึ่งคน และชื่อผู้รับ/alias ต้องตรงพนักงานรายวันเพียงหนึ่งคน เมื่อ Admin ยืนยัน ระบบเชื่อมเลขท้ายบัญชีกับ Master Bank Account ทั้งสองฝั่ง บันทึก `transfer_slip_advance_party_links` และ Audit แล้วดำเนิน RPC เดิมต่อทันที; หากไม่พบ หลายคน หรือเลขบัญชีชนเจ้าของอื่น จะค้างเฉพาะเหตุผลนั้นและไม่สร้างข้อมูลครึ่งเดียว
 - Money Lineage v2 แยก `Transfer Fact` (ข้อเท็จจริงจากสลิป) ออกจาก `transfer_slip_money_allocations` (วัตถุประสงค์/จำนวน/โครงการ/ผู้รับผิดชอบ) สลิปหนึ่งใบจึงแบ่งค่าแรง วัสดุ ผู้รับเหมา หรือหลายโครงการได้ โดยไม่แก้ Raw/OCR
 - Allocation ที่ยืนยันเป็น `payroll` หรือ `advance_transfer` จะลองจับคู่ชื่อผู้รับกับพนักงานรายวันของบริษัทแบบ exact normalized name หรือ alias ที่เคยยืนยันเท่านั้น เมื่อพบหนึ่งคนพอดีจะสร้าง Employee Money Holding Ledger แบบ idempotent; ถ้าไม่พบ/พบหลายคน/สลิปซ้ำจะคง Match Queue พร้อมเหตุผล และไม่สร้าง Payroll Line
 - Holding Ledger แยก `wage_paid` ออกจาก `advance_issued`; รายการเริ่มที่ `matched_pending_review` และการแก้ผิดใช้ Reject/Reversal/Adjustment แบบ append-only จึงย้อนเส้นทางเงินภายหลังได้โดยไม่เปลี่ยน Transfer Fact
@@ -89,6 +91,7 @@ flowchart TD
 
 | Version | Date | Rationale | Impact | Migration | Verification | Rollback |
 | --- | --- | --- | --- | --- | --- | --- |
+| v2.1 | 27/8/2569 | สลิปเงินเบิกล่วงหน้ามีข้อมูลผู้โอนและผู้รับครบ แต่ Drawer ยังบังคับกรอกผู้ถือเงินและไม่เชื่อมบัญชีพนักงาน | ตรวจสองฝั่ง, เติมผู้ถือเงินอัตโนมัติ, เชื่อมบัญชีทั้งสองฝั่งเมื่อ Admin ยืนยัน และเดิน Flow เดิมต่อแบบ idempotent พร้อม conflict gate/Audit | `20260827003009_transfer_slip_advance_party_auto_link.sql` | preview/apply/conflict/idempotency contract, migration/RLS, typecheck/lint/build และ authenticated Accounting/Advance smoke | revoke RPC/ซ่อน panel; คง Party Link, Bank Fact, Alias, Source และ Audit เพื่อ recovery |
 | v2.0 | 27/8/2569 | รายการเบิกล่วงหน้าของช่างรายวันที่มีสิทธิ์ ณ วันโอนค้าง Accounting เมื่อช่างลาออกภายหลังหรือชื่อสลิปมีคำนำหน้า `น.ส.` | ใช้สิทธิ์ตามวันโอน, สร้างบัญชีพัก, ปิด Accounting Task และส่ง Employee Money Review พร้อม Audit; ไม่ใช้ทะเบียนผู้ถือเงินรายเดือน | `20260826235253_reconcile_daily_employee_advance_routing.sql`, `20260826235415_fix_daily_employee_advance_destination.sql` | temporal/name/route contract, Production reconciliation, typecheck/lint/build และ authenticated Accounting/Advance smoke | ปิด reconcile trigger/คืน RPC; คง Ledger/Audit และ Source เดิม |
 | v1.9 | 27/8/2569 | แก้ RPC v2 ที่ใช้ชื่อตัวแปร Project/Site ซ้ำกับคอลัมน์จน Draft/Confirm หยุดด้วย PostgreSQL 42702 | เปลี่ยนเฉพาะชื่อตัวแปรภายใน; Gate, Allocation, Route, Audit และข้อมูลเดิมคงเดิม | `20260826233010_fix_transfer_slip_allocation_project_ambiguity.sql` | RPC contract, Draft/Confirm runtime, typecheck/lint/build และ authenticated Drawer | restore function definition ก่อนหน้า; ไม่ลบ Source/Lineage/Allocation/Audit |
 | v1.8 | 27/8/2569 | ทำให้ Admin เห็นตัวเลือกกรณีเงินสำรองจ่ายซื้อจากร้านค้าที่รับผ่านบัญชีบุคคลโดยตรง | เปลี่ยนป้าย `vendor_payment` เป็น `จ่ายผู้ขายผ่านบัญชีบุคคล (เงินสำรองจ่าย)` และแสดงคำแนะนำแยกเจ้าของบัญชีกับ Vendor Master; routing/data contract เดิมไม่เปลี่ยน | ไม่มี | analysis-gate contract, typecheck, lint, build และ Production Drawer | revert label/help text; Vendor Match/Lineage/Audit เดิมไม่เปลี่ยน |

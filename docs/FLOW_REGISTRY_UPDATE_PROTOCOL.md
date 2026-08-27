@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Two-sided Advance Party Auto Link v2.2 — 27/8/2569
+
+- **เหตุผล:** สลิปจ่ายเงินเบิกล่วงหน้าที่ผู้โอนมีทะเบียนผู้ถือเงินและผู้รับมีทะเบียนพนักงานครบ ยังแสดง blocker `กรอกผู้ถือเงิน` และบัญชีพนักงานไม่ถูกเชื่อมกลับ Master Data
+- **Flow:** Preview แบบไม่เขียนข้อมูล → จับคู่ผู้โอนกับ Holder/alias หนึ่งคน + ผู้รับกับพนักงาน/alias หนึ่งคน → Admin ยืนยัน → เชื่อม/สร้าง Master Bank Account ทั้งสองฝั่ง → Party Link/Audit → Money Lineage/Employee Holding Ledger/Advance Finance เดิม; ไม่แก้ Raw/OCR
+- **Failure/Retry:** ไม่พบ/พบหลายคน/เลขท้ายบัญชีชนเจ้าของอื่นจะค้างพร้อมเหตุผลเฉพาะจุด; `company_id + financial_transaction_id` และ `event_key` กันบันทึกซ้ำ
+- **Migration:** `20260827003009_transfer_slip_advance_party_auto_link.sql`; ตารางใหม่เปิด RLS และอ่านได้เฉพาะ Admin/Manager/Accounting/HR ส่วน mutation ผ่าน RPC ที่ตรวจ tenant/role
+- **Verification/Rollback:** fixture/contract, Production preview/apply, bank/party/ledger/task/audit counts, typecheck/lint/build และ authenticated Accounting/Advance page; rollback revoke RPC และซ่อน panel โดยเก็บ Link/Bank/Alias/Audit
+
 ## ล่าสุด: Daily Employee Advance Completion Reconciliation v2.1 — 27/8/2569
 
 - **เหตุผล:** รายการเบิกล่วงหน้าของพนักงานรายวันซึ่งทำงานอยู่ในวันโอนยังค้าง Accounting หลังพนักงานลาออกภายหลัง และคำนำหน้า `น.ส.` ทำให้ชื่อจับคู่ไม่สำเร็จ
