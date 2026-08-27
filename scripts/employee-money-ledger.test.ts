@@ -47,6 +47,8 @@ const migration = readFileSync('supabase/migrations/20260826231000_employee_mone
 const backfill = readFileSync('supabase/migrations/20260826231500_employee_money_legacy_backfill.sql', 'utf8')
 const dailyAdvanceReconcile = readFileSync('supabase/migrations/20260826235253_reconcile_daily_employee_advance_routing.sql', 'utf8')
 const dailyAdvanceDestinationFix = readFileSync('supabase/migrations/20260826235415_fix_daily_employee_advance_destination.sql', 'utf8')
+const projectionScope = readFileSync('supabase/migrations/20260827004227_reconcile_employee_money_projection_scope.sql', 'utf8')
+const projectionContractFix = readFileSync('supabase/migrations/20260827004553_fix_projection_reversal_contract.sql', 'utf8')
 for (const marker of [
   'employee_money_ledger_entries',
   'employee_money_ledger_audit',
@@ -73,5 +75,12 @@ assert.match(dailyAdvanceReconcile, /target_decision => target_decision/)
 assert.doesNotMatch(dailyAdvanceReconcile, /for source_row in|with confirmed_sources as/)
 assert.doesNotMatch(dailyAdvanceReconcile, /delete\s+from/i)
 assert.match(dailyAdvanceDestinationFix, /next_destination = ''advance_finance''/)
+assert.match(projectionScope, /after insert on public\.employee_money_ledger_entries/i)
+assert.match(projectionScope, /financial_transaction_id=new\.financial_transaction_id/i)
+assert.match(projectionScope, /allocation_id is null/i)
+assert.match(projectionContractFix, /entry_status='reversed'/i)
+assert.match(projectionContractFix, /replaced_by_entry_id/i)
+assert.match(projectionContractFix, /employee_money_ledger_audit/i)
+assert.doesNotMatch(projectionContractFix, /delete\s+from/i)
 
 console.log('employee money ledger contract and math: PASS')

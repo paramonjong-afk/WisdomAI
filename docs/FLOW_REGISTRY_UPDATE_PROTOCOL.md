@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Employee Money Projection Scope Reconciliation v2.3 — 27/8/2569
+
+- **เหตุผล:** สลิป 400 บาทมีทั้ง Transaction projection เก่าและ Allocation projection ที่ยืนยันแล้ว ทำให้รายงานมี Active Ledger สองแถวสำหรับเงินก้อนเดียวกัน
+- **Flow:** สร้าง Allocation projection → ตรวจ company/transaction/employee/type/amount เดียวกัน → Reverse Transaction projection เดิม → เก็บ replacement metadata → Ledger Audit; ไม่ลบ Source, สลิป, Transaction, Allocation หรือ Ledger
+- **ข้อมูลเดิม:** ซ่อมเฉพาะ Ledger `e0b6b451-8781-40a3-86f2-757d47677354` หลังตรวจคู่กับ Allocation Ledger `0e17121b-ae1e-4aa2-9f87-7406b577b5aa`; บันทึก Ledger Audit และ Document Flow Event อย่างละหนึ่งรายการ
+- **Migration:** `20260827004227_reconcile_employee_money_projection_scope.sql`, `20260827004553_fix_projection_reversal_contract.sql`; function เป็น `security definer` และ revoke จาก client roles
+- **Verification/Rollback:** Active Ledger ของ Transaction เหลือ 1, duplicate-active ทั้งระบบเหลือ 0, Audit/Trigger/constraint contract, test/typecheck/lint/build และ authenticated Advance page; rollback ปิด Trigger และคืนแถวเดิมจาก Audit เฉพาะหลัง Reverse Allocation ใหม่ โดยไม่ลบประวัติ
+
 ## ล่าสุด: Two-sided Advance Party Auto Link v2.2 — 27/8/2569
 
 - **เหตุผล:** สลิปจ่ายเงินเบิกล่วงหน้าที่ผู้โอนมีทะเบียนผู้ถือเงินและผู้รับมีทะเบียนพนักงานครบ ยังแสดง blocker `กรอกผู้ถือเงิน` และบัญชีพนักงานไม่ถูกเชื่อมกลับ Master Data

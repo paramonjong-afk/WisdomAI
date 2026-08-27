@@ -38,6 +38,10 @@ flowchart TD
   C -->|เงินเบิกล่วงหน้า/เงินสำรอง| M4{จับคู่ข้อมูล 2 ฝั่งได้หรือไม่}
   M4 -->|ผู้โอนตรงผู้ถือเงิน 1 คน<br/>ผู้รับตรงพนักงาน 1 คน| M41[เชื่อมบัญชีทั้งสองฝั่ง<br/>บันทึก Alias + Party Link + Audit]
   M41 --> M5[สร้างบัญชีพักพนักงานและส่ง Advance Finance]
+  M5 --> M51{มี Transaction projection เดิมหรือไม่}
+  M51 -->|มี| M52[Reverse แถวเดิม เก็บ replacement + Audit]
+  M51 -->|ไม่มี| M53[คง Allocation projection เดียว]
+  M52 --> M53
   M4 -->|ไม่พบ/หลายคน/บัญชีขัดแย้ง| QI
   C -->|ค่าใช้จ่ายทั่วไป| M6[ส่ง Accounting Posting]
   B -->|เอกสารบัญชีอื่น| C
@@ -82,6 +86,7 @@ flowchart TD
 - Money Lineage v2 แยก `Transfer Fact` (ข้อเท็จจริงจากสลิป) ออกจาก `transfer_slip_money_allocations` (วัตถุประสงค์/จำนวน/โครงการ/ผู้รับผิดชอบ) สลิปหนึ่งใบจึงแบ่งค่าแรง วัสดุ ผู้รับเหมา หรือหลายโครงการได้ โดยไม่แก้ Raw/OCR
 - Allocation ที่ยืนยันเป็น `payroll` หรือ `advance_transfer` จะลองจับคู่ชื่อผู้รับกับพนักงานรายวันของบริษัทแบบ exact normalized name หรือ alias ที่เคยยืนยันเท่านั้น เมื่อพบหนึ่งคนพอดีจะสร้าง Employee Money Holding Ledger แบบ idempotent; ถ้าไม่พบ/พบหลายคน/สลิปซ้ำจะคง Match Queue พร้อมเหตุผล และไม่สร้าง Payroll Line
 - Holding Ledger แยก `wage_paid` ออกจาก `advance_issued`; รายการเริ่มที่ `matched_pending_review` และการแก้ผิดใช้ Reject/Reversal/Adjustment แบบ append-only จึงย้อนเส้นทางเงินภายหลังได้โดยไม่เปลี่ยน Transfer Fact
+- เมื่อ Allocation projection ถูกสร้างหลัง Transaction projection เดิมของเงินก้อนเดียวกัน Trigger จะ Reverse เฉพาะแถวเดิมโดยไม่ลบข้อมูล เก็บ `replaced_by_entry_id`/Allocation ใน snapshot และเขียน Ledger Audit; รายงานจึงนับ Active Ledger เพียงหนึ่งรายการ ส่วนข้อมูลเก่าซ่อมแบบระบุ ID หลังตรวจคู่ Transaction/พนักงาน/ประเภท/ยอดตรงกันเท่านั้น
 - `root_lineage_id` และ `parent_lineage_id` เชื่อมสลิปคนละใบเป็นสายเงินเดียวกัน เช่น บริษัท → ผู้ถือเงิน → ช่าง/ร้านค้า/โครงการ → เงินคืน; สลิปเติมเงินสำรองต้องเป็น Allocation เดียว ส่วนการใช้เงินจริงเชื่อมเป็นสลิปลูกเพื่อไม่คาดเดาการใช้เงินล่วงหน้า
 - ยืนยันและส่งปลายทางได้ต่อเมื่อ `ยอดตามสลิป = รวม Allocation + ยอดคืน + ยอดยังไม่จัดสรร` และยอดยังไม่จัดสรรเป็นศูนย์; หากไม่ครบยังบันทึก Draft/ขอข้อมูลเพิ่มได้และ Accounting task ไม่ถูกปิด
 - Allocation ที่แก้ไขไม่ถูกลบ: เวอร์ชันก่อนถูกทำเครื่องหมาย `superseded` และ `document_flow_events` เก็บ before/after, actor, เวลา, Root/Parent และยอดกระทบทั้งหมดด้วย `event_key` เดิม
@@ -91,6 +96,7 @@ flowchart TD
 
 | Version | Date | Rationale | Impact | Migration | Verification | Rollback |
 | --- | --- | --- | --- | --- | --- | --- |
+| v2.3 | 27/8/2569 | Transaction projection เดิมและ Allocation projection ที่ยืนยันแล้วทำให้ยอด 400 บาทถูกนับซ้ำ | Trigger Reverse projection เดิมแบบไม่ลบข้อมูล พร้อม replacement metadata/Ledger Audit; ซ่อมรายการเก่าเฉพาะ ID หลังตรวจเงื่อนไขครบ | `20260827004227_reconcile_employee_money_projection_scope.sql`, `20260827004553_fix_projection_reversal_contract.sql` | active count=1, Ledger/Flow Audit, trigger/constraint contract, test/typecheck/lint/build และ authenticated Advance smoke | ปิด Trigger; ใช้ Audit before_data คืนสถานะแถวเดิมเฉพาะเมื่อ Allocation ใหม่ถูก Reverse ก่อน ห้ามลบ Ledger/Audit |
 | v2.1 | 27/8/2569 | สลิปเงินเบิกล่วงหน้ามีข้อมูลผู้โอนและผู้รับครบ แต่ Drawer ยังบังคับกรอกผู้ถือเงินและไม่เชื่อมบัญชีพนักงาน | ตรวจสองฝั่ง, เติมผู้ถือเงินอัตโนมัติ, เชื่อมบัญชีทั้งสองฝั่งเมื่อ Admin ยืนยัน และเดิน Flow เดิมต่อแบบ idempotent พร้อม conflict gate/Audit | `20260827003009_transfer_slip_advance_party_auto_link.sql` | preview/apply/conflict/idempotency contract, migration/RLS, typecheck/lint/build และ authenticated Accounting/Advance smoke | revoke RPC/ซ่อน panel; คง Party Link, Bank Fact, Alias, Source และ Audit เพื่อ recovery |
 | v2.0 | 27/8/2569 | รายการเบิกล่วงหน้าของช่างรายวันที่มีสิทธิ์ ณ วันโอนค้าง Accounting เมื่อช่างลาออกภายหลังหรือชื่อสลิปมีคำนำหน้า `น.ส.` | ใช้สิทธิ์ตามวันโอน, สร้างบัญชีพัก, ปิด Accounting Task และส่ง Employee Money Review พร้อม Audit; ไม่ใช้ทะเบียนผู้ถือเงินรายเดือน | `20260826235253_reconcile_daily_employee_advance_routing.sql`, `20260826235415_fix_daily_employee_advance_destination.sql` | temporal/name/route contract, Production reconciliation, typecheck/lint/build และ authenticated Accounting/Advance smoke | ปิด reconcile trigger/คืน RPC; คง Ledger/Audit และ Source เดิม |
 | v1.9 | 27/8/2569 | แก้ RPC v2 ที่ใช้ชื่อตัวแปร Project/Site ซ้ำกับคอลัมน์จน Draft/Confirm หยุดด้วย PostgreSQL 42702 | เปลี่ยนเฉพาะชื่อตัวแปรภายใน; Gate, Allocation, Route, Audit และข้อมูลเดิมคงเดิม | `20260826233010_fix_transfer_slip_allocation_project_ambiguity.sql` | RPC contract, Draft/Confirm runtime, typecheck/lint/build และ authenticated Drawer | restore function definition ก่อนหน้า; ไม่ลบ Source/Lineage/Allocation/Audit |
