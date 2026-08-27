@@ -1,5 +1,21 @@
 # Flow Registry Update Protocol
 
+## 2026-08-27 — Financial Transaction Center v1.0
+
+- **เหตุผล:** รวมหน้าข้อมูลธุรกรรมและ Drawer ให้ใช้ Canonical ที่ยืนยันแล้วเป็นหลัก พร้อมตรวจข้อมูลสองฝั่งและเส้นทางเงินเดียวกันทุกโมดูล
+- **ผลกระทบ:** `/financial-summary`, Accounting/Advance routing, duplicate/idempotency และ Audit presentation; ไม่แก้ Raw/OCR หรือข้อมูลธุรกิจเดิม
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** financial/advance contracts, typecheck, lint, build และ smoke หน้าสรุปการเงิน
+- **Rollback:** revert UI/เอกสาร; คง Canonical, Raw และ Audit เดิมเพื่อกู้คืน
+
+## 2026-08-27 — Employee Private Chat Room Auto-Provisioning v1.0
+
+- **เหตุผล:** ให้พนักงานแต่ละคนมีห้อง Web Chat ส่วนตัวโดยอัตโนมัติ ไม่ต้องสร้างห้องและเชิญสมาชิกทีละคน และไม่สร้างห้องซ้ำเมื่อ login/เพิ่มสมาชิกซ้ำ
+- **ผลกระทบ:** `chat_rooms.employee_profile_id`, `chat_room_audit`, RPC/trigger สำหรับ provision ห้องพนักงาน, membership/RLS และหน้า `Chat` ที่ ensure ห้องของพนักงานเมื่อเปิดใช้งาน; ห้อง HR/Finance/Program Development และเส้นทางลงเวลาเดิมไม่เปลี่ยน
+- **Migration:** `20260827132442_employee_private_chat_rooms.sql`; เพิ่ม unique `(company_id,employee_profile_id)`, advisory lock, auto-backfill พนักงาน active และบันทึก `provision_failed` เมื่อสร้างไม่สำเร็จ โดยไม่ลบห้อง/ข้อความเดิม
+- **การตรวจสอบ:** employee private room contract test, typecheck, lint, build และ runtime smoke หลัง apply migration; ตรวจสิทธิ์บริษัท สมาชิก owner/oversight และ duplicate prevention
+- **Rollback:** ปิด trigger/RPC และซ่อน room ใหม่ได้; เก็บห้อง ข้อความ และ `chat_room_audit` เดิมเพื่อ reconcile ห้ามลบข้อมูลย้อนหลัง
+
 ## ล่าสุด: Master Data Bank Add Manual Flow v1.6 — 26/8/2569
 
 - **เหตุผล:** เพิ่มทางเลือกสำหรับ Admin ในการใส่บัญชีธนาคารเข้า Master Data Center ด้วยตนเองจาก UI เพื่อแก้ปัญหาข้อมูล OCR ขาดหาย/ยังไม่เข้าระบบได้ทันที และลดภาระการไล่ตามงานซ้ำ
