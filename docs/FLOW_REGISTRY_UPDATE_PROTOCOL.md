@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## ล่าสุด: Daily Employee Advance Completion Reconciliation v2.1 — 27/8/2569
+
+- **เหตุผล:** รายการเบิกล่วงหน้าของพนักงานรายวันซึ่งทำงานอยู่ในวันโอนยังค้าง Accounting หลังพนักงานลาออกภายหลัง และคำนำหน้า `น.ส.` ทำให้ชื่อจับคู่ไม่สำเร็จ
+- **Flow:** Admin ยืนยัน Allocation → Canonical Transfer → จับคู่ชื่อโดยสิทธิ์ ณ วันโอน → Employee Money Holding Ledger → ปิด Accounting Task → `employee_money_review_queue`; ไม่บังคับทะเบียนผู้ถือเงินรายเดือนในกรณีช่างรายวัน
+- **ข้อมูลเดิม:** Migration ไม่ทำ Bulk reprocess; รายการเดิมซ่อมแบบระบุ Source/Allocation ทีละรายการพร้อม Audit เท่านั้น และ Raw/OCR/สลิป/Allocation ไม่ถูกลบ
+- **Migration:** `20260826235253_reconcile_daily_employee_advance_routing.sql`, `20260826235415_fix_daily_employee_advance_destination.sql`; Lineage ใช้ `advance_finance` ตาม enum ส่วน Flow Item ใช้คิว `employee_money_review_queue`
+- **Verification/Rollback:** title/temporal eligibility, ledger/queue/task/audit counts, targeted test, typecheck, lint, build และ authenticated Accounting/Advance page; rollback ปิด trigger/คืน RPC definitions โดยเก็บ Ledger/Audit เพื่อ recovery
+
 ## ล่าสุด: Transfer Slip Allocation Project Reference Fix v1.9 — 27/8/2569
 
 - **เหตุผล:** RPC จัดสรรสลิปใช้ตัวแปร `project_id`/`site_id` ชื่อเดียวกับคอลัมน์ ทำให้ Draft/Confirm หยุดด้วย PostgreSQL 42702 ก่อนบันทึก

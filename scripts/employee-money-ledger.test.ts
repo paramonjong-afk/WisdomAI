@@ -4,6 +4,7 @@ import { calculateEmployeeMoneyBalance, calculatePayrollOffsetPreview, normalize
 
 assert.equal(normalizeEmployeePaymentName('นาย พัฒนรัตน์ กันดี'), normalizeEmployeePaymentName('พัฒนรัตน์  กันดี'))
 assert.equal(normalizeEmployeePaymentName('ช่าง ภูธเรศ ภาวจันถึก'), 'ภูธเรศภาวจันถึก')
+assert.equal(normalizeEmployeePaymentName('น.ส. วรนุช มูลเหลา'), normalizeEmployeePaymentName('วรนุช มูลเหลา'))
 assert.notEqual(normalizeEmployeePaymentName('นาย ภูธเรศ ภาวจันทึก'), normalizeEmployeePaymentName('นาย ภูธเรศ ภาวจันถึก'))
 
 const balance = calculateEmployeeMoneyBalance([
@@ -44,6 +45,8 @@ assert.deepEqual(calculatePayrollOffsetPreview({
 
 const migration = readFileSync('supabase/migrations/20260826231000_employee_money_ledger.sql', 'utf8')
 const backfill = readFileSync('supabase/migrations/20260826231500_employee_money_legacy_backfill.sql', 'utf8')
+const dailyAdvanceReconcile = readFileSync('supabase/migrations/20260826235253_reconcile_daily_employee_advance_routing.sql', 'utf8')
+const dailyAdvanceDestinationFix = readFileSync('supabase/migrations/20260826235415_fix_daily_employee_advance_destination.sql', 'utf8')
 for (const marker of [
   'employee_money_ledger_entries',
   'employee_money_ledger_audit',
@@ -64,5 +67,11 @@ assert.match(backfill, /expense_type = 'advance'/i)
 assert.match(backfill, /expense_type = 'labor' and review_status = 'confirmed'/i)
 assert.match(backfill, /project_employee_money_source/i)
 assert.doesNotMatch(backfill, /employee_payrolls|employee_payroll_lines|delete\s+from/i)
+assert.match(dailyAdvanceReconcile, /payroll_eligible_until/)
+assert.match(dailyAdvanceReconcile, /employee_money_review_queue/)
+assert.match(dailyAdvanceReconcile, /target_decision => target_decision/)
+assert.doesNotMatch(dailyAdvanceReconcile, /for source_row in|with confirmed_sources as/)
+assert.doesNotMatch(dailyAdvanceReconcile, /delete\s+from/i)
+assert.match(dailyAdvanceDestinationFix, /next_destination = ''advance_finance''/)
 
 console.log('employee money ledger contract and math: PASS')

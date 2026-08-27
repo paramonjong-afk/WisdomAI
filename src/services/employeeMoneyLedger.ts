@@ -32,7 +32,7 @@ export type PayrollOffsetPreview = {
   wageCreditCarry: number
 }
 
-const thaiTitles = /^(?:นาย|นางสาว|นาง|คุณ|ช่าง|ด\.ช\.|ด\.ญ\.)\s*/i
+const thaiTitles = /^(?:นาย|นางสาว|นาง|คุณ|ช่าง|น\.?ส\.?|ด\.ช\.|ด\.ญ\.)\s*/i
 
 export function normalizeEmployeePaymentName(value: string | null | undefined) {
   return (value ?? '')
