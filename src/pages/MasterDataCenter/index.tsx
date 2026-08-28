@@ -64,6 +64,8 @@ export function MasterDataCenterPage() {
   const [reportDate, setReportDate] = useState('')
   const [reviewVisibleCount, setReviewVisibleCount] = useState(0)
   const [confirmedVisibleCount, setConfirmedVisibleCount] = useState(0)
+  const [canonicalSyncing, setCanonicalSyncing] = useState(false)
+  const [canonicalMessage, setCanonicalMessage] = useState('')
   const [correction, setCorrection] = useState({ display_name: '', classification_type: 'unknown_review' as MasterClassificationType, account_last4: '', bank_name: '', tax_id: '' })
   const [partyDraft, setPartyDraft] = useState<TransferPartyDraft>({ senderName: '', senderAccountLast4: '', senderBankName: '', recipientName: '', recipientAccountLast4: '', recipientBankName: '' })
 
@@ -96,6 +98,21 @@ export function MasterDataCenterPage() {
   }, [companyId])
 
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer) }, [load])
+  const syncCanonicalMatches = async () => {
+    if (!companyId || canonicalSyncing) return
+    setCanonicalSyncing(true); setCanonicalMessage(''); setError('')
+    try {
+      const { data, error: syncError } = await supabase.rpc('reprocess_master_data_canonical_matches', { target_company_id: companyId, target_limit: 500 })
+      if (syncError) { setError(userError(syncError)); return }
+      const result = data && typeof data === 'object' ? data as Record<string, unknown> : {}
+      await load()
+      setCanonicalMessage(`ตรวจ ${Number(result.processed ?? 0)} รายการ · เชื่อม Canonical ${Number(result.linked ?? 0)} · ขัดแย้ง ${Number(result.conflict ?? 0)} · ไม่เข้าเกณฑ์ ${Number(result.skipped ?? 0)}`)
+    } catch (syncError) {
+      setError(userError(syncError, 'ตรวจจับคู่ Canonical ไม่สำเร็จ'))
+    } finally {
+      setCanonicalSyncing(false)
+    }
+  }
   const review = async (candidate: Candidate, action: MasterReviewAction) => {
     if (reviewActionInFlightRef.current.has(candidate.id)) {
       setDrawerMessage({ severity: 'info', text: 'กำลังบันทึกรายการนี้ กรุณารอผลยืนยันจากฐานข้อมูลก่อน' })
@@ -374,6 +391,7 @@ export function MasterDataCenterPage() {
   }
   const confirmedRows = useMemo(() => candidates.filter((candidate) => ['confirmed', 'approved', 'locked'].includes(candidate.status)).filter((candidate) => reportType === 'all' || classifications[candidate.id].type === reportType).filter((candidate) => !reportDate || candidate.reviewed_at?.slice(0, 10) === reportDate), [candidates, classifications, reportDate, reportType])
   const conflictCount = reviewProjection.active.filter((candidate) => classifications[candidate.id].conflicts.length > 0).length
+  const canonicalLinkedCount = candidates.filter((candidate) => candidate.status === 'archived' && candidate.candidate_data.canonical_match_status === 'linked').length
   const selectedSource = selected ? evidence[selected.id] ?? emptyEvidence() : emptyEvidence()
   const selectedClassification = selected ? classifications[selected.id] ?? classifyMasterCandidate(selected, selectedSource, duplicateIds.has(selected.id)) : null
   const selectedRequiresCorrection = selected && selectedClassification ? masterDataRequiresCorrection(selected, selectedSource, selectedClassification.conflicts, selectedClassification.type) : false
@@ -384,11 +402,12 @@ export function MasterDataCenterPage() {
   const closeDrawer = () => { setSelected(null); closeEvidencePreview(); setReviewReason(''); setDrawerMessage(null); setDrawerTab(0); setRecordingMode('project_scoped') }
 
   return <Stack spacing={2}>
-    <PageHeader title="ศูนย์ข้อมูลกลาง" description="ข้อมูลจากสลิปและเอกสารจะเข้ารอตรวจ ก่อนยืนยันเป็นข้อมูลใช้ร่วมกันทุก Module · ไม่มีการลบข้อมูลที่มีการอ้างอิง" action={<Button startIcon={<RefreshOutlined />} onClick={() => void load()}>รีเฟรช</Button>} />
+    <PageHeader title="ศูนย์ข้อมูลกลาง" description="ข้อมูลจากสลิปและเอกสารจะเข้ารอตรวจ ก่อนยืนยันเป็นข้อมูลใช้ร่วมกันทุก Module · ไม่มีการลบข้อมูลที่มีการอ้างอิง" action={<Stack direction="row" spacing={1}><Button variant="outlined" disabled={canonicalSyncing} onClick={() => void syncCanonicalMatches()}>{canonicalSyncing ? 'กำลังจับคู่...' : 'จับคู่ Canonical'}</Button><Button startIcon={<RefreshOutlined />} onClick={() => void load()}>รีเฟรช</Button></Stack>} />
     {error && <Alert severity="error">{error}</Alert>}
-    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><Metric label="คิวที่ต้องจัดการ" value={`${reviewProjection.active.length} รายการ`} /><Metric label="ข้อมูลใหม่" value={`${reviewProjection.incoming.length} รายการ`} /><Metric label="รอตรวจ/รอข้อมูล" value={`${reviewProjection.followUp.length} รายการ`} /><Metric label="Auto Verified" value={`${reviewProjection.autoVerified.length} รายการ`} /><Metric label="ขัดแย้ง" value={`${conflictCount} รายการ`} /><Metric label="ยืนยันแล้ว" value={`${reviewProjection.confirmed.length} รายการ`} /><Metric label="แก้ไขโดย Admin" value={`${reviewProjection.adminReviewed.length} รายการ`} /></Stack>
+    {canonicalMessage && <Alert severity="success">{canonicalMessage}</Alert>}
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><Metric label="คิวที่ต้องจัดการ" value={`${reviewProjection.active.length} รายการ`} /><Metric label="ข้อมูลใหม่" value={`${reviewProjection.incoming.length} รายการ`} /><Metric label="รอตรวจ/รอข้อมูล" value={`${reviewProjection.followUp.length} รายการ`} /><Metric label="Auto Verified" value={`${reviewProjection.autoVerified.length} รายการ`} /><Metric label="Canonical เชื่อมแล้ว" value={`${canonicalLinkedCount} รายการ`} /><Metric label="ขัดแย้ง" value={`${conflictCount} รายการ`} /><Metric label="ยืนยันแล้ว" value={`${reviewProjection.confirmed.length} รายการ`} /><Metric label="แก้ไขโดย Admin" value={`${reviewProjection.adminReviewed.length} รายการ`} /></Stack>
     <Alert severity="info">สูตรคิวเดียวกัน: คิวที่ต้องจัดการ = ข้อมูลใหม่ + รอตรวจ/รอข้อมูล + Auto Verified + แก้ไขโดย Admin · ตารางและตัวกรอง “รอตรวจ” ใช้ชุดสถานะเดียวกัน</Alert>
-    <Paper variant="outlined" sx={{ p: 1.5 }}><Typography variant="body2">มุมมองนี้สรุปข้อมูลใหม่เป็นกลุ่ม ไม่แสดง OCR ซ้ำเป็นหลายแถว เมื่อยืนยันรายการหลัก ระบบจะนำ Candidate ชื่อ+เลขท้ายเดียวกันออกจาก Review Queue ทั้งกลุ่ม พร้อมผูก Duplicate/Audit โดยเก็บ Source ทุกต้นทางไว้ตรวจย้อนหลัง</Typography></Paper>
+    <Paper variant="outlined" sx={{ p: 1.5 }}><Typography variant="body2">มุมมองนี้สรุปข้อมูลใหม่เป็นกลุ่ม ไม่แสดง OCR ซ้ำเป็นหลายแถว เมื่อชื่อมาตรฐาน + ธนาคารมาตรฐาน + เลขท้ายบัญชีตรงกับ Canonical เพียงรายการเดียว ระบบจะเชื่อมและนำหลักฐานซ้ำออกจาก Review Queue อัตโนมัติ พร้อม Version/Audit โดยเก็บ Source, รูปและ OCR เดิมไว้ หากตรงเพียงชื่อหรือพบข้อมูลขัดแย้งจะคงไว้รอตรวจ</Typography></Paper>
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'center' } }}><Typography variant="h6" sx={{ flex: 1 }}>Review Queue</Typography><Select size="small" value={filter} onChange={(event) => setFilter(event.target.value as MasterReviewFilter)}><MenuItem value="pending_review">รอตรวจ</MenuItem><MenuItem value="duplicate">ซ้ำ</MenuItem><MenuItem value="name_mismatch">ชื่อไม่ตรง</MenuItem><MenuItem value="account_name_mismatch">บัญชีตรงแต่ชื่อไม่ตรง</MenuItem><MenuItem value="conflict">ข้อมูลขัดแย้ง</MenuItem><MenuItem value="unknown_review">Unknown/Needs Review</MenuItem><MenuItem value="all">ทั้งหมด</MenuItem></Select><Chip label={`${reviewVisibleCount} กลุ่ม/รายการ`} /></Stack>
     <StandardDataTable rows={summaryRows} onFilteredRowCountChange={setReviewVisibleCount} getRowId={(row) => row.id} onRowClick={openCandidate} getSearchText={(row) => `${row.display_name} ${entityLabel[row.entity_type] ?? row.entity_type} ${classificationLabel[classifications[row.id].type]} ${candidateAccount(row) ?? ''} ${row.source_id ?? ''} ${evidence[row.id]?.messageId ?? ''}`} searchLabel="ค้นหาชื่อ บัญชี ประเภท Source ID หรือ Message ID" emptyText="ยังไม่มีข้อมูลตามตัวกรอง" minWidth={1460} columns={[
       { id: 'type', label: 'ประเภท', minWidth: 130, render: (row) => entityLabel[row.entity_type] ?? row.entity_type },
