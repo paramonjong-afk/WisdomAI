@@ -55,9 +55,17 @@ assert.equal(correction.tax_id.status, 'ready')
 
 const persistedAdminClassification = buildMasterAutoCorrection({
   ...autoCandidate,
+  display_name: 'ชื่อที่ Admin แก้แล้ว',
   status: 'admin_reviewed',
   classification_type: 'employee_technician',
-  candidate_data: { ...autoCandidate.candidate_data, classification_type: 'employee_technician', admin_corrected_at: '2026-08-25T13:51:53Z' },
+  candidate_data: {
+    ...autoCandidate.candidate_data,
+    classification_type: 'employee_technician',
+    account_last4: '9876',
+    bank_name: 'ธนาคารที่ Admin แก้แล้ว',
+    tax_id: '0105559999999',
+    admin_corrected_at: '2026-08-25T13:51:53Z',
+  },
 }, autoSource, {
   ...vendorClassification,
   type: 'unknown_review',
@@ -68,6 +76,14 @@ const persistedAdminClassification = buildMasterAutoCorrection({
 })
 assert.equal(persistedAdminClassification.classification_type.value, 'employee_technician', 'saved Admin classification is the current source of truth')
 assert.equal(persistedAdminClassification.classification_type.status, 'persisted')
+assert.equal(persistedAdminClassification.display_name.value, 'ชื่อที่ Admin แก้แล้ว', 'saved Admin name wins over older OCR evidence')
+assert.equal(persistedAdminClassification.display_name.status, 'persisted')
+assert.equal(persistedAdminClassification.account_last4.value, '9876', 'saved Admin account wins over older OCR evidence')
+assert.equal(persistedAdminClassification.account_last4.status, 'persisted')
+assert.equal(persistedAdminClassification.bank_name.value, 'ธนาคารที่ Admin แก้แล้ว')
+assert.equal(persistedAdminClassification.bank_name.status, 'persisted')
+assert.equal(persistedAdminClassification.tax_id.value, '0105559999999')
+assert.equal(persistedAdminClassification.tax_id.status, 'persisted')
 assert.equal(persistedAdminClassification.classification_suggestion?.value, 'unknown_review', 'new AI result remains a separate suggestion')
 assert.equal(persistedAdminClassification.classification_suggestion?.status, 'missing')
 assert.equal(autoInputAuditPayload(persistedAdminClassification, masterAutoRoute('employee_technician', 0.9, [])).rule_version, 'master-data-auto-input-v2')
@@ -88,4 +104,4 @@ for (const token of ['detected_start_date', 'confirmed_start_date', 'start_date_
 assert.doesNotMatch(migration, /delete\s+from\s+public\.(master_data_candidates|financial_transactions|line_messages|document_flow_items)/i)
 assert.doesNotMatch(migration, /update\s+public\.(financial_transactions|line_messages|document_flow_items)/i)
 
-console.log('master data Auto Input passed: persisted Admin classification precedence, separate AI suggestion, 2-tab flow, provenance/confidence, conflict gate, route and Raw/OCR preservation')
+console.log('master data Auto Input passed: persisted Admin field precedence, separate AI suggestion, 2-tab flow, provenance/confidence, conflict gate, route and Raw/OCR preservation')

@@ -56,8 +56,12 @@ const status = (value: string, confidence: number | null, conflict = false): Aut
   return 'review'
 }
 const classificationTypes = new Set<MasterClassificationType>(['vendor', 'employee_technician', 'customer', 'company_internal', 'unknown_review'])
+const persistedAdminStatuses = new Set(['admin_reviewed', 'confirmed', 'locked'])
+const hasPersistedAdminCorrection = (candidate: MasterCandidate) => (
+  persistedAdminStatuses.has(candidate.status) && Boolean(text(candidate.candidate_data?.admin_corrected_at))
+)
 const savedAdminClassification = (candidate: MasterCandidate): MasterClassificationType | null => {
-  if (!['admin_reviewed', 'confirmed', 'locked'].includes(candidate.status)) return null
+  if (!persistedAdminStatuses.has(candidate.status)) return null
   const value = text(candidate.classification_type) || text(candidate.candidate_data?.classification_type)
   if (!classificationTypes.has(value as MasterClassificationType) || value === 'unknown_review') return null
   return value as MasterClassificationType
@@ -83,12 +87,13 @@ export function detectProjectStartDate(candidate: MasterCandidate, source: Maste
 
 export function buildMasterAutoCorrection(candidate: MasterCandidate, source: MasterSourceEvidence, classification: MasterClassification): MasterAutoCorrection {
   const data = candidate.candidate_data ?? {}
+  const persistedCorrection = hasPersistedAdminCorrection(candidate)
   const sourceName = text(source.extractedName) || text(data.ocr_name) || text(data.recipient_name)
-  const displayName = sourceName || candidate.display_name
+  const displayName = persistedCorrection ? text(candidate.display_name) : sourceName || text(candidate.display_name)
   const nameConflict = Boolean(sourceName && candidate.display_name && sourceName.replace(/\s/g, '') !== candidate.display_name.replace(/\s/g, ''))
   const accountFromSource = normalizeAccountLast4(source.extractedAccount)
   const accountFromCandidate = normalizeAccountLast4(data.account_last4)
-  const account = accountFromSource || accountFromCandidate || ''
+  const account = persistedCorrection ? accountFromCandidate || '' : accountFromSource || accountFromCandidate || ''
   const accountConflict = Boolean(accountFromSource && accountFromCandidate && accountFromSource !== accountFromCandidate)
   const bank = first(data, ['bank_name', 'recipient_bank_name', 'ocr_bank_name'])
   const tax = first(data, ['tax_id', 'vendor_tax_id', 'customer_tax_id', 'ocr_tax_id'])
@@ -101,12 +106,12 @@ export function buildMasterAutoCorrection(candidate: MasterCandidate, source: Ma
     ? { value: classification.type, source: classification.reason, confidence: classification.confidence, status: status(classification.type === 'unknown_review' ? '' : classification.type, classification.confidence, classification.conflicts.length > 0) }
     : null
   return {
-    display_name: { value: displayName, source: sourceName ? 'OCR/หลักฐานต้นทาง' : 'Candidate เดิม', confidence, status: status(displayName, confidence, nameConflict) },
+    display_name: { value: displayName, source: persistedCorrection ? 'Admin Correction ที่บันทึกแล้ว' : sourceName ? 'OCR/หลักฐานต้นทาง' : 'Candidate เดิม', confidence: persistedCorrection ? null : confidence, status: persistedCorrection ? 'persisted' : status(displayName, confidence, nameConflict) },
     classification_type: classificationField,
     classification_suggestion: classificationSuggestion,
-    account_last4: { value: account, source: accountFromSource ? 'OCR/บัญชีจากหลักฐาน' : accountFromCandidate ? 'Candidate เดิม' : '', confidence, status: status(account, confidence, accountConflict) },
-    bank_name: { value: bank.value, source: bank.source, confidence, status: status(bank.value, confidence) },
-    tax_id: { value: tax.value, source: tax.source, confidence, status: status(tax.value, confidence) },
+    account_last4: { value: account, source: persistedCorrection ? 'Admin Correction ที่บันทึกแล้ว' : accountFromSource ? 'OCR/บัญชีจากหลักฐาน' : accountFromCandidate ? 'Candidate เดิม' : '', confidence: persistedCorrection ? null : confidence, status: persistedCorrection ? 'persisted' : status(account, confidence, accountConflict) },
+    bank_name: { value: bank.value, source: persistedCorrection ? 'Admin Correction ที่บันทึกแล้ว' : bank.source, confidence: persistedCorrection ? null : confidence, status: persistedCorrection ? 'persisted' : status(bank.value, confidence) },
+    tax_id: { value: tax.value, source: persistedCorrection ? 'Admin Correction ที่บันทึกแล้ว' : tax.source, confidence: persistedCorrection ? null : confidence, status: persistedCorrection ? 'persisted' : status(tax.value, confidence) },
   }
 }
 
