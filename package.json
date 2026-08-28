@@ -131,6 +131,7 @@
     "test:master-data-project-gate": "node --experimental-strip-types scripts/master-data-project-first-gate.test.ts",
     "test:master-data-review-step": "node --experimental-strip-types scripts/master-data-review-step-ux.test.ts",
     "test:master-data-correct-confirm": "node --experimental-strip-types scripts/master-data-correct-and-confirm.test.ts",
+    "test:advance-party-historical-eligibility": "node --experimental-strip-types scripts/transfer-slip-advance-party-historical-eligibility.test.ts",
     "test:master-data-account-last4": "node --experimental-strip-types scripts/master-data-account-last4-confirmation.test.ts",
     "test:master-data-auto-input": "node --experimental-strip-types scripts/master-data-auto-input.test.ts",
     "test:master-data-advance-funding": "node --experimental-strip-types scripts/master-data-advance-funding.test.ts",
