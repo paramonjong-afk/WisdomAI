@@ -8,7 +8,8 @@ const row = (overrides: Partial<TransferSlipQueueRow> = {}): TransferSlipQueueRo
   sourceChannel: 'line', sourceRoomName: 'ห้องทดสอบ', sourceSenderName: 'ผู้ส่ง', sourceReceivedAt: '2026-08-23T08:00:00Z', dataReviewStatus: 'complete', dataReviewNote: null,
   candidateDepartments: ['accounting'], expenseType: null, laborAmount: null, duplicateOf: null,
   transactionId: crypto.randomUUID(), senderBankName: 'ธนาคาร ก', senderAccountLast4: '1234', recipientBankName: 'ธนาคาร ข', recipientAccountLast4: '5678', bankReference: 'REF-001', paymentPartyConfidence: .95, analysisConfidence: .94, analysisModel: 'fixture', notes: null,
-  truthStatus: 'needs_review', isPostable: false, canonicalPayerName: null, canonicalFundHolderName: null, canonicalBeneficiaryName: null, canonicalAmount: null, ...overrides,
+  truthStatus: 'needs_review', isPostable: false, canonicalPayerName: null, canonicalFundHolderName: null, canonicalBeneficiaryName: null, canonicalAmount: null,
+  partyIdentityStatus: 'unconfirmed', confirmedPartyPayerName: null, confirmedPartyBeneficiaryName: null, partyIdentitySourceLineageId: null, partyIdentityConfirmedAt: null, ...overrides,
 })
 
 const fixture = [

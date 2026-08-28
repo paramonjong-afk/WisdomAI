@@ -39,6 +39,11 @@ export type TransferSlipQueueRow = {
   canonicalFundHolderName: string | null
   canonicalBeneficiaryName: string | null
   canonicalAmount: number | null
+  partyIdentityStatus: 'confirmed_current' | 'confirmed_pair' | 'unconfirmed'
+  confirmedPartyPayerName: string | null
+  confirmedPartyBeneficiaryName: string | null
+  partyIdentitySourceLineageId: string | null
+  partyIdentityConfirmedAt: string | null
 }
 
 export const isDuplicateTransferSlip = (row: TransferSlipQueueRow) => row.reviewStatus === 'duplicate' || Boolean(row.duplicateOf)

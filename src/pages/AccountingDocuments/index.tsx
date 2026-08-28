@@ -1030,7 +1030,12 @@ export function AccountingDocumentsPage() {
     const requestId = ++slipRequestRef.current
     const suggestion = inferSlipMoneyPurpose(slip)
     const suggestedPurpose = suggestion.purpose
-    const suggestedLineage = emptyMoneyLineage(slip.senderName ?? '', slip.recipientName ?? '', slip.amount, slip.transferAt ? new Date(slip.transferAt).toISOString().slice(0, 16) : '')
+    const suggestedLineage = emptyMoneyLineage(
+      slip.confirmedPartyPayerName ?? slip.senderName ?? '',
+      slip.confirmedPartyBeneficiaryName ?? slip.recipientName ?? '',
+      slip.amount,
+      slip.transferAt ? new Date(slip.transferAt).toISOString().slice(0, 16) : '',
+    )
     if (suggestedPurpose !== 'unknown') {
       suggestedLineage.purposeType = suggestedPurpose
       suggestedLineage.allocations = suggestedLineage.allocations.map(allocation => ({ ...allocation, purposeType: suggestedPurpose, confidence: String(suggestion.confidence) }))
@@ -1386,11 +1391,11 @@ export function AccountingDocumentsPage() {
               columns={[
                 { id: 'id', label: 'Document ID', minWidth: 180, render: row => <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{(row.intakeId ?? row.itemId).slice(0, 12)}…</Typography>, exportValue: row => row.intakeId ?? row.itemId },
                 { id: 'date', label: 'วันที่โอน', minWidth: 150, render: row => row.transferAt ? new Date(row.transferAt).toLocaleString('th-TH') : 'ยังอ่านไม่ได้' },
-                { id: 'sender', label: 'ผู้จ่าย / ผู้โอน', minWidth: 210, render: row => <Box><Typography variant="body2">{row.isPostable ? row.canonicalPayerName ?? 'ไม่ระบุ' : row.senderName ?? 'ยังอ่านไม่ได้'}</Typography><Typography variant="caption" color="text.secondary">{row.isPostable ? 'ข้อมูลใช้งานจริง' : 'หลักฐานรอตรวจ'}</Typography></Box> },
-                { id: 'recipient', label: 'ผู้รับ', minWidth: 210, render: row => <Box><Typography variant="body2">{row.isPostable ? row.canonicalBeneficiaryName ?? 'ไม่ระบุ' : row.recipientName ?? 'ยังอ่านไม่ได้'}</Typography><Typography variant="caption" color="text.secondary">{row.isPostable ? 'ข้อมูลใช้งานจริง' : 'หลักฐานรอตรวจ'}</Typography></Box> },
+                { id: 'sender', label: 'ผู้จ่าย / ผู้โอน', minWidth: 210, render: row => <Box><Typography variant="body2">{row.isPostable ? row.canonicalPayerName ?? 'ไม่ระบุ' : row.confirmedPartyPayerName ?? row.senderName ?? 'ยังอ่านไม่ได้'}</Typography><Typography variant="caption" color="text.secondary">{row.isPostable ? 'ข้อมูลใช้งานจริง' : row.partyIdentityStatus === 'confirmed_pair' ? 'ชื่อจากคู่บัญชีที่ยืนยันแล้ว' : 'หลักฐานรอตรวจ'}</Typography></Box> },
+                { id: 'recipient', label: 'ผู้รับ', minWidth: 210, render: row => <Box><Typography variant="body2">{row.isPostable ? row.canonicalBeneficiaryName ?? 'ไม่ระบุ' : row.confirmedPartyBeneficiaryName ?? row.recipientName ?? 'ยังอ่านไม่ได้'}</Typography><Typography variant="caption" color="text.secondary">{row.isPostable ? 'ข้อมูลใช้งานจริง' : row.partyIdentityStatus === 'confirmed_pair' ? 'ชื่อจากคู่บัญชีที่ยืนยันแล้ว' : 'หลักฐานรอตรวจ'}</Typography></Box> },
                 { id: 'amount', label: 'จำนวนเงิน', minWidth: 140, align: 'right', render: row => <Box><Typography variant="body2">{money(row.isPostable ? row.canonicalAmount : row.amount)}</Typography><Typography variant="caption" color="text.secondary">{row.isPostable ? 'Canonical' : 'Evidence'}</Typography></Box> },
                 { id: 'source', label: 'Source', minWidth: 220, render: row => <Box><Typography variant="body2">{row.sourceChannel ?? 'ไม่ระบุช่องทาง'} · {row.sourceRoomName ?? 'ไม่ระบุห้อง'}</Typography><Typography variant="caption" color="text.secondary">{row.sourceSenderName ?? 'ไม่ระบุผู้ส่ง'}</Typography></Box> },
-                { id: 'status', label: 'สถานะข้อมูลกลาง', minWidth: 170, render: row => { const bucket = transferSlipQueueBucket(row); return <Chip size="small" color={bucket === 'reviewed' ? 'success' : bucket === 'duplicate' ? 'error' : bucket === 'incomplete' ? 'warning' : 'info'} label={row.isPostable ? 'Canonical · ใช้งานได้' : bucket === 'duplicate' ? 'รายการซ้ำ · ห้ามใช้' : row.truthStatus === 'needs_information' ? 'รอข้อมูลเพิ่ม' : bucket === 'incomplete' ? 'หลักฐานไม่ครบ' : 'รอตรวจ · ห้ามลงบัญชี'} /> } },
+                { id: 'status', label: 'สถานะข้อมูลกลาง', minWidth: 190, render: row => { const bucket = transferSlipQueueBucket(row); return <Chip size="small" color={bucket === 'reviewed' ? 'success' : bucket === 'duplicate' ? 'error' : bucket === 'incomplete' ? 'warning' : 'info'} label={row.isPostable ? 'Canonical · ใช้งานได้' : bucket === 'duplicate' ? 'รายการซ้ำ · ห้ามใช้' : row.truthStatus === 'needs_information' ? 'รอข้อมูลเพิ่ม' : bucket === 'incomplete' ? 'หลักฐานไม่ครบ' : row.partyIdentityStatus === 'confirmed_pair' ? 'ชื่อยืนยันแล้ว · รอจัดสรร' : 'รอตรวจ · ห้ามลงบัญชี'} /> } },
                 { id: 'next', label: 'ปลายทางถัดไป', minWidth: 210, render: row => { const continuation = transferSlipContinuation(row); return <Stack direction="row" spacing={.5} sx={{ alignItems: 'center' }}>{continuation.label && <Chip size="small" color="secondary" label={continuation.label} />}<Typography variant="body2">{continuation.route}</Typography></Stack> } },
                 { id: 'open', label: 'หลักฐาน', minWidth: 120, render: row => <Button size="small" variant="outlined" onClick={() => void openSlipDetail(row)}>เปิดรูป/Audit</Button>, exportable: false },
               ]}

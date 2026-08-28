@@ -42,6 +42,11 @@ export type TransferSlipOperationalTruthRow = {
   canonical_fund_holder_name: string | null
   canonical_beneficiary_name: string | null
   canonical_amount: number | null
+  party_identity_status: 'confirmed_current' | 'confirmed_pair' | 'unconfirmed'
+  confirmed_party_payer_name: string | null
+  confirmed_party_beneficiary_name: string | null
+  party_identity_source_lineage_id: string | null
+  party_identity_confirmed_at: string | null
 }
 
 export function mapTransferSlipTruth(row: TransferSlipOperationalTruthRow): TransferSlipQueueRow {
@@ -84,5 +89,10 @@ export function mapTransferSlipTruth(row: TransferSlipOperationalTruthRow): Tran
     canonicalFundHolderName: row.canonical_fund_holder_name,
     canonicalBeneficiaryName: row.canonical_beneficiary_name,
     canonicalAmount: row.canonical_amount == null ? null : Number(row.canonical_amount),
+    partyIdentityStatus: row.party_identity_status,
+    confirmedPartyPayerName: row.confirmed_party_payer_name,
+    confirmedPartyBeneficiaryName: row.confirmed_party_beneficiary_name,
+    partyIdentitySourceLineageId: row.party_identity_source_lineage_id,
+    partyIdentityConfirmedAt: row.party_identity_confirmed_at,
   }
 }
