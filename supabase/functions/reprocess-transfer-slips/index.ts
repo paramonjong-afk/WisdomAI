@@ -166,6 +166,7 @@ Deno.serve(async (request) => {
   const limit = Math.min(10, Math.max(1, Number(body.limit) || 10))
   const targetItemId = typeof body.item_id === 'string' && /^[0-9a-f-]{36}$/i.test(body.item_id) ? body.item_id : null
   const repairInvalidDates = body.repair_invalid_dates === true && !targetItemId
+  const preserveRoute = Boolean(targetItemId || repairInvalidDates)
   const excludedItemIds = new Set((Array.isArray(body.exclude_item_ids) ? body.exclude_item_ids : [])
     .filter(id => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id)).slice(0, 200))
   const guidance = asNullableText(body.guidance, 500) ?? undefined
@@ -248,11 +249,11 @@ Deno.serve(async (request) => {
       const confidence = parties.classification_confidence
       const isTransfer = parties.document_type === 'transfer_slip' && confidence >= 0.9
       const allowedType = confidence >= 0.9 && parties.document_type && parties.document_type !== 'unreadable'
-      const nextType = allowedType ? parties.document_type : item.document_type
-      const nextFlow = targetItemId ? item.current_flow : isTransfer ? 'filter' : allowedType ? 'filter' : 'intake'
-      const nextState = targetItemId ? item.state : allowedType ? 'validating' : 'awaiting_classification'
-      const nextRoom = targetItemId ? item.current_room : isTransfer ? 'filter_payment_verification' : allowedType ? `filter_${parties.document_type}` : 'intake_manual_review'
-      const nextRoute = targetItemId ? item.route_target : isTransfer ? 'payment_verification' : allowedType ? parties.document_type : item.route_target
+      const nextType = preserveRoute ? item.document_type : allowedType ? parties.document_type : item.document_type
+      const nextFlow = preserveRoute ? item.current_flow : isTransfer ? 'filter' : allowedType ? 'filter' : 'intake'
+      const nextState = preserveRoute ? item.state : allowedType ? 'validating' : 'awaiting_classification'
+      const nextRoom = preserveRoute ? item.current_room : isTransfer ? 'filter_payment_verification' : allowedType ? `filter_${parties.document_type}` : 'intake_manual_review'
+      const nextRoute = preserveRoute ? item.route_target : isTransfer ? 'payment_verification' : allowedType ? parties.document_type : item.route_target
       const outcome = isTransfer ? 'routed_accounting' : allowedType ? 'classified' : 'held'
       const extractedValues = Object.fromEntries(Object.entries({
         sender_name: parties.sender_name, sender_bank_name: parties.sender_bank_name, sender_account_last4: parties.sender_account_last4,
@@ -268,7 +269,7 @@ Deno.serve(async (request) => {
       }).eq('source_message_id', item.source_message_id)
       if (transactionUpdateError && !/No rows found/i.test(transactionUpdateError.message)) throw transactionUpdateError
       const update = await admin.from('document_flow_items').update({
-        document_type: targetItemId ? item.document_type : nextType, route_target: nextRoute, confidence,
+        document_type: nextType, route_target: nextRoute, confidence,
         current_flow: nextFlow, state: nextState, current_room: nextRoom,
         auto_routed: false, issue_codes: allowedType ? [] : ['confidence_below_auto_threshold'],
         last_error: allowedType ? null : (parties.classification_reason ?? 'ข้อมูลไม่ครบหรือ confidence ต่ำ'),
@@ -278,7 +279,7 @@ Deno.serve(async (request) => {
       if (update.error) throw update.error
       await admin.from('document_flow_classification_history').insert({
         batch_id: batch.id, item_id: item.id, company_id: item.company_id, source_message_id: item.source_message_id,
-        before_document_type: item.document_type, after_document_type: targetItemId ? item.document_type : nextType,
+        before_document_type: item.document_type, after_document_type: nextType,
         before_route_target: item.route_target, after_route_target: nextRoute,
         before_flow: item.current_flow, after_flow: nextFlow, before_state: item.state, after_state: nextState,
         confidence, rule_version: ruleVersion, model_version: modelVersion, outcome,
@@ -293,7 +294,7 @@ Deno.serve(async (request) => {
         payload: { batch_id: batch.id, rule_version: ruleVersion, model_version: modelVersion, confidence, document_type: parties.document_type, outcome, guidance: guidance ?? null, single_item: Boolean(targetItemId), repair_invalid_dates: repairInvalidDates },
         actor_id: actor.profileId,
       })
-      if (allowedType && !targetItemId) {
+      if (allowedType && !preserveRoute) {
         await admin.from('document_flow_events').insert({
           item_id: item.id, company_id: item.company_id,
           event_key: `ai-reclassified:${batch.id}:${item.id}`, event_type: 'ai_reclassified',
@@ -304,7 +305,7 @@ Deno.serve(async (request) => {
           actor_id: actor.profileId,
         })
       }
-      if (isTransfer && !targetItemId) {
+      if (isTransfer && !preserveRoute) {
         await admin.from('document_flow_events').insert({
           item_id: item.id, company_id: item.company_id,
           event_key: `route-corrected:${batch.id}:${item.id}`, event_type: 'route_corrected',
