@@ -36,4 +36,3 @@ export const paymentMethodLabel = (method: PaymentMethod) => ({
   promptpay: 'PromptPay',
   unknown: 'ยังไม่ทราบช่องทาง',
 })[method]
-
