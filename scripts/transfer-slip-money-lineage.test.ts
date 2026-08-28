@@ -10,8 +10,8 @@ draft.allocations = [{ ...draft.allocations[0], purposeType: 'materials', projec
 draft.remainingAmount = calculateUnallocatedAmount(10000, draft.allocations, draft.returnedAmount)
 assert.deepEqual(validateMoneyLineage(draft, 10000), { missing: [], errors: [] })
 assert.equal(moneyAllocationTotal(draft.allocations), 10000)
-assert.deepEqual(moneyAllocationDestinations(draft.allocations), ['บัญชี → Stock → โครงการ', 'บัญชี → HR/ค่าแรง'])
-assert.deepEqual(moneyPurposeRoute('materials').departments, ['inventory', 'project'])
+assert.deepEqual(moneyAllocationDestinations(draft.allocations), ['บัญชี → ต้นทุนโครงการ', 'บัญชี → HR/ค่าแรง'])
+assert.deepEqual(moneyPurposeRoute('materials').departments, ['project'])
 assert.equal(moneyPurposeRoute('payroll').route, 'บัญชี → HR/ค่าแรง')
 assert.deepEqual(legacyMoneyLineageScope(draft.allocations), { projectId: 'project-1', siteId: '' })
 draft.paidAmount = '9000'

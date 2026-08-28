@@ -86,7 +86,7 @@ export const emptyMoneyLineage = (senderName = '', recipientName = '', amount: n
 export const moneyPurposeRoute = (purpose: MoneyPurpose) => {
   if (purpose === 'payroll') return { label: 'ค่าแรง', route: 'บัญชี → HR/ค่าแรง', departments: ['hr'] }
   if (purpose === 'advance_transfer' || purpose === 'onward_transfer') return { label: 'เงินสำรองจ่าย', route: 'บัญชี → เงินสำรองจ่าย', departments: [] }
-  if (purpose === 'materials') return { label: 'วัสดุ', route: 'บัญชี → Stock → โครงการ', departments: ['inventory', 'project'] }
+  if (purpose === 'materials') return { label: 'ค่าวัสดุ', route: 'บัญชี → ต้นทุนโครงการ', departments: ['project'] }
   if (purpose === 'project_expense') return { label: 'ค่าใช้จ่ายโครงการ', route: 'บัญชี → โครงการ', departments: ['project'] }
   if (purpose === 'subcontractor') return { label: 'ผู้รับเหมา/ผู้รับเหมาช่วง', route: 'บัญชี → โครงการ', departments: ['project'] }
   if (purpose === 'travel') return { label: 'เดินทาง/หน้างาน', route: 'บัญชี → โครงการ', departments: ['project'] }
