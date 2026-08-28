@@ -7,12 +7,13 @@ draft.fundHolderName = 'นาย ก'
 draft.startingAmount = '50000'
 draft.returnedAmount = '0'
 draft.allocations = [{ ...draft.allocations[0], purposeType: 'materials', projectId: 'project-1', amount: '6000' }, { ...emptyMoneyAllocation(4000, 'ช่าง ก'), purposeType: 'payroll' }]
+draft.allocations[1].payrollKind = 'daily_wage'
 draft.remainingAmount = calculateUnallocatedAmount(10000, draft.allocations, draft.returnedAmount)
 assert.deepEqual(validateMoneyLineage(draft, 10000), { missing: [], errors: [] })
 assert.equal(moneyAllocationTotal(draft.allocations), 10000)
-assert.deepEqual(moneyAllocationDestinations(draft.allocations), ['บัญชี → ต้นทุนโครงการ', 'บัญชี → HR/ค่าแรง'])
+assert.deepEqual(moneyAllocationDestinations(draft.allocations), ['บัญชี → ต้นทุนโครงการ', 'บัญชี → HR/ค่าแรงรายวัน'])
 assert.deepEqual(moneyPurposeRoute('materials').departments, ['project'])
-assert.equal(moneyPurposeRoute('payroll').route, 'บัญชี → HR/ค่าแรง')
+assert.equal(moneyPurposeRoute('payroll', 'salary').route, 'บัญชี → HR/เงินเดือน')
 assert.deepEqual(legacyMoneyLineageScope(draft.allocations), { projectId: 'project-1', siteId: '' })
 draft.paidAmount = '9000'
 assert.match(validateMoneyLineage(draft, 10000).errors.join(' '), /ยอดจ่ายไม่ตรง/)
@@ -23,6 +24,7 @@ assert.match(validateMoneyLineage(draft, 10000).errors.join(' '), /ต้อง�
 
 const payrollFromAdvance = emptyMoneyLineage('ผู้ถือเงินที่ยืนยัน', 'ช่างที่ยืนยัน', 1350)
 payrollFromAdvance.allocations[0].purposeType = 'payroll'
+payrollFromAdvance.allocations[0].payrollKind = 'salary'
 const fundedPayroll = applyMoneyFundingSource(payrollFromAdvance, 'employee_advance')
 assert.equal(moneyFundingSourceNeedsHolder('employee_advance'), true)
 assert.equal(fundedPayroll.fundHolderName, 'ผู้ถือเงินที่ยืนยัน')

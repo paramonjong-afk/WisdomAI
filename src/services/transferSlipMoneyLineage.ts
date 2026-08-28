@@ -1,4 +1,5 @@
 export type MoneyFundingSource = 'company_account' | 'reserve_fund' | 'employee_advance' | 'personal_reimbursement' | 'unknown'
+export type PayrollKind = '' | 'salary' | 'daily_wage' | 'contract_labor' | 'other'
 export type MoneyPurpose =
   | 'payroll'
   | 'advance_transfer'
@@ -26,6 +27,7 @@ export type MoneyAllocationDraft = {
   responsibleName: string
   description: string
   confidence: string
+  payrollKind: PayrollKind
   vendorId: string
   vendorName: string
   vendorTaxId: string
@@ -70,7 +72,7 @@ const allocationKey = () => typeof crypto !== 'undefined' && 'randomUUID' in cry
 
 export const emptyMoneyAllocation = (amount: number | null = null, payeeName = ''): MoneyAllocationDraft => ({
   key: allocationKey(), purposeType: 'unknown', amount: amount == null ? '' : String(amount), projectId: '', siteId: '',
-  payeeName, responsibleName: '', description: '', confidence: '', vendorId: '', vendorName: '', vendorTaxId: '',
+  payeeName, responsibleName: '', description: '', confidence: '', payrollKind: '', vendorId: '', vendorName: '', vendorTaxId: '',
   vendorBankName: '', vendorAccountLast4: '', vendorMatchStatus: 'needs_review', vendorMatchConfidence: '', vendorMatchReason: '',
 })
 
@@ -94,8 +96,13 @@ export const applyMoneyFundingSource = (draft: MoneyLineageDraft, source: MoneyF
     : draft.fundHolderName,
 })
 
-export const moneyPurposeRoute = (purpose: MoneyPurpose) => {
-  if (purpose === 'payroll') return { label: 'ค่าแรง', route: 'บัญชี → HR/ค่าแรง', departments: ['hr'] }
+export const moneyPurposeRoute = (purpose: MoneyPurpose, payrollKind: PayrollKind = '') => {
+  if (purpose === 'payroll') {
+    if (payrollKind === 'salary') return { label: 'เงินเดือน', route: 'บัญชี → HR/เงินเดือน', departments: ['hr'] }
+    if (payrollKind === 'daily_wage') return { label: 'ค่าแรงรายวัน', route: 'บัญชี → HR/ค่าแรงรายวัน', departments: ['hr'] }
+    if (payrollKind === 'contract_labor') return { label: 'ค่าจ้างเหมาแรงงาน', route: 'บัญชี → HR/ค่าจ้างเหมา', departments: ['hr'] }
+    return { label: 'เงินเดือน/ค่าแรง', route: 'บัญชี → HR/Payroll', departments: ['hr'] }
+  }
   if (purpose === 'advance_transfer' || purpose === 'onward_transfer') return { label: 'เงินสำรองจ่าย', route: 'บัญชี → เงินสำรองจ่าย', departments: [] }
   if (purpose === 'materials') return { label: 'ค่าวัสดุ', route: 'บัญชี → ต้นทุนโครงการ', departments: ['project'] }
   if (purpose === 'project_expense') return { label: 'ค่าใช้จ่ายโครงการ', route: 'บัญชี → โครงการ', departments: ['project'] }
@@ -135,6 +142,7 @@ export const validateMoneyLineage = (draft: MoneyLineageDraft, transferAmount: n
   const allocationTotal = draft.allocations.reduce((sum, allocation, index) => {
     const amount = numberOrNull(allocation.amount)
     if (allocation.purposeType === 'unknown') missing.push(`วัตถุประสงค์รายการที่ ${index + 1}`)
+    if (allocation.purposeType === 'payroll' && !allocation.payrollKind) missing.push(`ชนิดเงินเดือน/ค่าแรงรายการที่ ${index + 1}`)
     if (['materials', 'project_expense'].includes(allocation.purposeType) && !allocation.projectId) missing.push(`โครงการรายการที่ ${index + 1}`)
     if (allocation.purposeType === 'vendor_payment' && (allocation.vendorMatchStatus !== 'matched' || !allocation.vendorId)) missing.push(`ร้านค้า/ผู้ขายรายการที่ ${index + 1} ต้องจับคู่และยืนยันก่อนส่งต่อ`)
     if (amount == null || !Number.isFinite(amount) || amount <= 0) errors.push(`รายการจัดสรรที่ ${index + 1} จำนวนเงินไม่ถูกต้อง`)
@@ -162,7 +170,7 @@ export const legacyMoneyLineageScope = (allocations: MoneyAllocationDraft[]) => 
 }
 
 export const moneyAllocationDestinations = (allocations: MoneyAllocationDraft[]) => {
-  const routes = [...new Set(allocations.filter(allocation => allocation.purposeType !== 'unknown').map(allocation => moneyPurposeRoute(allocation.purposeType).route))]
+  const routes = [...new Set(allocations.filter(allocation => allocation.purposeType !== 'unknown').map(allocation => moneyPurposeRoute(allocation.purposeType, allocation.payrollKind).route))]
   return routes.length ? routes : ['บัญชี → รอข้อมูลเพิ่ม']
 }
 
