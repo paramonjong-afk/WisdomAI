@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 const migration = readFileSync('supabase/migrations/20260828174300_master_data_canonical_auto_propagation.sql', 'utf8')
+const conflictMigration = readFileSync('supabase/migrations/20260828175115_mark_canonical_match_conflicts.sql', 'utf8')
 const page = readFileSync('src/pages/MasterDataCenter/index.tsx', 'utf8')
 
 for (const token of [
@@ -36,5 +37,11 @@ assert.match(migration, /grant execute on function public\.reprocess_master_data
 for (const token of ['จับคู่ Canonical', 'Canonical เชื่อมแล้ว', 'ชื่อมาตรฐาน + ธนาคารมาตรฐาน + เลขท้ายบัญชี', 'reprocess_master_data_canonical_matches']) {
   assert.ok(page.includes(token), `missing Master Data UI contract: ${token}`)
 }
+for (const token of ['append_canonical_match_conflict_flag', 'canonical_match_conflict', 'candidate_canonical_conflict_exposed', 'master_data_candidate_versions', 'master_data_audit']) {
+  assert.ok(conflictMigration.includes(token), `missing canonical conflict visibility contract: ${token}`)
+}
+assert.ok(page.includes('Canonical ขัดแย้ง'))
+assert.ok(page.includes('Canonical ซ้ำ/ขัดแย้ง'))
+assert.doesNotMatch(conflictMigration, /update\s+public\.(financial_transactions|line_messages|document_flow_items|omni_intake_sources)/i)
 
 console.log('master data canonical auto propagation passed: exact triple, ambiguity/conflict hold, source preservation, Audit/Version and tenant-scoped reprocess')
