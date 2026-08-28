@@ -27,6 +27,7 @@ begin
   if function_sql is null then
     raise exception 'review_transfer_slip_money_lineage_v2_not_found';
   end if;
+  function_sql := replace(function_sql, chr(13) || chr(10), chr(10));
   if position(old_branch in function_sql) = 0 then
     raise exception 'material_inventory_route_branch_not_found';
   end if;
