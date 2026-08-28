@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## 2026-08-28 — Transfer Slip Project Scope Compatibility v2.1
+
+- **เหตุผล:** Drawer บันทึกโครงการใน Allocation v2 แล้ว แต่ legacy lineage contract ยังตรวจ `project_id` ระดับ parent ทำให้รายการวัสดุยืนยันซ้ำไม่ผ่าน
+- **ผลกระทบ:** ส่ง project/site จาก Allocation ที่มีขอบเขตโครงการไปยัง legacy payload พร้อมกัน โดย Allocation v2 ยังคงเป็นข้อมูลหลักและรองรับหลายโครงการ
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** transfer lineage regression, typecheck, lint, build และ Accounting Drawer smoke
+- **Rollback:** revert mapping; ไม่แก้ Raw/OCR/Canonical/Allocation/Audit ที่บันทึกแล้ว
+
 ## ล่าสุด: Payroll Summary Wage Day Override Alignment v1.2 — 27/8/2569
 
 - **เหตุผล:** รายละเอียดรายวันของพัฒนรัตน์แสดง 22 ส.ค. เป็น 1 วันหลัง Admin แก้เวลา แต่ Summary ยังนับ `worked_minutes` เก่า 460 นาทีเป็น 0.5 วัน จึงแสดง 8.5 วัน/3,825 บาทผิดจากรายละเอียด

@@ -143,6 +143,13 @@ export const moneyAllocationTotal = (allocations: MoneyAllocationDraft[]) => all
   return sum + (amount != null && Number.isFinite(amount) ? amount : 0)
 }, 0)
 
+export const legacyMoneyLineageScope = (allocations: MoneyAllocationDraft[]) => {
+  const scoped = allocations.find((allocation) =>
+    ['materials', 'project_expense', 'subcontractor', 'travel'].includes(allocation.purposeType) && Boolean(allocation.projectId),
+  )
+  return { projectId: scoped?.projectId ?? '', siteId: scoped?.siteId ?? '' }
+}
+
 export const moneyAllocationDestinations = (allocations: MoneyAllocationDraft[]) => {
   const routes = [...new Set(allocations.filter(allocation => allocation.purposeType !== 'unknown').map(allocation => moneyPurposeRoute(allocation.purposeType).route))]
   return routes.length ? routes : ['บัญชี → รอข้อมูลเพิ่ม']

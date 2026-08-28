@@ -17,7 +17,7 @@ import { filterTransferSlipQueue, transferSlipContinuation, transferSlipQueueBuc
 import type { TransferSlipQueueFilter, TransferSlipQueueRow } from '../../services/accountingTransferSlipQueue'
 import { mapTransferSlipTruth } from '../../services/transferSlipOperationalTruth'
 import type { TransferSlipOperationalTruthRow } from '../../services/transferSlipOperationalTruth'
-import { calculateUnallocatedAmount, emptyMoneyAllocation, emptyMoneyLineage, moneyAllocationDestinations, moneyAllocationTotal, moneyPurposeRoute, validateMoneyLineage } from '../../services/transferSlipMoneyLineage'
+import { calculateUnallocatedAmount, emptyMoneyAllocation, emptyMoneyLineage, legacyMoneyLineageScope, moneyAllocationDestinations, moneyAllocationTotal, moneyPurposeRoute, validateMoneyLineage } from '../../services/transferSlipMoneyLineage'
 import type { MoneyAllocationDraft, MoneyFundingSource, MoneyLineageDraft, MoneyPurpose } from '../../services/transferSlipMoneyLineage'
 import { buildSlipAnalysisGate, inferSlipMoneyPurpose, slipPurposeNeedsFundHolder, slipPurposeNeedsProject } from '../../services/transferSlipAnalysisGate'
 import type { VendorMatchStatus } from '../../services/vendorPaymentMatching'
@@ -1155,6 +1155,7 @@ export function AccountingDocumentsPage() {
       }
       if (decision === 'confirm') { const validation = validateMoneyLineage(effectiveLineageDraft, amount); if (validation.missing.length || validation.errors.length) throw new Error([...validation.missing.map(value => `ขาด ${value}`), ...validation.errors].join(' · ')) }
       const numericOrNull = (value: string) => value.trim() ? Number(value) : null
+      const legacyScope = legacyMoneyLineageScope(effectiveLineageDraft.allocations)
       const transferPayload = {
         sender_name: slipReviewDraft.senderName || null, sender_bank_name: slipReviewDraft.senderBankName || null,
         sender_account_last4: slipReviewDraft.senderAccountLast4 || null, recipient_name: slipReviewDraft.recipientName || null,
@@ -1167,7 +1168,7 @@ export function AccountingDocumentsPage() {
         funding_source_type: effectiveLineageDraft.fundingSourceType, funding_source_reference: effectiveLineageDraft.fundingSourceReference || null,
         fund_holder_name: effectiveLineageDraft.fundHolderName || null, payer_name: effectiveLineageDraft.payerName || null,
         final_beneficiary_name: effectiveLineageDraft.finalBeneficiaryName || null,
-        project_id: null, site_id: null, responsible_name: effectiveLineageDraft.responsibleName || null,
+        project_id: legacyScope.projectId || null, site_id: legacyScope.siteId || null, responsible_name: effectiveLineageDraft.responsibleName || null,
         starting_amount: numericOrNull(effectiveLineageDraft.startingAmount), paid_amount: amount,
         returned_amount: numericOrNull(effectiveLineageDraft.returnedAmount) ?? 0,
         remaining_amount: numericOrNull(effectiveLineageDraft.remainingAmount),

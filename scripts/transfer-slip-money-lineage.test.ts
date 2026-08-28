@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { calculateUnallocatedAmount, emptyMoneyAllocation, emptyMoneyLineage, moneyAllocationDestinations, moneyAllocationTotal, moneyPurposeRoute, validateMoneyLineage } from '../src/services/transferSlipMoneyLineage.ts'
+import { calculateUnallocatedAmount, emptyMoneyAllocation, emptyMoneyLineage, legacyMoneyLineageScope, moneyAllocationDestinations, moneyAllocationTotal, moneyPurposeRoute, validateMoneyLineage } from '../src/services/transferSlipMoneyLineage.ts'
 
 const draft = emptyMoneyLineage('บริษัท', 'นาย ก', 10000, '2026-08-23T10:00')
 draft.fundingSourceType = 'reserve_fund'
@@ -13,6 +13,7 @@ assert.equal(moneyAllocationTotal(draft.allocations), 10000)
 assert.deepEqual(moneyAllocationDestinations(draft.allocations), ['บัญชี → Stock → โครงการ', 'บัญชี → HR/ค่าแรง'])
 assert.deepEqual(moneyPurposeRoute('materials').departments, ['inventory', 'project'])
 assert.equal(moneyPurposeRoute('payroll').route, 'บัญชี → HR/ค่าแรง')
+assert.deepEqual(legacyMoneyLineageScope(draft.allocations), { projectId: 'project-1', siteId: '' })
 draft.paidAmount = '9000'
 assert.match(validateMoneyLineage(draft, 10000).errors.join(' '), /ยอดจ่ายไม่ตรง/)
 draft.paidAmount = '10000'; draft.allocations[1].amount = '3000'; draft.remainingAmount = '0'
