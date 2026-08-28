@@ -118,10 +118,31 @@ Create one company-scoped master-data path for people, vendors, customers, proje
 - Missing company, cross-company reference, an invalid target type, invalid account number, duplicate approval, permission failure, or version conflict is rejected atomically with a recoverable error.
 - Owner: Company Admin owns quality and retention; Finance owns verified payment account evidence; HR owns employee identity confirmation; Procurement/Sales own vendor/customer confirmation.
 
+## Admin Correction เป็นข้อมูลกลางทันที
+
+```mermaid
+flowchart LR
+  A[Raw / OCR / Source Evidence] --> B[Project Gate]
+  B --> C{ข้อมูลที่ Admin แก้ครบหรือไม่}
+  C -->|ครบ| D[Atomic: Correction + Confirm + Audit]
+  D --> E[Confirmed Master Data]
+  E --> F[ทุก Module ใช้ค่ากลางชุดเดียว]
+  C -->|ยังขาดหรือประเภทไม่ชัด| G[บันทึก Correction Version]
+  G --> H[Admin Reviewed / รอตรวจซ้ำ]
+  H --> C
+```
+
+- เมื่อชื่อ ประเภท Project Gate และข้อมูลบังคับครบ ปุ่ม `บันทึกและยืนยันข้อมูล` ทำงานใน transaction เดียว
+- ถ้าส่วนใดยังไม่ครบ ระบบใช้ `บันทึกข้อมูลที่แก้และส่งตรวจซ้ำ` และไม่ประกาศเป็นข้อมูลกลาง
+- ค่าที่ Admin แก้ถูกเก็บเป็น derived Master Data พร้อม actor, reason, before/after, version และ event key
+- Raw/OCR/Source Evidence ไม่ถูกลบหรือเขียนทับ จึงย้อนตรวจที่มาของชื่อและข้อมูลเดิมได้เสมอ
+- การกดซ้ำด้วย event key เดิมไม่สร้าง Master/Audit ซ้ำ
+
 ## Change record
 
 | Version | Date | Rationale / impact | Migration | Verification | Rollback |
 |---|---|---|---|---|---|
+| v3.7 | 28/8/2569 | รวม Admin Correction และ Confirm เป็น transaction เดียวเมื่อข้อมูลบังคับและ Project Gate ครบ พร้อมประกาศค่าที่แก้เป็นข้อมูลกลางทันที; ข้อมูลไม่ครบยังอยู่ `admin_reviewed` | `20260828163455_master_data_correct_and_confirm.sql` | atomic/idempotency/security contract, read-after-write, review flow, typecheck, lint, build และ authenticated Production smoke | Revoke atomic RPC และ revert UI; Correction/Confirmation/Audit ที่บันทึกแล้วคงเป็นประวัติและ Raw/OCR ไม่เปลี่ยน |
 | v3.6 | 28/8/2569 | Prevent older OCR evidence from refilling the Drawer after Admin saved a correction; persisted name/type/account/bank/tax become the current review projection while Raw/OCR remains evidence-only | No migration; read-projection precedence only | persisted-field regression, Auto Input contract, typecheck, lint, build and authenticated Drawer reopen smoke | Revert projection precedence; Candidate/Version/Audit and Raw/OCR remain unchanged |
 | v3.5 | 27/8/2569 | เมื่อยืนยัน Candidate หลัก ให้ปิด Candidate ซ้ำที่ชื่อ normalized และเลขท้ายบัญชีตรงกันทั้งกลุ่ม เพื่อไม่ให้ข้อมูลเดิมย้อนเข้าคิว โดยเก็บ Source/Version/Audit ครบ | `20260826233000_reconcile_confirmed_master_duplicate_groups.sql` | historical reconciliation, trigger/idempotency/Audit contract, counts, typecheck, lint, build และ Production queue | drop trigger/function; restore sibling status from Audit before_data ด้วย audited correction |
 | v3.4 | 27/8/2569 | Make advance-slip party binding explicit: show a direct two-party action and infer the mode from persisted advance purpose; sender remains Company/Internal and recipient remains Employee/Technician in separate Master Accounts | No migration; reuses the existing transfer-party review table and atomic v2 RPC | Advance contract, typecheck, lint, build and authenticated Production Drawer | Revert UI/inference; retain source, party reviews, Master Accounts and Audit |

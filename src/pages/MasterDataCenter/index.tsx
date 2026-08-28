@@ -14,7 +14,7 @@ import { classificationLabel, classifyMasterCandidate, type MasterClassification
 import { emptyMasterSourceEvidence, loadMasterSourceEvidence } from '../../services/masterDataSourceGateway'
 import { isProjectGateReady, type MasterProjectOption, type MasterWorkPackageOption } from '../../services/masterDataProjectGate'
 import { loadMasterDataReviewReceipts } from '../../services/masterDataReviewReceipts'
-import { buildMasterReviewProjection, validatePersistedCorrection, validatePersistedProjectGate, validatePersistedReviewAction, type MasterReviewAction, type MasterReviewReceipt } from '../../services/masterDataReviewWorkflow'
+import { buildMasterReviewProjection, validatePersistedCorrectAndConfirm, validatePersistedCorrection, validatePersistedProjectGate, validatePersistedReviewAction, type MasterReviewAction, type MasterReviewReceipt } from '../../services/masterDataReviewWorkflow'
 import { userError } from '../../utils/userError'
 import { type ProjectGateAction } from './MasterDataProjectGatePanel'
 import { MasterDataReviewDrawer } from './MasterDataReviewDrawer'
@@ -256,6 +256,45 @@ export function MasterDataCenterPage() {
       setSavingId('')
     }
   }
+  const correctAndConfirmCandidate = async () => {
+    if (!selected || reviewReason.trim().length < 3) { setDrawerMessage({ severity: 'error', text: 'กรุณาระบุเหตุผลการแก้ไขอย่างน้อย 3 ตัวอักษรใน Drawer' }); return }
+    if (!isProjectGateReady(selected)) { setDrawerMessage({ severity: 'error', text: 'ต้องผูก Project เดิมหรือบันทึก Project Candidate ให้ครบก่อนยืนยันรายการ' }); return }
+    if (!correction.display_name.trim() || correction.classification_type === 'unknown_review') { setDrawerMessage({ severity: 'error', text: 'ชื่อหรือประเภทข้อมูลยังไม่ครบ ระบบจะยังไม่ยืนยันถาวร' }); return }
+    if (selected.entity_type === 'bank_account' && !normalizeAccountLast4(correction.account_last4)) { setDrawerMessage({ severity: 'error', text: 'กรุณาระบุเลขบัญชีอย่างน้อย 4 หลัก ระบบจะบันทึกเฉพาะ 4 ตัวท้ายใน Master Data' }); return }
+    if (reviewActionInFlightRef.current.has(selected.id)) { setDrawerMessage({ severity: 'info', text: 'กำลังบันทึกรายการนี้ กรุณารอผลยืนยันจากฐานข้อมูลก่อน' }); return }
+    const selectedSource = evidence[selected.id] ?? emptyEvidence()
+    const selectedClassification = classifyMasterCandidate(selected, selectedSource, duplicateIds.has(selected.id))
+    const selectedAuto = buildMasterAutoCorrection(selected, selectedSource, selectedClassification)
+    const selectedRoute = masterAutoRoute(correction.classification_type, selectedClassification.confidence, selectedClassification.conflicts)
+    const correctionPayload = {
+      ...correction,
+      auto_fill_evidence: autoInputAuditPayload(selectedAuto, selectedRoute),
+      suggested_destination: selectedRoute.destination,
+      suggested_owner: selectedRoute.owner,
+      suggested_next_action: selectedRoute.nextAction,
+    }
+    reviewActionInFlightRef.current.add(selected.id)
+    setSavingId(selected.id); setDrawerMessage(null); setError('')
+    const eventKey = crypto.randomUUID()
+    try {
+      const { data, error: rpcError } = await supabase.rpc('correct_and_confirm_master_data_candidate', { target_candidate_id: selected.id, target_event_key: eventKey, target_correction: correctionPayload, target_reason: reviewReason.trim() })
+      if (rpcError) { setDrawerMessage({ severity: 'error', text: masterReviewError(rpcError), incidentId: eventKey, persisted: false }); return }
+      const rpcCandidate = data && typeof data === 'object' ? data as Candidate : null
+      const refreshedRows = await load()
+      const persisted = refreshedRows.find((row) => row.id === selected.id) ?? null
+      const persistenceError = validatePersistedCorrectAndConfirm(selected.id, rpcCandidate, persisted)
+      if (persistenceError || !persisted) { setDrawerMessage({ severity: 'error', text: persistenceError ?? 'ตรวจสอบข้อมูลกลางหลังบันทึกไม่สำเร็จ', incidentId: eventKey, persisted: false }); return }
+      setSelected(persisted)
+      setDrawerTab(1)
+      setReviewReason('')
+      setDrawerMessage({ severity: 'success', text: 'บันทึก Correction + ยืนยัน + Audit สำเร็จ · ค่าที่ Admin แก้เป็นข้อมูลกลางที่ Module ใช้งานทันที', incidentId: eventKey, persisted: true })
+    } catch (actionError) {
+      setDrawerMessage({ severity: 'error', text: userError(actionError, 'บันทึกและยืนยันข้อมูลไม่สำเร็จ'), incidentId: eventKey, persisted: false })
+    } finally {
+      reviewActionInFlightRef.current.delete(selected.id)
+      setSavingId('')
+    }
+  }
   const createWorkPackage = async (input: { projectId: string; parentId: string | null; name: string; description: string }) => {
     if (!selected) return null
     setSavingId(selected.id); setDrawerMessage(null)
@@ -338,6 +377,7 @@ export function MasterDataCenterPage() {
   const selectedSource = selected ? evidence[selected.id] ?? emptyEvidence() : emptyEvidence()
   const selectedClassification = selected ? classifications[selected.id] ?? classifyMasterCandidate(selected, selectedSource, duplicateIds.has(selected.id)) : null
   const selectedRequiresCorrection = selected && selectedClassification ? masterDataRequiresCorrection(selected, selectedSource, selectedClassification.conflicts, selectedClassification.type) : false
+  const selectedCanCorrectAndConfirm = Boolean(selected && selectedRequiresCorrection && isProjectGateReady(selected) && correction.display_name.trim() && correction.classification_type !== 'unknown_review' && (selected.entity_type !== 'bank_account' || normalizeAccountLast4(correction.account_last4)))
   const selectedRoute = selectedClassification ? recordingMode === 'employee_advance_funding' ? { ...advanceFundingRoute, requiresReview: true } : masterAutoRoute(correction.classification_type, selectedClassification.confidence, selectedClassification.conflicts) : null
   const selectedAdvanceValidation = selected ? validateAdvanceFundingInput(selected, selectedSource, { ...partyDraft, classificationType: 'employee_technician', reason: reviewReason }) : { valid: false, blockers: [] }
   const selectedSourceCount = selected ? duplicateGroups.find((group) => group.candidateIds.includes(selected.id))?.candidateIds.length ?? 1 : 0
@@ -362,7 +402,7 @@ export function MasterDataCenterPage() {
       { id: 'status', label: 'สถานะข้อมูล', minWidth: 190, render: (row) => <Chip size="small" color={['confirmed', 'approved', 'auto_verified'].includes(row.status) ? 'success' : row.status === 'locked' ? 'primary' : row.status === 'rejected' ? 'error' : row.status === 'archived' ? 'default' : 'warning'} label={candidateStatus[row.status] ?? row.status} /> },
       { id: 'actions', label: 'ตรวจรายละเอียด', minWidth: 170, render: (row) => <Button size="small" startIcon={<CompareArrowsOutlined />} onClick={(event) => { event.stopPropagation(); openCandidate(row) }}>เปิด Detail</Button> },
     ]} />
-    <MasterDataReviewDrawer open={Boolean(selected)} candidate={selected} source={selectedSource} classification={selectedClassification} route={selectedRoute} sourceCount={selectedSourceCount} projects={projects} workPackages={workPackages} receipt={selected ? reviewReceipts[selected.id] ?? { projectCandidate: null, correction: null } : { projectCandidate: null, correction: null }} reviewerName={(id) => id ? reviewerNames[id] ?? id : '-'} correction={correction} partyDraft={partyDraft} reason={reviewReason} saving={Boolean(selected && savingId === selected.id)} message={drawerMessage} activeTab={drawerTab} requiresCorrection={selectedRequiresCorrection} hasNext={summaryRows.length > 1} preview={evidencePreview} recordingMode={recordingMode} advanceBlockers={selectedAdvanceValidation.blockers} onRecordingModeChange={changeRecordingMode} onConfirmAdvanceFunding={() => void confirmAdvanceFunding()} onTabChange={setDrawerTab} onCorrectionChange={setCorrection} onPartyDraftChange={setPartyDraft} onReasonChange={setReviewReason} onProjectAction={saveProjectGate} onCreateWorkPackage={createWorkPackage} onOpenSource={() => selected && void openSource(selected)} onClosePreview={closeEvidencePreview} onRetryPreview={retryEvidencePreview} onOpenPreviewExternal={openEvidenceInNewTab} onCorrect={() => void correctCandidate()} onReview={(action) => selected && void review(selected, action)} onNext={openNextCandidate} onClose={closeDrawer} />
+    <MasterDataReviewDrawer open={Boolean(selected)} candidate={selected} source={selectedSource} classification={selectedClassification} route={selectedRoute} sourceCount={selectedSourceCount} projects={projects} workPackages={workPackages} receipt={selected ? reviewReceipts[selected.id] ?? { projectCandidate: null, correction: null } : { projectCandidate: null, correction: null }} reviewerName={(id) => id ? reviewerNames[id] ?? id : '-'} correction={correction} partyDraft={partyDraft} reason={reviewReason} saving={Boolean(selected && savingId === selected.id)} message={drawerMessage} activeTab={drawerTab} requiresCorrection={selectedRequiresCorrection} canCorrectAndConfirm={selectedCanCorrectAndConfirm} hasNext={summaryRows.length > 1} preview={evidencePreview} recordingMode={recordingMode} advanceBlockers={selectedAdvanceValidation.blockers} onRecordingModeChange={changeRecordingMode} onConfirmAdvanceFunding={() => void confirmAdvanceFunding()} onTabChange={setDrawerTab} onCorrectionChange={setCorrection} onPartyDraftChange={setPartyDraft} onReasonChange={setReviewReason} onProjectAction={saveProjectGate} onCreateWorkPackage={createWorkPackage} onOpenSource={() => selected && void openSource(selected)} onClosePreview={closeEvidencePreview} onRetryPreview={retryEvidencePreview} onOpenPreviewExternal={openEvidenceInNewTab} onCorrect={() => void correctCandidate()} onCorrectAndConfirm={() => void correctAndConfirmCandidate()} onReview={(action) => selected && void review(selected, action)} onNext={openNextCandidate} onClose={closeDrawer} />
     <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ alignItems: { md: 'center' } }}><Typography variant="h6" sx={{ flex: 1 }}>Confirmed Data Reports</Typography><Select size="small" value={reportType} onChange={(event) => setReportType(event.target.value as MasterClassificationType | 'all')}><MenuItem value="all">ทุกประเภท</MenuItem>{Object.entries(classificationLabel).filter(([key]) => key !== 'unknown_review').map(([key, label]) => <MenuItem key={key} value={key}>{label}</MenuItem>)}</Select><TextField size="small" type="date" label="วันที่ยืนยัน" value={reportDate} onChange={(event) => setReportDate(event.target.value)} slotProps={{ inputLabel: { shrink: true } }} /><Chip label={`${confirmedVisibleCount} รายการ`} /></Stack>
     <StandardDataTable rows={confirmedRows} onFilteredRowCountChange={setConfirmedVisibleCount} getRowId={(row) => row.id} onRowClick={openCandidate} getSearchText={(row) => `${row.display_name} ${candidateAccount(row) ?? ''} ${classificationLabel[classifications[row.id].type]} ${reviewerNames[row.reviewed_by ?? ''] ?? row.reviewed_by ?? ''} ${evidence[row.id]?.messageId ?? ''} ${evidence[row.id]?.sourceRoom ?? ''}`} searchLabel="ค้นหาชื่อ บัญชี ประเภท ผู้ยืนยัน หรือ Source" emptyText="ยังไม่มีข้อมูลยืนยันตามตัวกรอง" minWidth={1120} columns={[
       { id: 'report_type', label: 'ประเภท', minWidth: 190, render: (row) => classificationLabel[classifications[row.id].type] },

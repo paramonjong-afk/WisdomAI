@@ -58,6 +58,15 @@ export function validatePersistedCorrection(candidateId: string, rpcCandidate: M
   return null
 }
 
+export function validatePersistedCorrectAndConfirm(candidateId: string, rpcCandidate: MasterCandidate | null, refreshedCandidate: MasterCandidate | null) {
+  const reviewError = validatePersistedReviewAction(candidateId, 'approve', rpcCandidate, refreshedCandidate)
+  if (reviewError) return reviewError
+  if (!refreshedCandidate || !text(refreshedCandidate.candidate_data.admin_corrected_at)) return 'ฐานข้อมูลยังไม่มี Correction Version'
+  if (text(refreshedCandidate.candidate_data.master_data_effective_source) !== 'admin_correct_and_confirm') return 'ฐานข้อมูลยังไม่ได้ประกาศค่าที่แก้เป็นข้อมูลกลาง'
+  if (!text(refreshedCandidate.candidate_data.master_data_effective_event_key)) return 'ฐานข้อมูลยังไม่มี Audit Event สำหรับข้อมูลกลาง'
+  return null
+}
+
 export function validatePersistedProjectGate(candidateId: string, action: MasterProjectPersistenceAction, rpcCandidate: MasterCandidate | null, refreshedCandidate: MasterCandidate | null) {
   if (!rpcCandidate || rpcCandidate.id !== candidateId) return 'RPC ไม่คืน Candidate จาก Project Gate จึงยังไม่ถือว่าสำเร็จ'
   if (!refreshedCandidate) return 'รีเฟรชแล้วไม่พบ Candidate หลังบันทึก Project Gate'

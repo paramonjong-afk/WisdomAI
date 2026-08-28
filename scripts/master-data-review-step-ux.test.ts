@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createMasterDataProjectGateFixture } from './fixtures/masterDataProjectGateFixture.ts'
 import { applyLocalProjectGate } from '../src/services/masterDataProjectGate.ts'
-import { buildMasterReviewProjection, localReviewReceipt, masterReviewActiveStep, masterReviewBlockers, masterReviewPersistenceNotice, masterReviewStage, validatePersistedCorrection, validatePersistedProjectGate, validatePersistedReviewAction } from '../src/services/masterDataReviewWorkflow.ts'
+import { buildMasterReviewProjection, localReviewReceipt, masterReviewActiveStep, masterReviewBlockers, masterReviewPersistenceNotice, masterReviewStage, validatePersistedCorrectAndConfirm, validatePersistedCorrection, validatePersistedProjectGate, validatePersistedReviewAction } from '../src/services/masterDataReviewWorkflow.ts'
 
 const fixture = createMasterDataProjectGateFixture()
 const original = fixture.candidates[1]
@@ -70,6 +70,9 @@ assert.equal(validatePersistedCorrection(original.id, corrected, corrected), nul
 assert.match(validatePersistedCorrection(original.id, corrected, projectReady) ?? '', /admin_reviewed/)
 assert.equal(validatePersistedReviewAction(original.id, 'approve', confirmed, confirmed), null)
 assert.match(validatePersistedReviewAction(original.id, 'approve', confirmed, corrected) ?? '', /ไม่ตรงกับ Action/)
+const atomicConfirmed = { ...confirmed, candidate_data: { ...confirmed.candidate_data, master_data_effective_source: 'admin_correct_and_confirm', master_data_effective_event_key: 'atomic-event' } }
+assert.equal(validatePersistedCorrectAndConfirm(original.id, atomicConfirmed, atomicConfirmed), null)
+assert.match(validatePersistedCorrectAndConfirm(original.id, confirmed, confirmed) ?? '', /ข้อมูลกลาง/)
 
 const page = readFileSync('src/pages/MasterDataCenter/index.tsx', 'utf8')
 const drawer = readFileSync('src/pages/MasterDataCenter/MasterDataReviewDrawer.tsx', 'utf8')
@@ -82,7 +85,7 @@ for (const token of ['MasterDataReviewProgress', 'MasterDataReviewActions', 'Raw
 for (const token of ['Source Reference / Evidence history', 'auditCount', 'ล่าสุด #', 'คัดลอก']) assert.match(sourceReference, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 for (const token of ['reviewActionInFlightRef', 'กำลังบันทึกรายการนี้', 'ระบบปิดการยืนยันซ้ำ']) assert.match(page, new RegExp(token))
 for (const token of ['บันทึกแล้ว · ปิดการยืนยันซ้ำ', "? { label: hasNext ? 'รายการถัดไป' : 'กลับคิว'"]) assert.match(workflow, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
-for (const label of ['ตรวจและเติมข้อมูล', 'สรุปและยืนยัน', 'ปุ่มยังใช้ไม่ได้', 'Correction Version / Audit', 'Project Candidate บันทึกแล้ว']) assert.match(workflow + drawer, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+for (const label of ['ตรวจและเติมข้อมูล', 'สรุปและยืนยัน', 'ปุ่มยังใช้ไม่ได้', 'Correction Version / Audit', 'Project Candidate บันทึกแล้ว', 'บันทึกและยืนยันข้อมูล', 'บันทึกข้อมูลที่แก้และส่งตรวจซ้ำ']) assert.match(workflow + drawer, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 for (const responsiveContract of ["direction={{ xs: 'column', sm: 'row' }}", 'fullWidth variant="contained"']) assert.match(workflow + drawer, new RegExp(responsiveContract.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 assert.doesNotMatch(page, /<DialogActions/)
 for (const action of ['ผูก Project และเนื้องาน', 'เพิ่ม Project Candidate']) assert.match(projectPanel, new RegExp(action))

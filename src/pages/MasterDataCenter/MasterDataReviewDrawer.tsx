@@ -32,6 +32,7 @@ type Props = {
   message: DrawerMessage | null
   activeTab: number
   requiresCorrection: boolean
+  canCorrectAndConfirm: boolean
   hasNext: boolean
   preview: EvidencePreviewState | null
   recordingMode: MasterRecordingMode
@@ -49,6 +50,7 @@ type Props = {
   onRetryPreview: () => void
   onOpenPreviewExternal: () => void
   onCorrect: () => void
+  onCorrectAndConfirm: () => void
   onReview: (action: MasterReviewAction) => void
   onNext: () => void
   onClose: () => void
@@ -158,7 +160,7 @@ export function MasterDataReviewDrawer(props: Props) {
         {!terminal && <><Divider /><TextField multiline minRows={2} label="เหตุผล (บังคับเมื่อบันทึก/ยืนยัน/ตัดสินใจ)" value={props.reason} onChange={(event) => props.onReasonChange(event.target.value)} /></>}
       </Stack>
     </DialogContent>
-    <MasterDataReviewActions candidate={candidate} reason={props.reason} saving={props.saving} hasNext={props.hasNext} requiresCorrection={props.requiresCorrection} activeTab={props.activeTab} recordingMode={props.recordingMode} advanceBlockers={props.advanceBlockers} onConfirmAdvanceFunding={props.onConfirmAdvanceFunding} onTabChange={props.onTabChange} onCorrect={props.onCorrect} onReview={props.onReview} onNext={props.onNext} onClose={props.onClose} />
+    <MasterDataReviewActions candidate={candidate} reason={props.reason} saving={props.saving} hasNext={props.hasNext} requiresCorrection={props.requiresCorrection} canCorrectAndConfirm={props.canCorrectAndConfirm} activeTab={props.activeTab} recordingMode={props.recordingMode} advanceBlockers={props.advanceBlockers} onConfirmAdvanceFunding={props.onConfirmAdvanceFunding} onTabChange={props.onTabChange} onCorrect={props.onCorrect} onCorrectAndConfirm={props.onCorrectAndConfirm} onReview={props.onReview} onNext={props.onNext} onClose={props.onClose} />
   </>
 
   return <Drawer anchor="right"

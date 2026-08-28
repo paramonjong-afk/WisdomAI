@@ -20,10 +20,12 @@ type Props = {
   hasNext: boolean
   actorName: (id: string | null) => string
   onCorrect: () => void
+  onCorrectAndConfirm: () => void
   onReview: (action: MasterReviewAction) => void
   onNext: () => void
   onClose: () => void
   requiresCorrection: boolean
+  canCorrectAndConfirm: boolean
   activeTab: number
   onTabChange: (tab: number) => void
   recordingMode: MasterRecordingMode
@@ -86,7 +88,7 @@ export function MasterDataReviewProgress({ candidate, receipt, reason, actorName
   </Stack>
 }
 
-export function MasterDataReviewActions({ candidate, reason, saving, hasNext, requiresCorrection, activeTab, recordingMode, advanceBlockers, onConfirmAdvanceFunding, onTabChange, onCorrect, onReview, onNext, onClose }: Omit<Props, 'receipt' | 'actorName'>) {
+export function MasterDataReviewActions({ candidate, reason, saving, hasNext, requiresCorrection, canCorrectAndConfirm, activeTab, recordingMode, advanceBlockers, onConfirmAdvanceFunding, onTabChange, onCorrect, onCorrectAndConfirm, onReview, onNext, onClose }: Omit<Props, 'receipt' | 'actorName'>) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const stage = masterReviewStage(candidate)
   const advanceFunding = recordingMode === 'employee_advance_funding'
@@ -100,7 +102,9 @@ export function MasterDataReviewActions({ candidate, reason, saving, hasNext, re
         ? { label: 'ไปสรุปและยืนยัน', disabled: false, run: () => onTabChange(1) }
         : { label: 'ยืนยันผู้โอน–ผู้รับ และส่งบัญชี', disabled: saving || blockers.length > 0, run: onConfirmAdvanceFunding }
     : stage === 'project_ready' && activeTab === 0 && requiresCorrection
-    ? { label: 'บันทึกข้อมูลที่แก้และส่งตรวจซ้ำ', disabled: saving || isReasonMissing, run: onCorrect }
+    ? canCorrectAndConfirm
+      ? { label: 'บันทึกและยืนยันข้อมูล', disabled: saving || isReasonMissing, run: onCorrectAndConfirm }
+      : { label: 'บันทึกข้อมูลที่แก้และส่งตรวจซ้ำ', disabled: saving || isReasonMissing, run: onCorrect }
     : (stage === 'project_ready' || stage === 'awaiting_rereview') && activeTab === 0
       ? { label: 'ไปสรุปและยืนยัน', disabled: false, run: () => onTabChange(1) }
       : (stage === 'project_ready' && !requiresCorrection) || stage === 'awaiting_rereview'
