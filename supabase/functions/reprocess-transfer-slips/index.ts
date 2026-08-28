@@ -49,6 +49,21 @@ const arrayBufferToBase64 = (bytes: ArrayBuffer) => {
   return btoa(binary)
 }
 
+const normalizeTransferDate = (value: unknown) => {
+  const text = asNullableText(value, 64)
+  if (!text) return null
+  const buddhistYear = text.match(/\b(2[4-6]\d{2})\b/)
+  const normalized = buddhistYear
+    ? text.replace(buddhistYear[1], String(Number(buddhistYear[1]) - 543))
+    : text
+  const timestamp = Date.parse(normalized)
+  if (Number.isNaN(timestamp)) return null
+  const parsed = new Date(timestamp)
+  const earliest = Date.parse('2020-01-01T00:00:00+07:00')
+  const latest = Date.now() + 24 * 60 * 60 * 1000
+  return timestamp >= earliest && timestamp <= latest ? parsed.toISOString() : null
+}
+
 const normalizeParties = (raw: Record<string, unknown>): PaymentParties => ({
   sender_name: asNullableText(raw.sender_name, 240),
   sender_bank_name: asNullableText(raw.sender_bank_name, 120),
@@ -56,10 +71,7 @@ const normalizeParties = (raw: Record<string, unknown>): PaymentParties => ({
   recipient_name: asNullableText(raw.recipient_name, 240),
   recipient_bank_name: asNullableText(raw.recipient_bank_name, 120),
   recipient_account_last4: lastFourDigits(raw.recipient_account_last4),
-  transfer_at: (() => {
-    const value = asNullableText(raw.transfer_at, 64)
-    return value && !Number.isNaN(Date.parse(value)) ? new Date(value).toISOString() : null
-  })(),
+  transfer_at: normalizeTransferDate(raw.transfer_at),
   bank_reference: asNullableText(raw.bank_reference, 240),
   amount_total: Number.isFinite(Number(raw.amount_total)) && Number(raw.amount_total) >= 0 ? Number(raw.amount_total) : null,
   payment_party_confidence: Math.max(0, Math.min(1, Number(raw.payment_party_confidence) || 0)),
@@ -87,13 +99,12 @@ async function isAllowedActor(request: Request, admin: ReturnType<typeof createC
   if (authError || !authData.user) return { error: 'กรุณาเข้าสู่ระบบใหม่', status: 401 as const }
 
   const { data: profile } = await admin.from('profiles').select('role').eq('id', authData.user.id).maybeSingle()
-  if (profile?.role === 'admin') return { profileId: authData.user.id }
-
   const { data: preference } = await admin
     .from('user_company_preferences')
     .select('active_company_id')
     .eq('profile_id', authData.user.id)
     .maybeSingle()
+  if (profile?.role === 'admin') return { profileId: authData.user.id, companyId: preference?.active_company_id ?? undefined }
   if (!preference?.active_company_id) return { error: 'ไม่พบบริษัทที่กำลังใช้งาน', status: 403 as const }
 
   const { data: membership } = await admin
@@ -126,6 +137,7 @@ async function extractParties(bytes: ArrayBuffer, mimeType: string, guidance?: s
         'Keys required: document_type, classification_confidence, classification_reason, sender_name, sender_bank_name, sender_account_last4, recipient_name, recipient_bank_name, recipient_account_last4, amount_total, transfer_at, bank_reference, payment_party_confidence.',
         'document_type must be one of transfer_slip, payroll, receipt, tax_invoice_full, invoice, purchase_order, goods_receipt, other, unreadable. Use transfer_slip only when a bank transfer slip is visibly present.',
         'For account fields return only four final digits, digits only; return null when unreadable.',
+        'For transfer_at, read the visibly printed date and time. Convert Thai Buddhist year to Gregorian (for example 2569 becomes 2026), then return ISO 8601 with +07:00. Never return a future date or guess an unreadable date.',
         'Use null for every uncertain text/date/reference field and a 0..1 confidence number.',
       ].join(' ') }] },
       contents: [{ role: 'user', parts: [
@@ -150,23 +162,43 @@ Deno.serve(async (request) => {
   const actor = await isAllowedActor(request, admin)
   if ('error' in actor) return response({ error: actor.error }, actor.status)
 
-  const body = await request.json().catch(() => ({})) as { limit?: number; item_id?: string; guidance?: string }
+  const body = await request.json().catch(() => ({})) as { limit?: number; item_id?: string; guidance?: string; repair_invalid_dates?: boolean; exclude_item_ids?: string[] }
   const limit = Math.min(10, Math.max(1, Number(body.limit) || 10))
   const targetItemId = typeof body.item_id === 'string' && /^[0-9a-f-]{36}$/i.test(body.item_id) ? body.item_id : null
+  const repairInvalidDates = body.repair_invalid_dates === true && !targetItemId
+  const excludedItemIds = new Set((Array.isArray(body.exclude_item_ids) ? body.exclude_item_ids : [])
+    .filter(id => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id)).slice(0, 200))
   const guidance = asNullableText(body.guidance, 500) ?? undefined
+  let invalidSourceIds: string[] = []
+  if (repairInvalidDates) {
+    if (!actor.companyId) return response({ error: 'ต้องเลือกบริษัทก่อนอ่านวันที่ผิดใหม่' }, 400)
+    const futureCutoff = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    const { data: invalidTransactions, error: invalidError } = await admin
+      .from('financial_transactions')
+      .select('source_message_id')
+      .eq('company_id', actor.companyId)
+      .or(`transfer_at.is.null,transfer_at.lt.2020-01-01T00:00:00Z,transfer_at.gt.${futureCutoff}`)
+      .or('review_status.is.null,review_status.neq.duplicate')
+      .not('source_message_id', 'is', null)
+      .limit(200)
+    if (invalidError) return response({ error: invalidError.message }, 500)
+    invalidSourceIds = [...new Set((invalidTransactions ?? []).map(row => row.source_message_id).filter((id): id is string => Boolean(id)))]
+  }
   const candidatesQuery = admin
     .from('document_flow_items')
     .select('id,source_message_id,company_id,current_flow,current_room,state,document_type,route_target,confidence,version')
     .order('updated_at', { ascending: true })
     .limit(200)
   if (targetItemId) candidatesQuery.eq('id', targetItemId)
+  else if (repairInvalidDates) candidatesQuery.in('source_message_id', invalidSourceIds.length ? invalidSourceIds : ['00000000-0000-0000-0000-000000000000'])
   else candidatesQuery.or('and(current_flow.eq.intake,state.eq.awaiting_classification),document_type.eq.other')
   if (actor.companyId) candidatesQuery.eq('company_id', actor.companyId)
   const { data: candidates, error: transactionError } = await candidatesQuery
   if (transactionError) return response({ error: transactionError.message }, 500)
-  const selected = (candidates ?? []).slice(0, targetItemId ? 1 : limit)
+  const eligibleCandidates = (candidates ?? []).filter(item => !excludedItemIds.has(item.id))
+  const selected = eligibleCandidates.slice(0, targetItemId ? 1 : limit)
   if (targetItemId && selected.length === 0) return response({ error: 'ไม่พบสลิปที่เลือกหรือไม่มีสิทธิ์เข้าถึง' }, 404)
-  const ruleVersion = targetItemId ? 'transfer-slip-single-reread-v1' : 'intake-ai-reprocess-v1'
+  const ruleVersion = targetItemId ? 'transfer-slip-single-reread-v2' : repairInvalidDates ? 'transfer-slip-invalid-date-reread-v1' : 'intake-ai-reprocess-v1'
   const modelVersion = Deno.env.get('GEMINI_VISION_MODEL') ?? Deno.env.get('GEMINI_MODEL') ?? 'gemini-3.5-flash-lite'
   const companyId = actor.companyId ?? selected[0]?.company_id
   if (!companyId) return response({ processed: 0, classified: 0, routed_accounting: 0, held: 0, failed: 0, estimated_remaining: 0, results: [] })
@@ -176,7 +208,7 @@ Deno.serve(async (request) => {
   }).select('id').single()
   if (batchError || !batch) return response({ error: batchError?.message ?? 'ไม่สามารถสร้าง reprocess batch' }, 500)
 
-  const results: Array<{ source_message_id: string; status: 'updated' | 'held' | 'skipped' | 'failed'; detail?: string; document_type?: string | null; confidence?: number }> = []
+  const results: Array<{ item_id: string; source_message_id: string; status: 'updated' | 'held' | 'skipped' | 'failed'; detail?: string; document_type?: string | null; confidence?: number }> = []
   for (const item of selected) {
     try {
       const { data: attachment, error: attachmentError } = await admin
@@ -207,7 +239,7 @@ Deno.serve(async (request) => {
           note: 'ไม่พบไฟล์รูปต้นฉบับที่เปิดวิเคราะห์ได้',
           payload: { batch_id: batch.id, rule_version: ruleVersion, model_version: modelVersion, outcome: 'skipped' }, actor_id: actor.profileId,
         })
-        results.push({ source_message_id: item.source_message_id, status: 'skipped', detail: 'ไม่พบไฟล์รูปต้นฉบับที่เปิดวิเคราะห์ได้' })
+        results.push({ item_id: item.id, source_message_id: item.source_message_id, status: 'skipped', detail: 'ไม่พบไฟล์รูปต้นฉบับที่เปิดวิเคราะห์ได้' })
         continue
       }
       const { data: blob, error: downloadError } = await admin.storage.from(attachment.storage_bucket).download(attachment.storage_path)
@@ -254,11 +286,11 @@ Deno.serve(async (request) => {
       })
       await admin.from('document_flow_events').insert({
         item_id: item.id, company_id: item.company_id,
-        event_key: `reprocess:${batch.id}:${item.id}`, event_type: targetItemId ? 'transfer_slip_ai_reread' : 'reprocess_batch',
+        event_key: `reprocess:${batch.id}:${item.id}`, event_type: targetItemId || repairInvalidDates ? 'transfer_slip_ai_reread' : 'reprocess_batch',
         from_flow: item.current_flow, to_flow: nextFlow, from_state: item.state, to_state: nextState,
         from_room: item.current_room, to_room: nextRoom,
-        note: parties.classification_reason ?? (targetItemId ? 'AI อ่านสลิปเฉพาะรายการใหม่' : 'AI reprocess Intake'),
-        payload: { batch_id: batch.id, rule_version: ruleVersion, model_version: modelVersion, confidence, document_type: parties.document_type, outcome, guidance: guidance ?? null, single_item: Boolean(targetItemId) },
+        note: parties.classification_reason ?? (targetItemId ? 'AI อ่านสลิปเฉพาะรายการใหม่' : repairInvalidDates ? 'AI อ่านวันที่สลิปที่ว่างหรือผิดช่วงใหม่' : 'AI reprocess Intake'),
+        payload: { batch_id: batch.id, rule_version: ruleVersion, model_version: modelVersion, confidence, document_type: parties.document_type, outcome, guidance: guidance ?? null, single_item: Boolean(targetItemId), repair_invalid_dates: repairInvalidDates },
         actor_id: actor.profileId,
       })
       if (allowedType && !targetItemId) {
@@ -283,17 +315,17 @@ Deno.serve(async (request) => {
           actor_id: actor.profileId,
         })
       }
-      results.push({ source_message_id: item.source_message_id, status: outcome === 'held' ? 'held' : 'updated', document_type: parties.document_type, confidence })
+      results.push({ item_id: item.id, source_message_id: item.source_message_id, status: outcome === 'held' ? 'held' : 'updated', document_type: parties.document_type, confidence })
     } catch (error) {
       const detail = describeError(error)
       await admin.from('document_flow_classification_history').insert({ batch_id: batch.id, item_id: item.id, company_id: item.company_id, source_message_id: item.source_message_id, before_document_type: item.document_type, after_document_type: item.document_type, before_flow: item.current_flow, after_flow: item.current_flow, before_state: item.state, after_state: item.state, rule_version: ruleVersion, model_version: modelVersion, outcome: 'failed', reason: detail, created_by: actor.profileId })
       await admin.from('document_flow_events').insert({ item_id: item.id, company_id: item.company_id, event_key: `reprocess:${batch.id}:${item.id}`, event_type: 'reprocess_batch', from_flow: item.current_flow, to_flow: item.current_flow, from_state: item.state, to_state: item.state, from_room: item.current_room, to_room: item.current_room, note: detail, payload: { batch_id: batch.id, rule_version: ruleVersion, model_version: modelVersion, outcome: 'failed' }, actor_id: actor.profileId })
-      results.push({ source_message_id: item.source_message_id, status: 'failed', detail })
+      results.push({ item_id: item.id, source_message_id: item.source_message_id, status: 'failed', detail })
     }
   }
   const routed = results.filter((item) => item.status === 'updated' && item.document_type === 'transfer_slip').length
   const held = results.filter((item) => item.status === 'held').length
   const failed = results.filter((item) => item.status === 'failed').length
   await admin.from('document_flow_reprocess_batches').update({ status: failed && !results.some((item) => item.status === 'updated' || item.status === 'held') ? 'failed' : 'completed', processed_count: results.length, classified_count: results.filter((item) => item.status === 'updated').length, routed_accounting_count: routed, held_count: held, failed_count: failed, completed_at: new Date().toISOString() }).eq('id', batch.id)
-  return response({ batch_id: batch.id, processed: results.length, classified: results.filter((item) => item.status === 'updated').length, routed_accounting: routed, held, failed, estimated_remaining: Math.max(0, (candidates ?? []).length - selected.length), results })
+  return response({ batch_id: batch.id, processed: results.length, classified: results.filter((item) => item.status === 'updated').length, routed_accounting: routed, held, failed, estimated_remaining: Math.max(0, eligibleCandidates.length - selected.length), results })
 })

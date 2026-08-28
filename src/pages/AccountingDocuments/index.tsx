@@ -169,6 +169,7 @@ export function AccountingDocumentsPage() {
   const [slipAiGuidance, setSlipAiGuidance] = useState('')
   const [slipAdvancePartyMatch, setSlipAdvancePartyMatch] = useState<AdvancePartyMatch | null>(null)
   const [slipActionLoading, setSlipActionLoading] = useState(false)
+  const [slipDateRepairLoading, setSlipDateRepairLoading] = useState(false)
   const slipRequestRef = useRef(0)
   const [inventory, setInventory] = useState<InventoryBalance[]>([])
   const [projectInventory, setProjectInventory] = useState<ProjectInventoryBalance[]>([])
@@ -1132,6 +1133,36 @@ export function AccountingDocumentsPage() {
     finally { setSlipActionLoading(false) }
   }
 
+  const rereadInvalidSlipDates = async () => {
+    setSlipDateRepairLoading(true); setError(null); setSuccess(null)
+    const processedItemIds = new Set<string>()
+    let processed = 0; let failed = 0; let remaining = 0
+    try {
+      for (let batch = 0; batch < 20; batch += 1) {
+        const { data, error: invokeError } = await supabase.functions.invoke('reprocess-transfer-slips', {
+          body: {
+            repair_invalid_dates: true,
+            limit: 10,
+            exclude_item_ids: [...processedItemIds],
+            guidance: 'อ่านวันที่และเวลาโอนจากภาพให้ชัดเจน แปลงปี พ.ศ. เป็น ค.ศ. และห้ามเดาวันที่ที่มองไม่เห็น',
+          },
+        })
+        if (invokeError) throw invokeError
+        const results = Array.isArray(data?.results) ? data.results as Array<{ item_id?: string; status?: string }> : []
+        for (const result of results) {
+          if (result.item_id) processedItemIds.add(result.item_id)
+          processed += 1
+          if (result.status === 'failed') failed += 1
+        }
+        remaining = Number(data?.estimated_remaining) || 0
+        if (!results.length || remaining === 0) break
+      }
+      await loadData()
+      setSuccess(`AI อ่านวันที่สลิปใหม่ ${processed.toLocaleString('th-TH')} รายการ${failed ? ` · ไม่สำเร็จ ${failed.toLocaleString('th-TH')} รายการ` : ''}${remaining ? ` · ยังเหลือ ${remaining.toLocaleString('th-TH')} รายการ` : ' · ครบแล้ว'} กรุณาตรวจ Candidate ก่อนยืนยัน`)
+    } catch (actionError) { setError(userError(actionError)) }
+    finally { setSlipDateRepairLoading(false) }
+  }
+
   const saveSlipReview = async (decision: 'draft' | 'confirm' | 'request_information') => {
     if (!selectedSlip || !slipReviewDraft || !slipMoneyLineageDraft) return
     setSlipActionLoading(true); setError(null); setSuccess(null)
@@ -1333,7 +1364,10 @@ export function AccountingDocumentsPage() {
             <Paper variant="outlined" sx={{ p: 1.5, borderTop: 3, borderTopColor: 'info.main' }}>
               <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between' }}>
                 <Box><Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Accounting Pending Queue · สลิปโอนเงิน</Typography><Typography variant="body2" color="text.secondary">คิวสลิปจาก Intake ที่ส่งบัญชีเป็นปลายทางแรก · รายการซ้ำแยกไว้อ้างอิงและไม่นับในยอดหลัก</Typography></Box>
-                <Button size="small" href="/document-flows?document_view=task_types">เปิดศูนย์เส้นทาง</Button>
+                <Stack direction="row" spacing={1}>
+                  {canManage && <Button size="small" variant="outlined" disabled={slipDateRepairLoading} onClick={() => void rereadInvalidSlipDates()}>{slipDateRepairLoading ? 'AI กำลังอ่านวันที่…' : 'AI อ่านวันที่ผิด/ว่างใหม่'}</Button>}
+                  <Button size="small" href="/document-flows?document_view=task_types">เปิดศูนย์เส้นทาง</Button>
+                </Stack>
               </Stack>
               <Stack direction="row" spacing={1} useFlexGap sx={{ mt: 1.5, flexWrap: 'wrap' }}>
                 {([['transfer_slip', 'สลิปโอนเงิน'], ['pending', 'รอตรวจ'], ['reviewed', 'ตรวจแล้ว'], ['duplicate', 'ซ้ำ'], ['incomplete', 'ข้อมูลไม่ครบ']] as Array<[TransferSlipQueueFilter, string]>).map(([value, label]) => <Chip key={value} clickable color={slipFilter === value ? 'primary' : 'default'} variant={slipFilter === value ? 'filled' : 'outlined'} label={`${label} (${slipCounts[value]})`} onClick={() => setSlipFilter(value)} />)}
