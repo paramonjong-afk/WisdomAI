@@ -83,6 +83,17 @@ export const emptyMoneyLineage = (senderName = '', recipientName = '', amount: n
   allocations: [emptyMoneyAllocation(amount, recipientName)],
 })
 
+export const moneyFundingSourceNeedsHolder = (source: MoneyFundingSource) =>
+  source === 'reserve_fund' || source === 'employee_advance'
+
+export const applyMoneyFundingSource = (draft: MoneyLineageDraft, source: MoneyFundingSource): MoneyLineageDraft => ({
+  ...draft,
+  fundingSourceType: source,
+  fundHolderName: moneyFundingSourceNeedsHolder(source) && !draft.fundHolderName.trim()
+    ? draft.payerName.trim()
+    : draft.fundHolderName,
+})
+
 export const moneyPurposeRoute = (purpose: MoneyPurpose) => {
   if (purpose === 'payroll') return { label: 'ค่าแรง', route: 'บัญชี → HR/ค่าแรง', departments: ['hr'] }
   if (purpose === 'advance_transfer' || purpose === 'onward_transfer') return { label: 'เงินสำรองจ่าย', route: 'บัญชี → เงินสำรองจ่าย', departments: [] }
@@ -110,7 +121,7 @@ export const validateMoneyLineage = (draft: MoneyLineageDraft, transferAmount: n
   const returned = numberOrNull(draft.returnedAmount) ?? 0
   const remaining = numberOrNull(draft.remainingAmount)
   if (draft.fundingSourceType === 'unknown') missing.push('แหล่งเงิน')
-  if (['reserve_fund', 'employee_advance'].includes(draft.fundingSourceType) && !draft.fundHolderName.trim()) missing.push('ผู้ถือเงิน')
+  if (moneyFundingSourceNeedsHolder(draft.fundingSourceType) && !draft.fundHolderName.trim()) missing.push('ผู้ถือเงิน')
   if (!draft.payerName.trim()) missing.push('ผู้จ่ายจริง')
   if (!draft.finalBeneficiaryName.trim()) missing.push('ผู้รับปลายทาง')
   if (paid == null || !Number.isFinite(paid) || paid <= 0) missing.push('ยอดจ่าย')

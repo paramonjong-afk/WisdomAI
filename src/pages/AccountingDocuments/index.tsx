@@ -17,7 +17,7 @@ import { filterTransferSlipQueue, transferSlipContinuation, transferSlipQueueBuc
 import type { TransferSlipQueueFilter, TransferSlipQueueRow } from '../../services/accountingTransferSlipQueue'
 import { mapTransferSlipTruth } from '../../services/transferSlipOperationalTruth'
 import type { TransferSlipOperationalTruthRow } from '../../services/transferSlipOperationalTruth'
-import { calculateUnallocatedAmount, emptyMoneyAllocation, emptyMoneyLineage, legacyMoneyLineageScope, moneyAllocationDestinations, moneyAllocationTotal, moneyPurposeRoute, validateMoneyLineage } from '../../services/transferSlipMoneyLineage'
+import { applyMoneyFundingSource, calculateUnallocatedAmount, emptyMoneyAllocation, emptyMoneyLineage, legacyMoneyLineageScope, moneyAllocationDestinations, moneyAllocationTotal, moneyFundingSourceNeedsHolder, moneyPurposeRoute, validateMoneyLineage } from '../../services/transferSlipMoneyLineage'
 import type { MoneyAllocationDraft, MoneyFundingSource, MoneyLineageDraft, MoneyPurpose } from '../../services/transferSlipMoneyLineage'
 import { buildSlipAnalysisGate, inferSlipMoneyPurpose, slipPurposeNeedsFundHolder, slipPurposeNeedsProject } from '../../services/transferSlipAnalysisGate'
 import type { VendorMatchStatus } from '../../services/vendorPaymentMatching'
@@ -1067,7 +1067,8 @@ export function AccountingDocumentsPage() {
         if (vendorMatchResult.error && !/relation .* does not exist/i.test(vendorMatchResult.error.message)) setError(current => current ?? `โหลดการจับคู่ผู้ขายไม่สำเร็จ: ${userError(vendorMatchResult.error)}`)
         const allocations = allocationResult.error ? [] : (allocationResult.data ?? []) as unknown as StoredMoneyAllocation[]
         const matches = vendorMatchResult.error ? [] : (vendorMatchResult.data ?? []) as unknown as StoredVendorMatch[]
-        setSlipMoneyLineageDraft(moneyLineageDraftFromStored(stored, allocations, matches))
+        const storedDraft = moneyLineageDraftFromStored(stored, allocations, matches)
+        setSlipMoneyLineageDraft(applyMoneyFundingSource(storedDraft, storedDraft.fundingSourceType))
         setSlipMoneyLineageStatus({ routeStatus: stored.route_status, nextDestination: stored.next_destination })
       } else if (!advancePartyResult.error && advancePartyResult.data) {
         const raw = advancePartyResult.data as Record<string, unknown>
@@ -1594,8 +1595,8 @@ export function AccountingDocumentsPage() {
             />
           </Stack>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
-            <TextField select label="เงินที่จ่ายมาจากไหน" value={slipMoneyLineageDraft.fundingSourceType} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, fundingSourceType: event.target.value as MoneyFundingSource }))}><MenuItem value="unknown">ยังไม่ทราบ</MenuItem><MenuItem value="company_account">บัญชีบริษัท</MenuItem><MenuItem value="reserve_fund">เงินสำรองจ่าย</MenuItem><MenuItem value="employee_advance">เงินทดลองจ่าย/เบิกล่วงหน้า</MenuItem><MenuItem value="personal_reimbursement">เงินส่วนตัวสำรองก่อน</MenuItem></TextField>
-            {slipAnalysis && slipPurposeNeedsFundHolder(slipAnalysis.purpose) && <><TextField label="รหัสกองเงิน / Advance ID" value={slipMoneyLineageDraft.fundingSourceReference} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, fundingSourceReference: event.target.value }))} />
+            <TextField select label="เงินที่จ่ายมาจากไหน" value={slipMoneyLineageDraft.fundingSourceType} onChange={event => setSlipMoneyLineageDraft(current => current && applyMoneyFundingSource(current, event.target.value as MoneyFundingSource))}><MenuItem value="unknown">ยังไม่ทราบ</MenuItem><MenuItem value="company_account">บัญชีบริษัท</MenuItem><MenuItem value="reserve_fund">เงินสำรองจ่าย</MenuItem><MenuItem value="employee_advance">เงินทดลองจ่าย/เบิกล่วงหน้า</MenuItem><MenuItem value="personal_reimbursement">เงินส่วนตัวสำรองก่อน</MenuItem></TextField>
+            {(moneyFundingSourceNeedsHolder(slipMoneyLineageDraft.fundingSourceType) || (slipAnalysis && slipPurposeNeedsFundHolder(slipAnalysis.purpose))) && <><TextField label="รหัสกองเงิน / Advance ID" value={slipMoneyLineageDraft.fundingSourceReference} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, fundingSourceReference: event.target.value }))} />
             <TextField label="ผู้ถือเงินจริงที่ยืนยัน" value={slipMoneyLineageDraft.fundHolderName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, fundHolderName: event.target.value }))} helperText="จำเป็นสำหรับเงินเบิกล่วงหน้า/เงินสำรอง/เงินคืน · ไม่เปลี่ยนชื่อบนสลิป" /></>}
             <TextField label="ผู้จ่ายจริงที่ยืนยัน" value={slipMoneyLineageDraft.payerName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, payerName: event.target.value }))} helperText="ใช้สำหรับกระทบยอดและรายงาน ไม่เขียนทับผู้โอนตามหลักฐาน" />
             <TextField label="ผู้รับจริงที่ยืนยัน" value={slipMoneyLineageDraft.finalBeneficiaryName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, finalBeneficiaryName: event.target.value }))} helperText="แยกจากผู้รับที่ AI/OCR อ่านจากสลิป" />

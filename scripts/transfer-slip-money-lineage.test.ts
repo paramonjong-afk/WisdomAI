@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { calculateUnallocatedAmount, emptyMoneyAllocation, emptyMoneyLineage, legacyMoneyLineageScope, moneyAllocationDestinations, moneyAllocationTotal, moneyPurposeRoute, validateMoneyLineage } from '../src/services/transferSlipMoneyLineage.ts'
+import { applyMoneyFundingSource, calculateUnallocatedAmount, emptyMoneyAllocation, emptyMoneyLineage, legacyMoneyLineageScope, moneyAllocationDestinations, moneyAllocationTotal, moneyFundingSourceNeedsHolder, moneyPurposeRoute, validateMoneyLineage } from '../src/services/transferSlipMoneyLineage.ts'
 
 const draft = emptyMoneyLineage('บริษัท', 'นาย ก', 10000, '2026-08-23T10:00')
 draft.fundingSourceType = 'reserve_fund'
@@ -20,4 +20,11 @@ draft.paidAmount = '10000'; draft.allocations[1].amount = '3000'; draft.remainin
 assert.match(validateMoneyLineage(draft, 10000).errors.join(' '), /ยอดสลิปไม่เท่ากับ/)
 draft.allocations = [{ ...draft.allocations[0], purposeType: 'advance_transfer', amount: '6000' }, { ...draft.allocations[1], purposeType: 'materials', amount: '4000' }]
 assert.match(validateMoneyLineage(draft, 10000).errors.join(' '), /ต้องเป็นสลิปเฉพาะรายการ/)
+
+const payrollFromAdvance = emptyMoneyLineage('ผู้ถือเงินที่ยืนยัน', 'ช่างที่ยืนยัน', 1350)
+payrollFromAdvance.allocations[0].purposeType = 'payroll'
+const fundedPayroll = applyMoneyFundingSource(payrollFromAdvance, 'employee_advance')
+assert.equal(moneyFundingSourceNeedsHolder('employee_advance'), true)
+assert.equal(fundedPayroll.fundHolderName, 'ผู้ถือเงินที่ยืนยัน')
+assert.ok(!validateMoneyLineage(fundedPayroll, 1350).missing.includes('ผู้ถือเงิน'))
 console.log('transfer slip money lineage contract: PASS')
