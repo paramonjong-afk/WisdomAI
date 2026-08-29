@@ -5,7 +5,9 @@ const page = readFileSync(new URL('../src/pages/AccountingDocuments/index.tsx', 
 const model = readFileSync(new URL('../src/services/transferSlipMoneyLineage.ts', import.meta.url), 'utf8')
 const migration = readFileSync(new URL('../supabase/migrations/20260829003040_transfer_slip_allocation_account_selection.sql', import.meta.url), 'utf8')
 
-assert.match(page, /รายการบัญชีค่าใช้จ่าย \(จำเป็น\)/)
+assert.match(page, /2\. เลือกรายการบัญชีค่าใช้จ่าย/)
+assert.match(page, /รายการบัญชีจากข้อมูลกลาง/)
+assert.match(page, /จำเป็นก่อนยืนยัน/)
 assert.match(page, /accounting_cost_categories/)
 assert.match(page, /cost_category_id/)
 assert.match(page, /canonical_accounting_cost_category/)
