@@ -22,11 +22,14 @@ import { candidateAccount, groupDuplicateCandidates, isNameMismatch, masterDataR
 
 type Candidate = MasterCandidate & { archive_after: string }
 type BankAccount = { id: string; owner_name: string; owner_type: string; bank_name: string | null; account_last4: string; verification_status: string; evidence_source_table: string | null; evidence_source_id: string | null; verified_at: string | null; created_at: string }
+type PaymentAlias = { id: string; owner_type: string; owner_name: string; alias_type: string; masked_value: string; verification_status: string; evidence_source_table: string | null; evidence_source_id: string | null; verified_by: string | null; verified_at: string | null; version: number; created_at: string; updated_at: string }
+type PaymentAliasAudit = { payment_alias_id: string | null; financial_transaction_id: string | null; action: string; reason: string | null; actor_profile_id: string | null; created_at: string }
 type DrawerMessage = { severity: 'success' | 'error' | 'info'; text: string; incidentId?: string; persisted?: boolean }
 
 const candidateStatus: Record<string, string> = { provisional: 'รับเข้า', auto_verified: 'Auto Verified', admin_reviewed: 'Admin แก้แล้ว/รอตรวจซ้ำ', needs_review: 'รอตรวจสอบ', confirmed: 'ยืนยันแล้ว', locked: 'Locked', pending_review: 'รอตรวจสอบ', approved: 'ยืนยันแล้ว', rejected: 'ยกเลิก', archived: 'เก็บถาวร', needs_more_info: 'รอข้อมูลเพิ่ม' }
-const accountStatus: Record<string, string> = { verified: 'ยืนยันแล้ว', unverified: 'รอตรวจ', inactive: 'ปิดใช้งาน', archived: 'เก็บถาวร' }
-const entityLabel: Record<string, string> = { employee: 'พนักงาน', vendor: 'ผู้ขาย', customer: 'ลูกค้า', project: 'โครงการ', work_package: 'งานย่อย', bank_account: 'บัญชีธนาคาร' }
+const accountStatus: Record<string, string> = { verified: 'ยืนยันแล้ว', unverified: 'รอตรวจ', conflict: 'ข้อมูลขัดแย้ง', inactive: 'ปิดใช้งาน', archived: 'เก็บถาวร' }
+const entityLabel: Record<string, string> = { employee: 'พนักงาน', vendor: 'ผู้ขาย', customer: 'ลูกค้า', company: 'บริษัท', other: 'ยังไม่ทราบเจ้าของ', project: 'โครงการ', work_package: 'งานย่อย', bank_account: 'บัญชีธนาคาร' }
+const paymentAliasTypeLabel: Record<string, string> = { mobile: 'เบอร์มือถือ', national_id: 'เลขประชาชน', tax_id: 'เลขภาษี', ewallet_id: 'e-Wallet', unknown_masked: 'เลขปกปิดจากหลักฐาน' }
 const dateTime = (value: string | null) => value ? new Date(value).toLocaleString('th-TH') : '-'
 const emptyEvidence = emptyMasterSourceEvidence
 const masterReviewError = (error: unknown) => {
@@ -45,6 +48,8 @@ export function MasterDataCenterPage() {
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [evidence, setEvidence] = useState<Record<string, MasterSourceEvidence>>({})
   const [accounts, setAccounts] = useState<BankAccount[]>([])
+  const [paymentAliases, setPaymentAliases] = useState<PaymentAlias[]>([])
+  const [paymentAliasAudits, setPaymentAliasAudits] = useState<PaymentAliasAudit[]>([])
   const [projects, setProjects] = useState<MasterProjectOption[]>([])
   const [workPackages, setWorkPackages] = useState<MasterWorkPackageOption[]>([])
   const [reviewReceipts, setReviewReceipts] = useState<Record<string, MasterReviewReceipt>>({})
@@ -71,20 +76,30 @@ export function MasterDataCenterPage() {
 
   const load = useCallback(async () => {
     if (!companyId) return [] as Candidate[]
-    const [candidateResult, accountResult, projectResult, workPackageResult] = await Promise.all([
+    const [candidateResult, accountResult, paymentAliasResult, paymentAliasAuditResult, projectResult, workPackageResult] = await Promise.all([
       supabase.from('master_data_candidates').select('id,entity_type,display_name,normalized_name,candidate_data,confidence,status,source_table,source_id,duplicate_of,review_reason,reviewed_by,reviewed_at,classification_type,classification_confidence,classification_evidence,classification_conflicts,classification_version,classified_at,created_at,archive_after').eq('company_id', companyId).order('created_at', { ascending: false }).limit(500),
       supabase.from('master_bank_accounts').select('id,owner_name,owner_type,bank_name,account_last4,verification_status,evidence_source_table,evidence_source_id,verified_at,created_at').eq('company_id', companyId).neq('verification_status', 'archived').order('updated_at', { ascending: false }).limit(500),
+      supabase.from('master_payment_aliases').select('id,owner_type,owner_name,alias_type,masked_value,verification_status,evidence_source_table,evidence_source_id,verified_by,verified_at,version,created_at,updated_at').eq('company_id', companyId).neq('verification_status', 'archived').order('updated_at', { ascending: false }).limit(500),
+      supabase.from('payment_alias_audit').select('payment_alias_id,financial_transaction_id,action,reason,actor_profile_id,created_at').eq('company_id', companyId).order('created_at', { ascending: false }).limit(1000),
       supabase.from('projects').select('id,name,code,status,project_name,developer_name,province,location_detail,property_type').eq('company_id', companyId).eq('status', 'active').order('name'),
       supabase.from('project_work_packages').select('id,project_id,parent_id,code,name,description,status').eq('company_id', companyId).eq('status', 'active').order('name'),
     ])
-    const loadError = candidateResult.error ?? accountResult.error ?? projectResult.error ?? workPackageResult.error
+    const loadError = candidateResult.error ?? accountResult.error ?? paymentAliasResult.error ?? paymentAliasAuditResult.error ?? projectResult.error ?? workPackageResult.error
     if (loadError) { setError(userError(loadError)); return [] as Candidate[] }
     const rows = (candidateResult.data ?? []) as Candidate[]
     setCandidates(rows)
     setAccounts((accountResult.data ?? []) as BankAccount[])
+    const aliasRows = (paymentAliasResult.data ?? []) as PaymentAlias[]
+    const aliasAuditRows = (paymentAliasAuditResult.data ?? []) as PaymentAliasAudit[]
+    setPaymentAliases(aliasRows)
+    setPaymentAliasAudits(aliasAuditRows)
     setProjects((projectResult.data ?? []) as MasterProjectOption[])
     setWorkPackages((workPackageResult.data ?? []) as MasterWorkPackageOption[])
-    const reviewerIds = [...new Set(rows.map((row) => row.reviewed_by).filter((id): id is string => Boolean(id)))]
+    const reviewerIds = [...new Set([
+      ...rows.map((row) => row.reviewed_by),
+      ...aliasRows.map((row) => row.verified_by),
+      ...aliasAuditRows.map((row) => row.actor_profile_id),
+    ].filter((id): id is string => Boolean(id)))]
     if (reviewerIds.length) {
       const reviewerResult = await supabase.from('profiles').select('id,full_name').in('id', reviewerIds)
       if (!reviewerResult.error) setReviewerNames(Object.fromEntries((reviewerResult.data ?? []).map((row) => [row.id, row.full_name])))
@@ -393,6 +408,16 @@ export function MasterDataCenterPage() {
   const conflictCount = reviewProjection.active.filter((candidate) => classifications[candidate.id].conflicts.length > 0).length
   const canonicalLinkedCount = candidates.filter((candidate) => candidate.status === 'archived' && candidate.candidate_data.canonical_match_status === 'linked').length
   const canonicalConflictCount = reviewProjection.active.filter((candidate) => candidate.candidate_data.canonical_match_status === 'conflict').length
+  const verifiedPaymentAliasCount = paymentAliases.filter((alias) => alias.verification_status === 'verified').length
+  const pendingPaymentAliasCount = paymentAliases.filter((alias) => ['unverified', 'conflict'].includes(alias.verification_status)).length
+  const paymentAliasAuditById = useMemo(() => {
+    const result = new Map<string, PaymentAliasAudit[]>()
+    paymentAliasAudits.forEach((audit) => {
+      if (!audit.payment_alias_id) return
+      result.set(audit.payment_alias_id, [...(result.get(audit.payment_alias_id) ?? []), audit])
+    })
+    return result
+  }, [paymentAliasAudits])
   const selectedSource = selected ? evidence[selected.id] ?? emptyEvidence() : emptyEvidence()
   const selectedClassification = selected ? classifications[selected.id] ?? classifyMasterCandidate(selected, selectedSource, duplicateIds.has(selected.id)) : null
   const selectedRequiresCorrection = selected && selectedClassification ? masterDataRequiresCorrection(selected, selectedSource, selectedClassification.conflicts, selectedClassification.type) : false
@@ -406,7 +431,7 @@ export function MasterDataCenterPage() {
     <PageHeader title="ศูนย์ข้อมูลกลาง" description="ข้อมูลจากสลิปและเอกสารจะเข้ารอตรวจ ก่อนยืนยันเป็นข้อมูลใช้ร่วมกันทุก Module · ไม่มีการลบข้อมูลที่มีการอ้างอิง" action={<Stack direction="row" spacing={1}><Button variant="outlined" disabled={canonicalSyncing} onClick={() => void syncCanonicalMatches()}>{canonicalSyncing ? 'กำลังจับคู่...' : 'จับคู่ Canonical'}</Button><Button startIcon={<RefreshOutlined />} onClick={() => void load()}>รีเฟรช</Button></Stack>} />
     {error && <Alert severity="error">{error}</Alert>}
     {canonicalMessage && <Alert severity="success">{canonicalMessage}</Alert>}
-    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><Metric label="คิวที่ต้องจัดการ" value={`${reviewProjection.active.length} รายการ`} /><Metric label="ข้อมูลใหม่" value={`${reviewProjection.incoming.length} รายการ`} /><Metric label="รอตรวจ/รอข้อมูล" value={`${reviewProjection.followUp.length} รายการ`} /><Metric label="Auto Verified" value={`${reviewProjection.autoVerified.length} รายการ`} /><Metric label="Canonical เชื่อมแล้ว" value={`${canonicalLinkedCount} รายการ`} /><Metric label="Canonical ขัดแย้ง" value={`${canonicalConflictCount} รายการ`} /><Metric label="ขัดแย้งทั้งหมด" value={`${conflictCount} รายการ`} /><Metric label="ยืนยันแล้ว" value={`${reviewProjection.confirmed.length} รายการ`} /><Metric label="แก้ไขโดย Admin" value={`${reviewProjection.adminReviewed.length} รายการ`} /></Stack>
+    <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}><Metric label="คิวที่ต้องจัดการ" value={`${reviewProjection.active.length} รายการ`} /><Metric label="ข้อมูลใหม่" value={`${reviewProjection.incoming.length} รายการ`} /><Metric label="รอตรวจ/รอข้อมูล" value={`${reviewProjection.followUp.length} รายการ`} /><Metric label="Auto Verified" value={`${reviewProjection.autoVerified.length} รายการ`} /><Metric label="Canonical เชื่อมแล้ว" value={`${canonicalLinkedCount} รายการ`} /><Metric label="Canonical ขัดแย้ง" value={`${canonicalConflictCount} รายการ`} /><Metric label="PromptPay รอตรวจ" value={`${pendingPaymentAliasCount} รายการ`} /><Metric label="PromptPay ยืนยันแล้ว" value={`${verifiedPaymentAliasCount} รายการ`} /><Metric label="ขัดแย้งทั้งหมด" value={`${conflictCount} รายการ`} /><Metric label="ยืนยันแล้ว" value={`${reviewProjection.confirmed.length} รายการ`} /><Metric label="แก้ไขโดย Admin" value={`${reviewProjection.adminReviewed.length} รายการ`} /></Stack>
     <Alert severity="info">สูตรคิวเดียวกัน: คิวที่ต้องจัดการ = ข้อมูลใหม่ + รอตรวจ/รอข้อมูล + Auto Verified + แก้ไขโดย Admin · ตารางและตัวกรอง “รอตรวจ” ใช้ชุดสถานะเดียวกัน</Alert>
     <Paper variant="outlined" sx={{ p: 1.5 }}><Typography variant="body2">ข้อมูลหลักมีชุดเดียวใน “บัญชีที่ยืนยันแล้ว” และใช้ Canonical ID ร่วมกันทุก Module เมื่อสลิปที่ Admin ยืนยันมีชื่อมาตรฐาน + ธนาคารมาตรฐาน + เลขท้ายบัญชีครบ ระบบจะอัปเดต Canonical และนำ Candidate ที่ตรงออกจาก Review Queue อัตโนมัติ พร้อม Version/Audit โดยเก็บ Source, รูปและ OCR เดิมไว้ หากตรงเพียงชื่อหรือพบข้อมูลขัดแย้งจะคงไว้รอตรวจ</Typography></Paper>
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'center' } }}><Typography variant="h6" sx={{ flex: 1 }}>Review Queue</Typography><Select size="small" value={filter} onChange={(event) => setFilter(event.target.value as MasterReviewFilter)}><MenuItem value="pending_review">รอตรวจ</MenuItem><MenuItem value="duplicate">ซ้ำ</MenuItem><MenuItem value="name_mismatch">ชื่อไม่ตรง</MenuItem><MenuItem value="account_name_mismatch">บัญชีตรงแต่ชื่อไม่ตรง</MenuItem><MenuItem value="conflict">ข้อมูลขัดแย้ง</MenuItem><MenuItem value="unknown_review">Unknown/Needs Review</MenuItem><MenuItem value="all">ทั้งหมด</MenuItem></Select><Chip label={`${reviewVisibleCount} กลุ่ม/รายการ`} /></Stack>
@@ -443,7 +468,21 @@ export function MasterDataCenterPage() {
       { id: 'state', label: 'สถานะ', minWidth: 140, render: (row) => <Chip size="small" color={row.verification_status === 'verified' ? 'success' : 'default'} label={accountStatus[row.verification_status] ?? row.verification_status} /> },
       { id: 'verified', label: 'ยืนยันเมื่อ', minWidth: 180, render: (row) => dateTime(row.verified_at) },
     ]} />
+    <Stack spacing={0.5}>
+      <Typography variant="h6">PromptPay และช่องทางรับ/จ่าย Canonical</Typography>
+      <Typography variant="body2" color="text.secondary">PromptPay เป็น Alias ของพนักงาน ผู้ขาย ลูกค้า หรือบริษัท ไม่ใช่บัญชีธนาคาร รายการเลขปกปิดจะยังรอตรวจจนกว่าจะมีหลักฐานระบุตัวเจ้าของได้แน่นอน</Typography>
+    </Stack>
+    <StandardDataTable rows={paymentAliases} getRowId={(row) => row.id} getSearchText={(row) => `${row.owner_name} ${entityLabel[row.owner_type] ?? row.owner_type} ${paymentAliasTypeLabel[row.alias_type] ?? row.alias_type} ${row.masked_value} ${row.id} ${row.evidence_source_id ?? ''}`} searchLabel="ค้นหาเจ้าของ ประเภท PromptPay เลขปกปิด Source หรือ Canonical ID" emptyText="ยังไม่มี PromptPay Canonical" minWidth={1420} columns={[
+      { id: 'alias_id', label: 'Canonical Alias ID', minWidth: 210, render: (row) => <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{row.id}</Typography> },
+      { id: 'alias_owner', label: 'เจ้าของ', minWidth: 230, render: (row) => <Stack spacing={0.2}><Typography variant="body2">{row.owner_name}</Typography><Typography variant="caption" color="text.secondary">{entityLabel[row.owner_type] ?? row.owner_type}</Typography></Stack> },
+      { id: 'alias_value', label: 'ประเภท / ค่าแสดง', minWidth: 220, render: (row) => <Stack spacing={0.2}><Typography variant="body2">{paymentAliasTypeLabel[row.alias_type] ?? row.alias_type}</Typography><Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{row.masked_value}</Typography></Stack> },
+      { id: 'alias_status', label: 'สถานะ', minWidth: 150, render: (row) => <Chip size="small" color={row.verification_status === 'verified' ? 'success' : row.verification_status === 'conflict' ? 'error' : 'warning'} label={accountStatus[row.verification_status] ?? row.verification_status} /> },
+      { id: 'alias_source', label: 'Source Reference', minWidth: 270, render: (row) => <Stack spacing={0.2}><Typography variant="caption">{row.evidence_source_table ?? 'ไม่ระบุตาราง'}</Typography><Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{row.evidence_source_id ?? 'ไม่พบ Source ID'}</Typography></Stack> },
+      { id: 'alias_audit', label: 'Audit ล่าสุด', minWidth: 260, render: (row) => { const audits = paymentAliasAuditById.get(row.id) ?? []; const latest = audits[0]; return <Stack spacing={0.2}><Typography variant="body2">{latest?.action ?? 'ยังไม่มี Audit'}</Typography><Typography variant="caption" color="text.secondary">{latest?.reason ?? `${audits.length} events`} · {dateTime(latest?.created_at ?? null)}</Typography></Stack> } },
+      { id: 'alias_reviewer', label: 'ผู้ยืนยัน / Version', minWidth: 190, render: (row) => <Stack spacing={0.2}><Typography variant="body2">{row.verified_by ? reviewerNames[row.verified_by] ?? row.verified_by : 'ยังไม่ยืนยัน'}</Typography><Typography variant="caption" color="text.secondary">Version {row.version} · {dateTime(row.verified_at)}</Typography></Stack> },
+      { id: 'alias_open', label: 'ตรวจหลักฐาน', minWidth: 150, render: (row) => row.evidence_source_table === 'financial_transactions' && row.evidence_source_id ? <Button size="small" component="a" href={`/accounting-documents?transaction_id=${encodeURIComponent(row.evidence_source_id)}`}>เปิดสลิป</Button> : '-' },
+    ]} />
   </Stack>
 }
 
-function Metric({ label, value }: { label: string; value: string }) { return <Paper variant="outlined" sx={{ p: 1.5, flex: 1 }}><Typography variant="caption">{label}</Typography><Typography variant="h6">{value}</Typography></Paper> }
+function Metric({ label, value }: { label: string; value: string }) { return <Paper variant="outlined" sx={{ p: 1.5, flex: '1 1 150px' }}><Typography variant="caption">{label}</Typography><Typography variant="h6">{value}</Typography></Paper> }

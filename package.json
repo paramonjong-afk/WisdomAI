@@ -136,6 +136,7 @@
     "test:advance-party-historical-eligibility": "node --experimental-strip-types scripts/transfer-slip-advance-party-historical-eligibility.test.ts",
     "test:master-data-account-last4": "node --experimental-strip-types scripts/master-data-account-last4-confirmation.test.ts",
     "test:promptpay-canonical": "node --experimental-strip-types scripts/promptpay-canonical-alias.test.ts",
+    "test:master-data-promptpay": "node --experimental-strip-types scripts/master-data-promptpay.test.ts",
     "test:master-data-auto-input": "node --experimental-strip-types scripts/master-data-auto-input.test.ts",
     "test:master-data-advance-funding": "node --experimental-strip-types scripts/master-data-advance-funding.test.ts",
     "test:master-data-duplicate-reconciliation": "node --experimental-strip-types scripts/master-data-duplicate-reconciliation.test.ts",

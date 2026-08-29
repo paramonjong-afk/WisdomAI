@@ -6,7 +6,8 @@ import {
   Accordion, AccordionDetails, AccordionSummary, Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
   DialogTitle, Drawer, FormControlLabel, IconButton, MenuItem, Paper, Select, Stack, Tab, Tabs, TextField, Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { PageHeader } from '../../components/PageHeader'
 import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
@@ -146,6 +147,8 @@ const matchRequirements: readonly SetMatchGap[] = [
 
 export function AccountingDocumentsPage() {
   usePageTitle('เอกสารบัญชีและสต๊อก')
+  const [searchParams] = useSearchParams()
+  const requestedTransactionId = searchParams.get('transaction_id')
   const { profile,currentCompany } = useAuth()
   const canManage = profile?.role === 'admin' || profile?.role === 'manager'
   const runAttempt = (action: string, request: Record<string, unknown>, operation: () => unknown) =>
@@ -178,6 +181,7 @@ export function AccountingDocumentsPage() {
   const [slipActionLoading, setSlipActionLoading] = useState(false)
   const [slipDateRepairLoading, setSlipDateRepairLoading] = useState(false)
   const slipRequestRef = useRef(0)
+  const openedTransactionRef = useRef<string | null>(null)
   const [inventory, setInventory] = useState<InventoryBalance[]>([])
   const [projectInventory, setProjectInventory] = useState<ProjectInventoryBalance[]>([])
   const [productPrices, setProductPrices] = useState<ProductPriceReference[]>([])
@@ -1143,6 +1147,21 @@ export function AccountingDocumentsPage() {
       if (requestId === slipRequestRef.current) setSlipDetailLoading(false)
     }
   }
+
+  const openDeepLinkedSlip = useEffectEvent((slip: AccountingPendingSlip) => {
+    setAccountingQueueView('slips')
+    setSlipFilter('transfer_slip')
+    void openSlipDetail(slip)
+  })
+
+  useEffect(() => {
+    if (!requestedTransactionId || openedTransactionRef.current === requestedTransactionId) return
+    const slip = pendingSlips.find((row) => row.transactionId === requestedTransactionId)
+    if (!slip) return
+    openedTransactionRef.current = requestedTransactionId
+    const timer = window.setTimeout(() => openDeepLinkedSlip(slip), 0)
+    return () => window.clearTimeout(timer)
+  }, [pendingSlips, requestedTransactionId])
 
   const rereadSelectedSlip = async () => {
     if (!selectedSlip) return
