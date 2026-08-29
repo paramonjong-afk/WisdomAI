@@ -13,13 +13,15 @@ for (const required of [
   'ผู้ถือเงิน',
   'รายการใช้เงิน/คืนเงิน',
   'ยอดคงค้างเป็นศูนย์',
-  'เปิดคิวตรวจ {pendingCount || group.rows.length}',
-  'เปิดในคิวตรวจ',
+  'คลิกแถวเพื่อเปิดรายละเอียด',
+  'onClick={() => onOpenQueue(group.rows)}',
+  'onClick={() => onOpenQueue(group.rows, row.id)}',
 ]) {
   assert.ok(page.includes(required), `advance review queue should include ${required}`)
 }
 
 assert.doesNotMatch(page, /onClick=\{\(\) => onSelect\(group\.rows\[0\]\)\}/, 'group action must not open only the first advance')
+assert.doesNotMatch(page, /<TableCell sx=\{\{ fontWeight: 700 \}\}>ดำเนินการ<\/TableCell>/, 'advance table should not keep a redundant action column')
 assert.match(page, /disabled=\{saving \|\| !selectedReadiness\?\.canSubmit\}/, 'submit must use readiness gate')
 assert.match(page, /disabled=\{saving \|\| !selectedReadiness\?\.canApprove\}/, 'approve must use readiness gate')
 assert.match(page, /disabled=\{saving \|\| !selectedReadiness\?\.canClose\}/, 'close must use readiness gate')
