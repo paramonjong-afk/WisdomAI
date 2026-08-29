@@ -137,6 +137,7 @@ export const advanceReportGateway = {
       .order('received_at', { ascending: false })
     if (holderId) query = query.or(`holder_profile_id.eq.${holderId},holder_person_id.eq.${holderId}`)
     if (status) query = query.eq('status', status)
+    else query = query.neq('status', 'cancelled')
     const result = await query
     return { data: (result.data ?? []).map((row) => mapRow(row as unknown as RawAdvanceRow)), error: result.error }
   },
