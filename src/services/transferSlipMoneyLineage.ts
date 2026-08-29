@@ -21,6 +21,9 @@ export type MoneyAllocationDraft = {
   key: string
   purposeType: MoneyPurpose
   amount: string
+  costCategoryId: string
+  accountCode: string
+  accountName: string
   projectId: string
   siteId: string
   payeeName: string
@@ -71,7 +74,7 @@ const allocationKey = () => typeof crypto !== 'undefined' && 'randomUUID' in cry
   : `allocation-${Date.now()}-${Math.random().toString(36).slice(2)}`
 
 export const emptyMoneyAllocation = (amount: number | null = null, payeeName = ''): MoneyAllocationDraft => ({
-  key: allocationKey(), purposeType: 'unknown', amount: amount == null ? '' : String(amount), projectId: '', siteId: '',
+  key: allocationKey(), purposeType: 'unknown', amount: amount == null ? '' : String(amount), costCategoryId: '', accountCode: '', accountName: '', projectId: '', siteId: '',
   payeeName, responsibleName: '', description: '', confidence: '', payrollKind: '', vendorId: '', vendorName: '', vendorTaxId: '',
   vendorBankName: '', vendorAccountLast4: '', vendorMatchStatus: 'needs_review', vendorMatchConfidence: '', vendorMatchReason: '',
 })
@@ -87,6 +90,9 @@ export const emptyMoneyLineage = (senderName = '', recipientName = '', amount: n
 
 export const moneyFundingSourceNeedsHolder = (source: MoneyFundingSource) =>
   source === 'reserve_fund' || source === 'employee_advance'
+
+export const moneyPurposeNeedsExpenseAccount = (purpose: MoneyPurpose) =>
+  ['payroll', 'materials', 'project_expense', 'general_expense', 'vendor_payment', 'subcontractor', 'travel', 'bank_fee', 'tax'].includes(purpose)
 
 export const applyMoneyFundingSource = (draft: MoneyLineageDraft, source: MoneyFundingSource): MoneyLineageDraft => ({
   ...draft,
@@ -143,6 +149,7 @@ export const validateMoneyLineage = (draft: MoneyLineageDraft, transferAmount: n
     const amount = numberOrNull(allocation.amount)
     if (allocation.purposeType === 'unknown') missing.push(`วัตถุประสงค์รายการที่ ${index + 1}`)
     if (allocation.purposeType === 'payroll' && !allocation.payrollKind) missing.push(`ชนิดเงินเดือน/ค่าแรงรายการที่ ${index + 1}`)
+    if (moneyPurposeNeedsExpenseAccount(allocation.purposeType) && (!allocation.costCategoryId || !allocation.accountCode || !allocation.accountName)) missing.push(`บัญชีค่าใช้จ่ายรายการที่ ${index + 1}`)
     if (['materials', 'project_expense'].includes(allocation.purposeType) && !allocation.projectId) missing.push(`โครงการรายการที่ ${index + 1}`)
     if (allocation.purposeType === 'vendor_payment' && (allocation.vendorMatchStatus !== 'matched' || !allocation.vendorId)) missing.push(`ร้านค้า/ผู้ขายรายการที่ ${index + 1} ต้องจับคู่และยืนยันก่อนส่งต่อ`)
     if (amount == null || !Number.isFinite(amount) || amount <= 0) errors.push(`รายการจัดสรรที่ ${index + 1} จำนวนเงินไม่ถูกต้อง`)
