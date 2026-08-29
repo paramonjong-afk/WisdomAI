@@ -18,6 +18,7 @@ import { buildMasterReviewProjection, validatePersistedCorrectAndConfirm, valida
 import { userError } from '../../utils/userError'
 import { type ProjectGateAction } from './MasterDataProjectGatePanel'
 import { MasterDataReviewDrawer } from './MasterDataReviewDrawer'
+import { MoneyRoutePolicyPanel } from './MoneyRoutePolicyPanel'
 import { candidateAccount, groupDuplicateCandidates, isNameMismatch, masterDataRequiresCorrection, mismatchStage, normalizeAccountLast4, reviewFilterMatches, type MasterCandidate, type MasterReviewFilter, type MasterSourceEvidence } from './masterDataReview'
 
 type Candidate = MasterCandidate & { archive_after: string }
@@ -431,6 +432,7 @@ export function MasterDataCenterPage() {
     <PageHeader title="ศูนย์ข้อมูลกลาง" description="ข้อมูลจากสลิปและเอกสารจะเข้ารอตรวจ ก่อนยืนยันเป็นข้อมูลใช้ร่วมกันทุก Module · ไม่มีการลบข้อมูลที่มีการอ้างอิง" action={<Stack direction="row" spacing={1}><Button variant="outlined" disabled={canonicalSyncing} onClick={() => void syncCanonicalMatches()}>{canonicalSyncing ? 'กำลังจับคู่...' : 'จับคู่ Canonical'}</Button><Button startIcon={<RefreshOutlined />} onClick={() => void load()}>รีเฟรช</Button></Stack>} />
     {error && <Alert severity="error">{error}</Alert>}
     {canonicalMessage && <Alert severity="success">{canonicalMessage}</Alert>}
+    <MoneyRoutePolicyPanel />
     <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}><Metric label="คิวที่ต้องจัดการ" value={`${reviewProjection.active.length} รายการ`} /><Metric label="ข้อมูลใหม่" value={`${reviewProjection.incoming.length} รายการ`} /><Metric label="รอตรวจ/รอข้อมูล" value={`${reviewProjection.followUp.length} รายการ`} /><Metric label="Auto Verified" value={`${reviewProjection.autoVerified.length} รายการ`} /><Metric label="Canonical เชื่อมแล้ว" value={`${canonicalLinkedCount} รายการ`} /><Metric label="Canonical ขัดแย้ง" value={`${canonicalConflictCount} รายการ`} /><Metric label="PromptPay รอตรวจ" value={`${pendingPaymentAliasCount} รายการ`} /><Metric label="PromptPay ยืนยันแล้ว" value={`${verifiedPaymentAliasCount} รายการ`} /><Metric label="ขัดแย้งทั้งหมด" value={`${conflictCount} รายการ`} /><Metric label="ยืนยันแล้ว" value={`${reviewProjection.confirmed.length} รายการ`} /><Metric label="แก้ไขโดย Admin" value={`${reviewProjection.adminReviewed.length} รายการ`} /></Stack>
     <Alert severity="info">สูตรคิวเดียวกัน: คิวที่ต้องจัดการ = ข้อมูลใหม่ + รอตรวจ/รอข้อมูล + Auto Verified + แก้ไขโดย Admin · ตารางและตัวกรอง “รอตรวจ” ใช้ชุดสถานะเดียวกัน</Alert>
     <Paper variant="outlined" sx={{ p: 1.5 }}><Typography variant="body2">ข้อมูลหลักมีชุดเดียวใน “บัญชีที่ยืนยันแล้ว” และใช้ Canonical ID ร่วมกันทุก Module เมื่อสลิปที่ Admin ยืนยันมีชื่อมาตรฐาน + ธนาคารมาตรฐาน + เลขท้ายบัญชีครบ ระบบจะอัปเดต Canonical และนำ Candidate ที่ตรงออกจาก Review Queue อัตโนมัติ พร้อม Version/Audit โดยเก็บ Source, รูปและ OCR เดิมไว้ หากตรงเพียงชื่อหรือพบข้อมูลขัดแย้งจะคงไว้รอตรวจ</Typography></Paper>

@@ -125,6 +125,7 @@
     "test:advance-settlement-slip-preview": "node --experimental-strip-types scripts/advance-settlement-slip-preview.test.ts",
     "test:advance-reconciliation": "node --experimental-strip-types scripts/advance-reconciliation.test.ts",
     "test:advance-review-queue": "node --experimental-strip-types scripts/advance-review-queue.test.ts",
+    "test:money-route-policy": "node --experimental-strip-types scripts/money-route-policy.test.ts",
     "test:salary-advance-reconciliation": "node --experimental-strip-types scripts/salary-advance-reconciliation.test.ts",
     "test:employee-money-ledger": "node --experimental-strip-types scripts/employee-money-ledger.test.ts",
     "test:program-development-room": "node --experimental-strip-types scripts/program-development-room.test.ts",
