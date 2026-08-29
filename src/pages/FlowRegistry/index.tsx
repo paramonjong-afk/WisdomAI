@@ -2,6 +2,7 @@ import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined'
 import AppsOutlinedIcon from '@mui/icons-material/AppsOutlined'
 import ChatBubbleOutlineOutlinedIcon from '@mui/icons-material/ChatBubbleOutlineOutlined'
 import LockResetOutlinedIcon from '@mui/icons-material/LockResetOutlined'
+import NotificationsNoneOutlinedIcon from '@mui/icons-material/NotificationsNoneOutlined'
 import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined'
 import RuleOutlinedIcon from '@mui/icons-material/RuleOutlined'
 import TimerOutlinedIcon from '@mui/icons-material/TimerOutlined'
@@ -74,6 +75,15 @@ const accountingFlows = [
 ] as const
 
 const systemFlows = [
+  {
+    title: 'Notification Center',
+    version: 'Notification Center v1.3 · 29/8/2569',
+    icon: <NotificationsNoneOutlinedIcon color="primary" />,
+    summary: 'รวมเหตุการณ์จากทุก Module พร้อมแยกงานที่ต้องทำ/แจ้งเตือนระบบ กรอง Module และ Type ได้ และอ่านทั้งหมดเฉพาะมุมมองปัจจุบัน',
+    bullets: ['อ่านจาก docs/NOTIFICATION_CENTER_FLOW.md', 'Filter all/unread/actionable/system + Module + Type เก็บใน URL', 'ปุ่มอ่านแล้วทั้งหมดทำเฉพาะรายการที่ยังไม่อ่านในมุมมองปัจจุบัน ไม่ปิดงานต้นทาง', 'ใช้ notification_read_states เดิม, request key แบบ idempotent และรองรับ partial failure/retry'],
+    path: '/notifications',
+    action: 'เปิดศูนย์แจ้งเตือน',
+  },
   {
     title: 'Smart Entry / Auto Route',
     version: 'Routing v1.1 · 23/8/2569',

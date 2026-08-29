@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## 2026-08-29 — Notification Center Type Filter and Scoped Mark-All v1.3
+
+- **เหตุผล:** หน้า Notification Center มีรายการหลายประเภทและการอ่านทีละรายการใช้เวลานาน จึงต้องกรอง Type ได้ตรงจุดและทำเครื่องหมายอ่านแล้วแบบไม่กระทบงานต้นทางทั้งหมด
+- **ผลกระทบ:** `/notifications` เพิ่ม Type filter ที่เก็บใน URL และปุ่ม `อ่านแล้วทั้งหมด` ซึ่งทำเฉพาะรายการยังไม่อ่านในแท็บ + Module + Type ปัจจุบัน; actionable count และสถานะงานต้นทางไม่เปลี่ยน
+- **Migration:** ไม่มี; ใช้ `notification_read_states` เดิม พร้อม request key แบบ idempotent ต่อผู้ใช้และ notification
+- **การตรวจสอบ:** notification-center contract (Type filter, scoped mark-all, partial failure/retry), typecheck, lint, build และ authenticated smoke หน้า `/notifications`
+- **Rollback:** revert UI/filter/bulk handler; read state ที่บันทึกแล้วคงอยู่และไม่กระทบ event, งานต้นทาง หรือ Audit
+
 ## 2026-08-28 — Transfer Slip Project Scope Compatibility v2.1
 
 - **เหตุผล:** Drawer บันทึกโครงการใน Allocation v2 แล้ว แต่ legacy lineage contract ยังตรวจ `project_id` ระดับ parent ทำให้รายการวัสดุยืนยันซ้ำไม่ผ่าน
@@ -1314,6 +1322,7 @@
 - Notification Center v1.0 (24/8/2569): added `docs/NOTIFICATION_CENTER_FLOW.md`, an Admin/manager-only bell and `/notifications` view over the tenant-guarded `get_communication_event_feed` RPC. Filters persist in URL; read state is user-scoped/idempotent and does not approve or close source work. No migration; rollback restores the previous page/bell while retaining source events and read-state audit.
 - Notification Center v1.1 (24/8/2569): Production UAT now classifies `incident`, `repeat`, approval and review event types as actionable independently from delivery status, so a successfully delivered incident notification remains in the work queue. No migration or source mutation; rollback restores the v1.0 classifier.
 - Notification Center v1.2 (24/8/2569): unread and actionable counts are independent. Marking a notification read changes only user read state; the work remains actionable until its source Module closes it. No migration or source mutation; rollback restores the prior count projection.
+- Notification Center v1.3 (29/8/2569): added Type filtering and scoped “mark all as read” for the current tab + Module + Type. Bulk writes reuse idempotent read keys, preserve actionable/source state, and retain failed items for retry. No migration or source mutation; rollback restores the prior filters/controls.
 
 - Master Data account-last4 confirmation v1.7 (25/8/2569): `/master-data` normalizes full/formatted account evidence to a four-digit derived Master Account value inside `correct_master_data_candidate` and `review_master_data_candidate`. Invalid short values fail atomically with an inline Drawer reason; Raw/OCR/Source Reference remain unchanged. Migration `20260825211200_fix_master_data_account_last4_confirmation.sql`; rollback restores the previous RPC definitions without changing candidate versions, audit or source evidence.
 
