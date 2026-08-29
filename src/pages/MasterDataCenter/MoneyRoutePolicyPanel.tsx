@@ -104,7 +104,7 @@ export function MoneyRoutePolicyPanel() {
         <TextField type="number" label="ลำดับความสำคัญ (เลขน้อยทำก่อน)" value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value })} />
         <TextField multiline minRows={2} label="เหตุผล/หลักฐานที่ใช้สร้างกฎ" value={draft.reason} onChange={(event) => setDraft({ ...draft, reason: event.target.value })} />
       </Stack></DialogContent>
-      <DialogActions><Button onClick={() => setFormOpen(false)}>ยกเลิก</Button><Button variant="contained" disabled={saving} onClick={() => void save()}>{saving ? 'กำลังบันทึก...' : 'บันทึกกฎ'}</Button></DialogActions>
+      <DialogActions><Button onClick={() => setFormOpen(false)}>ยกเลิก</Button><Button variant="contained" disabled={saving || !draft.senderId || !draft.recipientId || draft.reason.trim().length < 3} onClick={() => void save()}>{saving ? 'กำลังบันทึก...' : 'บันทึกกฎ'}</Button></DialogActions>
     </Dialog>
     <Dialog open={historyOpen} onClose={() => setHistoryOpen(false)} fullWidth maxWidth="sm">
       <DialogTitle>ประวัติกฎและ Audit</DialogTitle>
