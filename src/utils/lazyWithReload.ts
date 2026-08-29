@@ -3,6 +3,8 @@ import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
 const reloadPrefix = 'wisdomai:chunk-reload:'
 const retryWindowMs = 60_000
 
+const reloadKey = () => `${reloadPrefix}${window.location.pathname}`
+
 export const isDynamicImportError = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error)
   return [
@@ -11,13 +13,37 @@ export const isDynamicImportError = (error: unknown) => {
     'error loading dynamically imported module',
     'ChunkLoadError',
     'Loading chunk',
+    'module script',
+    'MIME type',
+    'disallowed MIME',
   ].some((text) => message.includes(text))
+}
+
+const reloadOnce = () => {
+  const key = reloadKey()
+  const lastReload = Number(sessionStorage.getItem(key) ?? 0)
+  if (lastReload && Date.now() - lastReload <= retryWindowMs) return false
+
+  sessionStorage.setItem(key, String(Date.now()))
+  window.location.reload()
+  return true
+}
+
+export const installChunkReloadRecovery = () => {
+  window.addEventListener('vite:preloadError', (event) => {
+    const preloadEvent = event as Event & { payload?: unknown }
+    if (!isDynamicImportError(preloadEvent.payload)) return
+    if (!reloadOnce()) return
+
+    // Vite would otherwise rethrow the stale chunk error while the reload starts.
+    event.preventDefault()
+  })
 }
 
 export const lazyWithReload = <T extends ComponentType<unknown>>(
   importer: () => Promise<{ default: T }>,
 ): LazyExoticComponent<T> => lazy(async () => {
-  const key = `${reloadPrefix}${window.location.pathname}`
+  const key = reloadKey()
   try {
     const loaded = await importer()
     sessionStorage.removeItem(key)
@@ -25,10 +51,7 @@ export const lazyWithReload = <T extends ComponentType<unknown>>(
   } catch (error) {
     if (!isDynamicImportError(error)) throw error
 
-    const lastReload = Number(sessionStorage.getItem(key) ?? 0)
-    if (!lastReload || Date.now() - lastReload > retryWindowMs) {
-      sessionStorage.setItem(key, String(Date.now()))
-      window.location.reload()
+    if (reloadOnce()) {
       return await new Promise<{ default: T }>(() => undefined)
     }
 
@@ -38,5 +61,5 @@ export const lazyWithReload = <T extends ComponentType<unknown>>(
 })
 
 export const clearChunkReloadMarker = () => {
-  sessionStorage.removeItem(`${reloadPrefix}${window.location.pathname}`)
+  sessionStorage.removeItem(reloadKey())
 }
