@@ -1024,7 +1024,8 @@ export function AccountingDocumentsPage() {
   const slipTransferAmount = slipReviewDraft?.amount.trim() ? Number(slipReviewDraft.amount) : null
   const slipAllocationTotal = slipMoneyLineageDraft ? moneyAllocationTotal(slipMoneyLineageDraft.allocations) : 0
   const slipLineageValidation = slipMoneyLineageDraft ? validateMoneyLineage(slipMoneyLineageDraft, slipTransferAmount) : { missing: [], errors: [] }
-  const slipLineageFinalized = Boolean(slipMoneyLineageStatus && !['draft', 'accounting_review', 'needs_information'].includes(slipMoneyLineageStatus.routeStatus))
+  const slipLineagePendingMatch = slipMoneyLineageStatus?.routeStatus === 'accounting_review'
+  const slipLineageFinalized = Boolean(slipMoneyLineageStatus && !['draft', 'needs_information'].includes(slipMoneyLineageStatus.routeStatus))
   const senderAliasError = slipReviewDraft ? paymentAliasValidation({ paymentMethod: slipReviewDraft.senderPaymentMethod, aliasType: slipReviewDraft.senderAliasType, aliasValue: slipReviewDraft.senderAliasValue }) : null
   const recipientAliasError = slipReviewDraft ? paymentAliasValidation({ paymentMethod: slipReviewDraft.recipientPaymentMethod, aliasType: slipReviewDraft.recipientAliasType, aliasValue: slipReviewDraft.recipientAliasValue }) : null
   const slipAnalysis = useMemo(() => selectedSlip ? buildSlipAnalysisGate(selectedSlip, slipMoneyLineageDraft) : null, [selectedSlip, slipMoneyLineageDraft])
@@ -1220,7 +1221,7 @@ export function AccountingDocumentsPage() {
   const saveSlipReview = async (decision: 'draft' | 'confirm' | 'request_information') => {
     if (!selectedSlip || !slipReviewDraft || !slipMoneyLineageDraft) return
     if (slipLineageFinalized) {
-      setError('รายการนี้ยืนยันและส่งต่อแล้ว ไม่ต้องบันทึกซ้ำ หากต้องแก้ไขให้ดำเนินการจาก Module ปลายทางพร้อมบันทึก Audit')
+      setError(slipLineagePendingMatch ? 'รายการนี้บันทึกยืนยันแล้วและกำลังรอจับคู่ผู้ถือเงิน ไม่ต้องบันทึกซ้ำ' : 'รายการนี้ยืนยันและส่งต่อแล้ว ไม่ต้องบันทึกซ้ำ หากต้องแก้ไขให้ดำเนินการจาก Module ปลายทางพร้อมบันทึก Audit')
       return
     }
     setSlipActionLoading(true); setError(null); setSuccess(null)
@@ -1228,7 +1229,12 @@ export function AccountingDocumentsPage() {
       const amount = slipReviewDraft.amount.trim() ? Number(slipReviewDraft.amount) : null
       if (amount != null && (!Number.isFinite(amount) || amount < 0)) throw new Error('จำนวนเงินไม่ถูกต้อง')
       if (decision === 'confirm' && (senderAliasError || recipientAliasError)) throw new Error([senderAliasError, recipientAliasError].filter(Boolean).join(' · '))
-      let effectiveLineageDraft = slipMoneyLineageDraft
+      let effectiveLineageDraft = {
+        ...slipMoneyLineageDraft,
+        allocations: slipMoneyLineageDraft.allocations.map(allocation => moneyPurposeNeedsExpenseAccount(allocation.purposeType)
+          ? allocation
+          : { ...allocation, costCategoryId: '', accountCode: '', accountName: '' }),
+      }
       const hasAdvanceAllocation = effectiveLineageDraft.allocations.some(allocation => allocation.purposeType === 'advance_transfer')
       const eventKey = `transfer-slip-money-lineage:${selectedSlip.itemId}:${crypto.randomUUID()}`
       if (decision === 'confirm' && hasAdvanceAllocation) {
@@ -1360,10 +1366,17 @@ export function AccountingDocumentsPage() {
           }
         }
       }
-      const route = routeResult
+      const persistedLineageResult = await supabase
+        .from('transfer_slip_money_lineages')
+        .select('route_status,next_destination')
+        .eq('item_id', selectedSlip.itemId)
+        .single()
+      if (persistedLineageResult.error) throw persistedLineageResult.error
+      const persistedRoute = persistedLineageResult.data as { route_status: string; next_destination: string }
       const destinationLabel = moneyAllocationDestinations(effectiveLineageDraft.allocations).join(' · ')
-      setSlipMoneyLineageStatus({ routeStatus: route?.route_status ?? (decision === 'confirm' ? 'routed' : decision === 'request_information' ? 'needs_information' : 'draft'), nextDestination: route?.next_destination ?? destinationLabel })
-      setSuccess(decision === 'confirm' ? route?.route_status === 'accounting_review' ? 'บันทึกแล้ว แต่ยังค้างบัญชีเพื่อจับคู่ผู้ถือเงินก่อนส่งเงินสำรองจ่าย' : `ยืนยันการจัดสรรและส่งงานต่อแล้ว: ${destinationLabel}` : decision === 'request_information' ? 'ส่งกลับเพื่อขอข้อมูลเพิ่มแล้ว' : 'บันทึกฉบับร่างพร้อมเส้นทางเงินและ Audit แล้ว')
+      setSlipMoneyLineageDraft(effectiveLineageDraft)
+      setSlipMoneyLineageStatus({ routeStatus: persistedRoute.route_status, nextDestination: persistedRoute.next_destination || destinationLabel })
+      setSuccess(decision === 'confirm' ? persistedRoute.route_status === 'accounting_review' ? 'บันทึกแล้ว · รอจับคู่ผู้ถือเงิน ไม่ต้องบันทึกซ้ำ' : `ยืนยันการจัดสรรและส่งงานต่อแล้ว: ${destinationLabel}` : decision === 'request_information' ? 'ส่งกลับเพื่อขอข้อมูลเพิ่มแล้ว' : 'บันทึกฉบับร่างพร้อมเส้นทางเงินและ Audit แล้ว')
       await loadData()
       const updatedSlip: AccountingPendingSlip = { ...selectedSlip, senderName: slipReviewDraft.senderName || null, senderBankName: slipReviewDraft.senderBankName || null, senderAccountLast4: slipReviewDraft.senderAccountLast4 || null, recipientName: slipReviewDraft.recipientName || null, recipientBankName: slipReviewDraft.recipientBankName || null, recipientAccountLast4: slipReviewDraft.recipientAccountLast4 || null, amount, transferAt: slipReviewDraft.transferAt ? new Date(slipReviewDraft.transferAt).toISOString() : null, bankReference: slipReviewDraft.bankReference || null, reviewStatus: decision === 'confirm' ? 'confirmed' : 'pending', dataReviewStatus: decision === 'confirm' ? 'rechecked' : 'incomplete', dataReviewNote: slipReviewDraft.note || null }
       setSelectedSlip(updatedSlip)
@@ -1623,7 +1636,7 @@ export function AccountingDocumentsPage() {
         <Paper variant="outlined" sx={{ p: 1.5 }}><Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Source Reference</Typography><Typography variant="body2">{selectedSlip.sourceChannel ?? 'ไม่ระบุ'} · {selectedSlip.sourceRoomName ?? 'ไม่ระบุห้อง'} · {selectedSlip.sourceSenderName ?? 'ไม่ระบุผู้ส่ง'}</Typography><Typography variant="caption" color="text.secondary">Message ID: {selectedSlip.sourceMessageId ?? '-'}</Typography></Paper>
         </>}
         {slipDetailTab === 1 && slipReviewDraft && slipMoneyLineageDraft && <Stack spacing={2} sx={slipLineageFinalized ? { pointerEvents: 'none', opacity: .72 } : undefined}>
-          {slipLineageFinalized && <Alert severity="success"><Typography sx={{ fontWeight: 800 }}>รายการนี้ยืนยันและส่งต่อแล้ว</Typography><Typography variant="body2">ไม่ต้องบันทึกซ้ำ · ปลายทาง: {slipMoneyLineageStatus?.nextDestination || 'Module ถัดไป'} · ข้อมูลหน้านี้แสดงแบบอ่านอย่างเดียว</Typography></Alert>}
+          {slipLineageFinalized && <Alert severity={slipLineagePendingMatch ? 'info' : 'success'}><Typography sx={{ fontWeight: 800 }}>{slipLineagePendingMatch ? 'บันทึกยืนยันแล้ว · รอจับคู่ผู้ถือเงิน' : 'รายการนี้ยืนยันและส่งต่อแล้ว'}</Typography><Typography variant="body2">ไม่ต้องบันทึกซ้ำ · ปลายทาง: {slipMoneyLineageStatus?.nextDestination || 'Module ถัดไป'} · ข้อมูลหน้านี้แสดงแบบอ่านอย่างเดียว</Typography></Alert>}
           <Alert severity="info">ข้อมูลใช้งานจริงมีชุดเดียวจาก Canonical projection เท่านั้น รูปสลิปและค่าที่ AI อ่านเป็นหลักฐานอ้างอิง ไม่ใช่ข้อมูลธุรกิจและห้ามนำไปลงบัญชีก่อนยืนยัน ระบบเก็บ Source และ Audit เดิมเพื่อย้อนตรวจได้</Alert>
           {slipAnalysis && <TransferSlipAnalysisGateCard analysis={slipAnalysis} />}
           {slipAdvancePartyMatch?.applicable && <Paper variant="outlined" sx={{ p: 1.5, borderLeft: 4, borderLeftColor: slipAdvancePartyMatch.ready ? 'success.main' : 'warning.main' }}><Stack spacing={1}>
@@ -1698,20 +1711,20 @@ export function AccountingDocumentsPage() {
             <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}><Typography sx={{ fontWeight: 800 }}>รายการที่ {index + 1} · {moneyPurposeRoute(allocation.purposeType, allocation.payrollKind).label}</Typography><IconButton size="small" color="error" disabled={slipMoneyLineageDraft.allocations.length === 1} onClick={() => setSlipMoneyLineageDraft(current => { if (!current) return current; const allocations = current.allocations.filter(item => item.key !== allocation.key); return { ...current, allocations, remainingAmount: calculateUnallocatedAmount(slipTransferAmount, allocations, current.returnedAmount) } })}><DeleteOutlineIcon fontSize="small" /></IconButton></Stack>
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1 }}>
               <TextField select size="small" label="1. วัตถุประสงค์/ปลายทาง" value={allocation.purposeType} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => item.key === allocation.key ? { ...item, purposeType: event.target.value as MoneyPurpose, payrollKind: event.target.value === 'payroll' ? item.payrollKind : '', costCategoryId: '', accountCode: '', accountName: '', ...(['general_expense','vendor_payment','bank_fee','tax','inter_account','cash_withdrawal'].includes(event.target.value) ? { projectId: '', siteId: '' } : {}) } : item) }))} sx={{ gridColumn: { sm: '1 / -1' } }}><MenuItem value="unknown">ยังไม่ชัดเจน</MenuItem><MenuItem value="payroll">เงินเดือน/ค่าแรง</MenuItem><MenuItem value="advance_transfer">เติมเงินสำรอง/เบิกล่วงหน้า</MenuItem><MenuItem value="materials">ซื้อวัสดุ/อุปกรณ์</MenuItem><MenuItem value="project_expense">ค่าใช้จ่ายโครงการ</MenuItem><MenuItem value="vendor_payment">จ่ายผู้ขายผ่านบัญชีบุคคล (เงินสำรองจ่าย)</MenuItem><MenuItem value="subcontractor">ผู้รับเหมา/ผู้รับเหมาช่วง</MenuItem><MenuItem value="travel">เดินทาง/หน้างาน</MenuItem><MenuItem value="bank_fee">ค่าธรรมเนียมธนาคาร</MenuItem><MenuItem value="tax">ภาษี</MenuItem><MenuItem value="refund_return">เงินคืน/คืนเงินสำรอง</MenuItem><MenuItem value="inter_account">โอนระหว่างบัญชี</MenuItem><MenuItem value="cash_withdrawal">ถอนเงินสด</MenuItem><MenuItem value="general_expense">ค่าใช้จ่ายทั่วไป</MenuItem><MenuItem value="onward_transfer">ส่งต่อให้ผู้ถือเงินอีกคน</MenuItem></TextField>
-              <Box sx={{ gridColumn: { sm: '1 / -1' }, p: 1.25, border: 1, borderColor: moneyPurposeNeedsExpenseAccount(allocation.purposeType) && !allocation.costCategoryId ? 'warning.main' : 'divider', borderRadius: 1.5, bgcolor: moneyPurposeNeedsExpenseAccount(allocation.purposeType) && !allocation.costCategoryId ? 'warning.50' : 'background.paper' }}>
+              {moneyPurposeNeedsExpenseAccount(allocation.purposeType) ? <Box sx={{ gridColumn: { sm: '1 / -1' }, p: 1.25, border: 1, borderColor: !allocation.costCategoryId ? 'warning.main' : 'divider', borderRadius: 1.5, bgcolor: !allocation.costCategoryId ? 'warning.50' : 'background.paper' }}>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.5} sx={{ mb: 1, justifyContent: 'space-between', alignItems: { sm: 'center' } }}>
                   <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>2. เลือกรายการบัญชีค่าใช้จ่าย</Typography>
-                  <Chip size="small" color={moneyPurposeNeedsExpenseAccount(allocation.purposeType) ? 'warning' : 'default'} label={moneyPurposeNeedsExpenseAccount(allocation.purposeType) ? 'จำเป็นก่อนยืนยัน' : 'ไม่บังคับสำหรับเงินคุมยอด'} />
+                  <Chip size="small" color="warning" label="จำเป็นก่อนยืนยัน" />
                 </Stack>
                 <TextField fullWidth select size="small" label="รายการบัญชีจากข้อมูลกลาง" value={allocation.costCategoryId} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => {
                   if (item.key !== allocation.key) return item
                   const category = categories.find(option => option.id === event.target.value)
                   return { ...item, costCategoryId: event.target.value, accountCode: category?.default_account_code ?? '', accountName: category?.default_account_name ?? '' }
-                }) }))} helperText={allocation.accountCode ? `เลือกแล้ว: บัญชี ${allocation.accountCode} · ${allocation.accountName}` : moneyPurposeNeedsExpenseAccount(allocation.purposeType) ? 'เปิด List แล้วเลือกรายการบัญชีก่อนยืนยันส่งต่อ' : 'เลือกได้หากต้องการผูกบัญชี แต่รายการเงินคุมยอดไม่บังคับ'}>
+                }) }))} helperText={allocation.accountCode ? `เลือกแล้ว: บัญชี ${allocation.accountCode} · ${allocation.accountName}` : 'เปิด List แล้วเลือกรายการบัญชีก่อนยืนยันส่งต่อ'}>
                   <MenuItem value="">ยังไม่เลือกบัญชี</MenuItem>
                   {categories.filter(category => category.default_account_code && category.default_account_name).map(category => <MenuItem key={category.id} value={category.id}>{category.code} · {category.name_th} → {category.default_account_code} {category.default_account_name}</MenuItem>)}
                 </TextField>
-              </Box>
+              </Box> : <Alert severity="info" sx={{ gridColumn: { sm: '1 / -1' } }}><Typography variant="subtitle2" sx={{ fontWeight: 800 }}>2. ไม่ลงบัญชีค่าใช้จ่ายในขั้นนี้</Typography><Typography variant="body2">รายการเงินคุมยอดจะเชื่อมผู้ถือเงินและ Advance ID ก่อน ค่าใช้จ่ายจะบันทึกภายหลังเมื่อมีสลิปหรือหลักฐานการใช้เงินจริง จึงไม่สร้างค่าใช้จ่ายซ้ำจากสลิปเติมเงิน</Typography></Alert>}
               <TextField size="small" type="number" label="3. จำนวนเงินที่จัดสรร" value={allocation.amount} onChange={event => { const amount = event.target.value; setSlipMoneyLineageDraft(current => { if (!current) return current; const allocations = current.allocations.map(item => item.key === allocation.key ? { ...item, amount } : item); return { ...current, allocations, remainingAmount: calculateUnallocatedAmount(slipTransferAmount, allocations, current.returnedAmount) } }) }} sx={{ gridColumn: { sm: '1 / -1' } }} />
               {allocation.purposeType === 'payroll' && <TextField select size="small" label="ชนิดเงินเดือน/ค่าแรง" value={allocation.payrollKind} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => item.key === allocation.key ? { ...item, payrollKind: event.target.value as PayrollKind } : item) }))}><MenuItem value="">กรุณาเลือก</MenuItem><MenuItem value="salary">เงินเดือน</MenuItem><MenuItem value="daily_wage">ค่าแรงรายวัน</MenuItem><MenuItem value="contract_labor">ค่าจ้างเหมาแรงงาน</MenuItem><MenuItem value="other">ค่าตอบแทนอื่น</MenuItem></TextField>}
               {slipPurposeNeedsProject(allocation.purposeType) && <><TextField select size="small" label="โครงการ (จำเป็นสำหรับประเภทนี้)" value={allocation.projectId} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => item.key === allocation.key ? { ...item, projectId: event.target.value, siteId: '' } : item) }))}><MenuItem value="">ยังไม่เลือกโครงการ</MenuItem>{projects.map(project => <MenuItem key={project.id} value={project.id}>{project.code ? `${project.code} · ` : ''}{project.name}</MenuItem>)}</TextField>
@@ -1758,7 +1771,7 @@ export function AccountingDocumentsPage() {
         <Button href={`/document-flows?document_view=task_types&item_id=${encodeURIComponent(selectedSlip.itemId)}`} variant="text">เปิดในศูนย์เส้นทางเอกสาร</Button>
         </Stack>
         {slipDetailTab === 1 && (slipLineageFinalized
-          ? <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ position: 'sticky', bottom: 0, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider', p: 2, zIndex: 2, alignItems: { sm: 'center' } }}><Alert severity="success" sx={{ flex: 1, py: 0 }}>ส่งต่อแล้ว · ไม่ต้องบันทึกซ้ำ</Alert><Button variant="contained" onClick={closeSlipDetail}>ปิด</Button></Stack>
+          ? <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ position: 'sticky', bottom: 0, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider', p: 2, zIndex: 2, alignItems: { sm: 'center' } }}><Alert severity={slipLineagePendingMatch ? 'info' : 'success'} sx={{ flex: 1, py: 0 }}>{slipLineagePendingMatch ? 'บันทึกแล้ว · รอจับคู่ผู้ถือเงิน ไม่ต้องบันทึกซ้ำ' : 'ส่งต่อแล้ว · ไม่ต้องบันทึกซ้ำ'}</Alert><Button variant="contained" onClick={closeSlipDetail}>ปิด</Button></Stack>
           : <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ position: 'sticky', bottom: 0, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider', p: 2, zIndex: 2 }}><Button disabled={!canManage || slipActionLoading} onClick={() => void saveSlipReview('draft')}>บันทึกฉบับร่าง</Button><Button color="warning" variant="outlined" disabled={!canManage || slipActionLoading || !slipMoneyLineageDraft?.note.trim()} onClick={() => void saveSlipReview('request_information')}>ขอข้อมูลเพิ่ม</Button><Button color="success" variant="contained" disabled={!canManage || slipActionLoading || Boolean(senderAliasError || recipientAliasError) || slipLineageValidation.missing.length > 0 || slipLineageValidation.errors.length > 0} onClick={() => void saveSlipReview('confirm')}>{slipActionLoading ? 'กำลังบันทึกและส่งต่อ…' : 'ยืนยันการจัดสรรและส่งปลายทาง'}</Button></Stack>)}
       </Stack>}
     </Drawer>
