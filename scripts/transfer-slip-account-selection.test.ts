@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 
 const page = readFileSync(new URL('../src/pages/AccountingDocuments/index.tsx', import.meta.url), 'utf8')
 const model = readFileSync(new URL('../src/services/transferSlipMoneyLineage.ts', import.meta.url), 'utf8')
-const migration = readFileSync(new URL('../supabase/migrations/20260829002558_transfer_slip_allocation_account_selection.sql', import.meta.url), 'utf8')
+const migration = readFileSync(new URL('../supabase/migrations/20260829003040_transfer_slip_allocation_account_selection.sql', import.meta.url), 'utf8')
 
 assert.match(page, /รายการบัญชีค่าใช้จ่าย \(จำเป็น\)/)
 assert.match(page, /accounting_cost_categories/)
