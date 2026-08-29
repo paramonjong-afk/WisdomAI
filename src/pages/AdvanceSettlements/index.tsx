@@ -6,6 +6,7 @@ import ErrorOutlineOutlined from '@mui/icons-material/ErrorOutlineOutlined'
 import HourglassEmptyOutlined from '@mui/icons-material/HourglassEmptyOutlined'
 import InfoOutlined from '@mui/icons-material/InfoOutlined'
 import KeyboardArrowDownOutlined from '@mui/icons-material/KeyboardArrowDownOutlined'
+import KeyboardArrowLeftOutlined from '@mui/icons-material/KeyboardArrowLeftOutlined'
 import KeyboardArrowRightOutlined from '@mui/icons-material/KeyboardArrowRightOutlined'
 import VisibilityOutlined from '@mui/icons-material/VisibilityOutlined'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -94,6 +95,45 @@ function sourceQuality(row: AdvanceCase) {
   return { label: 'ข้อมูลสลิปครบ', color: 'success' as const }
 }
 
+type ReviewCheck = { label: string; detail: string; done: boolean }
+type ReviewReadiness = {
+  checks: ReviewCheck[]
+  nextAction: string
+  canSubmit: boolean
+  canApprove: boolean
+  canClose: boolean
+}
+
+function advanceReviewReadiness(row: AdvanceCase): ReviewReadiness {
+  const items = row.employee_advance_settlement_items ?? []
+  const approvedTotal = items.filter((item) => item.approval_status === 'approved').reduce((sum, item) => sum + Number(item.amount), 0)
+  const pendingItems = items.filter((item) => !['approved', 'rejected'].includes(item.approval_status))
+  const outstandingAmount = Number(row.amount_received) - approvedTotal
+  const hasSource = Boolean(row.parent_case_id || row.financial_transactions || row.source_flow_item_id)
+  const hasHolder = Boolean(row.holder_profile_id || row.holder_profile?.full_name || row.holder_person?.full_name)
+  const hasAmount = Number(row.amount_received) > 0
+  const hasItems = items.length > 0
+  const allItemsDecided = hasItems && pendingItems.length === 0
+  const isBalanced = Math.abs(outstandingAmount) < 0.01
+  const checks: ReviewCheck[] = [
+    { label: 'หลักฐานต้นทาง', detail: hasSource ? 'มีสลิปหรือรายการต้นทางอ้างอิง' : 'ยังไม่มีสลิปหรือรายการต้นทาง', done: hasSource },
+    { label: 'ผู้ถือเงิน', detail: hasHolder ? holderName(row) : 'ยังไม่ได้ระบุผู้ถือเงิน', done: hasHolder },
+    { label: 'ยอดเงินที่รับมา', detail: hasAmount ? money(Number(row.amount_received)) : 'ยอดต้องมากกว่า 0', done: hasAmount },
+    { label: 'รายการใช้เงิน/คืนเงิน', detail: hasItems ? `${items.length} รายการ` : 'ยังไม่ได้แตกยอดการใช้เงิน', done: hasItems },
+    { label: 'ตัดสินรายการครบ', detail: allItemsDecided ? 'ไม่มีรายการค้างอนุมัติ' : `ยังค้าง ${pendingItems.length} รายการ`, done: allItemsDecided },
+    { label: 'ยอดคงค้างเป็นศูนย์', detail: isBalanced ? 'ยอดสมดุล พร้อมปิด' : `คงค้าง ${money(outstandingAmount)}`, done: isBalanced },
+  ]
+  const canSubmit = ['draft', 'collecting_evidence', 'returned'].includes(row.status) && hasSource && hasHolder && hasAmount && hasItems
+  const canApprove = row.status === 'submitted' && hasSource && hasHolder && hasAmount && hasItems
+  const canClose = row.status === 'approved' && allItemsDecided && isBalanced
+  let nextAction = 'รายการนี้ปิดยอดเรียบร้อยแล้ว'
+  if (row.status === 'cancelled') nextAction = 'รายการนี้ถูกยกเลิกแล้ว ไม่ต้องดำเนินการต่อ'
+  else if (['draft', 'collecting_evidence', 'returned'].includes(row.status)) nextAction = canSubmit ? 'ตรวจหลักฐานแล้วกด “ส่งตรวจ”' : 'เติมข้อมูลที่ยังขาด แล้วจึงส่งตรวจ'
+  else if (row.status === 'submitted') nextAction = canApprove ? 'ตรวจรายการและกด “อนุมัติ”' : 'เติมข้อมูลที่ยังขาดก่อนอนุมัติ'
+  else if (row.status === 'approved') nextAction = canClose ? 'ยอดสมดุลแล้ว กด “ปิดยอด” ได้' : 'เคลียร์รายการค้างและยอดคงเหลือก่อนปิดยอด'
+  return { checks, nextAction, canSubmit, canApprove, canClose }
+}
+
 function previewSeverity(status: PreviewState['status']) {
   if (status === 'error') return 'error' as const
   if (status === 'missing' || status === 'non_image') return 'warning' as const
@@ -153,6 +193,7 @@ export function AdvanceSettlementsPage() {
   const { currentCompany, profile } = useAuth()
   const [rows, setRows] = useState<AdvanceCase[]>([])
   const [selected, setSelected] = useState<AdvanceCase | null>(null)
+  const [reviewQueueIds, setReviewQueueIds] = useState<string[]>([])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [confirmation, setConfirmation] = useState<AdvanceConfirmationDelivery | null>(null)
@@ -181,7 +222,14 @@ export function AdvanceSettlementsPage() {
       employee_advance_audit!employee_advance_audit_case_id_fkey(id,action,reason,created_at)
     `).eq('company_id', companyId).neq('status', 'cancelled').order('updated_at', { ascending: false }), supabase.from('employee_employment_records').select('profile_id,profiles!employee_employment_records_profile_id_fkey(full_name)').eq('company_id', companyId).eq('employment_type', 'daily').in('employment_status', ['active', 'probation', 'notice']), supabase.from('employee_money_balance_summary').select('*').eq('company_id', companyId).order('updated_at', { ascending: false }), supabase.from('employee_money_legacy_candidates').select('*').eq('company_id', companyId).order('transfer_at', { ascending: false, nullsFirst: false })])
     if (loadError || dailyError) setError(userError(loadError ?? dailyError))
-    else { setError(''); setRows((data ?? []) as unknown as AdvanceCase[]); setDailyEmployees((dailyData ?? []) as unknown as DailyEmployee[]) }
+    else {
+      const nextRows = (data ?? []) as unknown as AdvanceCase[]
+      setError('')
+      setRows(nextRows)
+      setSelected((current) => current ? nextRows.find((row) => row.id === current.id) ?? null : null)
+      setReviewQueueIds((current) => current.filter((id) => nextRows.some((row) => row.id === id)))
+      setDailyEmployees((dailyData ?? []) as unknown as DailyEmployee[])
+    }
     if (employeeMoneyError || legacyError) { setEmployeeMoneyRows([]); setLegacyMoneyCandidates([]); setEmployeeMoneyWarning('บัญชีพักช่างยังไม่พร้อมใช้งาน กรุณาตรวจ Migration employee_money_ledger') }
     else { setEmployeeMoneyRows((employeeMoneyData ?? []) as unknown as EmployeeMoneySummary[]); setLegacyMoneyCandidates((legacyData ?? []) as unknown as LegacyEmployeeMoneyCandidate[]); setEmployeeMoneyWarning('') }
   }, [companyId])
@@ -244,8 +292,23 @@ export function AdvanceSettlementsPage() {
   }, [openSlipPreview, selected])
   const total = (row: AdvanceCase) => (row.employee_advance_settlement_items ?? []).filter((item) => item.approval_status === 'approved').reduce((sum, item) => sum + Number(item.amount), 0)
   const outstanding = (row: AdvanceCase) => Number(row.amount_received) - total(row)
+  const reviewQueue = reviewQueueIds.map((id) => rows.find((row) => row.id === id)).filter((row): row is AdvanceCase => Boolean(row))
+  const selectedQueueIndex = selected ? reviewQueue.findIndex((row) => row.id === selected.id) : -1
+  const selectedReadiness = selected ? advanceReviewReadiness(selected) : null
+  const closeReviewQueue = () => { setSelected(null); setReviewQueueIds([]) }
+  const openReviewQueue = (queue: AdvanceCase[], initialId?: string) => {
+    const actionable = queue.filter((row) => !['closed', 'cancelled'].includes(row.status))
+    const nextQueue = actionable.length > 0 ? actionable : queue
+    setReviewQueueIds(nextQueue.map((row) => row.id))
+    setSelected(nextQueue.find((row) => row.id === initialId) ?? nextQueue[0] ?? null)
+  }
+  const moveReviewQueue = (offset: number) => {
+    if (selectedQueueIndex < 0 || reviewQueue.length === 0) return
+    const nextIndex = Math.min(reviewQueue.length - 1, Math.max(0, selectedQueueIndex + offset))
+    setSelected(reviewQueue[nextIndex])
+  }
   const addLine = async () => { if (!selected) return; setSaving(true); const { error: rpcError } = await supabase.rpc('add_employee_advance_settlement_item', { target_case_id: selected.id, target_event_key: crypto.randomUUID(), target_expense_type: line.expense_type, target_amount: Number(line.amount), target_expense_date: line.expense_date, target_payee_name: null, target_project_id: null, target_work_package_id: null, target_evidence_flow_item_id: null, target_evidence_reference: line.evidence_reference || null, target_description: line.description }); setSaving(false); if (rpcError) { setError(userError(rpcError)); return }; setLineOpen(false); await load() }
-  const transition = async (action: string) => { if (!selected) return; setSaving(true); const { error: rpcError } = await supabase.rpc('transition_employee_advance_case', { target_case_id: selected.id, target_event_key: crypto.randomUUID(), target_action: action, target_expected_version: selected.version, target_reason: null }); setSaving(false); if (rpcError) { setError(userError(rpcError)); return }; setSelected(null); await load() }
+  const transition = async (action: string) => { if (!selected) return; setSaving(true); const { error: rpcError } = await supabase.rpc('transition_employee_advance_case', { target_case_id: selected.id, target_event_key: crypto.randomUUID(), target_action: action, target_expected_version: selected.version, target_reason: null }); setSaving(false); if (rpcError) { setError(userError(rpcError)); return }; await load() }
   const createSubAdvance = async () => { if (!selected) return; setSaving(true); const { data: created, error: rpcError } = await supabase.rpc('create_employee_sub_advance', { target_parent_case_id: selected.id, target_event_key: crypto.randomUUID(), target_holder_profile_id: subAdvance.holderProfileId, target_holder_person_id: null, target_amount: Number(subAdvance.amount), target_description: subAdvance.description, target_project_id: null, target_work_package_id: null }); if (rpcError) { setSaving(false); setError(userError(rpcError)); return }; try { const delivery = await queueAdvanceConfirmation((created as { id: string }).id); setConfirmation(delivery); setError('') } catch (confirmationError) { setConfirmation(null); setError(`บันทึกรายการสำเร็จแล้ว แต่คิว MSG Confirm ยังไม่พร้อมส่ง: ${userError(confirmationError as { message?: string })}`) }; setSaving(false); setSubAdvanceOpen(false); await load() }
   const queueLegacyEmployeeMoney = async (candidate: LegacyEmployeeMoneyCandidate) => {
     setSaving(true)
@@ -259,7 +322,7 @@ export function AdvanceSettlementsPage() {
     <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}><BoxTitle /><Button startIcon={<RefreshOutlined />} onClick={() => void load()}>รีเฟรช</Button></Stack>
     {error && <Alert severity="error">{error}</Alert>}
     {confirmation && <Alert severity={['failed', 'pending_room_setup', 'room_setup_failed'].includes(confirmation.status) ? 'warning' : 'success'} onClose={() => setConfirmation(null)}><strong>System MSG Confirm: {confirmation.status === 'queued' ? 'ปิดงานแล้ว/รอส่ง MSG' : confirmation.status}</strong><br />รหัสรายการ: {confirmation.advance_case_id}<br />{confirmation.message_text}</Alert>}
-    <AdvanceTreeTable rows={rows} onSelect={setSelected} />
+    <AdvanceTreeTable rows={rows} onOpenQueue={openReviewQueue} />
     <Paper variant="outlined" sx={{ p: 1.5 }}>
       <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' }, gap: 1, mb: 1 }}>
         <Box><Typography sx={{ fontWeight: 800 }}>บัญชีพักช่างรายวัน</Typography><Typography variant="body2" color="text.secondary">จับคู่จากสลิปด้วยชื่อมาตรฐาน · ยังไม่หัก Payroll จนกว่าจะอนุมัติ · รายการผิดแก้ด้วย Adjustment</Typography></Box>
@@ -287,15 +350,32 @@ export function AdvanceSettlementsPage() {
         ]} />
       </Box>}
     </Paper>
-    <Drawer anchor="right" open={Boolean(selected)} onClose={() => setSelected(null)} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 640 }, maxWidth: '100vw' } } }}>
+    <Drawer anchor="right" open={Boolean(selected)} onClose={closeReviewQueue} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 680 }, maxWidth: '100vw' } } }}>
       <Stack sx={{ height: '100%' }}>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', p: 2, borderBottom: 1, borderColor: 'divider' }}>
-          <Box><Typography variant="h6" sx={{ fontWeight: 800 }}>{selected?.advance_number}</Typography><Typography variant="body2" color="text.secondary">รายละเอียดเงินทดรองและรายการจ่าย</Typography></Box>
-          <IconButton aria-label="ปิดรายละเอียดเงินทดรอง" onClick={() => setSelected(null)}><CloseOutlined /></IconButton>
+          <Box><Typography variant="h6" sx={{ fontWeight: 800 }}>{selected?.advance_number}</Typography><Typography variant="body2" color="text.secondary">ตรวจเงินทดรองทีละรายการ พร้อมเงื่อนไขก่อนอนุมัติ</Typography></Box>
+          <IconButton aria-label="ปิดรายละเอียดเงินทดรอง" onClick={closeReviewQueue}><CloseOutlined /></IconButton>
         </Stack>
+        {selected && selectedReadiness && <Box sx={{ px: 2, pt: 1.5 }}>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+            <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+              <Chip size="small" color="warning" label={`คิวตรวจ ${Math.max(selectedQueueIndex + 1, 1)}/${Math.max(reviewQueue.length, 1)}`} />
+              <Chip size="small" variant="outlined" label={labels[selected.status] ?? selected.status} />
+            </Stack>
+            <Stack direction="row" spacing={0.5}>
+              <Button size="small" startIcon={<KeyboardArrowLeftOutlined />} disabled={selectedQueueIndex <= 0} onClick={() => moveReviewQueue(-1)}>ก่อนหน้า</Button>
+              <Button size="small" endIcon={<KeyboardArrowRightOutlined />} disabled={selectedQueueIndex < 0 || selectedQueueIndex >= reviewQueue.length - 1} onClick={() => moveReviewQueue(1)}>ถัดไป</Button>
+            </Stack>
+          </Stack>
+          <Paper variant="outlined" sx={{ p: 1.25, bgcolor: 'rgba(237, 108, 2, 0.04)' }}>
+            <Typography sx={{ fontWeight: 800, mb: 0.75 }}>เช็กลิสต์ก่อนดำเนินการ</Typography>
+            <Stack spacing={0.6}>{selectedReadiness.checks.map((check) => <Stack key={check.label} direction="row" spacing={0.75} sx={{ alignItems: 'flex-start' }}>{check.done ? <CheckCircleOutlineOutlined color="success" fontSize="small" /> : <HourglassEmptyOutlined color="warning" fontSize="small" />}<Box><Typography variant="body2" sx={{ fontWeight: 700 }}>{check.label}</Typography><Typography variant="caption" color="text.secondary">{check.detail}</Typography></Box></Stack>)}</Stack>
+            <Alert severity={selectedReadiness.canSubmit || selectedReadiness.canApprove || selectedReadiness.canClose ? 'success' : 'warning'} sx={{ mt: 1 }}>{selectedReadiness.nextAction}</Alert>
+          </Paper>
+        </Box>}
         <Box sx={{ p: 2, overflowY: 'auto', flex: 1 }}>{selected && <CaseDetail row={selected} total={total(selected)} outstanding={outstanding(selected)} slipPreview={slipPreview} onReloadSlipPreview={() => void openSlipPreview(selected)} onOpenSlipPreviewDialog={() => setSlipPreviewDialogOpen(true)} onCloseSlipPreviewDialog={() => setSlipPreviewDialogOpen(false)} slipPreviewDialogOpen={slipPreviewDialogOpen} onPreviewImageError={() => setSlipPreview((current) => current.status === 'ready' ? { status: 'error', message: isExpiredPreviewUrlError('expired') ? 'ลิงก์รูปหมดอายุหรือเปิดไม่ได้' : 'ลิงก์รูปเปิดไม่ได้', file: current.file, signedUrl: current.signedUrl } : current)} />}</Box>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
-          <Button startIcon={<AddOutlined />} disabled={selected?.status === 'closed'} onClick={() => setSubAdvanceOpen(true)}>เบิกให้ช่าง</Button><Button startIcon={<AddOutlined />} disabled={selected?.status === 'closed'} onClick={() => setLineOpen(true)}>เพิ่มรายการใช้เงิน</Button><Button disabled={saving || selected?.status === 'closed'} onClick={() => void transition('submit')}>ส่งตรวจ</Button><Button disabled={saving || selected?.status !== 'submitted'} onClick={() => void transition('approve')}>อนุมัติ</Button><Button disabled={saving || selected?.status !== 'approved'} variant="contained" onClick={() => void transition('close')}>ปิดยอด</Button>
+          <Button startIcon={<AddOutlined />} disabled={selected?.status === 'closed'} onClick={() => setSubAdvanceOpen(true)}>เบิกให้ช่าง</Button><Button startIcon={<AddOutlined />} disabled={selected?.status === 'closed'} onClick={() => setLineOpen(true)}>เพิ่มรายการใช้เงิน</Button><Button disabled={saving || !selectedReadiness?.canSubmit} onClick={() => void transition('submit')}>ส่งตรวจ</Button><Button disabled={saving || !selectedReadiness?.canApprove} onClick={() => void transition('approve')}>อนุมัติ</Button><Button disabled={saving || !selectedReadiness?.canClose} variant="contained" onClick={() => void transition('close')}>ปิดยอด</Button>
         </Stack>
       </Stack>
     </Drawer>
@@ -428,7 +508,7 @@ function CaseDetail({
     </Dialog>
   </Stack>
 }
-function AdvanceTreeTable({ rows, onSelect }: { rows: AdvanceCase[]; onSelect: (row: AdvanceCase) => void }) {
+function AdvanceTreeTable({ rows, onOpenQueue }: { rows: AdvanceCase[]; onOpenQueue: (rows: AdvanceCase[], initialId?: string) => void }) {
   const [search, setSearch] = useState('')
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [page, setPage] = useState(0)
@@ -478,7 +558,7 @@ function AdvanceTreeTable({ rows, onSelect }: { rows: AdvanceCase[]; onSelect: (
         <TableBody>
           {visibleGroups.map((group) => {
             const isOpen = expanded[group.key] ?? false
-            const pendingCount = group.rows.filter((row) => !['approved', 'closed'].includes(row.status)).length
+            const pendingCount = group.rows.filter((row) => !['closed', 'cancelled'].includes(row.status)).length
             return <Fragment key={group.key}>
               <TableRow hover sx={{ bgcolor: 'rgba(166, 89, 64, 0.06)' }}>
                 <TableCell><Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}><IconButton size="small" aria-label={`${isOpen ? 'ยุบ' : 'ขยาย'} รายการของ ${group.employeeName}`} onClick={() => toggle(group.key)}>{isOpen ? <KeyboardArrowDownOutlined /> : <KeyboardArrowRightOutlined />}</IconButton><Typography sx={{ fontWeight: 800 }}>{group.employeeName}</Typography></Stack></TableCell>
@@ -487,7 +567,7 @@ function AdvanceTreeTable({ rows, onSelect }: { rows: AdvanceCase[]; onSelect: (
                 <TableCell align="right">{money(group.approvedUsed)}</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 700 }}>{money(group.outstanding)}</TableCell>
                 <TableCell><Chip size="small" color={pendingCount ? 'warning' : 'success'} label={pendingCount ? `รอตรวจ ${pendingCount}` : 'ตรวจครบ'} /></TableCell>
-                <TableCell><Button size="small" variant="outlined" startIcon={<VisibilityOutlined />} onClick={() => onSelect(group.rows[0])}>ดูรายการ</Button></TableCell>
+                <TableCell><Button size="small" variant="outlined" startIcon={<VisibilityOutlined />} onClick={() => onOpenQueue(group.rows)}>เปิดคิวตรวจ {pendingCount || group.rows.length}</Button></TableCell>
               </TableRow>
               {isOpen && group.rows.map((row) => <TableRow key={row.id} hover sx={{ bgcolor: 'grey.50' }}>
                 <TableCell sx={{ pl: 7 }}><Typography variant="body2" sx={{ fontWeight: 700 }}>{row.advance_number}</Typography><Typography variant="caption" color="text.secondary">{dateTime(row.financial_transactions?.transfer_at)} · {row.bank_reference ?? 'ไม่มีเลขอ้างอิง'}</Typography></TableCell>
@@ -496,7 +576,7 @@ function AdvanceTreeTable({ rows, onSelect }: { rows: AdvanceCase[]; onSelect: (
                 <TableCell align="right">{money((row.employee_advance_settlement_items ?? []).filter((item) => item.approval_status === 'approved').reduce((sum, item) => sum + Number(item.amount), 0))}</TableCell>
                 <TableCell align="right">{money(Number(row.amount_received) - (row.employee_advance_settlement_items ?? []).filter((item) => item.approval_status === 'approved').reduce((sum, item) => sum + Number(item.amount), 0))}</TableCell>
                 <TableCell><Chip size="small" color={row.status === 'approved' || row.status === 'closed' ? 'success' : 'warning'} label={labels[row.status] ?? row.status} /></TableCell>
-                <TableCell><Button size="small" variant="outlined" startIcon={<VisibilityOutlined />} onClick={() => onSelect(row)}>เปิดรายละเอียด</Button></TableCell>
+                <TableCell><Button size="small" variant="outlined" startIcon={<VisibilityOutlined />} onClick={() => onOpenQueue(group.rows, row.id)}>เปิดในคิวตรวจ</Button></TableCell>
               </TableRow>)}
             </Fragment>
           })}
