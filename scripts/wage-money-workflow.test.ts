@@ -18,6 +18,10 @@ for (const required of [
   'ยังไม่ผูกงวด',
 ]) assert.ok(page.includes(required), `wage workflow UI should include ${required}`)
 
+assert.match(page, /pendingInterimAdvanceRows\s*=\s*interimAdvanceRows\.filter\(\(entry\)\s*=>\s*entry\.entry_status\s*===\s*'matched_pending_review'\)/)
+assert.match(page, /actionableCount\s*=\s*actionableRows\.length\s*\+\s*pendingInterimAdvanceRows\.length/)
+assert.match(page, /รายการรอตรวจ/)
+
 for (const required of [
   "entry_status = 'reversed'",
   'legacy_projection_reversed',

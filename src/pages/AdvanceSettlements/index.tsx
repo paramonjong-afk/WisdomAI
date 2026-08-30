@@ -296,6 +296,7 @@ export function AdvanceSettlementsPage() {
   const [adjustment, setAdjustment] = useState({ type: 'adjustment_credit', amount: '', reason: '', effectiveOn: new Date().toLocaleDateString('en-CA') })
   const [legacyMoneyCandidates, setLegacyMoneyCandidates] = useState<LegacyEmployeeMoneyCandidate[]>([])
   const [employeeMoneyWarning, setEmployeeMoneyWarning] = useState('')
+  const [employeeMoneyNotice, setEmployeeMoneyNotice] = useState('')
   const [line, setLine] = useState({ expense_type: 'materials', amount: '', description: '', evidence_reference: '', expense_date: new Date().toLocaleDateString('en-CA') })
   const [subAdvance, setSubAdvance] = useState({ holderProfileId: '', amount: '', description: '' })
   const [activeTab, setActiveTab] = useState(0)
@@ -398,11 +399,12 @@ export function AdvanceSettlementsPage() {
   const actionableRows = activeRows.filter((row) => !readyToCloseRows.some((readyRow) => readyRow.id === row.id))
   const filteredActionableRows = actionableRows.filter((row) => matchesDepartment(row, departmentFilter))
   const interimAdvanceRows = canonicalEmployeeMoneyEntries(employeeMoneyEntries).filter((entry) => entry.entry_type === 'advance_issued')
+  const pendingInterimAdvanceRows = interimAdvanceRows.filter((entry) => entry.entry_status === 'matched_pending_review')
   const pendingEmployeeMoneyEntries = canonicalEmployeeMoneyEntries(employeeMoneyEntries)
     .filter((entry) => entry.entry_status === 'matched_pending_review')
     .sort((left, right) => new Date(right.transfer_at ?? right.created_at).getTime() - new Date(left.transfer_at ?? left.created_at).getTime())
-  const visibleInterimAdvanceRows = ['all', 'accounting', 'hr', 'needs_information'].includes(departmentFilter) ? interimAdvanceRows : []
-  const actionableCount = actionableRows.length + interimAdvanceRows.length
+  const visibleInterimAdvanceRows = ['all', 'accounting', 'hr', 'needs_information'].includes(departmentFilter) ? pendingInterimAdvanceRows : []
+  const actionableCount = actionableRows.length + pendingInterimAdvanceRows.length
   const periodTotals = [...employeeMoneyPeriodRows.reduce((groups, row) => {
     const current = groups.get(row.pay_period_id) ?? { id: row.pay_period_id, name: row.pay_period_name, startsOn: row.pay_period_starts_on, endsOn: row.pay_period_ends_on, entryCount: 0, pendingCount: 0, total: 0 }
     current.entryCount += Number(row.advance_entry_count)
@@ -476,6 +478,9 @@ export function AdvanceSettlementsPage() {
     setSaving(false)
     if (rpcError) { setError(userError(rpcError)); return }
     setError('')
+    setEmployeeMoneyNotice(action === 'approve'
+      ? `ยืนยันยอด ${money(Number(entry.amount))} แล้ว และนำออกจากคิวต้องจัดการ`
+      : `Reject ยอด ${money(Number(entry.amount))} แล้ว และนำออกจากคิวต้องจัดการ`)
     setEmployeeMoneyRejectId(null)
     setEmployeeMoneyRejectReason('')
     await load()
@@ -495,6 +500,7 @@ export function AdvanceSettlementsPage() {
     setSaving(false)
     if (rpcError) { setError(userError(rpcError)); return }
     setError('')
+    setEmployeeMoneyNotice(`บันทึก Adjustment ${money(Number(adjustment.amount))} แล้ว`)
     setAdjustmentEntry(null)
     setAdjustment({ type: 'adjustment_credit', amount: '', reason: '', effectiveOn: new Date().toLocaleDateString('en-CA') })
     await load()
@@ -502,6 +508,7 @@ export function AdvanceSettlementsPage() {
   return <Stack spacing={2}>
     <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}><BoxTitle /><Button startIcon={<RefreshOutlined />} onClick={() => void load()}>รีเฟรช</Button></Stack>
     {error && <Alert severity="error">{error}</Alert>}
+    {employeeMoneyNotice && <Alert severity="success" onClose={() => setEmployeeMoneyNotice('')}>{employeeMoneyNotice}</Alert>}
     {confirmation && <Alert severity={['failed', 'pending_room_setup', 'room_setup_failed'].includes(confirmation.status) ? 'warning' : 'success'} onClose={() => setConfirmation(null)}><strong>System MSG Confirm: {confirmation.status === 'queued' ? 'ปิดงานแล้ว/รอส่ง MSG' : confirmation.status}</strong><br />รหัสรายการ: {confirmation.advance_case_id}<br />{confirmation.message_text}</Alert>}
     <Paper variant="outlined" sx={{ px: 1 }}><Tabs value={activeTab} onChange={(_event, value: number) => setActiveTab(value)} variant="scrollable" scrollButtons="auto">
       <Tab label={`ต้องจัดการ (${actionableCount})`} />
@@ -519,17 +526,17 @@ export function AdvanceSettlementsPage() {
         <Stack direction="row" spacing={0.75} sx={{ mt: 0.75, flexWrap: 'wrap', gap: 0.75 }}>
           {([
             ['all', `ทั้งหมด ${actionableCount}`],
-            ['accounting', `รอบัญชี ${actionableRows.filter((row) => matchesDepartment(row, 'accounting')).length + interimAdvanceRows.length}`],
-            ['hr', `รอ HR ${actionableRows.filter((row) => matchesDepartment(row, 'hr')).length + interimAdvanceRows.length}`],
+            ['accounting', `รอบัญชี ${actionableRows.filter((row) => matchesDepartment(row, 'accounting')).length + pendingInterimAdvanceRows.length}`],
+            ['hr', `รอ HR ${actionableRows.filter((row) => matchesDepartment(row, 'hr')).length + pendingInterimAdvanceRows.length}`],
             ['project_inventory', `รอโครงการ/คลัง ${actionableRows.filter((row) => matchesDepartment(row, 'project_inventory')).length}`],
-            ['needs_information', `รอข้อมูล ${actionableRows.filter((row) => matchesDepartment(row, 'needs_information')).length + interimAdvanceRows.filter((entry) => !entry.pay_period_id).length}`],
+            ['needs_information', `รอข้อมูล ${actionableRows.filter((row) => matchesDepartment(row, 'needs_information')).length + pendingInterimAdvanceRows.filter((entry) => !entry.pay_period_id).length}`],
           ] as [DepartmentFilter, string][]).map(([value, label]) => <Chip key={value} clickable color={departmentFilter === value ? 'primary' : 'default'} variant={departmentFilter === value ? 'filled' : 'outlined'} label={label} onClick={() => setDepartmentFilter(value)} />)}
         </Stack>
       </Paper>
       {visibleInterimAdvanceRows.length > 0 && <Paper variant="outlined" sx={{ p: 1.5 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' }, gap: 1, mb: 1 }}>
           <Box><Typography sx={{ fontWeight: 800 }}>เงินเบิกล่วงหน้าระหว่างงวด</Typography><Typography variant="body2" color="text.secondary">ผูกพนักงานและงวดจากวันเวลาโอนจริง · หักเมื่อปิดงวด · ยอดผิดหลังยืนยันให้แก้ด้วย Adjustment โดยไม่ลบสลิปเดิม</Typography></Box>
-          <Chip color="info" label={`${visibleInterimAdvanceRows.length} เส้นเงิน · ${money(visibleInterimAdvanceRows.reduce((sum, entry) => sum + Number(entry.amount), 0))}`} />
+          <Chip color="info" label={`${visibleInterimAdvanceRows.length} รายการรอตรวจ · ${money(visibleInterimAdvanceRows.reduce((sum, entry) => sum + Number(entry.amount), 0))}`} />
         </Stack>
         {periodTotals.length > 0 && <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 1.5 }}>
           {periodTotals.map((period) => <Paper key={period.id} variant="outlined" sx={{ p: 1.25, flex: 1, minWidth: 240 }}><Typography variant="caption" color="text.secondary">{period.name}</Typography><Typography sx={{ fontWeight: 800 }}>{money(period.total)}</Typography><Typography variant="caption">{period.entryCount} รายการ · รอตรวจ {period.pendingCount}</Typography></Paper>)}
