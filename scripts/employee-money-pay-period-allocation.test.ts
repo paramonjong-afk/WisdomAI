@@ -25,7 +25,7 @@ assert.match(accountingUi, /field: 'received_by_profile_id'/)
 assert.match(accountingUi, /field: 'pay_period_id'/)
 
 assert.match(holdingUi, /employee_money_ledger_detail_v1/)
-assert.match(holdingUi, /วันเวลาโอน:/)
+assert.match(holdingUi, /วันเวลาโอน(?:จริง)?:/)
 assert.match(holdingUi, /เลขอ้างอิง:/)
 assert.match(holdingUi, /ผู้รับเงินจริง:/)
 assert.match(timeUi, /employee_time_payroll_financial_summary_v1/)

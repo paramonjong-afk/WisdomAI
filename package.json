@@ -129,6 +129,7 @@
     "test:money-route-policy": "node --experimental-strip-types scripts/money-route-policy.test.ts",
     "test:salary-advance-reconciliation": "node --experimental-strip-types scripts/salary-advance-reconciliation.test.ts",
     "test:employee-money-ledger": "node --experimental-strip-types scripts/employee-money-ledger.test.ts",
+    "test:employee-money-single-approval": "node --experimental-strip-types scripts/employee-money-single-approval.test.ts",
     "test:employee-money-pay-period": "node --experimental-strip-types scripts/employee-money-pay-period-allocation.test.ts",
     "test:wage-money-workflow": "node --experimental-strip-types scripts/wage-money-workflow.test.ts",
     "test:program-development-room": "node --experimental-strip-types scripts/program-development-room.test.ts",
