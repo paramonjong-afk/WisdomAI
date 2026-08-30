@@ -9,6 +9,9 @@ draft.returnedAmount = '0'
 draft.allocations = [{ ...draft.allocations[0], purposeType: 'materials', projectId: 'project-1', amount: '6000' }, { ...emptyMoneyAllocation(4000, 'ช่าง ก'), purposeType: 'payroll' }]
 draft.allocations[0] = { ...draft.allocations[0], costCategoryId: 'category-materials', accountCode: '5101', accountName: 'วัสดุงานโครงสร้าง' }
 draft.allocations[1].payrollKind = 'daily_wage'
+draft.allocations[1].employeeProfileId = '11111111-1111-4111-8111-111111111111'
+draft.allocations[1].receivedByProfileId = draft.allocations[1].employeeProfileId
+draft.allocations[1].payPeriodId = '22222222-2222-4222-8222-222222222222'
 draft.allocations[1] = { ...draft.allocations[1], costCategoryId: 'category-wage', accountCode: '5201', accountName: 'ค่าแรงและเงินเดือนโครงการ' }
 draft.remainingAmount = calculateUnallocatedAmount(10000, draft.allocations, draft.returnedAmount)
 assert.deepEqual(validateMoneyLineage(draft, 10000), { missing: [], errors: [] })

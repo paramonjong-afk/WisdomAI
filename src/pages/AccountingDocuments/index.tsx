@@ -281,7 +281,10 @@ export function AccountingDocumentsPage() {
     setSites((siteResult.data ?? []) as Site[])
     setCategories((categoryResult.data ?? []) as CostCategory[])
     setVendors((vendorResult.data ?? []) as VendorOption[])
-    setPayrollEmployees((payrollEmployeeResult.data ?? []).map(row => ({ id: row.profile_id, name: row.profiles?.full_name ?? row.profile_id })))
+    setPayrollEmployees((payrollEmployeeResult.data ?? []).map(row => {
+      const linkedProfile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
+      return { id: row.profile_id, name: linkedProfile?.full_name ?? row.profile_id }
+    }))
     setPayPeriods((payPeriodResult.data ?? []) as PayPeriodOption[])
     setLoading(false)
   }, [currentCompany?.company_id])
