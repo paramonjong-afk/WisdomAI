@@ -5,14 +5,19 @@ const page = readFileSync('src/pages/AdvanceSettlements/index.tsx', 'utf8')
 const migration = readFileSync('supabase/migrations/20260829173946_employee_advance_reject_restore.sql', 'utf8')
 
 for (const required of [
-  'เงินทดรองและปิดยอด (${activeRows.length})',
+  'ต้องจัดการ (${actionableRows.length})',
   'บัญชีพักช่างรายวัน (${employeeMoneyRows.length})',
+  'พร้อมปิดยอด / ปิดแล้ว (${readyToCloseRows.length})',
   'Reject / ต้องแก้ไข (${rejectedRows.length})',
   "rows.filter((row) => row.status !== 'rejected')",
   'Reject ไม่นับยอด',
   'ยอดใช้งานจริงจะลดลง',
   'นำกลับมาตรวจ',
   'onRowClick={setSelectedEmployeeMoney}',
+  'กรองตามผู้รับผิดชอบปัจจุบัน',
+  'แผนกปัจจุบัน',
+  'ขั้นตอนถัดไป',
+  'target_department,candidate_departments,assignment_status',
 ]) assert.ok(page.includes(required), `advance reject UI should include ${required}`)
 
 for (const required of [

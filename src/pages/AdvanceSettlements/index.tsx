@@ -21,7 +21,17 @@ import { advanceAuditAttemptLabel, buildAdvanceAuditTimeline, type AdvanceAuditE
 
 type SettlementItem = { id: string; expense_type: string; amount: number; approval_status: string; description: string; expense_date: string; evidence_reference: string | null }
 type Audit = AdvanceAuditEvent
-type SourceFlow = { id: string; current_flow: string; current_room: string; state: string; version: number; updated_at: string | null }
+type SourceFlow = {
+  id: string
+  current_flow: string
+  current_room: string
+  state: string
+  version: number
+  updated_at: string | null
+  target_department: string | null
+  candidate_departments: string[] | null
+  assignment_status: string | null
+}
 type SourceSlip = { recipient_name: string | null; sender_name: string | null; sender_bank_name: string | null; sender_account_last4: string | null; recipient_bank_name: string | null; recipient_account_last4: string | null; transfer_at: string | null; payment_party_confidence: number | null }
 type AdvanceCase = {
   id: string; advance_number: string; amount_received: number; bank_reference: string | null; status: string; version: number; parent_case_id: string | null; purpose_note: string | null; holder_profile_id: string | null
@@ -68,6 +78,18 @@ type PreviewState =
   | { status: 'ready'; message: string; file: AdvanceSlipPreviewFile; signedUrl: string }
 type FlowNodeStatus = 'passed' | 'waiting' | 'missing' | 'rejected'
 type FlowNode = { key: string; label: string; status: FlowNodeStatus; time: string | null; owner: string; documentId: string; audit: Audit[]; detail: string }
+type DepartmentFilter = 'all' | 'accounting' | 'hr' | 'project_inventory' | 'needs_information'
+
+const departmentLabels: Record<string, string> = {
+  accounting: 'บัญชี',
+  hr: 'HR',
+  project: 'โครงการ',
+  inventory: 'คลัง',
+  procurement: 'จัดซื้อ',
+  admin: 'Admin',
+  system: 'ระบบ',
+  advance_finance: 'เงินสำรองจ่าย',
+}
 
 const labels: Record<string, string> = {
   draft: 'รอแตกยอด', collecting_evidence: 'กำลังรวบรวมหลักฐาน', submitted: 'ส่งตรวจแล้ว', approved: 'อนุมัติแล้ว', closed: 'ปิดยอดแล้ว', returned: 'ส่งกลับแก้ไข', cancelled: 'ยกเลิก',
@@ -81,6 +103,35 @@ const money = (value: number) => new Intl.NumberFormat('th-TH', { style: 'curren
 const dateTime = (value: string | null | undefined) => value ? new Date(value).toLocaleString('th-TH') : '-'
 const holderName = (row: AdvanceCase) => row.holder_profile?.full_name ?? row.holder_person?.full_name ?? row.financial_transactions?.recipient_name ?? '-'
 const routeText = (row: AdvanceCase) => row.parent_case_id ? `เงินทดรองหลัก → เงินเบิกช่าง → ${labels[row.status] ?? row.status}` : `สลิป → Intake → Filter → บัญชี → เงินทดรอง (${labels[row.status] ?? row.status})`
+const rowDepartments = (row: AdvanceCase) => {
+  const departments = new Set(row.source_flow?.candidate_departments ?? [])
+  if (row.source_flow?.target_department) departments.add(row.source_flow.target_department)
+  const room = row.source_flow?.current_room ?? ''
+  if (room.includes('hr') || room.includes('payroll')) departments.add('hr')
+  if (room.includes('project')) departments.add('project')
+  if (room.includes('inventory')) departments.add('inventory')
+  if (room.includes('accounting') || room.includes('posting')) departments.add('accounting')
+  if (room.includes('advance_finance')) departments.add('advance_finance')
+  if (!departments.size) departments.add('accounting')
+  return [...departments]
+}
+const departmentText = (row: AdvanceCase) => rowDepartments(row).map((department) => departmentLabels[department] ?? department).join(', ')
+const nextActionText = (row: AdvanceCase) => {
+  if (row.status === 'rejected') return 'แก้ไขหรือนำกลับมาตรวจ'
+  if (row.status === 'closed') return 'ปิดยอดแล้ว'
+  const readiness = advanceReviewReadiness(row)
+  const departments = rowDepartments(row)
+  if (departments.includes('hr')) return 'HR ตรวจพนักงานและงวดค่าแรง'
+  if (departments.includes('project') || departments.includes('inventory')) return 'โครงการ/คลังตรวจการใช้เงิน'
+  return readiness.nextAction
+}
+const matchesDepartment = (row: AdvanceCase, filter: DepartmentFilter) => {
+  if (filter === 'all') return true
+  const departments = rowDepartments(row)
+  if (filter === 'project_inventory') return departments.includes('project') || departments.includes('inventory')
+  if (filter === 'needs_information') return ['draft', 'collecting_evidence', 'returned'].includes(row.status) && !advanceReviewReadiness(row).canSubmit
+  return departments.includes(filter)
+}
 function updateState(row: AdvanceCase) {
   const actions = row.employee_advance_audit ?? []
   if (actions.some((audit) => audit.action === 'admin_confirm_name_match')) return { label: 'Admin ยืนยัน/เรียนรู้ชื่อ', color: 'primary' as const }
@@ -213,6 +264,7 @@ export function AdvanceSettlementsPage() {
   const [line, setLine] = useState({ expense_type: 'materials', amount: '', description: '', evidence_reference: '', expense_date: new Date().toLocaleDateString('en-CA') })
   const [subAdvance, setSubAdvance] = useState({ holderProfileId: '', amount: '', description: '' })
   const [activeTab, setActiveTab] = useState(0)
+  const [departmentFilter, setDepartmentFilter] = useState<DepartmentFilter>('all')
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState({ code: 'not_advance', note: '' })
   const [restoreOpen, setRestoreOpen] = useState(false)
@@ -225,7 +277,7 @@ export function AdvanceSettlementsPage() {
     const [{ data, error: loadError }, { data: dailyData, error: dailyError }, { data: employeeMoneyData, error: employeeMoneyError }, { data: employeeMoneyEntryData, error: employeeMoneyEntryError }, { data: legacyData, error: legacyError }] = await Promise.all([supabase.from('employee_advance_cases').select(`
       id,advance_number,amount_received,bank_reference,status,version,parent_case_id,purpose_note,holder_profile_id,source_flow_item_id,rejected_reason_code,rejected_reason_note,rejected_by,rejected_at,
       financial_transactions(recipient_name,sender_name,sender_bank_name,sender_account_last4,recipient_bank_name,recipient_account_last4,transfer_at,payment_party_confidence),
-      source_flow:document_flow_items!employee_advance_cases_source_flow_item_id_fkey(id,current_flow,current_room,state,version,updated_at),
+       source_flow:document_flow_items!employee_advance_cases_source_flow_item_id_fkey(id,current_flow,current_room,state,version,updated_at,target_department,candidate_departments,assignment_status),
       holder_profile:profiles!employee_advance_cases_holder_profile_id_fkey(full_name),
       holder_person:employee_people!employee_advance_cases_holder_person_id_fkey(full_name),
       employee_advance_settlement_items!employee_advance_settlement_items_case_id_fkey(id,expense_type,amount,approval_status,description,expense_date,evidence_reference),
@@ -307,6 +359,9 @@ export function AdvanceSettlementsPage() {
   const selectedReadiness = selected ? advanceReviewReadiness(selected) : null
   const activeRows = rows.filter((row) => row.status !== 'rejected')
   const rejectedRows = rows.filter((row) => row.status === 'rejected')
+  const readyToCloseRows = activeRows.filter((row) => row.status === 'closed' || (row.status === 'approved' && advanceReviewReadiness(row).canClose))
+  const actionableRows = activeRows.filter((row) => !readyToCloseRows.some((readyRow) => readyRow.id === row.id))
+  const filteredActionableRows = actionableRows.filter((row) => matchesDepartment(row, departmentFilter))
   const activeAmount = activeRows.reduce((sum, row) => sum + Number(row.amount_received), 0)
   const rejectedAmount = rejectedRows.reduce((sum, row) => sum + Number(row.amount_received), 0)
   const selectedActiveChildren = selected ? rows.filter((row) => row.parent_case_id === selected.id && !['closed', 'cancelled', 'rejected'].includes(row.status)) : []
@@ -332,7 +387,7 @@ export function AdvanceSettlementsPage() {
     if (rpcError) { setError(userError(rpcError)); return }
     setRejectOpen(false)
     setRejectReason({ code: 'not_advance', note: '' })
-    setActiveTab(2)
+    setActiveTab(3)
     await load()
   }
   const restoreCase = async () => {
@@ -359,8 +414,9 @@ export function AdvanceSettlementsPage() {
     {error && <Alert severity="error">{error}</Alert>}
     {confirmation && <Alert severity={['failed', 'pending_room_setup', 'room_setup_failed'].includes(confirmation.status) ? 'warning' : 'success'} onClose={() => setConfirmation(null)}><strong>System MSG Confirm: {confirmation.status === 'queued' ? 'ปิดงานแล้ว/รอส่ง MSG' : confirmation.status}</strong><br />รหัสรายการ: {confirmation.advance_case_id}<br />{confirmation.message_text}</Alert>}
     <Paper variant="outlined" sx={{ px: 1 }}><Tabs value={activeTab} onChange={(_event, value: number) => setActiveTab(value)} variant="scrollable" scrollButtons="auto">
-      <Tab label={`เงินทดรองและปิดยอด (${activeRows.length})`} />
+      <Tab label={`ต้องจัดการ (${actionableRows.length})`} />
       <Tab label={`บัญชีพักช่างรายวัน (${employeeMoneyRows.length})`} />
+      <Tab label={`พร้อมปิดยอด / ปิดแล้ว (${readyToCloseRows.length})`} />
       <Tab label={`Reject / ต้องแก้ไข (${rejectedRows.length})`} />
     </Tabs></Paper>
     {activeTab === 0 && <Stack spacing={1.5}>
@@ -368,7 +424,19 @@ export function AdvanceSettlementsPage() {
         <Paper variant="outlined" sx={{ p: 1.5, flex: 1 }}><Typography variant="caption" color="text.secondary">ยอดใช้งานจริง</Typography><Typography variant="h6" sx={{ fontWeight: 800 }}>{money(activeAmount)}</Typography></Paper>
         <Paper variant="outlined" sx={{ p: 1.5, flex: 1 }}><Typography variant="caption" color="text.secondary">Reject ไม่นับยอด</Typography><Typography variant="h6" color="error" sx={{ fontWeight: 800 }}>{money(rejectedAmount)}</Typography></Paper>
       </Stack>
-      <AdvanceTreeTable rows={activeRows} onOpenQueue={openReviewQueue} />
+      <Paper variant="outlined" sx={{ p: 1.25 }}>
+        <Typography variant="caption" color="text.secondary">กรองตามผู้รับผิดชอบปัจจุบัน</Typography>
+        <Stack direction="row" spacing={0.75} sx={{ mt: 0.75, flexWrap: 'wrap', gap: 0.75 }}>
+          {([
+            ['all', `ทั้งหมด ${actionableRows.length}`],
+            ['accounting', `รอบัญชี ${actionableRows.filter((row) => matchesDepartment(row, 'accounting')).length}`],
+            ['hr', `รอ HR ${actionableRows.filter((row) => matchesDepartment(row, 'hr')).length}`],
+            ['project_inventory', `รอโครงการ/คลัง ${actionableRows.filter((row) => matchesDepartment(row, 'project_inventory')).length}`],
+            ['needs_information', `รอข้อมูล ${actionableRows.filter((row) => matchesDepartment(row, 'needs_information')).length}`],
+          ] as [DepartmentFilter, string][]).map(([value, label]) => <Chip key={value} clickable color={departmentFilter === value ? 'primary' : 'default'} variant={departmentFilter === value ? 'filled' : 'outlined'} label={label} onClick={() => setDepartmentFilter(value)} />)}
+        </Stack>
+      </Paper>
+      <AdvanceTreeTable rows={filteredActionableRows} onOpenQueue={openReviewQueue} />
     </Stack>}
     {activeTab === 1 && <Paper variant="outlined" sx={{ p: 1.5 }}>
       <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' }, gap: 1, mb: 1 }}>
@@ -398,6 +466,10 @@ export function AdvanceSettlementsPage() {
       </Box>}
     </Paper>}
     {activeTab === 2 && <Stack spacing={1.5}>
+      <Alert severity="success">รายการพร้อมปิดยอดและรายการที่ปิดแล้ว ใช้ข้อมูลต้นทางชุดเดียวกับคิวบัญชี ไม่ได้สร้างสำเนาใหม่</Alert>
+      <AdvanceTreeTable rows={readyToCloseRows} onOpenQueue={openReviewQueue} />
+    </Stack>}
+    {activeTab === 3 && <Stack spacing={1.5}>
       <Alert severity="info">รายการในหน้านี้ไม่ถูกลบ และไม่รวมในยอดใช้งานจริง สามารถคลิกแถวเพื่อตรวจ Audit หรือนำกลับมาตรวจได้</Alert>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
         <Paper variant="outlined" sx={{ p: 1.5, flex: 1 }}><Typography variant="caption" color="text.secondary">ยอดใช้งานจริง</Typography><Typography variant="h6" sx={{ fontWeight: 800 }}>{money(activeAmount)}</Typography></Paper>
@@ -433,6 +505,12 @@ export function AdvanceSettlementsPage() {
             เวลา: {dateTime(selected.rejected_at)} · หลักฐานต้นฉบับและ Audit ยังอยู่ครบ
           </Alert>}
           {selected.status === 'closed' && <Alert severity="warning" sx={{ mt: 1 }}>รายการปิดยอดแล้ว ห้าม Reject ย้อนหลัง หากต้องแก้ยอดให้สร้าง Adjustment</Alert>}
+          <Paper variant="outlined" sx={{ p: 1.25, mt: 1 }}>
+            <Typography sx={{ fontWeight: 800 }}>เส้นทางแผนก</Typography>
+            <Typography variant="body2">แผนกปัจจุบัน: <strong>{departmentText(selected)}</strong></Typography>
+            <Typography variant="body2">ขั้นตอนถัดไป: <strong>{nextActionText(selected)}</strong></Typography>
+            <Typography variant="caption" color="text.secondary">สถานะรับงาน: {selected.source_flow?.assignment_status ?? 'ยังไม่ระบุ'} · รายการเดียวติดตามข้ามแผนกด้วย Source ID เดิม</Typography>
+          </Paper>
         </Box>}
         <Box sx={{ p: 2, overflowY: 'auto', flex: 1 }}>{selected && <CaseDetail row={selected} total={total(selected)} outstanding={outstanding(selected)} slipPreview={slipPreview} onReloadSlipPreview={() => void openSlipPreview(selected)} onOpenSlipPreviewDialog={() => setSlipPreviewDialogOpen(true)} onCloseSlipPreviewDialog={() => setSlipPreviewDialogOpen(false)} slipPreviewDialogOpen={slipPreviewDialogOpen} onPreviewImageError={() => setSlipPreview((current) => current.status === 'ready' ? { status: 'error', message: isExpiredPreviewUrlError('expired') ? 'ลิงก์รูปหมดอายุหรือเปิดไม่ได้' : 'ลิงก์รูปเปิดไม่ได้', file: current.file, signedUrl: current.signedUrl } : current)} />}</Box>
         {selected?.status === 'rejected' ? <Stack direction="row" spacing={1} sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
@@ -629,13 +707,15 @@ function AdvanceTreeTable({ rows, onOpenQueue }: { rows: AdvanceCase[]; onOpenQu
       <TextField size="small" value={search} onChange={(event) => { setSearch(event.target.value); setPage(0) }} placeholder="ค้นหาช่างหรือ Advance ID" slotProps={{ htmlInput: { 'aria-label': 'ค้นหาช่างหรือ Advance ID' } }} sx={{ minWidth: { sm: 280 } }} />
     </Stack>
     <TableContainer sx={{ maxHeight: { xs: 'calc(100vh - 260px)', md: 'calc(100vh - 330px)' } }}>
-      <Table size="small" stickyHeader sx={{ minWidth: 1080 }}>
+      <Table size="small" stickyHeader sx={{ minWidth: 1320 }}>
         <TableHead><TableRow>
           <TableCell sx={{ fontWeight: 700, minWidth: 280 }}>ช่าง / รายการ</TableCell>
           <TableCell align="right" sx={{ fontWeight: 700 }}>จำนวนรายการ</TableCell>
           <TableCell align="right" sx={{ fontWeight: 700 }}>Advance รวม</TableCell>
           <TableCell align="right" sx={{ fontWeight: 700 }}>ใช้จ่ายอนุมัติ</TableCell>
           <TableCell align="right" sx={{ fontWeight: 700 }}>คงค้าง</TableCell>
+          <TableCell sx={{ fontWeight: 700, minWidth: 150 }}>แผนกปัจจุบัน</TableCell>
+          <TableCell sx={{ fontWeight: 700, minWidth: 230 }}>ขั้นตอนถัดไป</TableCell>
           <TableCell sx={{ fontWeight: 700 }}>สถานะ</TableCell>
         </TableRow></TableHead>
         <TableBody>
@@ -649,6 +729,8 @@ function AdvanceTreeTable({ rows, onOpenQueue }: { rows: AdvanceCase[]; onOpenQu
                 <TableCell align="right" sx={{ fontWeight: 700 }}>{money(group.received)}</TableCell>
                 <TableCell align="right">{money(group.approvedUsed)}</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 700 }}>{money(group.outstanding)}</TableCell>
+                <TableCell>{[...new Set(group.rows.flatMap(rowDepartments))].map((department) => departmentLabels[department] ?? department).join(', ')}</TableCell>
+                <TableCell>{group.rows.length === 1 ? nextActionText(group.rows[0]) : 'เปิดรายการเพื่อดูขั้นตอนของแต่ละยอด'}</TableCell>
                 <TableCell><Chip size="small" color={group.rows.every((row) => row.status === 'rejected') ? 'error' : pendingCount ? 'warning' : 'success'} label={group.rows.every((row) => row.status === 'rejected') ? `Reject ${group.rows.length}` : pendingCount ? `รอตรวจ ${pendingCount}` : 'ตรวจครบ'} /></TableCell>
               </TableRow>
               {isOpen && group.rows.map((row) => <TableRow key={row.id} hover onClick={() => onOpenQueue(group.rows, row.id)} sx={{ bgcolor: 'grey.50', cursor: 'pointer' }}>
@@ -657,13 +739,15 @@ function AdvanceTreeTable({ rows, onOpenQueue }: { rows: AdvanceCase[]; onOpenQu
                 <TableCell align="right">{money(Number(row.amount_received))}</TableCell>
                 <TableCell align="right">{money((row.employee_advance_settlement_items ?? []).filter((item) => item.approval_status === 'approved').reduce((sum, item) => sum + Number(item.amount), 0))}</TableCell>
                 <TableCell align="right">{money(Number(row.amount_received) - (row.employee_advance_settlement_items ?? []).filter((item) => item.approval_status === 'approved').reduce((sum, item) => sum + Number(item.amount), 0))}</TableCell>
+                <TableCell>{departmentText(row)}</TableCell>
+                <TableCell>{nextActionText(row)}</TableCell>
                 <TableCell><Chip size="small" color={row.status === 'rejected' ? 'error' : row.status === 'approved' || row.status === 'closed' ? 'success' : 'warning'} label={labels[row.status] ?? row.status} /></TableCell>
               </TableRow>)}
             </Fragment>
           })}
-          {!visibleGroups.length && <TableRow><TableCell colSpan={6}><Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>ไม่พบรายการตามเงื่อนไขค้นหา</Typography></TableCell></TableRow>}
+          {!visibleGroups.length && <TableRow><TableCell colSpan={8}><Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>ไม่พบรายการตามเงื่อนไขค้นหา</Typography></TableCell></TableRow>}
           <TableRow sx={{ bgcolor: 'rgba(166, 89, 64, 0.12)' }}>
-            <TableCell sx={{ fontWeight: 800 }}>รวมทั้งหมด</TableCell><TableCell align="right" sx={{ fontWeight: 800 }}>{totals.count} รายการ</TableCell><TableCell align="right" sx={{ fontWeight: 800 }}>{money(totals.received)}</TableCell><TableCell align="right" sx={{ fontWeight: 800 }}>{money(totals.approvedUsed)}</TableCell><TableCell align="right" sx={{ fontWeight: 800 }}>{money(totals.outstanding)}</TableCell><TableCell><Typography variant="caption" color="text.secondary">ยอดจากผลค้นหาปัจจุบัน</Typography></TableCell>
+            <TableCell sx={{ fontWeight: 800 }}>รวมทั้งหมด</TableCell><TableCell align="right" sx={{ fontWeight: 800 }}>{totals.count} รายการ</TableCell><TableCell align="right" sx={{ fontWeight: 800 }}>{money(totals.received)}</TableCell><TableCell align="right" sx={{ fontWeight: 800 }}>{money(totals.approvedUsed)}</TableCell><TableCell align="right" sx={{ fontWeight: 800 }}>{money(totals.outstanding)}</TableCell><TableCell colSpan={3}><Typography variant="caption" color="text.secondary">ยอดจากผลค้นหาปัจจุบัน</Typography></TableCell>
           </TableRow>
         </TableBody>
       </Table>
