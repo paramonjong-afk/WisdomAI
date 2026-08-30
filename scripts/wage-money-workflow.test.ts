@@ -4,15 +4,18 @@ import { readFileSync } from 'node:fs'
 const page = readFileSync('src/pages/AdvanceSettlements/index.tsx', 'utf8')
 const migration = readFileSync('supabase/migrations/20260830035652_reconcile_wage_money_lines.sql', 'utf8')
 const periodMigration = readFileSync('supabase/migrations/20260830054524_assign_wage_pay_period_workflow.sql', 'utf8')
+const interimAdvanceMigration = readFileSync('supabase/migrations/20260830061245_classify_interim_employee_transfers_as_advances.sql', 'utf8')
 
 for (const required of [
   'canonicalEmployeeMoneyEntries',
-  "entry.entry_type === 'wage_paid'",
+  "entry.entry_type === 'advance_issued'",
   'financial_transaction_id',
   'allocation_id',
-  'ค่าแรงตามเส้นเงินจริง',
+  'เงินเบิกล่วงหน้าระหว่างงวด',
+  'งวดที่จะหัก',
+  'สร้าง Adjustment',
   'บัญชี + HR',
-  'ยังไม่ผูกรอบ',
+  'ยังไม่ผูกงวด',
 ]) assert.ok(page.includes(required), `wage workflow UI should include ${required}`)
 
 for (const required of [
@@ -39,4 +42,22 @@ for (const required of [
 ]) assert.ok(periodMigration.includes(required), `pay-period workflow should include ${required}`)
 
 assert.doesNotMatch(periodMigration, /delete\s+from\s+public\./i)
-console.log('wage money workflow contract tests passed')
+
+for (const required of [
+  'duplicate_projection_reversed',
+  'interim_transfer_reclassified_as_advance',
+  "entry_type = 'advance_issued'",
+  "account_scope = 'advance'",
+  'employee_money_period_summary_v1',
+  'approved_adjustment_net',
+  'advance_to_deduct',
+  'security_invoker = true',
+  "period.status not in ('closed', 'paying', 'paid', 'cancelled')",
+  'employee_money_ledger_audit',
+]) assert.ok(interimAdvanceMigration.includes(required), `interim advance workflow should include ${required}`)
+
+assert.doesNotMatch(interimAdvanceMigration, /delete\s+from\s+public\./i)
+assert.match(interimAdvanceMigration, /entry\.entry_status\s*=\s*'matched_pending_review'/i)
+assert.match(interimAdvanceMigration, /allocation\.status\s*=\s*'superseded'/i)
+
+console.log('interim advance and pay-period workflow contract tests passed')

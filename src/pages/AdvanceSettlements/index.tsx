@@ -53,6 +53,24 @@ type EmployeeMoneySummary = {
   pending_wage_paid: number
   updated_at: string
 }
+type EmployeeMoneyPeriodSummary = {
+  company_id: string
+  employee_profile_id: string
+  employee_name: string
+  pay_period_id: string
+  pay_period_name: string
+  pay_period_starts_on: string
+  pay_period_ends_on: string
+  pay_period_status: string
+  advance_entry_count: number
+  pending_review_count: number
+  pending_advance_amount: number
+  approved_advance_amount: number
+  approved_adjustment_net: number
+  pending_adjustment_amount: number
+  advance_to_deduct: number
+  updated_at: string
+}
 type LegacyEmployeeMoneyCandidate = {
   financial_transaction_id: string
   employee_profile_id: string
@@ -97,6 +115,7 @@ const labels: Record<string, string> = {
   auto_create_from_holder_registry: 'ระบบสร้างร่างจากชื่อที่เรียนรู้', admin_confirm_name_match: 'Admin ยืนยันชื่อและสอนระบบ', create_from_transfer: 'สร้างจากสลิปต้นทาง', add_settlement_item: 'เพิ่มรายการใช้เงิน', create_sub_advance: 'สร้างเงินเบิกช่าง', submit: 'ส่งตรวจ', approve: 'อนุมัติ', return: 'ส่งกลับแก้ไข', close: 'ปิดยอด',
   rejected: 'Reject / ไม่นับยอด', reject_exclude_from_totals: 'Reject / ตัดออกจากยอด', restore_to_review: 'นำกลับมาตรวจ',
   confirmation_room_setup: 'ตั้งค่าห้องยืนยัน', confirmation_queued: 'เข้าคิวข้อความยืนยัน', confirmation_delivery_failed: 'ส่งข้อความยืนยันไม่สำเร็จ', confirmation_delivered: 'ส่งข้อความยืนยันสำเร็จ',
+  advance_issued: 'เงินเบิกล่วงหน้าระหว่างงวด', wage_paid: 'ค่าแรงที่จ่ายหลังปิดงวด', adjustment_debit: 'Adjustment เพิ่มยอด', adjustment_credit: 'Adjustment ลดยอด', reversal: 'กลับรายการ',
 }
 const rejectReasonLabels: Record<string, string> = { wrong_amount: 'ยอดผิด', duplicate: 'รายการซ้ำ', not_advance: 'ไม่ใช่เงินทดรอง', wrong_type: 'ข้อมูลผิดประเภท', other: 'เหตุผลอื่น' }
 const money = (value: number) => new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(value || 0)
@@ -268,10 +287,13 @@ export function AdvanceSettlementsPage() {
   const [dailyEmployees, setDailyEmployees] = useState<DailyEmployee[]>([])
   const [employeeMoneyRows, setEmployeeMoneyRows] = useState<EmployeeMoneySummary[]>([])
   const [employeeMoneyEntries, setEmployeeMoneyEntries] = useState<EmployeeMoneyLedgerEntry[]>([])
+  const [employeeMoneyPeriodRows, setEmployeeMoneyPeriodRows] = useState<EmployeeMoneyPeriodSummary[]>([])
   const [selectedEmployeeMoney, setSelectedEmployeeMoney] = useState<EmployeeMoneySummary | null>(null)
   const [selectedEmployeeMoneyEntryId, setSelectedEmployeeMoneyEntryId] = useState<string | null>(null)
   const [employeeMoneyRejectId, setEmployeeMoneyRejectId] = useState<string | null>(null)
   const [employeeMoneyRejectReason, setEmployeeMoneyRejectReason] = useState('')
+  const [adjustmentEntry, setAdjustmentEntry] = useState<EmployeeMoneyLedgerEntry | null>(null)
+  const [adjustment, setAdjustment] = useState({ type: 'adjustment_credit', amount: '', reason: '', effectiveOn: new Date().toLocaleDateString('en-CA') })
   const [legacyMoneyCandidates, setLegacyMoneyCandidates] = useState<LegacyEmployeeMoneyCandidate[]>([])
   const [employeeMoneyWarning, setEmployeeMoneyWarning] = useState('')
   const [line, setLine] = useState({ expense_type: 'materials', amount: '', description: '', evidence_reference: '', expense_date: new Date().toLocaleDateString('en-CA') })
@@ -287,7 +309,7 @@ export function AdvanceSettlementsPage() {
   const canManageAdvance = profile?.role === 'admin' || profile?.role === 'manager'
   const load = useCallback(async () => {
     if (!companyId) return
-    const [{ data, error: loadError }, { data: dailyData, error: dailyError }, { data: employeeMoneyData, error: employeeMoneyError }, { data: employeeMoneyEntryData, error: employeeMoneyEntryError }, { data: legacyData, error: legacyError }] = await Promise.all([supabase.from('employee_advance_cases').select(`
+    const [{ data, error: loadError }, { data: dailyData, error: dailyError }, { data: employeeMoneyData, error: employeeMoneyError }, { data: employeeMoneyEntryData, error: employeeMoneyEntryError }, { data: periodData, error: periodError }, { data: legacyData, error: legacyError }] = await Promise.all([supabase.from('employee_advance_cases').select(`
       id,advance_number,amount_received,bank_reference,status,version,parent_case_id,purpose_note,holder_profile_id,source_flow_item_id,rejected_reason_code,rejected_reason_note,rejected_by,rejected_at,
       financial_transactions(recipient_name,sender_name,sender_bank_name,sender_account_last4,recipient_bank_name,recipient_account_last4,transfer_at,payment_party_confidence),
        source_flow:document_flow_items!employee_advance_cases_source_flow_item_id_fkey(id,current_flow,current_room,state,version,updated_at,target_department,candidate_departments,assignment_status),
@@ -295,7 +317,7 @@ export function AdvanceSettlementsPage() {
       holder_person:employee_people!employee_advance_cases_holder_person_id_fkey(full_name),
       employee_advance_settlement_items!employee_advance_settlement_items_case_id_fkey(id,expense_type,amount,approval_status,description,expense_date,evidence_reference),
       employee_advance_audit!employee_advance_audit_case_id_fkey(id,action,reason,created_at)
-    `).eq('company_id', companyId).neq('status', 'cancelled').order('updated_at', { ascending: false }), supabase.from('employee_employment_records').select('profile_id,profiles!employee_employment_records_profile_id_fkey(full_name)').eq('company_id', companyId).eq('employment_type', 'daily').in('employment_status', ['active', 'probation', 'notice']), supabase.from('employee_money_balance_summary').select('*').eq('company_id', companyId).order('updated_at', { ascending: false }), supabase.from('employee_money_ledger_detail_v1').select('*').eq('company_id', companyId).order('transfer_at', { ascending: false, nullsFirst: false }), supabase.from('employee_money_legacy_candidates').select('*').eq('company_id', companyId).order('transfer_at', { ascending: false, nullsFirst: false })])
+    `).eq('company_id', companyId).neq('status', 'cancelled').order('updated_at', { ascending: false }), supabase.from('employee_employment_records').select('profile_id,profiles!employee_employment_records_profile_id_fkey(full_name)').eq('company_id', companyId).eq('employment_type', 'daily').in('employment_status', ['active', 'probation', 'notice']), supabase.from('employee_money_balance_summary').select('*').eq('company_id', companyId).order('updated_at', { ascending: false }), supabase.from('employee_money_ledger_detail_v1').select('*').eq('company_id', companyId).order('transfer_at', { ascending: false, nullsFirst: false }), supabase.from('employee_money_period_summary_v1').select('*').eq('company_id', companyId).order('pay_period_starts_on', { ascending: true }), supabase.from('employee_money_legacy_candidates').select('*').eq('company_id', companyId).order('transfer_at', { ascending: false, nullsFirst: false })])
     if (loadError || dailyError) setError(userError(loadError ?? dailyError))
     else {
       const nextRows = (data ?? []) as unknown as AdvanceCase[]
@@ -305,8 +327,8 @@ export function AdvanceSettlementsPage() {
       setReviewQueueIds((current) => current.filter((id) => nextRows.some((row) => row.id === id)))
       setDailyEmployees((dailyData ?? []) as unknown as DailyEmployee[])
     }
-    if (employeeMoneyError || employeeMoneyEntryError || legacyError) { setEmployeeMoneyRows([]); setEmployeeMoneyEntries([]); setLegacyMoneyCandidates([]); setEmployeeMoneyWarning('บัญชีพักช่างยังไม่พร้อมใช้งาน กรุณาตรวจ Migration employee_money_ledger') }
-    else { setEmployeeMoneyRows((employeeMoneyData ?? []) as unknown as EmployeeMoneySummary[]); setEmployeeMoneyEntries((employeeMoneyEntryData ?? []) as unknown as EmployeeMoneyLedgerEntry[]); setLegacyMoneyCandidates((legacyData ?? []) as unknown as LegacyEmployeeMoneyCandidate[]); setEmployeeMoneyWarning('') }
+    if (employeeMoneyError || employeeMoneyEntryError || periodError || legacyError) { setEmployeeMoneyRows([]); setEmployeeMoneyEntries([]); setEmployeeMoneyPeriodRows([]); setLegacyMoneyCandidates([]); setEmployeeMoneyWarning('บัญชีพักช่างยังไม่พร้อมใช้งาน กรุณาตรวจ Migration employee_money_ledger') }
+    else { setEmployeeMoneyRows((employeeMoneyData ?? []) as unknown as EmployeeMoneySummary[]); setEmployeeMoneyEntries((employeeMoneyEntryData ?? []) as unknown as EmployeeMoneyLedgerEntry[]); setEmployeeMoneyPeriodRows((periodData ?? []) as unknown as EmployeeMoneyPeriodSummary[]); setLegacyMoneyCandidates((legacyData ?? []) as unknown as LegacyEmployeeMoneyCandidate[]); setEmployeeMoneyWarning('') }
   }, [companyId])
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0)
@@ -375,12 +397,20 @@ export function AdvanceSettlementsPage() {
   const readyToCloseRows = activeRows.filter((row) => row.status === 'closed' || (row.status === 'approved' && advanceReviewReadiness(row).canClose))
   const actionableRows = activeRows.filter((row) => !readyToCloseRows.some((readyRow) => readyRow.id === row.id))
   const filteredActionableRows = actionableRows.filter((row) => matchesDepartment(row, departmentFilter))
-  const wageWorkflowRows = canonicalEmployeeMoneyEntries(employeeMoneyEntries).filter((entry) => entry.entry_type === 'wage_paid')
+  const interimAdvanceRows = canonicalEmployeeMoneyEntries(employeeMoneyEntries).filter((entry) => entry.entry_type === 'advance_issued')
   const pendingEmployeeMoneyEntries = canonicalEmployeeMoneyEntries(employeeMoneyEntries)
     .filter((entry) => entry.entry_status === 'matched_pending_review')
     .sort((left, right) => new Date(right.transfer_at ?? right.created_at).getTime() - new Date(left.transfer_at ?? left.created_at).getTime())
-  const visibleWageWorkflowRows = ['all', 'accounting', 'hr', 'needs_information'].includes(departmentFilter) ? wageWorkflowRows : []
-  const actionableCount = actionableRows.length + wageWorkflowRows.length
+  const visibleInterimAdvanceRows = ['all', 'accounting', 'hr', 'needs_information'].includes(departmentFilter) ? interimAdvanceRows : []
+  const actionableCount = actionableRows.length + interimAdvanceRows.length
+  const periodTotals = [...employeeMoneyPeriodRows.reduce((groups, row) => {
+    const current = groups.get(row.pay_period_id) ?? { id: row.pay_period_id, name: row.pay_period_name, startsOn: row.pay_period_starts_on, endsOn: row.pay_period_ends_on, entryCount: 0, pendingCount: 0, total: 0 }
+    current.entryCount += Number(row.advance_entry_count)
+    current.pendingCount += Number(row.pending_review_count)
+    current.total += Number(row.advance_to_deduct)
+    groups.set(row.pay_period_id, current)
+    return groups
+  }, new Map<string, { id: string; name: string; startsOn: string; endsOn: string; entryCount: number; pendingCount: number; total: number }>()).values()]
   const activeAmount = activeRows.reduce((sum, row) => sum + Number(row.amount_received), 0)
   const rejectedAmount = rejectedRows.reduce((sum, row) => sum + Number(row.amount_received), 0)
   const selectedActiveChildren = selected ? rows.filter((row) => row.parent_case_id === selected.id && !['closed', 'cancelled', 'rejected'].includes(row.status)) : []
@@ -450,6 +480,25 @@ export function AdvanceSettlementsPage() {
     setEmployeeMoneyRejectReason('')
     await load()
   }
+  const createEmployeeMoneyAdjustment = async () => {
+    if (!adjustmentEntry) return
+    setSaving(true)
+    const { error: rpcError } = await supabase.rpc('create_employee_money_adjustment', {
+      target_entry_id: adjustmentEntry.id,
+      target_event_key: `employee-money-adjustment:${adjustmentEntry.id}:${crypto.randomUUID()}`,
+      target_adjustment_type: adjustment.type,
+      target_account_scope: 'advance',
+      target_amount: Number(adjustment.amount),
+      target_effective_on: adjustment.effectiveOn,
+      target_reason: adjustment.reason.trim(),
+    })
+    setSaving(false)
+    if (rpcError) { setError(userError(rpcError)); return }
+    setError('')
+    setAdjustmentEntry(null)
+    setAdjustment({ type: 'adjustment_credit', amount: '', reason: '', effectiveOn: new Date().toLocaleDateString('en-CA') })
+    await load()
+  }
   return <Stack spacing={2}>
     <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}><BoxTitle /><Button startIcon={<RefreshOutlined />} onClick={() => void load()}>รีเฟรช</Button></Stack>
     {error && <Alert severity="error">{error}</Alert>}
@@ -470,27 +519,30 @@ export function AdvanceSettlementsPage() {
         <Stack direction="row" spacing={0.75} sx={{ mt: 0.75, flexWrap: 'wrap', gap: 0.75 }}>
           {([
             ['all', `ทั้งหมด ${actionableCount}`],
-            ['accounting', `รอบัญชี ${actionableRows.filter((row) => matchesDepartment(row, 'accounting')).length + wageWorkflowRows.length}`],
-            ['hr', `รอ HR ${actionableRows.filter((row) => matchesDepartment(row, 'hr')).length + wageWorkflowRows.length}`],
+            ['accounting', `รอบัญชี ${actionableRows.filter((row) => matchesDepartment(row, 'accounting')).length + interimAdvanceRows.length}`],
+            ['hr', `รอ HR ${actionableRows.filter((row) => matchesDepartment(row, 'hr')).length + interimAdvanceRows.length}`],
             ['project_inventory', `รอโครงการ/คลัง ${actionableRows.filter((row) => matchesDepartment(row, 'project_inventory')).length}`],
-            ['needs_information', `รอข้อมูล ${actionableRows.filter((row) => matchesDepartment(row, 'needs_information')).length + wageWorkflowRows.filter((entry) => !entry.pay_period_id).length}`],
+            ['needs_information', `รอข้อมูล ${actionableRows.filter((row) => matchesDepartment(row, 'needs_information')).length + interimAdvanceRows.filter((entry) => !entry.pay_period_id).length}`],
           ] as [DepartmentFilter, string][]).map(([value, label]) => <Chip key={value} clickable color={departmentFilter === value ? 'primary' : 'default'} variant={departmentFilter === value ? 'filled' : 'outlined'} label={label} onClick={() => setDepartmentFilter(value)} />)}
         </Stack>
       </Paper>
-      {visibleWageWorkflowRows.length > 0 && <Paper variant="outlined" sx={{ p: 1.5 }}>
+      {visibleInterimAdvanceRows.length > 0 && <Paper variant="outlined" sx={{ p: 1.5 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' }, gap: 1, mb: 1 }}>
-          <Box><Typography sx={{ fontWeight: 800 }}>ค่าแรงตามเส้นเงินจริง</Typography><Typography variant="body2" color="text.secondary">อ่านจาก Ledger กลางและ Source Flow โดยตรง · ระบบผูกรอบจากวันที่โอนอัตโนมัติเมื่อพบรอบตรงเพียงรอบเดียว</Typography></Box>
-          <Chip color="info" label={`${visibleWageWorkflowRows.length} เส้นเงิน · ${money(visibleWageWorkflowRows.reduce((sum, entry) => sum + Number(entry.amount), 0))}`} />
+          <Box><Typography sx={{ fontWeight: 800 }}>เงินเบิกล่วงหน้าระหว่างงวด</Typography><Typography variant="body2" color="text.secondary">ผูกพนักงานและงวดจากวันเวลาโอนจริง · หักเมื่อปิดงวด · ยอดผิดหลังยืนยันให้แก้ด้วย Adjustment โดยไม่ลบสลิปเดิม</Typography></Box>
+          <Chip color="info" label={`${visibleInterimAdvanceRows.length} เส้นเงิน · ${money(visibleInterimAdvanceRows.reduce((sum, entry) => sum + Number(entry.amount), 0))}`} />
         </Stack>
-        <StandardDataTable rows={visibleWageWorkflowRows} getRowId={(entry) => entry.id} getSearchText={(entry) => `${entry.employee_name} ${entry.received_by_name ?? ''} ${entry.bank_reference ?? ''}`} searchLabel="ค้นหาช่าง ผู้รับ หรือเลขอ้างอิง" minWidth={1260} onRowClick={(entry) => setSelectedEmployeeMoney(employeeMoneyRows.find((summary) => summary.employee_profile_id === entry.employee_profile_id) ?? null)} columns={[
+        {periodTotals.length > 0 && <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 1.5 }}>
+          {periodTotals.map((period) => <Paper key={period.id} variant="outlined" sx={{ p: 1.25, flex: 1, minWidth: 240 }}><Typography variant="caption" color="text.secondary">{period.name}</Typography><Typography sx={{ fontWeight: 800 }}>{money(period.total)}</Typography><Typography variant="caption">{period.entryCount} รายการ · รอตรวจ {period.pendingCount}</Typography></Paper>)}
+        </Stack>}
+        <StandardDataTable rows={visibleInterimAdvanceRows} getRowId={(entry) => entry.id} getSearchText={(entry) => `${entry.employee_name} ${entry.received_by_name ?? ''} ${entry.bank_reference ?? ''}`} searchLabel="ค้นหาช่าง ผู้รับ หรือเลขอ้างอิง" minWidth={1260} onRowClick={(entry) => { setSelectedEmployeeMoneyEntryId(entry.id); setSelectedEmployeeMoney(employeeMoneyRows.find((summary) => summary.employee_profile_id === entry.employee_profile_id) ?? null) }} columns={[
           { id: 'date', label: 'วันที่โอน', minWidth: 170, render: (entry) => entry.transfer_at ? dateTime(entry.transfer_at) : <Chip size="small" color="warning" label="วันที่อ่านไม่ได้" /> },
-          { id: 'employee', label: 'เจ้าของค่าแรง', minWidth: 190, render: (entry) => entry.employee_name },
+          { id: 'employee', label: 'พนักงานเจ้าของยอดเบิก', minWidth: 190, render: (entry) => entry.employee_name },
           { id: 'recipient', label: 'ผู้รับเงินจริง', minWidth: 190, render: (entry) => entry.received_by_name ?? entry.recipient_name ?? '-' },
           { id: 'amount', label: 'ยอด', minWidth: 120, align: 'right', render: (entry) => money(Number(entry.amount)) },
-          { id: 'period', label: 'รอบค่าแรง', minWidth: 190, render: (entry) => entry.pay_period_name ? <Stack spacing={0.25}><Typography variant="body2">{entry.pay_period_name}</Typography><Typography variant="caption" color="success.main">{entry.pay_period_assignment_method === 'transfer_date_auto' ? 'ผูกอัตโนมัติจากวันที่โอน' : 'Admin เลือกรอบ'}</Typography></Stack> : <Chip size="small" color="warning" label="ยังไม่ผูกรอบ" /> },
+          { id: 'period', label: 'งวดที่จะหัก', minWidth: 190, render: (entry) => entry.pay_period_name ? <Stack spacing={0.25}><Typography variant="body2">{entry.pay_period_name}</Typography><Typography variant="caption" color="success.main">{entry.pay_period_assignment_method === 'transfer_date_auto' ? 'ผูกอัตโนมัติจากวันที่โอน' : 'Admin เลือกรอบ'}</Typography></Stack> : <Chip size="small" color="warning" label="ยังไม่ผูกงวด" /> },
           { id: 'department', label: 'แผนกปัจจุบัน', minWidth: 150, render: () => 'บัญชี + HR' },
-          { id: 'next', label: 'ขั้นตอนถัดไป', minWidth: 220, render: (entry) => entry.pay_period_id ? 'HR ตรวจและยืนยันรอบค่าแรง' : 'ผูกรอบค่าแรงก่อนส่งตรวจ HR' },
-          { id: 'status', label: 'สถานะ', minWidth: 150, render: (entry) => <Chip size="small" color="warning" label={entry.pay_period_id ? 'รอ HR ตรวจ' : 'รอผูกรอบค่าแรง'} /> },
+          { id: 'next', label: 'ขั้นตอนถัดไป', minWidth: 220, render: (entry) => entry.pay_period_id ? 'บัญชียืนยันยอด แล้ว HR นำไปหักเมื่อปิดงวด' : 'ผูกงวดก่อนส่งตรวจ' },
+          { id: 'status', label: 'สถานะ', minWidth: 150, render: (entry) => <Chip size="small" color="warning" label={entry.pay_period_id ? 'รอยืนยันยอดเบิก' : 'รอผูกงวด'} /> },
         ]} />
       </Paper>}
       <AdvanceTreeTable rows={filteredActionableRows} onOpenQueue={openReviewQueue} />
@@ -607,13 +659,24 @@ export function AdvanceSettlementsPage() {
       <DialogTitle>นำรายการกลับมาตรวจ</DialogTitle><DialogContent><TextField sx={{ mt: 1 }} fullWidth label="เหตุผล *" value={restoreReason} onChange={(event) => setRestoreReason(event.target.value)} multiline minRows={2} /></DialogContent><DialogActions><Button onClick={() => setRestoreOpen(false)}>ยกเลิก</Button><Button variant="contained" disabled={saving || restoreReason.trim().length < 3} onClick={() => void restoreCase()}>นำกลับมาตรวจ</Button></DialogActions>
     </Dialog>
     <Drawer anchor="right" open={Boolean(selectedEmployeeMoney)} onClose={() => { setSelectedEmployeeMoney(null); setSelectedEmployeeMoneyEntryId(null); setEmployeeMoneyRejectId(null); setEmployeeMoneyRejectReason('') }} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 640 }, maxWidth: '100vw' } } }}>
-      <Stack direction="row" sx={{ p: 2, alignItems: 'center', justifyContent: 'space-between', borderBottom: 1, borderColor: 'divider' }}><Box><Typography variant="h6" sx={{ fontWeight: 800 }}>{selectedEmployeeMoney?.employee_name}</Typography><Typography variant="body2" color="text.secondary">บัญชีพักช่างรายวัน · ยังไม่ใช่ยอดจ่าย Final</Typography></Box><IconButton onClick={() => { setSelectedEmployeeMoney(null); setSelectedEmployeeMoneyEntryId(null); setEmployeeMoneyRejectId(null); setEmployeeMoneyRejectReason('') }}><CloseOutlined /></IconButton></Stack>
+      <Stack direction="row" sx={{ p: 2, alignItems: 'center', justifyContent: 'space-between', borderBottom: 1, borderColor: 'divider' }}><Box><Typography variant="h6" sx={{ fontWeight: 800 }}>{selectedEmployeeMoney?.employee_name}</Typography><Typography variant="body2" color="text.secondary">เงินเบิกล่วงหน้าระหว่างงวด · ค่าแรงสุทธิคำนวณเมื่อปิดงวด</Typography></Box><IconButton onClick={() => { setSelectedEmployeeMoney(null); setSelectedEmployeeMoneyEntryId(null); setEmployeeMoneyRejectId(null); setEmployeeMoneyRejectReason('') }}><CloseOutlined /></IconButton></Stack>
       <Stack spacing={1.25} sx={{ p: 2, overflowY: 'auto' }}>
         <Alert severity="info">รายการทั้งหมดมาจากหลักฐานต้นทางและยังต้องผ่าน Payroll/บัญชีก่อนหักเงินจริง รายการผิดให้ทำ Adjustment ไม่แก้ทับ Audit เดิม</Alert>
-        {employeeMoneyEntries.filter((entry) => entry.employee_profile_id === selectedEmployeeMoney?.employee_profile_id).sort((left, right) => Number(right.id === selectedEmployeeMoneyEntryId) - Number(left.id === selectedEmployeeMoneyEntryId) || new Date(right.transfer_at ?? right.created_at).getTime() - new Date(left.transfer_at ?? left.created_at).getTime()).map((entry) => <Paper key={entry.id} variant="outlined" sx={{ p: 1.5, borderWidth: entry.id === selectedEmployeeMoneyEntryId ? 2 : 1, borderColor: entry.id === selectedEmployeeMoneyEntryId ? 'primary.main' : 'divider' }}><Stack spacing={1}><Stack direction="row" sx={{ justifyContent: 'space-between', gap: 1 }}><Box><Typography sx={{ fontWeight: 800 }}>{labels[entry.entry_type] ?? entry.entry_type}</Typography><Typography variant="body2">เจ้าของยอด: {entry.employee_name || entry.source_name}</Typography>{entry.received_by_name && entry.received_by_profile_id !== entry.employee_profile_id && <Typography variant="body2" color="info.main">ผู้รับเงินจริง: {entry.received_by_name} (รับแทน)</Typography>}</Box><Typography sx={{ fontWeight: 800 }}>{money(Number(entry.amount))}</Typography></Stack><Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: .5 }}><Typography variant="body2"><strong>วันเวลาโอนจริง:</strong> {entry.transfer_at ? new Date(entry.transfer_at).toLocaleString('th-TH') : 'ยังอ่านไม่ได้'}</Typography><Typography variant="body2"><strong>เลขอ้างอิง:</strong> {entry.bank_reference || '-'}</Typography><Typography variant="body2"><strong>จาก:</strong> {entry.sender_name || '-'} {entry.sender_bank_name ? `· ${entry.sender_bank_name}` : ''} {entry.sender_account_last4 ? `•••• ${entry.sender_account_last4}` : ''}</Typography><Typography variant="body2"><strong>ถึง:</strong> {entry.recipient_name || '-'} {entry.recipient_bank_name ? `· ${entry.recipient_bank_name}` : ''} {entry.recipient_account_last4 ? `•••• ${entry.recipient_account_last4}` : ''}</Typography><Typography variant="body2" sx={{ gridColumn: { sm: '1 / -1' } }}><strong>งวดค่าแรง:</strong> {entry.pay_period_name ? `${entry.pay_period_name} (${entry.pay_period_status})` : 'ยังไม่ผูกงวด'}</Typography></Box><Typography variant="caption" color="text.secondary">สถานะ {entry.entry_status} · วันที่หลักฐาน {entry.evidence_date_status} · Version {entry.version} · จับคู่ด้วย {entry.match_method}{entry.reason ? ` · ${entry.reason}` : ''}</Typography>{entry.entry_status === 'matched_pending_review' && <Stack spacing={1}>{!entry.transfer_at || entry.evidence_date_status !== 'verified' ? <Alert severity="warning">ยังยืนยันไม่ได้จนกว่าจะมีวันเวลาโอนจริงและหลักฐานผ่านการตรวจ</Alert> : null}{employeeMoneyRejectId === entry.id && <TextField size="small" label="เหตุผล Reject *" value={employeeMoneyRejectReason} onChange={(event) => setEmployeeMoneyRejectReason(event.target.value)} multiline minRows={2} helperText="เหตุผลจะถูก append ลง Audit และไม่ลบหลักฐานเดิม" />}<Stack direction="row" spacing={1}><Button variant="contained" color="success" disabled={!canManageAdvance || saving || !entry.transfer_at || entry.evidence_date_status !== 'verified'} onClick={() => void reviewEmployeeMoney(entry, 'approve')}>ยืนยันยอดนี้</Button>{employeeMoneyRejectId === entry.id ? <Button color="error" variant="contained" disabled={!canManageAdvance || saving || employeeMoneyRejectReason.trim().length < 3} onClick={() => void reviewEmployeeMoney(entry, 'reject')}>ยืนยัน Reject</Button> : <Button color="error" disabled={!canManageAdvance || saving} onClick={() => { setEmployeeMoneyRejectId(entry.id); setEmployeeMoneyRejectReason('') }}>Reject</Button>}</Stack></Stack>}{entry.entry_status !== 'matched_pending_review' && <Chip size="small" color={entry.entry_status === 'approved' ? 'success' : 'default'} label={entry.entry_status === 'approved' ? 'ยืนยันแล้ว' : labels[entry.entry_status] ?? entry.entry_status} />}</Stack></Paper>)}
+        {employeeMoneyEntries.filter((entry) => entry.employee_profile_id === selectedEmployeeMoney?.employee_profile_id).sort((left, right) => Number(right.id === selectedEmployeeMoneyEntryId) - Number(left.id === selectedEmployeeMoneyEntryId) || new Date(right.transfer_at ?? right.created_at).getTime() - new Date(left.transfer_at ?? left.created_at).getTime()).map((entry) => <Paper key={entry.id} variant="outlined" sx={{ p: 1.5, borderWidth: entry.id === selectedEmployeeMoneyEntryId ? 2 : 1, borderColor: entry.id === selectedEmployeeMoneyEntryId ? 'primary.main' : 'divider' }}><Stack spacing={1}><Stack direction="row" sx={{ justifyContent: 'space-between', gap: 1 }}><Box><Typography sx={{ fontWeight: 800 }}>{labels[entry.entry_type] ?? entry.entry_type}</Typography><Typography variant="body2">เจ้าของยอด: {entry.employee_name || entry.source_name}</Typography>{entry.received_by_name && entry.received_by_profile_id !== entry.employee_profile_id && <Typography variant="body2" color="info.main">ผู้รับเงินจริง: {entry.received_by_name} (รับแทน)</Typography>}</Box><Typography sx={{ fontWeight: 800 }}>{money(Number(entry.amount))}</Typography></Stack><Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: .5 }}><Typography variant="body2"><strong>วันเวลาโอนจริง:</strong> {entry.transfer_at ? new Date(entry.transfer_at).toLocaleString('th-TH') : 'ยังอ่านไม่ได้'}</Typography><Typography variant="body2"><strong>เลขอ้างอิง:</strong> {entry.bank_reference || '-'}</Typography><Typography variant="body2"><strong>จาก:</strong> {entry.sender_name || '-'} {entry.sender_bank_name ? `· ${entry.sender_bank_name}` : ''} {entry.sender_account_last4 ? `•••• ${entry.sender_account_last4}` : ''}</Typography><Typography variant="body2"><strong>ถึง:</strong> {entry.recipient_name || '-'} {entry.recipient_bank_name ? `· ${entry.recipient_bank_name}` : ''} {entry.recipient_account_last4 ? `•••• ${entry.recipient_account_last4}` : ''}</Typography><Typography variant="body2" sx={{ gridColumn: { sm: '1 / -1' } }}><strong>งวดที่จะหัก:</strong> {entry.pay_period_name ? `${entry.pay_period_name} (${entry.pay_period_status})` : 'ยังไม่ผูกงวด'}</Typography></Box><Typography variant="caption" color="text.secondary">สถานะ {entry.entry_status} · วันที่หลักฐาน {entry.evidence_date_status} · Version {entry.version} · จับคู่ด้วย {entry.match_method}{entry.reason ? ` · ${entry.reason}` : ''}</Typography>{entry.entry_status === 'matched_pending_review' && <Stack spacing={1}>{!entry.transfer_at || entry.evidence_date_status !== 'verified' ? <Alert severity="warning">ยังยืนยันไม่ได้จนกว่าจะมีวันเวลาโอนจริงและหลักฐานผ่านการตรวจ</Alert> : null}{employeeMoneyRejectId === entry.id && <TextField size="small" label="เหตุผล Reject *" value={employeeMoneyRejectReason} onChange={(event) => setEmployeeMoneyRejectReason(event.target.value)} multiline minRows={2} helperText="เหตุผลจะถูก append ลง Audit และไม่ลบหลักฐานเดิม" />}<Stack direction="row" spacing={1}><Button variant="contained" color="success" disabled={!canManageAdvance || saving || !entry.transfer_at || entry.evidence_date_status !== 'verified'} onClick={() => void reviewEmployeeMoney(entry, 'approve')}>ยืนยันยอดนี้</Button>{employeeMoneyRejectId === entry.id ? <Button color="error" variant="contained" disabled={!canManageAdvance || saving || employeeMoneyRejectReason.trim().length < 3} onClick={() => void reviewEmployeeMoney(entry, 'reject')}>ยืนยัน Reject</Button> : <Button color="error" disabled={!canManageAdvance || saving} onClick={() => { setEmployeeMoneyRejectId(entry.id); setEmployeeMoneyRejectReason('') }}>Reject</Button>}</Stack></Stack>}{entry.entry_status !== 'matched_pending_review' && <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}><Chip size="small" color={entry.entry_status === 'approved' ? 'success' : 'default'} label={entry.entry_status === 'approved' ? 'ยืนยันแล้ว' : labels[entry.entry_status] ?? entry.entry_status} />{entry.entry_status === 'approved' && entry.account_scope === 'advance' && <Button size="small" disabled={!canManageAdvance || saving} onClick={() => { setAdjustmentEntry(entry); setAdjustment({ type: 'adjustment_credit', amount: '', reason: '', effectiveOn: entry.effective_on ?? new Date().toLocaleDateString('en-CA') }) }}>สร้าง Adjustment</Button>}</Stack>}</Stack></Paper>)}
         {!employeeMoneyEntries.some((entry) => entry.employee_profile_id === selectedEmployeeMoney?.employee_profile_id) && <Alert severity="warning">ยังไม่มี Detail ย่อยของช่างรายนี้</Alert>}
       </Stack>
     </Drawer>
+    <Dialog open={Boolean(adjustmentEntry)} onClose={() => setAdjustmentEntry(null)} fullWidth maxWidth="sm">
+      <DialogTitle>สร้าง Adjustment เงินเบิกล่วงหน้า</DialogTitle>
+      <DialogContent><Stack spacing={1.5} sx={{ pt: 1 }}>
+        <Alert severity="info">ไม่แก้หรือลบสลิปเดิม ระบบจะสร้างรายการปรับปรุงและผูกงวดตามวันที่</Alert>
+        <TextField select label="วิธีปรับยอด" value={adjustment.type} onChange={(event) => setAdjustment({ ...adjustment, type: event.target.value })}><MenuItem value="adjustment_credit">ลดยอดที่ต้องหัก</MenuItem><MenuItem value="adjustment_debit">เพิ่มยอดที่ต้องหัก</MenuItem></TextField>
+        <TextField type="number" label="จำนวนเงิน" value={adjustment.amount} onChange={(event) => setAdjustment({ ...adjustment, amount: event.target.value })} />
+        <TextField type="date" label="วันที่มีผล" value={adjustment.effectiveOn} onChange={(event) => setAdjustment({ ...adjustment, effectiveOn: event.target.value })} slotProps={{ inputLabel: { shrink: true } }} />
+        <TextField label="เหตุผล *" value={adjustment.reason} onChange={(event) => setAdjustment({ ...adjustment, reason: event.target.value })} multiline minRows={2} />
+      </Stack></DialogContent>
+      <DialogActions><Button onClick={() => setAdjustmentEntry(null)}>ยกเลิก</Button><Button variant="contained" disabled={saving || Number(adjustment.amount) <= 0 || adjustment.reason.trim().length < 3 || !adjustment.effectiveOn} onClick={() => void createEmployeeMoneyAdjustment()}>บันทึก Adjustment</Button></DialogActions>
+    </Dialog>
     <Dialog open={lineOpen} onClose={() => setLineOpen(false)} fullWidth maxWidth="sm"><DialogTitle>เพิ่มรายการใช้เงิน</DialogTitle><DialogContent><Stack spacing={1.5} sx={{ pt: 1 }}><TextField select label="ประเภท" value={line.expense_type} onChange={(event) => setLine({ ...line, expense_type: event.target.value })}>{['daily_wage', 'materials', 'travel', 'other', 'cash_return', 'payroll_offset'].map((value) => <MenuItem key={value} value={value}>{labels[value]}</MenuItem>)}</TextField><TextField type="number" label="จำนวนเงิน" value={line.amount} onChange={(event) => setLine({ ...line, amount: event.target.value })} /><TextField type="date" label="วันที่" value={line.expense_date} onChange={(event) => setLine({ ...line, expense_date: event.target.value })} slotProps={{ inputLabel: { shrink: true } }} /><TextField label="รายละเอียด" value={line.description} onChange={(event) => setLine({ ...line, description: event.target.value })} /><TextField label="เลขอ้างอิงหลักฐาน" value={line.evidence_reference} onChange={(event) => setLine({ ...line, evidence_reference: event.target.value })} /></Stack></DialogContent><DialogActions><Button onClick={() => setLineOpen(false)}>ยกเลิก</Button><Button disabled={saving || !line.amount || line.description.trim().length < 3} variant="contained" onClick={() => void addLine()}>บันทึก</Button></DialogActions></Dialog>
     <Dialog open={subAdvanceOpen} onClose={() => setSubAdvanceOpen(false)} fullWidth maxWidth="sm"><DialogTitle>สร้างเงินเบิกล่วงหน้าให้ช่าง</DialogTitle><DialogContent><Stack spacing={1.5} sx={{ pt: 1 }}><TextField select label="ช่าง/พนักงานรายวัน" value={subAdvance.holderProfileId} onChange={(event) => setSubAdvance({ ...subAdvance, holderProfileId: event.target.value })}>{dailyEmployees.map((employee) => <MenuItem key={employee.profile_id} value={employee.profile_id}>{employee.profiles?.full_name ?? employee.profile_id}</MenuItem>)}</TextField><TextField type="number" label="จำนวนเงิน" value={subAdvance.amount} onChange={(event) => setSubAdvance({ ...subAdvance, amount: event.target.value })} /><TextField label="รายละเอียดงาน/เหตุผล" value={subAdvance.description} onChange={(event) => setSubAdvance({ ...subAdvance, description: event.target.value })} /></Stack></DialogContent><DialogActions><Button onClick={() => setSubAdvanceOpen(false)}>ยกเลิก</Button><Button disabled={saving || !subAdvance.holderProfileId || !subAdvance.amount || subAdvance.description.trim().length < 3} variant="contained" onClick={() => void createSubAdvance()}>สร้างเงินเบิก</Button></DialogActions></Dialog>
   </Stack>
