@@ -16,6 +16,10 @@ for (const required of [
   'สร้าง Adjustment',
   'บัญชี + HR',
   'ยังไม่ผูกงวด',
+  'รายละเอียดค่าแรง แยกวันและแยกคน',
+  'สรุปค่าแรงรายคน แบ่งตามงวด',
+  'ค่าแรงสุทธิ = ค่าแรงรวม - เงินเบิกล่วงหน้า',
+  'advance_to_deduct',
 ]) assert.ok(page.includes(required), `wage workflow UI should include ${required}`)
 
 assert.match(page, /pendingInterimAdvanceRows\s*=\s*interimAdvanceRows\.filter\(\(entry\)\s*=>\s*entry\.entry_status\s*===\s*'matched_pending_review'\)/)
@@ -24,6 +28,8 @@ assert.match(page, /รายการรอตรวจ/)
 assert.match(page, /for \(const delayMs of \[400, 900\]\)/)
 assert.match(page, /requestId !== loadRequestRef\.current/)
 assert.match(page, /เครือข่ายสะดุดระหว่างรีเฟรช ระบบเก็บข้อมูลล่าสุดไว้/)
+assert.match(page, /const calculatedUnits = review \? 0/)
+assert.match(page, /current\.netPay = current\.grossPay - current\.advanceDeduction/)
 
 for (const required of [
   "entry_status = 'reversed'",

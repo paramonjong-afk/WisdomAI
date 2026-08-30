@@ -40,6 +40,12 @@ type AdvanceCase = {
   employee_advance_settlement_items: SettlementItem[] | null; employee_advance_audit: Audit[] | null
 }
 type DailyEmployee = { profile_id: string; profiles: { full_name: string | null } | null }
+type DailyWagePolicy = { profile_id: string; daily_rate: number; overtime_hourly_rate: number; work_policy_id: string | null; profiles: { full_name: string | null } | null }
+type WageWorkPolicy = { id: string; standard_minutes: number }
+type WagePayPeriod = { id: string; name: string; starts_on: string; ends_on: string; status: string }
+type WageAttendance = { id: string; profile_id: string; clock_in_at: string; clock_out_at: string | null; status: string; calculation_status: string | null; worked_minutes: number | null; overtime_minutes: number | null; excluded_minutes: number | null }
+type WageDayOverride = { profile_id: string; work_date: string; day_units: number }
+type DailyWageProjection = { id: string; date: string; employeeProfileId: string; employeeName: string; payPeriodId: string | null; payPeriodName: string; dayUnits: number; basePay: number; overtimePay: number; grossPay: number; review: boolean }
 type EmployeeMoneySummary = {
   company_id: string
   employee_profile_id: string
@@ -120,6 +126,13 @@ const labels: Record<string, string> = {
 const rejectReasonLabels: Record<string, string> = { wrong_amount: 'ยอดผิด', duplicate: 'รายการซ้ำ', not_advance: 'ไม่ใช่เงินทดรอง', wrong_type: 'ข้อมูลผิดประเภท', other: 'เหตุผลอื่น' }
 const money = (value: number) => new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(value || 0)
 const dateTime = (value: string | null | undefined) => value ? new Date(value).toLocaleString('th-TH') : '-'
+const bangkokDate = (value: string) => new Date(value).toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' })
+const currentMonthRange = () => {
+  const month = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit' })
+  const [year, monthNumber] = month.split('-').map(Number)
+  const nextMonth = monthNumber === 12 ? `${year + 1}-01` : `${year}-${String(monthNumber + 1).padStart(2, '0')}`
+  return { start: `${month}-01`, end: `${nextMonth}-01` }
+}
 const holderName = (row: AdvanceCase) => row.holder_profile?.full_name ?? row.holder_person?.full_name ?? row.financial_transactions?.recipient_name ?? '-'
 const routeText = (row: AdvanceCase) => row.parent_case_id ? `เงินทดรองหลัก → เงินเบิกช่าง → ${labels[row.status] ?? row.status}` : `สลิป → Intake → Filter → บัญชี → เงินทดรอง (${labels[row.status] ?? row.status})`
 const rowDepartments = (row: AdvanceCase) => {
@@ -285,6 +298,12 @@ export function AdvanceSettlementsPage() {
   const [slipPreview, setSlipPreview] = useState<PreviewState>({ status: 'idle', message: 'ยังไม่ได้เลือกรายการ', file: null, signedUrl: null })
   const [slipPreviewDialogOpen, setSlipPreviewDialogOpen] = useState(false)
   const [dailyEmployees, setDailyEmployees] = useState<DailyEmployee[]>([])
+  const [dailyWagePolicies, setDailyWagePolicies] = useState<DailyWagePolicy[]>([])
+  const [wageWorkPolicies, setWageWorkPolicies] = useState<WageWorkPolicy[]>([])
+  const [wagePayPeriods, setWagePayPeriods] = useState<WagePayPeriod[]>([])
+  const [wageAttendanceRows, setWageAttendanceRows] = useState<WageAttendance[]>([])
+  const [wageDayOverrides, setWageDayOverrides] = useState<WageDayOverride[]>([])
+  const [wageProjectionWarning, setWageProjectionWarning] = useState('')
   const [employeeMoneyRows, setEmployeeMoneyRows] = useState<EmployeeMoneySummary[]>([])
   const [employeeMoneyEntries, setEmployeeMoneyEntries] = useState<EmployeeMoneyLedgerEntry[]>([])
   const [employeeMoneyPeriodRows, setEmployeeMoneyPeriodRows] = useState<EmployeeMoneyPeriodSummary[]>([])
@@ -312,6 +331,7 @@ export function AdvanceSettlementsPage() {
   const load = useCallback(async () => {
     if (!companyId) return
     const requestId = ++loadRequestRef.current
+    const monthRange = currentMonthRange()
     const fetchDashboard = () => Promise.all([supabase.from('employee_advance_cases').select(`
       id,advance_number,amount_received,bank_reference,status,version,parent_case_id,purpose_note,holder_profile_id,source_flow_item_id,rejected_reason_code,rejected_reason_note,rejected_by,rejected_at,
       financial_transactions(recipient_name,sender_name,sender_bank_name,sender_account_last4,recipient_bank_name,recipient_account_last4,transfer_at,payment_party_confidence),
@@ -320,7 +340,7 @@ export function AdvanceSettlementsPage() {
       holder_person:employee_people!employee_advance_cases_holder_person_id_fkey(full_name),
       employee_advance_settlement_items!employee_advance_settlement_items_case_id_fkey(id,expense_type,amount,approval_status,description,expense_date,evidence_reference),
       employee_advance_audit!employee_advance_audit_case_id_fkey(id,action,reason,created_at)
-    `).eq('company_id', companyId).neq('status', 'cancelled').order('updated_at', { ascending: false }), supabase.from('employee_employment_records').select('profile_id,profiles!employee_employment_records_profile_id_fkey(full_name)').eq('company_id', companyId).eq('employment_type', 'daily').in('employment_status', ['active', 'probation', 'notice']), supabase.from('employee_money_balance_summary').select('*').eq('company_id', companyId).order('updated_at', { ascending: false }), supabase.from('employee_money_ledger_detail_v1').select('*').eq('company_id', companyId).order('transfer_at', { ascending: false, nullsFirst: false }), supabase.from('employee_money_period_summary_v1').select('*').eq('company_id', companyId).order('pay_period_starts_on', { ascending: true }), supabase.from('employee_money_legacy_candidates').select('*').eq('company_id', companyId).order('transfer_at', { ascending: false, nullsFirst: false })] as const)
+    `).eq('company_id', companyId).neq('status', 'cancelled').order('updated_at', { ascending: false }), supabase.from('employee_employment_records').select('profile_id,profiles!employee_employment_records_profile_id_fkey(full_name)').eq('company_id', companyId).eq('employment_type', 'daily').in('employment_status', ['active', 'probation', 'notice']), supabase.from('employee_money_balance_summary').select('*').eq('company_id', companyId).order('updated_at', { ascending: false }), supabase.from('employee_money_ledger_detail_v1').select('*').eq('company_id', companyId).order('transfer_at', { ascending: false, nullsFirst: false }), supabase.from('employee_money_period_summary_v1').select('*').eq('company_id', companyId).order('pay_period_starts_on', { ascending: true }), supabase.from('employee_money_legacy_candidates').select('*').eq('company_id', companyId).order('transfer_at', { ascending: false, nullsFirst: false }), supabase.from('employee_employment_records').select('profile_id,daily_rate,overtime_hourly_rate,work_policy_id,profiles!employee_employment_records_profile_id_fkey(full_name)').eq('company_id', companyId).eq('employment_type', 'daily').in('employment_status', ['active', 'probation', 'notice']), supabase.from('work_policies').select('id,standard_minutes').eq('company_id', companyId).eq('active', true), supabase.from('pay_periods').select('id,name,starts_on,ends_on,status').eq('company_id', companyId).lt('starts_on', monthRange.end).gte('ends_on', monthRange.start).order('starts_on'), supabase.from('attendance_sessions').select('id,profile_id,clock_in_at,clock_out_at,status,calculation_status,worked_minutes,overtime_minutes,excluded_minutes').gte('clock_in_at', `${monthRange.start}T00:00:00+07:00`).lt('clock_in_at', `${monthRange.end}T00:00:00+07:00`).neq('status', 'duplicate').order('clock_in_at'), supabase.from('employee_wage_day_overrides').select('profile_id,work_date,day_units').eq('company_id', companyId).gte('work_date', monthRange.start).lt('work_date', monthRange.end)] as const)
     let result = await fetchDashboard()
     for (const delayMs of [400, 900]) {
       const hasTransientError = result.some(({ error: queryError }) => /failed to fetch|networkerror|load failed/i.test(queryError?.message ?? ''))
@@ -329,7 +349,7 @@ export function AdvanceSettlementsPage() {
       result = await fetchDashboard()
     }
     if (requestId !== loadRequestRef.current) return
-    const [{ data, error: loadError }, { data: dailyData, error: dailyError }, { data: employeeMoneyData, error: employeeMoneyError }, { data: employeeMoneyEntryData, error: employeeMoneyEntryError }, { data: periodData, error: periodError }, { data: legacyData, error: legacyError }] = result
+    const [{ data, error: loadError }, { data: dailyData, error: dailyError }, { data: employeeMoneyData, error: employeeMoneyError }, { data: employeeMoneyEntryData, error: employeeMoneyEntryError }, { data: periodData, error: periodError }, { data: legacyData, error: legacyError }, { data: wagePolicyData, error: wagePolicyError }, { data: wageWorkPolicyData, error: wageWorkPolicyError }, { data: wagePayPeriodData, error: wagePayPeriodError }, { data: wageAttendanceData, error: wageAttendanceError }, { data: wageOverrideData, error: wageOverrideError }] = result
     if (loadError || dailyError) setError(userError(loadError ?? dailyError))
     else {
       const nextRows = (data ?? []) as unknown as AdvanceCase[]
@@ -346,6 +366,17 @@ export function AdvanceSettlementsPage() {
       else { setEmployeeMoneyRows([]); setEmployeeMoneyEntries([]); setEmployeeMoneyPeriodRows([]); setLegacyMoneyCandidates([]); setEmployeeMoneyWarning('บัญชีพักช่างยังไม่พร้อมใช้งาน กรุณาตรวจ Migration employee_money_ledger') }
     }
     else { setEmployeeMoneyRows((employeeMoneyData ?? []) as unknown as EmployeeMoneySummary[]); setEmployeeMoneyEntries((employeeMoneyEntryData ?? []) as unknown as EmployeeMoneyLedgerEntry[]); setEmployeeMoneyPeriodRows((periodData ?? []) as unknown as EmployeeMoneyPeriodSummary[]); setLegacyMoneyCandidates((legacyData ?? []) as unknown as LegacyEmployeeMoneyCandidate[]); setEmployeeMoneyWarning('') }
+    if (wagePolicyError || wageWorkPolicyError || wagePayPeriodError || wageAttendanceError || wageOverrideError) {
+      setDailyWagePolicies([]); setWageWorkPolicies([]); setWagePayPeriods([]); setWageAttendanceRows([]); setWageDayOverrides([])
+      setWageProjectionWarning('โหลดข้อมูลค่าแรงรายวันไม่สำเร็จ กรุณารีเฟรชอีกครั้ง')
+    } else {
+      setDailyWagePolicies((wagePolicyData ?? []) as unknown as DailyWagePolicy[])
+      setWageWorkPolicies((wageWorkPolicyData ?? []) as unknown as WageWorkPolicy[])
+      setWagePayPeriods((wagePayPeriodData ?? []) as unknown as WagePayPeriod[])
+      setWageAttendanceRows((wageAttendanceData ?? []) as unknown as WageAttendance[])
+      setWageDayOverrides((wageOverrideData ?? []) as unknown as WageDayOverride[])
+      setWageProjectionWarning('')
+    }
   }, [companyId])
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0)
@@ -429,6 +460,68 @@ export function AdvanceSettlementsPage() {
     groups.set(row.pay_period_id, current)
     return groups
   }, new Map<string, { id: string; name: string; startsOn: string; endsOn: string; entryCount: number; pendingCount: number; total: number }>()).values()]
+  const dailyWageProjections = useMemo(() => {
+    const groups = new Map<string, WageAttendance[]>()
+    const dailyProfileIds = new Set(dailyWagePolicies.map((policy) => policy.profile_id))
+    for (const attendance of wageAttendanceRows.filter((row) => dailyProfileIds.has(row.profile_id) && !['rejected', 'duplicate', 'voided'].includes(row.status))) {
+      const date = bangkokDate(attendance.clock_in_at)
+      const key = `${attendance.profile_id}:${date}`
+      groups.set(key, [...(groups.get(key) ?? []), attendance])
+    }
+    return [...groups.entries()].map(([id, sessions]) => {
+      const first = sessions[0]
+      const date = id.slice(id.indexOf(':') + 1)
+      const policy = dailyWagePolicies.find((item) => item.profile_id === first.profile_id)
+      const workPolicy = wageWorkPolicies.find((item) => item.id === policy?.work_policy_id) ?? wageWorkPolicies[0]
+      const standardMinutes = Math.max(1, Number(workPolicy?.standard_minutes ?? 480))
+      const review = sessions.some((item) => !item.clock_out_at || ['pending', 'needs_review'].includes(item.status) || item.calculation_status === 'needs_review')
+      const workedMinutes = sessions.reduce((sum, item) => {
+        if (!item.clock_out_at) return sum + Number(item.worked_minutes ?? 0)
+        const elapsed = Math.max(0, Math.round((new Date(item.clock_out_at).getTime() - new Date(item.clock_in_at).getTime()) / 60000))
+        return sum + Math.max(0, elapsed - Number(item.excluded_minutes ?? 0))
+      }, 0)
+      const calculatedUnits = review ? 0 : workedMinutes >= standardMinutes ? 1 : workedMinutes >= standardMinutes / 2 ? 0.5 : 0
+      const override = wageDayOverrides.find((item) => item.profile_id === first.profile_id && item.work_date === date)
+      const dayUnits = override ? Number(override.day_units) : calculatedUnits
+      const basePay = dayUnits * Number(policy?.daily_rate ?? 0)
+      const overtimeMinutes = review ? 0 : sessions.reduce((sum, item) => sum + Number(item.overtime_minutes ?? 0), 0)
+      const overtimePay = overtimeMinutes / 60 * Number(policy?.overtime_hourly_rate ?? 0)
+      const payPeriod = wagePayPeriods.find((period) => date >= period.starts_on && date <= period.ends_on)
+      return { id, date, employeeProfileId: first.profile_id, employeeName: policy?.profiles?.full_name ?? first.profile_id, payPeriodId: payPeriod?.id ?? null, payPeriodName: payPeriod?.name ?? 'ยังไม่ผูกงวด', dayUnits, basePay, overtimePay, grossPay: basePay + overtimePay, review } satisfies DailyWageProjection
+    }).filter((row) => row.grossPay > 0 || row.review).sort((left, right) => left.date.localeCompare(right.date) || left.employeeName.localeCompare(right.employeeName, 'th'))
+  }, [dailyWagePolicies, wageAttendanceRows, wageDayOverrides, wagePayPeriods, wageWorkPolicies])
+  const wageEmployeePeriodRows = useMemo(() => {
+    const groups = new Map<string, { id: string; employeeProfileId: string; employeeName: string; payPeriodId: string | null; payPeriodName: string; workDays: number; grossPay: number; advanceDeduction: number; netPay: number; reviewCount: number }>()
+    for (const row of dailyWageProjections) {
+      const key = `${row.employeeProfileId}:${row.payPeriodId ?? row.payPeriodName}`
+      const current = groups.get(key) ?? { id: key, employeeProfileId: row.employeeProfileId, employeeName: row.employeeName, payPeriodId: row.payPeriodId, payPeriodName: row.payPeriodName, workDays: 0, grossPay: 0, advanceDeduction: 0, netPay: 0, reviewCount: 0 }
+      current.workDays += row.dayUnits
+      current.grossPay += row.grossPay
+      current.reviewCount += row.review ? 1 : 0
+      groups.set(key, current)
+    }
+    for (const current of groups.values()) {
+      current.advanceDeduction = employeeMoneyPeriodRows
+        .filter((row) => row.employee_profile_id === current.employeeProfileId && row.pay_period_id === current.payPeriodId)
+        .reduce((sum, row) => sum + Number(row.advance_to_deduct), 0)
+      current.netPay = current.grossPay - current.advanceDeduction
+    }
+    return [...groups.values()].sort((left, right) => left.payPeriodName.localeCompare(right.payPeriodName, 'th') || left.employeeName.localeCompare(right.employeeName, 'th'))
+  }, [dailyWageProjections, employeeMoneyPeriodRows])
+  const wagePeriodTotals = useMemo(() => {
+    const groups = new Map<string, { id: string; name: string; employeeCount: number; grossPay: number; advanceDeduction: number; netPay: number; reviewCount: number }>()
+    for (const row of wageEmployeePeriodRows) {
+      const key = row.payPeriodId ?? row.payPeriodName
+      const current = groups.get(key) ?? { id: key, name: row.payPeriodName, employeeCount: 0, grossPay: 0, advanceDeduction: 0, netPay: 0, reviewCount: 0 }
+      current.employeeCount += 1
+      current.grossPay += row.grossPay
+      current.advanceDeduction += row.advanceDeduction
+      current.netPay += row.netPay
+      current.reviewCount += row.reviewCount
+      groups.set(key, current)
+    }
+    return [...groups.values()]
+  }, [wageEmployeePeriodRows])
   const activeAmount = activeRows.reduce((sum, row) => sum + Number(row.amount_received), 0)
   const rejectedAmount = rejectedRows.reduce((sum, row) => sum + Number(row.amount_received), 0)
   const selectedActiveChildren = selected ? rows.filter((row) => row.parent_case_id === selected.id && !['closed', 'cancelled', 'rejected'].includes(row.status)) : []
@@ -529,7 +622,7 @@ export function AdvanceSettlementsPage() {
     <Paper variant="outlined" sx={{ px: 1 }}><Tabs value={activeTab} onChange={(_event, value: number) => setActiveTab(value)} variant="scrollable" scrollButtons="auto">
       <Tab label={`ต้องจัดการ (${actionableCount})`} />
       <Tab label={`บัญชีพักช่างรายวัน (${employeeMoneyRows.length})`} />
-      <Tab label={`พร้อมปิดยอด / ปิดแล้ว (${readyToCloseRows.length})`} />
+      <Tab label={`สรุปค่าแรง / ปิดงวด (${wagePeriodTotals.length})`} />
       <Tab label={`Reject / ต้องแก้ไข (${rejectedRows.length})`} />
     </Tabs></Paper>
     {activeTab === 0 && <Stack spacing={1.5}>
@@ -615,18 +708,43 @@ export function AdvanceSettlementsPage() {
     </Paper>}
     {activeTab === 2 && <Stack spacing={1.5}>
       <Alert severity="info">
-        ค่าแรงสุทธิต้องมาจาก Payroll เมื่อปิดงวด แล้วจึงคำนวณ ค่าแรงทั้งงวด - เงินเบิกล่วงหน้า หน้านี้ไม่เปลี่ยนเงินทดรองให้เป็นค่าแรงอัตโนมัติ
+        ค่าแรงรายวันอ่านจากหลักฐานเวลาและอัตราค่าจ้างชุดเดียวกับหน้า Reports · เงินเบิกล่วงหน้าอ่านจาก Ledger กลาง · ค่าแรงสุทธิ = ค่าแรงรวม - เงินเบิกล่วงหน้า
       </Alert>
-      {readyToCloseRows.length === 0 && <Alert severity="warning">
-        ยังไม่มีงวดค่าแรงที่พร้อมปิด กรุณารอข้อมูลเวลาทำงานและยอดค่าแรงจาก Payroll ก่อน ระบบจะนำเงินเบิกล่วงหน้าที่อนุมัติแล้วไปหักในงวดเดียวกัน
-      </Alert>}
-      <AdvanceTreeTable
-        rows={readyToCloseRows}
-        onOpenQueue={openReviewQueue}
-        title="สรุปค่าแรงและปิดงวด"
-        description="แสดงเฉพาะเงินทดรองที่พร้อมนำไปหักเมื่อปิดงวด · ค่าแรงสุทธิจะเกิดหลัง Payroll ยืนยันยอด"
-        emptyMessage="ยังไม่มีรายการพร้อมปิดงวด"
-      />
+      {wageProjectionWarning && <Alert severity="warning">{wageProjectionWarning}</Alert>}
+      {wagePeriodTotals.length > 0 && <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
+        {wagePeriodTotals.map((period) => <Paper key={period.id} variant="outlined" sx={{ p: 1.5, flex: 1 }}>
+          <Typography variant="caption" color="text.secondary">{period.name} · {period.employeeCount} คน</Typography>
+          <Typography variant="h6" sx={{ fontWeight: 800 }}>{money(period.netPay)}</Typography>
+          <Typography variant="body2">ค่าแรง {money(period.grossPay)} - เบิกล่วงหน้า {money(period.advanceDeduction)}</Typography>
+          <Chip size="small" color={period.reviewCount ? 'warning' : 'success'} label={period.reviewCount ? `รอตรวจ ${period.reviewCount} วัน` : 'พร้อมตรวจปิดงวด'} sx={{ mt: 1 }} />
+        </Paper>)}
+      </Stack>}
+      <Paper variant="outlined" sx={{ p: 1.5 }}>
+        <Typography sx={{ fontWeight: 800, mb: 1 }}>สรุปค่าแรงรายคน แบ่งตามงวด</Typography>
+        <StandardDataTable rows={wageEmployeePeriodRows} getRowId={(row) => row.id} getSearchText={(row) => `${row.employeeName} ${row.payPeriodName}`} searchLabel="ค้นหาช่างหรืองวด" emptyText="ยังไม่มีข้อมูลค่าแรงรายวันในเดือนนี้" minWidth={980} columns={[
+          { id: 'period', label: 'งวด', minWidth: 190, render: (row) => row.payPeriodName },
+          { id: 'employee', label: 'ช่างรายวัน', minWidth: 190, render: (row) => row.employeeName },
+          { id: 'days', label: 'วันค่าแรง', minWidth: 110, align: 'right', render: (row) => `${row.workDays.toLocaleString('th-TH', { maximumFractionDigits: 2 })} วัน` },
+          { id: 'gross', label: 'ค่าแรงรวม', minWidth: 130, align: 'right', render: (row) => money(row.grossPay) },
+          { id: 'advance', label: 'เบิกล่วงหน้า', minWidth: 130, align: 'right', render: (row) => money(row.advanceDeduction) },
+          { id: 'net', label: 'คงเหลือสุทธิ', minWidth: 130, align: 'right', render: (row) => <Typography sx={{ fontWeight: 800 }}>{money(row.netPay)}</Typography> },
+          { id: 'status', label: 'สถานะ', minWidth: 130, render: (row) => <Chip size="small" color={row.reviewCount ? 'warning' : 'success'} label={row.reviewCount ? `รอตรวจ ${row.reviewCount}` : 'พร้อม'} /> },
+        ]} />
+      </Paper>
+      <Paper variant="outlined" sx={{ p: 1.5 }}>
+        <Typography sx={{ fontWeight: 800, mb: 1 }}>รายละเอียดค่าแรง แยกวันและแยกคน</Typography>
+        <StandardDataTable rows={dailyWageProjections} getRowId={(row) => row.id} getSearchText={(row) => `${row.employeeName} ${row.payPeriodName} ${row.date}`} searchLabel="ค้นหาวัน ช่าง หรืองวด" emptyText="ยังไม่มีรายละเอียดค่าแรงรายวัน" minWidth={1040} columns={[
+          { id: 'date', label: 'วันที่', minWidth: 140, render: (row) => new Date(`${row.date}T12:00:00+07:00`).toLocaleDateString('th-TH') },
+          { id: 'employee', label: 'ช่างรายวัน', minWidth: 190, render: (row) => row.employeeName },
+          { id: 'period', label: 'งวด', minWidth: 190, render: (row) => row.payPeriodName },
+          { id: 'days', label: 'ผลคิดวัน', minWidth: 110, align: 'right', render: (row) => row.review ? '-' : `${row.dayUnits} วัน` },
+          { id: 'base', label: 'ค่าแรงปกติ', minWidth: 130, align: 'right', render: (row) => money(row.basePay) },
+          { id: 'ot', label: 'OT', minWidth: 120, align: 'right', render: (row) => money(row.overtimePay) },
+          { id: 'gross', label: 'รวมวันนี้', minWidth: 130, align: 'right', render: (row) => <Typography sx={{ fontWeight: 800 }}>{money(row.grossPay)}</Typography> },
+          { id: 'status', label: 'สถานะหลักฐาน', minWidth: 140, render: (row) => <Chip size="small" color={row.review ? 'warning' : 'success'} label={row.review ? 'รอตรวจ' : 'คำนวณแล้ว'} /> },
+        ]} />
+      </Paper>
+      {readyToCloseRows.length > 0 && <AdvanceTreeTable rows={readyToCloseRows} onOpenQueue={openReviewQueue} title="เงินทดรองที่พร้อมปิด" description="รายการเงินทดรองที่เคลียร์หลักฐานครบแล้ว" />}
     </Stack>}
     {activeTab === 3 && <Stack spacing={1.5}>
       <Alert severity="info">รายการในหน้านี้ไม่ถูกลบ และไม่รวมในยอดใช้งานจริง สามารถคลิกแถวเพื่อตรวจ Audit หรือนำกลับมาตรวจได้</Alert>
