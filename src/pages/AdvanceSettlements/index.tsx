@@ -614,8 +614,19 @@ export function AdvanceSettlementsPage() {
       </Box>}
     </Paper>}
     {activeTab === 2 && <Stack spacing={1.5}>
-      <Alert severity="success">รายการพร้อมปิดยอดและรายการที่ปิดแล้ว ใช้ข้อมูลต้นทางชุดเดียวกับคิวบัญชี ไม่ได้สร้างสำเนาใหม่</Alert>
-      <AdvanceTreeTable rows={readyToCloseRows} onOpenQueue={openReviewQueue} />
+      <Alert severity="info">
+        ค่าแรงสุทธิต้องมาจาก Payroll เมื่อปิดงวด แล้วจึงคำนวณ ค่าแรงทั้งงวด - เงินเบิกล่วงหน้า หน้านี้ไม่เปลี่ยนเงินทดรองให้เป็นค่าแรงอัตโนมัติ
+      </Alert>
+      {readyToCloseRows.length === 0 && <Alert severity="warning">
+        ยังไม่มีงวดค่าแรงที่พร้อมปิด กรุณารอข้อมูลเวลาทำงานและยอดค่าแรงจาก Payroll ก่อน ระบบจะนำเงินเบิกล่วงหน้าที่อนุมัติแล้วไปหักในงวดเดียวกัน
+      </Alert>}
+      <AdvanceTreeTable
+        rows={readyToCloseRows}
+        onOpenQueue={openReviewQueue}
+        title="สรุปค่าแรงและปิดงวด"
+        description="แสดงเฉพาะเงินทดรองที่พร้อมนำไปหักเมื่อปิดงวด · ค่าแรงสุทธิจะเกิดหลัง Payroll ยืนยันยอด"
+        emptyMessage="ยังไม่มีรายการพร้อมปิดงวด"
+      />
     </Stack>}
     {activeTab === 3 && <Stack spacing={1.5}>
       <Alert severity="info">รายการในหน้านี้ไม่ถูกลบ และไม่รวมในยอดใช้งานจริง สามารถคลิกแถวเพื่อตรวจ Audit หรือนำกลับมาตรวจได้</Alert>
@@ -829,7 +840,7 @@ function CaseDetail({
     </Dialog>
   </Stack>
 }
-function AdvanceTreeTable({ rows, onOpenQueue }: { rows: AdvanceCase[]; onOpenQueue: (rows: AdvanceCase[], initialId?: string) => void }) {
+function AdvanceTreeTable({ rows, onOpenQueue, title = 'เงินสำรองจ่ายตามช่าง', description = 'คลิกแถวเพื่อเปิดรายละเอียด · กดลูกศรเพื่อแตกดูแต่ละครั้ง', emptyMessage = 'ไม่พบรายการตามเงื่อนไขค้นหา' }: { rows: AdvanceCase[]; onOpenQueue: (rows: AdvanceCase[], initialId?: string) => void; title?: string; description?: string; emptyMessage?: string }) {
   const [search, setSearch] = useState('')
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [page, setPage] = useState(0)
@@ -862,7 +873,7 @@ function AdvanceTreeTable({ rows, onOpenQueue }: { rows: AdvanceCase[]; onOpenQu
   const toggle = (key: string) => setExpanded((current) => ({ ...current, [key]: !current[key] }))
   return <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ p: 1.5, alignItems: { sm: 'center' }, justifyContent: 'space-between' }}>
-      <Box><Typography sx={{ fontWeight: 800 }}>เงินสำรองจ่ายตามช่าง</Typography><Typography variant="body2" color="text.secondary">คลิกแถวเพื่อเปิดรายละเอียด · กดลูกศรเพื่อแตกดูแต่ละครั้ง</Typography></Box>
+      <Box><Typography sx={{ fontWeight: 800 }}>{title}</Typography><Typography variant="body2" color="text.secondary">{description}</Typography></Box>
       <TextField size="small" value={search} onChange={(event) => { setSearch(event.target.value); setPage(0) }} placeholder="ค้นหาช่างหรือ Advance ID" slotProps={{ htmlInput: { 'aria-label': 'ค้นหาช่างหรือ Advance ID' } }} sx={{ minWidth: { sm: 280 } }} />
     </Stack>
     <TableContainer sx={{ maxHeight: { xs: 'calc(100vh - 260px)', md: 'calc(100vh - 330px)' } }}>
@@ -904,7 +915,7 @@ function AdvanceTreeTable({ rows, onOpenQueue }: { rows: AdvanceCase[]; onOpenQu
               </TableRow>)}
             </Fragment>
           })}
-          {!visibleGroups.length && <TableRow><TableCell colSpan={8}><Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>ไม่พบรายการตามเงื่อนไขค้นหา</Typography></TableCell></TableRow>}
+          {!visibleGroups.length && <TableRow><TableCell colSpan={8}><Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>{emptyMessage}</Typography></TableCell></TableRow>}
           <TableRow sx={{ bgcolor: 'rgba(166, 89, 64, 0.12)' }}>
             <TableCell sx={{ fontWeight: 800 }}>รวมทั้งหมด</TableCell><TableCell align="right" sx={{ fontWeight: 800 }}>{totals.count} รายการ</TableCell><TableCell align="right" sx={{ fontWeight: 800 }}>{money(totals.received)}</TableCell><TableCell align="right" sx={{ fontWeight: 800 }}>{money(totals.approvedUsed)}</TableCell><TableCell align="right" sx={{ fontWeight: 800 }}>{money(totals.outstanding)}</TableCell><TableCell colSpan={3}><Typography variant="caption" color="text.secondary">ยอดจากผลค้นหาปัจจุบัน</Typography></TableCell>
           </TableRow>
