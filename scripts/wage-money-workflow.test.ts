@@ -21,6 +21,9 @@ for (const required of [
 assert.match(page, /pendingInterimAdvanceRows\s*=\s*interimAdvanceRows\.filter\(\(entry\)\s*=>\s*entry\.entry_status\s*===\s*'matched_pending_review'\)/)
 assert.match(page, /actionableCount\s*=\s*actionableRows\.length\s*\+\s*pendingInterimAdvanceRows\.length/)
 assert.match(page, /รายการรอตรวจ/)
+assert.match(page, /for \(const delayMs of \[400, 900\]\)/)
+assert.match(page, /requestId !== loadRequestRef\.current/)
+assert.match(page, /เครือข่ายสะดุดระหว่างรีเฟรช ระบบเก็บข้อมูลล่าสุดไว้/)
 
 for (const required of [
   "entry_status = 'reversed'",

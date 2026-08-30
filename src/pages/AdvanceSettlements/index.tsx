@@ -305,12 +305,14 @@ export function AdvanceSettlementsPage() {
   const [rejectReason, setRejectReason] = useState({ code: 'not_advance', note: '' })
   const [restoreOpen, setRestoreOpen] = useState(false)
   const [restoreReason, setRestoreReason] = useState('นำกลับมาตรวจสอบโดย Admin')
+  const loadRequestRef = useRef(0)
   const previewRequestRef = useRef(0)
   const companyId = currentCompany?.company_id ?? ''
   const canManageAdvance = profile?.role === 'admin' || profile?.role === 'manager'
   const load = useCallback(async () => {
     if (!companyId) return
-    const [{ data, error: loadError }, { data: dailyData, error: dailyError }, { data: employeeMoneyData, error: employeeMoneyError }, { data: employeeMoneyEntryData, error: employeeMoneyEntryError }, { data: periodData, error: periodError }, { data: legacyData, error: legacyError }] = await Promise.all([supabase.from('employee_advance_cases').select(`
+    const requestId = ++loadRequestRef.current
+    const fetchDashboard = () => Promise.all([supabase.from('employee_advance_cases').select(`
       id,advance_number,amount_received,bank_reference,status,version,parent_case_id,purpose_note,holder_profile_id,source_flow_item_id,rejected_reason_code,rejected_reason_note,rejected_by,rejected_at,
       financial_transactions(recipient_name,sender_name,sender_bank_name,sender_account_last4,recipient_bank_name,recipient_account_last4,transfer_at,payment_party_confidence),
        source_flow:document_flow_items!employee_advance_cases_source_flow_item_id_fkey(id,current_flow,current_room,state,version,updated_at,target_department,candidate_departments,assignment_status),
@@ -318,7 +320,16 @@ export function AdvanceSettlementsPage() {
       holder_person:employee_people!employee_advance_cases_holder_person_id_fkey(full_name),
       employee_advance_settlement_items!employee_advance_settlement_items_case_id_fkey(id,expense_type,amount,approval_status,description,expense_date,evidence_reference),
       employee_advance_audit!employee_advance_audit_case_id_fkey(id,action,reason,created_at)
-    `).eq('company_id', companyId).neq('status', 'cancelled').order('updated_at', { ascending: false }), supabase.from('employee_employment_records').select('profile_id,profiles!employee_employment_records_profile_id_fkey(full_name)').eq('company_id', companyId).eq('employment_type', 'daily').in('employment_status', ['active', 'probation', 'notice']), supabase.from('employee_money_balance_summary').select('*').eq('company_id', companyId).order('updated_at', { ascending: false }), supabase.from('employee_money_ledger_detail_v1').select('*').eq('company_id', companyId).order('transfer_at', { ascending: false, nullsFirst: false }), supabase.from('employee_money_period_summary_v1').select('*').eq('company_id', companyId).order('pay_period_starts_on', { ascending: true }), supabase.from('employee_money_legacy_candidates').select('*').eq('company_id', companyId).order('transfer_at', { ascending: false, nullsFirst: false })])
+    `).eq('company_id', companyId).neq('status', 'cancelled').order('updated_at', { ascending: false }), supabase.from('employee_employment_records').select('profile_id,profiles!employee_employment_records_profile_id_fkey(full_name)').eq('company_id', companyId).eq('employment_type', 'daily').in('employment_status', ['active', 'probation', 'notice']), supabase.from('employee_money_balance_summary').select('*').eq('company_id', companyId).order('updated_at', { ascending: false }), supabase.from('employee_money_ledger_detail_v1').select('*').eq('company_id', companyId).order('transfer_at', { ascending: false, nullsFirst: false }), supabase.from('employee_money_period_summary_v1').select('*').eq('company_id', companyId).order('pay_period_starts_on', { ascending: true }), supabase.from('employee_money_legacy_candidates').select('*').eq('company_id', companyId).order('transfer_at', { ascending: false, nullsFirst: false })] as const)
+    let result = await fetchDashboard()
+    for (const delayMs of [400, 900]) {
+      const hasTransientError = result.some(({ error: queryError }) => /failed to fetch|networkerror|load failed/i.test(queryError?.message ?? ''))
+      if (!hasTransientError) break
+      await new Promise((resolve) => window.setTimeout(resolve, delayMs))
+      result = await fetchDashboard()
+    }
+    if (requestId !== loadRequestRef.current) return
+    const [{ data, error: loadError }, { data: dailyData, error: dailyError }, { data: employeeMoneyData, error: employeeMoneyError }, { data: employeeMoneyEntryData, error: employeeMoneyEntryError }, { data: periodData, error: periodError }, { data: legacyData, error: legacyError }] = result
     if (loadError || dailyError) setError(userError(loadError ?? dailyError))
     else {
       const nextRows = (data ?? []) as unknown as AdvanceCase[]
@@ -328,7 +339,12 @@ export function AdvanceSettlementsPage() {
       setReviewQueueIds((current) => current.filter((id) => nextRows.some((row) => row.id === id)))
       setDailyEmployees((dailyData ?? []) as unknown as DailyEmployee[])
     }
-    if (employeeMoneyError || employeeMoneyEntryError || periodError || legacyError) { setEmployeeMoneyRows([]); setEmployeeMoneyEntries([]); setEmployeeMoneyPeriodRows([]); setLegacyMoneyCandidates([]); setEmployeeMoneyWarning('บัญชีพักช่างยังไม่พร้อมใช้งาน กรุณาตรวจ Migration employee_money_ledger') }
+    if (employeeMoneyError || employeeMoneyEntryError || periodError || legacyError) {
+      const queryError = employeeMoneyError ?? employeeMoneyEntryError ?? periodError ?? legacyError
+      const transient = /failed to fetch|networkerror|load failed/i.test(queryError?.message ?? '')
+      if (transient) setEmployeeMoneyWarning('เครือข่ายสะดุดระหว่างรีเฟรช ระบบเก็บข้อมูลล่าสุดไว้ กรุณากดรีเฟรชอีกครั้ง')
+      else { setEmployeeMoneyRows([]); setEmployeeMoneyEntries([]); setEmployeeMoneyPeriodRows([]); setLegacyMoneyCandidates([]); setEmployeeMoneyWarning('บัญชีพักช่างยังไม่พร้อมใช้งาน กรุณาตรวจ Migration employee_money_ledger') }
+    }
     else { setEmployeeMoneyRows((employeeMoneyData ?? []) as unknown as EmployeeMoneySummary[]); setEmployeeMoneyEntries((employeeMoneyEntryData ?? []) as unknown as EmployeeMoneyLedgerEntry[]); setEmployeeMoneyPeriodRows((periodData ?? []) as unknown as EmployeeMoneyPeriodSummary[]); setLegacyMoneyCandidates((legacyData ?? []) as unknown as LegacyEmployeeMoneyCandidate[]); setEmployeeMoneyWarning('') }
   }, [companyId])
   useEffect(() => {
