@@ -140,6 +140,45 @@ function FlowStatusIcon({ status }: { status: FlowNodeStatus }) {
   return <HourglassEmptyOutlined color="warning" fontSize="small" />
 }
 
+function AdvanceTreeTable({ rows, onSelect }: { rows: AdvanceCase[]; onSelect: (row: AdvanceCase) => void }) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const groups = Array.from(rows.reduce((map, row) => {
+    const key = holderName(row)
+    const current = map.get(key) ?? []
+    current.push(row)
+    map.set(key, current)
+    return map
+  }, new Map<string, AdvanceCase[]>()).entries())
+  const approvedTotal = (row: AdvanceCase) => (row.employee_advance_settlement_items ?? []).filter((item) => item.approval_status === 'approved').reduce((sum, item) => sum + Number(item.amount), 0)
+  const grandReceived = rows.reduce((sum, row) => sum + Number(row.amount_received), 0)
+  const grandApproved = rows.reduce((sum, row) => sum + approvedTotal(row), 0)
+  return <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
+    <Box sx={{ px: 1.5, py: 1.25, borderBottom: 1, borderColor: 'divider' }}><Typography sx={{ fontWeight: 800 }}>เงินสำรองจ่ายตามช่าง</Typography><Typography variant="body2" color="text.secondary">คลิกชื่อช่างเพื่อแตกดูรายการเบิกแต่ละครั้ง · คลิกยอดหรือรหัสเพื่อเปิด Detail</Typography></Box>
+    <Box sx={{ overflowX: 'auto' }}>
+      <Box sx={{ minWidth: 1040 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(260px,1.6fr) 150px 150px 150px 150px 170px', gap: 1, px: 1.5, py: 1, bgcolor: 'grey.50', borderBottom: 1, borderColor: 'divider' }}>
+          {['ช่าง / รายการเบิก', 'จำนวนครั้ง', 'เงินสำรองรับมา', 'ใช้จ่ายอนุมัติ', 'คงค้าง', 'สถานะ'].map((label) => <Typography key={label} variant="caption" sx={{ fontWeight: 800 }}>{label}</Typography>)}
+        </Box>
+        {groups.map(([employee, employeeRows]) => {
+          const received = employeeRows.reduce((sum, row) => sum + Number(row.amount_received), 0)
+          const used = employeeRows.reduce((sum, row) => sum + approvedTotal(row), 0)
+          const isOpen = expanded[employee] ?? true
+          return <Box key={employee}>
+            <ButtonBase onClick={() => setExpanded((current) => ({ ...current, [employee]: !isOpen }))} sx={{ width: '100%', display: 'grid', gridTemplateColumns: 'minmax(260px,1.6fr) 150px 150px 150px 150px 170px', gap: 1, px: 1.5, py: 1.25, textAlign: 'left', borderBottom: 1, borderColor: 'divider', '&:hover': { bgcolor: 'action.hover' } }}>
+              <Typography sx={{ fontWeight: 800 }}>{isOpen ? '▾' : '▸'} {employee}</Typography><Typography>{employeeRows.length} ครั้ง</Typography><Typography sx={{ fontWeight: 700 }}>{money(received)}</Typography><Typography>{money(used)}</Typography><Typography>{money(received - used)}</Typography><Chip size="small" color="warning" label={`${employeeRows.filter((row) => row.status !== 'closed').length} รอตรวจ`} />
+            </ButtonBase>
+            {isOpen && employeeRows.map((row) => <Box key={row.id} sx={{ display: 'grid', gridTemplateColumns: 'minmax(260px,1.6fr) 150px 150px 150px 150px 170px', gap: 1, px: 1.5, py: 1, pl: 4, borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper', alignItems: 'center' }}>
+              <Button variant="text" onClick={() => onSelect(row)} sx={{ justifyContent: 'flex-start', textTransform: 'none', p: 0, fontWeight: 700 }}>{row.advance_number}<Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>ดู Detail</Typography></Button>
+              <Typography variant="body2">{dateTime(row.financial_transactions?.transfer_at)}</Typography><AmountLink label={`ดูยอดรับมา ${row.advance_number}`} value={money(Number(row.amount_received))} onClick={() => onSelect(row)} /><Typography variant="body2">{money(approvedTotal(row))}</Typography><Typography variant="body2">{money(Number(row.amount_received) - approvedTotal(row))}</Typography><Chip size="small" color={row.status === 'closed' ? 'success' : 'warning'} label={labels[row.status] ?? row.status} />
+            </Box>)}
+          </Box>
+        })}
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(260px,1.6fr) 150px 150px 150px 150px 170px', gap: 1, px: 1.5, py: 1.25, bgcolor: 'grey.100', borderTop: 2, borderColor: 'divider' }}><Typography sx={{ fontWeight: 900 }}>รวมทั้งหมด</Typography><Typography sx={{ fontWeight: 800 }}>{rows.length} รายการ</Typography><Typography sx={{ fontWeight: 900 }}>{money(grandReceived)}</Typography><Typography sx={{ fontWeight: 800 }}>{money(grandApproved)}</Typography><Typography sx={{ fontWeight: 900 }}>{money(grandReceived - grandApproved)}</Typography><Typography variant="caption" color="text.secondary">ยอดจริงยังไม่ Final</Typography></Box>
+      </Box>
+    </Box>
+  </Paper>
+}
+
 export function AdvanceSettlementsPage() {
   usePageTitle('เงินทดรองและปิดยอด')
   const { currentCompany, profile } = useAuth()
@@ -245,9 +284,6 @@ export function AdvanceSettlementsPage() {
   }, [companyId, selected])
   const total = (row: AdvanceCase) => (row.employee_advance_settlement_items ?? []).filter((item) => item.approval_status === 'approved').reduce((sum, item) => sum + Number(item.amount), 0)
   const outstanding = (row: AdvanceCase) => Number(row.amount_received) - total(row)
-  const received = rows.reduce((sum, row) => sum + Number(row.amount_received), 0)
-  const openBalance = rows.filter((row) => row.status !== 'closed').reduce((sum, row) => sum + outstanding(row), 0)
-  const automaticCount = rows.filter((row) => ['auto_create_from_holder_registry', 'admin_confirm_name_match'].some((action) => (row.employee_advance_audit ?? []).some((audit) => audit.action === action))).length
   const addLine = async () => { if (!selected) return; setSaving(true); const { error: rpcError } = await supabase.rpc('add_employee_advance_settlement_item', { target_case_id: selected.id, target_event_key: crypto.randomUUID(), target_expense_type: line.expense_type, target_amount: Number(line.amount), target_expense_date: line.expense_date, target_payee_name: null, target_project_id: null, target_work_package_id: null, target_evidence_flow_item_id: null, target_evidence_reference: line.evidence_reference || null, target_description: line.description }); setSaving(false); if (rpcError) { setError(userError(rpcError)); return }; setLineOpen(false); await load() }
   const transition = async (action: string) => { if (!selected) return; setSaving(true); const { error: rpcError } = await supabase.rpc('transition_employee_advance_case', { target_case_id: selected.id, target_event_key: crypto.randomUUID(), target_action: action, target_expected_version: selected.version, target_reason: null }); setSaving(false); if (rpcError) { setError(userError(rpcError)); return }; setSelected(null); await load() }
   const createSubAdvance = async () => { if (!selected) return; setSaving(true); const { data: created, error: rpcError } = await supabase.rpc('create_employee_sub_advance', { target_parent_case_id: selected.id, target_event_key: crypto.randomUUID(), target_holder_profile_id: subAdvance.holderProfileId, target_holder_person_id: null, target_amount: Number(subAdvance.amount), target_description: subAdvance.description, target_project_id: null, target_work_package_id: null }); if (rpcError) { setSaving(false); setError(userError(rpcError)); return }; try { const delivery = await queueAdvanceConfirmation((created as { id: string }).id); setConfirmation(delivery); setError('') } catch (confirmationError) { setConfirmation(null); setError(`บันทึกรายการสำเร็จแล้ว แต่คิว MSG Confirm ยังไม่พร้อมส่ง: ${userError(confirmationError as { message?: string })}`) }; setSaving(false); setSubAdvanceOpen(false); await load() }
@@ -270,8 +306,8 @@ export function AdvanceSettlementsPage() {
     <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}><BoxTitle /><Button startIcon={<RefreshOutlined />} onClick={() => void load()}>รีเฟรช</Button></Stack>
     {error && <Alert severity="error">{error}</Alert>}
     {confirmation && <Alert severity={['failed', 'pending_room_setup', 'room_setup_failed'].includes(confirmation.status) ? 'warning' : 'success'} onClose={() => setConfirmation(null)}><strong>System MSG Confirm: {confirmation.status === 'queued' ? 'ปิดงานแล้ว/รอส่ง MSG' : confirmation.status}</strong><br />รหัสรายการ: {confirmation.advance_case_id}<br />{confirmation.message_text}</Alert>}
-    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><Metric label="เงินทดรองรับมา" value={money(received)} /><Metric label="ยอดคงค้างที่ยังไม่ปิด" value={money(openBalance)} /><Metric label="สร้าง/ยืนยันอัตโนมัติ" value={`${automaticCount} เคส`} /></Stack>
-    <Paper variant="outlined" sx={{ p: 1.5 }}>
+    <Alert severity="info">มุมมองตามสิทธิ์ผู้ใช้งาน · ยอดด้านล่างเป็นยอดรายการจริงที่อ่านได้ในบริษัทปัจจุบัน และยังไม่ใช่ยอด Final</Alert>
+    <Paper variant="outlined" sx={{ p: 1.5, order: 2 }}>
       <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' }, gap: 1, mb: 1 }}>
         <Box><Typography sx={{ fontWeight: 800 }}>บัญชีพักช่างรายวัน</Typography><Typography variant="body2" color="text.secondary">จับคู่จากสลิปด้วยชื่อมาตรฐาน · ยังไม่หัก Payroll จนกว่าจะอนุมัติ · รายการผิดแก้ด้วย Adjustment</Typography></Box>
         <Chip size="small" color="warning" label="Holding ledger / ไม่ใช่ยอดจ่าย Final" />
@@ -298,7 +334,8 @@ export function AdvanceSettlementsPage() {
         ]} />
       </Box>}
     </Paper>
-    <StandardDataTable rows={rows} getRowId={(row) => row.id} getSearchText={(row) => `${row.advance_number} ${holderName(row)} ${row.bank_reference ?? ''} ${routeText(row)}`} searchLabel="ค้นหารหัส ผู้ถือเงิน สลิป หรือเส้นทาง" onRowClick={setSelected} minWidth={1820} columns={[
+    <AdvanceTreeTable rows={rows} onSelect={setSelected} />
+    <Box sx={{ display: 'none' }} aria-hidden="true"><StandardDataTable rows={rows} getRowId={(row) => row.id} getSearchText={(row) => `${row.advance_number} ${holderName(row)} ${row.bank_reference ?? ''} ${routeText(row)}`} searchLabel="ค้นหารหัส ผู้ถือเงิน สลิป หรือเส้นทาง" onRowClick={setSelected} minWidth={1820} columns={[
       { id: 'number', label: 'รหัสเงินทดรอง', minWidth: 160, render: (row) => row.advance_number },
       { id: 'holder', label: 'ผู้ถือเงิน (มาตรฐาน)', minWidth: 190, render: (row) => holderName(row) },
       { id: 'auto', label: 'การสร้าง/เรียนรู้', minWidth: 210, render: (row) => { const state = updateState(row); return <Chip size="small" color={state.color} label={state.label} /> }, exportValue: (row) => updateState(row).label },
@@ -309,7 +346,7 @@ export function AdvanceSettlementsPage() {
       { id: 'status', label: 'สถานะ', minWidth: 140, render: (row) => labels[row.status] ?? row.status },
       { id: 'route', label: 'เส้นทางอัตโนมัติ', minWidth: 340, render: (row) => routeText(row), exportValue: (row) => routeText(row) },
       { id: 'source', label: 'อ้างอิงสลิป', minWidth: 170, render: (row) => row.bank_reference ?? '-' },
-    ]} />
+    ]} /></Box>
     <Drawer anchor="right" open={Boolean(selected)} onClose={() => setSelected(null)} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 640 }, maxWidth: '100vw' } } }}>
       <Stack sx={{ height: '100%' }}>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', p: 2, borderBottom: 1, borderColor: 'divider' }}>
@@ -485,5 +522,4 @@ function ReconciliationPanel({ value, canEdit, onSave }: { value: AdvanceReconci
   </Paper>
 }
 function AmountLink({ label, value, onClick }: { label: string; value: string; onClick: () => void }) { return <Button aria-label={label} variant="text" size="small" sx={{ minWidth: 0, p: 0, fontWeight: 700, whiteSpace: 'nowrap' }} onClick={(event) => { event.stopPropagation(); onClick() }}>{value}</Button> }
-function Metric({ label, value }: { label: string; value: string }) { return <Paper variant="outlined" sx={{ p: 1.5, flex: 1 }}><Typography variant="caption">{label}</Typography><Typography variant="h6">{value}</Typography></Paper> }
 function BoxTitle() { return <Box><Typography variant="h5" sx={{ fontWeight: 800 }}>เงินทดรองและปิดยอด</Typography><Typography variant="body2" color="text.secondary">สลิปต้นทาง → รายการใช้เงิน → หลักฐาน → อนุมัติ → ปิดยอด</Typography></Box> }
