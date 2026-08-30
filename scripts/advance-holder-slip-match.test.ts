@@ -1,0 +1,26 @@
+import assert from 'node:assert/strict'
+import { matchAdvanceHolderSlips, normalizeAdvanceHolderName } from '../src/services/advanceHolderSlipMatch.ts'
+
+assert.equal(normalizeAdvanceHolderName('นาย ทวีชัย ภรามร'), 'ทวีชัยภรามร')
+assert.equal(normalizeAdvanceHolderName('น.ส. จิรภรณ์ พริกสุวรรณ์'), 'จิรภรณ์พริกสุวรรณ์')
+
+const holders = [
+  { id: 'holder-1', displayName: 'ทวีชัย ภรามร', aliases: ['นาย ทวีชัย ภรามร', 'ทวีศักดิ์ ภรามร'] },
+  { id: 'holder-2', displayName: 'จิรภรณ์ พริกสุวรรณ์', aliases: [] },
+]
+
+const matches = matchAdvanceHolderSlips(holders, [
+  { transactionId: 'tx-1', itemId: 'item-1', senderName: 'บริษัท ก', recipientName: 'นาย ทวีชัย ภรามร', amount: 500, transferAt: '2026-08-30T10:00:00Z', truthStatus: 'confirmed', duplicateOf: null },
+  { transactionId: 'tx-2', itemId: 'item-2', senderName: 'ทวีศักดิ์ ภรามร', recipientName: 'ร้านค้า', amount: 200, transferAt: '2026-08-31T10:00:00Z', truthStatus: 'needs_review', duplicateOf: null },
+  { transactionId: 'tx-3', itemId: 'item-3', senderName: 'จิรภรณ์ พริกสุวรรณ์', recipientName: 'ทวีชัย ภรามร', amount: 100, transferAt: '2026-08-29T10:00:00Z', truthStatus: 'confirmed', duplicateOf: null },
+  { transactionId: 'tx-4', itemId: 'item-4', senderName: 'ทวีชัย ภรามร', recipientName: 'ร้านค้า', amount: 70, transferAt: '2026-08-28T10:00:00Z', truthStatus: 'duplicate', duplicateOf: 'tx-original' },
+])
+
+assert.equal(matches.length, 4)
+assert.equal(matches[0].direction, 'outgoing')
+assert.equal(matches.filter((item) => item.direction === 'incoming').length, 2)
+assert.equal(matches.filter((item) => item.direction === 'outgoing').length, 2)
+assert.equal(matches.some((item) => item.transactionId === 'tx-4'), false)
+assert.equal(matches.every((item) => item.matchStatus === 'exact'), true)
+
+console.log('advance holder slip matching contract: PASS')
