@@ -31,6 +31,10 @@ export type MoneyAllocationDraft = {
   description: string
   confidence: string
   payrollKind: PayrollKind
+  employeeProfileId: string
+  receivedByProfileId: string
+  payPeriodId: string
+  recipientRelationship: 'self' | 'received_for_other' | 'team_lead' | 'unknown'
   vendorId: string
   vendorName: string
   vendorTaxId: string
@@ -75,7 +79,7 @@ const allocationKey = () => typeof crypto !== 'undefined' && 'randomUUID' in cry
 
 export const emptyMoneyAllocation = (amount: number | null = null, payeeName = ''): MoneyAllocationDraft => ({
   key: allocationKey(), purposeType: 'unknown', amount: amount == null ? '' : String(amount), costCategoryId: '', accountCode: '', accountName: '', projectId: '', siteId: '',
-  payeeName, responsibleName: '', description: '', confidence: '', payrollKind: '', vendorId: '', vendorName: '', vendorTaxId: '',
+  payeeName, responsibleName: '', description: '', confidence: '', payrollKind: '', employeeProfileId: '', receivedByProfileId: '', payPeriodId: '', recipientRelationship: 'self', vendorId: '', vendorName: '', vendorTaxId: '',
   vendorBankName: '', vendorAccountLast4: '', vendorMatchStatus: 'needs_review', vendorMatchConfidence: '', vendorMatchReason: '',
 })
 
@@ -149,6 +153,8 @@ export const validateMoneyLineage = (draft: MoneyLineageDraft, transferAmount: n
     const amount = numberOrNull(allocation.amount)
     if (allocation.purposeType === 'unknown') missing.push(`วัตถุประสงค์รายการที่ ${index + 1}`)
     if (allocation.purposeType === 'payroll' && !allocation.payrollKind) missing.push(`ชนิดเงินเดือน/ค่าแรงรายการที่ ${index + 1}`)
+    if (allocation.purposeType === 'payroll' && !allocation.employeeProfileId) missing.push(`เจ้าของเงินเดือน/ค่าแรงรายการที่ ${index + 1}`)
+    if (allocation.purposeType === 'payroll' && !allocation.payPeriodId) missing.push(`งวดค่าแรงรายการที่ ${index + 1}`)
     if (moneyPurposeNeedsExpenseAccount(allocation.purposeType) && (!allocation.costCategoryId || !allocation.accountCode || !allocation.accountName)) missing.push(`บัญชีค่าใช้จ่ายรายการที่ ${index + 1}`)
     if (['materials', 'project_expense'].includes(allocation.purposeType) && !allocation.projectId) missing.push(`โครงการรายการที่ ${index + 1}`)
     if (allocation.purposeType === 'vendor_payment' && (allocation.vendorMatchStatus !== 'matched' || !allocation.vendorId)) missing.push(`ร้านค้า/ผู้ขายรายการที่ ${index + 1} ต้องจับคู่และยืนยันก่อนส่งต่อ`)

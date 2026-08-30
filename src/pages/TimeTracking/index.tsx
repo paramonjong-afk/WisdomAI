@@ -25,6 +25,8 @@ type AttendanceSettings = {
   shared_devices_allowed:boolean
   stale_session_mode:'require_clock_out'|'manager_review'
 }
+type PayrollFinancialSummary = { company_id:string; employee_profile_id:string; employee_name:string; pay_period_id:string; pay_period_name:string; starts_on:string; ends_on:string; pay_date:string; pay_period_status:string; payroll_status:string; normal_minutes:number; overtime_minutes:number; base_pay:number; overtime_pay:number; additions:number; deductions:number; reimbursements:number; net_pay:number; advance_confirmed:number; wage_paid_confirmed:number; pending_review:number; projected_remaining_pay:number }
+const money = (value:number) => new Intl.NumberFormat('th-TH', { style:'currency', currency:'THB' }).format(value)
 
 const distanceMeters = (lat1:number, lon1:number, lat2:number, lon2:number) => {
   const radius = 6_371_000
@@ -106,6 +108,7 @@ export function TimeTrackingPage() {
   const [resignedEmployees, setResignedEmployees] = useState<Employee[]>([])
   const [lineGroups, setLineGroups] = useState<LineGroup[]>([])
   const [gpsPolicies,setGpsPolicies]=useState<GpsPolicy[]>([])
+  const [payrollFinancialRows,setPayrollFinancialRows]=useState<PayrollFinancialSummary[]>([])
   const [assignment, setAssignment] = useState({ profileId:'', siteId:'' })
   const [siteId, setSiteId] = useState('')
   const [selfie, setSelfie] = useState<File | null>(null)
@@ -149,10 +152,14 @@ export function TimeTrackingPage() {
       availableSites = (data ?? []).map((row) => row.project_sites).filter(Boolean) as unknown as Site[]
     }
 
+    let payrollFinancialQuery = supabase.from('employee_time_payroll_financial_summary_v1').select('*')
+      .eq('company_id', currentCompany?.company_id ?? '').order('starts_on', { ascending:false }).limit(100)
+    if (!isManager) payrollFinancialQuery = payrollFinancialQuery.eq('employee_profile_id', user.id)
     const [
       { data: attendance, error: attendanceError },
       { data: openAttendance, error: openAttendanceError },
       { data: settingRows },
+      { data: payrollFinancialData, error: payrollFinancialError },
     ] = await Promise.all([
       attendanceQuery,
       supabase.from('attendance_sessions')
@@ -165,8 +172,9 @@ export function TimeTrackingPage() {
         .select('max_gps_accuracy_meters,allow_outside_site_for_review,shared_devices_allowed,stale_session_mode')
         .eq('company_id', currentCompany?.company_id ?? '')
         .eq('singleton', true).single(),
+      payrollFinancialQuery,
     ])
-    if (attendanceError || openAttendanceError) throw attendanceError ?? openAttendanceError
+    if (attendanceError || openAttendanceError || payrollFinancialError) throw attendanceError ?? openAttendanceError ?? payrollFinancialError
     const attendanceRows = (attendance ?? []) as unknown as Attendance[]
     const openRows = (openAttendance ?? []) as unknown as Attendance[]
     const mergedAttendance = [
@@ -175,6 +183,7 @@ export function TimeTrackingPage() {
     ]
     setSites(availableSites)
     setSessions(mergedAttendance)
+    setPayrollFinancialRows((payrollFinancialData ?? []) as PayrollFinancialSummary[])
     if (settingRows) setSettings(settingRows as AttendanceSettings)
       if (isManager) {
         const [
@@ -777,6 +786,29 @@ export function TimeTrackingPage() {
         </Button>
       </DialogActions>
     </Dialog>
+    <Paper variant="outlined" sx={{p:2, display:{xs:'none', md:'block'}}}>
+      <Stack spacing={.5} sx={{mb:1.5}}><Typography variant="h6">สรุปเวลาและการเงินตามงวด</Typography><Typography variant="body2" color="text.secondary">ยอดนี้เป็น Projection สำหรับตรวจสอบจากเวลา + Allocation ของสลิป ไม่แก้ Payroll Final; งวดที่ปิดแล้วแก้ด้วย Adjustment เท่านั้น</Typography></Stack>
+      <StandardDataTable
+        rows={payrollFinancialRows}
+        getRowId={(row) => `${row.pay_period_id}-${row.employee_profile_id}`}
+        getSearchText={(row) => `${row.employee_name} ${row.pay_period_name} ${row.pay_period_status}`}
+        searchLabel="ค้นหาพนักงานหรืองวด"
+        emptyText="ยังไม่มี Payroll ที่สร้างสำหรับงวดนี้"
+        exportFileName="time-payroll-financial-summary"
+        minWidth={1180}
+        columns={[
+          {id:'employee',label:'พนักงาน',minWidth:180,render:row=>row.employee_name},
+          {id:'period',label:'งวด',minWidth:200,render:row=><Stack spacing={.25}><Typography variant="body2">{row.pay_period_name}</Typography><Typography variant="caption" color="text.secondary">{new Date(row.starts_on).toLocaleDateString('th-TH')}–{new Date(row.ends_on).toLocaleDateString('th-TH')}</Typography></Stack>,exportValue:row=>row.pay_period_name},
+          {id:'time',label:'เวลาปกติ / OT',minWidth:130,render:row=>`${Math.round(row.normal_minutes/60)} ชม. / ${Math.round(row.overtime_minutes/60)} ชม.`},
+          {id:'net',label:'Payroll สุทธิ',align:'right',render:row=>money(Number(row.net_pay)),exportValue:row=>row.net_pay},
+          {id:'advance',label:'เงินทดรองยืนยัน',align:'right',render:row=>money(Number(row.advance_confirmed)),exportValue:row=>row.advance_confirmed},
+          {id:'paid',label:'ค่าแรงจ่ายแล้ว',align:'right',render:row=>money(Number(row.wage_paid_confirmed)),exportValue:row=>row.wage_paid_confirmed},
+          {id:'pending',label:'รอตรวจ',align:'right',render:row=><Chip size="small" color={Number(row.pending_review)>0?'warning':'default'} label={money(Number(row.pending_review))}/>,exportValue:row=>row.pending_review},
+          {id:'remaining',label:'คาดว่าคงจ่าย',align:'right',render:row=><Typography sx={{fontWeight:800}}>{money(Number(row.projected_remaining_pay))}</Typography>,exportValue:row=>row.projected_remaining_pay},
+          {id:'status',label:'สถานะงวด',render:row=><Chip size="small" color={['closed','paying','paid'].includes(row.pay_period_status)?'success':'warning'} label={row.pay_period_status}/>,exportValue:row=>row.pay_period_status},
+        ]}
+      />
+    </Paper>
     <Paper variant="outlined" sx={{p:2, display:{xs:'none', md:'block'}}}>
       <Stack direction={{xs:'column',sm:'row'}} spacing={1} sx={{alignItems:{sm:'center'}, justifyContent:'space-between'}}>
         <Stack>
