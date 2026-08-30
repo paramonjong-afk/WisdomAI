@@ -5,7 +5,7 @@ const page = readFileSync('src/pages/AdvanceSettlements/index.tsx', 'utf8')
 const migration = readFileSync('supabase/migrations/20260829173946_employee_advance_reject_restore.sql', 'utf8')
 
 for (const required of [
-  'ต้องจัดการ (${actionableRows.length})',
+  'ต้องจัดการ (${actionableCount})',
   'บัญชีพักช่างรายวัน (${employeeMoneyRows.length})',
   'พร้อมปิดยอด / ปิดแล้ว (${readyToCloseRows.length})',
   'Reject / ต้องแก้ไข (${rejectedRows.length})',
@@ -18,6 +18,9 @@ for (const required of [
   'แผนกปัจจุบัน',
   'ขั้นตอนถัดไป',
   'target_department,candidate_departments,assignment_status',
+  'ค่าแรงตามเส้นเงินจริง',
+  'หนึ่งธุรกรรมแสดงหนึ่งครั้ง',
+  'ผูกรอบค่าแรงก่อนส่งตรวจ HR',
 ]) assert.ok(page.includes(required), `advance reject UI should include ${required}`)
 
 for (const required of [

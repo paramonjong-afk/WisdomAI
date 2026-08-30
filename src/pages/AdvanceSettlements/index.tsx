@@ -147,7 +147,17 @@ function sourceQuality(row: AdvanceCase) {
   if (Number(source.payment_party_confidence ?? 0) < 0.9) return { label: 'AI ต้องตรวจเพิ่ม', color: 'warning' as const }
   return { label: 'ข้อมูลสลิปครบ', color: 'success' as const }
 }
-type EmployeeMoneyLedgerEntry = { id: string; employee_profile_id: string; employee_name: string; received_by_profile_id: string | null; received_by_name: string | null; recipient_relationship: string | null; pay_period_id: string | null; pay_period_name: string | null; pay_period_starts_on: string | null; pay_period_ends_on: string | null; pay_period_status: string | null; source_name: string; account_scope: string; entry_type: string; amount: number; effective_on: string | null; transfer_at: string | null; bank_reference: string | null; sender_name: string | null; recipient_name: string | null; sender_bank_name: string | null; recipient_bank_name: string | null; sender_account_last4: string | null; recipient_account_last4: string | null; financial_transaction_id: string | null; source_flow_item_id: string | null; allocation_id: string | null; evidence_date_status: string; match_method: string; entry_status: string; reason: string | null; created_at: string }
+type EmployeeMoneyLedgerEntry = { id: string; employee_profile_id: string; employee_name: string; received_by_profile_id: string | null; received_by_name: string | null; recipient_relationship: string | null; pay_period_id: string | null; pay_period_name: string | null; pay_period_starts_on: string | null; pay_period_ends_on: string | null; pay_period_status: string | null; source_name: string; account_scope: string; entry_type: string; amount: number; effective_on: string | null; transfer_at: string | null; bank_reference: string | null; sender_name: string | null; recipient_name: string | null; sender_bank_name: string | null; recipient_bank_name: string | null; sender_account_last4: string | null; recipient_account_last4: string | null; financial_transaction_id: string | null; source_flow_item_id: string | null; allocation_id: string | null; evidence_date_status: string; match_method: string; entry_status: string; reason: string | null; created_at: string; target_department: string | null; candidate_departments: string[] | null; current_room: string | null; flow_state: string | null; assignment_status: string | null }
+
+function canonicalEmployeeMoneyEntries(entries: EmployeeMoneyLedgerEntry[]) {
+  const canonical = new Map<string, EmployeeMoneyLedgerEntry>()
+  for (const entry of entries.filter((row) => !['rejected', 'reversed'].includes(row.entry_status))) {
+    const key = `${entry.financial_transaction_id ?? entry.id}:${entry.employee_profile_id}:${entry.entry_type}:${entry.amount}`
+    const current = canonical.get(key)
+    if (!current || (!current.allocation_id && entry.allocation_id)) canonical.set(key, entry)
+  }
+  return [...canonical.values()]
+}
 
 type ReviewCheck = { label: string; detail: string; done: boolean }
 type ReviewReadiness = {
@@ -362,6 +372,9 @@ export function AdvanceSettlementsPage() {
   const readyToCloseRows = activeRows.filter((row) => row.status === 'closed' || (row.status === 'approved' && advanceReviewReadiness(row).canClose))
   const actionableRows = activeRows.filter((row) => !readyToCloseRows.some((readyRow) => readyRow.id === row.id))
   const filteredActionableRows = actionableRows.filter((row) => matchesDepartment(row, departmentFilter))
+  const wageWorkflowRows = canonicalEmployeeMoneyEntries(employeeMoneyEntries).filter((entry) => entry.entry_type === 'wage_paid')
+  const visibleWageWorkflowRows = ['all', 'accounting', 'hr', 'needs_information'].includes(departmentFilter) ? wageWorkflowRows : []
+  const actionableCount = actionableRows.length + wageWorkflowRows.length
   const activeAmount = activeRows.reduce((sum, row) => sum + Number(row.amount_received), 0)
   const rejectedAmount = rejectedRows.reduce((sum, row) => sum + Number(row.amount_received), 0)
   const selectedActiveChildren = selected ? rows.filter((row) => row.parent_case_id === selected.id && !['closed', 'cancelled', 'rejected'].includes(row.status)) : []
@@ -414,7 +427,7 @@ export function AdvanceSettlementsPage() {
     {error && <Alert severity="error">{error}</Alert>}
     {confirmation && <Alert severity={['failed', 'pending_room_setup', 'room_setup_failed'].includes(confirmation.status) ? 'warning' : 'success'} onClose={() => setConfirmation(null)}><strong>System MSG Confirm: {confirmation.status === 'queued' ? 'ปิดงานแล้ว/รอส่ง MSG' : confirmation.status}</strong><br />รหัสรายการ: {confirmation.advance_case_id}<br />{confirmation.message_text}</Alert>}
     <Paper variant="outlined" sx={{ px: 1 }}><Tabs value={activeTab} onChange={(_event, value: number) => setActiveTab(value)} variant="scrollable" scrollButtons="auto">
-      <Tab label={`ต้องจัดการ (${actionableRows.length})`} />
+      <Tab label={`ต้องจัดการ (${actionableCount})`} />
       <Tab label={`บัญชีพักช่างรายวัน (${employeeMoneyRows.length})`} />
       <Tab label={`พร้อมปิดยอด / ปิดแล้ว (${readyToCloseRows.length})`} />
       <Tab label={`Reject / ต้องแก้ไข (${rejectedRows.length})`} />
@@ -428,14 +441,30 @@ export function AdvanceSettlementsPage() {
         <Typography variant="caption" color="text.secondary">กรองตามผู้รับผิดชอบปัจจุบัน</Typography>
         <Stack direction="row" spacing={0.75} sx={{ mt: 0.75, flexWrap: 'wrap', gap: 0.75 }}>
           {([
-            ['all', `ทั้งหมด ${actionableRows.length}`],
-            ['accounting', `รอบัญชี ${actionableRows.filter((row) => matchesDepartment(row, 'accounting')).length}`],
-            ['hr', `รอ HR ${actionableRows.filter((row) => matchesDepartment(row, 'hr')).length}`],
+            ['all', `ทั้งหมด ${actionableCount}`],
+            ['accounting', `รอบัญชี ${actionableRows.filter((row) => matchesDepartment(row, 'accounting')).length + wageWorkflowRows.length}`],
+            ['hr', `รอ HR ${actionableRows.filter((row) => matchesDepartment(row, 'hr')).length + wageWorkflowRows.length}`],
             ['project_inventory', `รอโครงการ/คลัง ${actionableRows.filter((row) => matchesDepartment(row, 'project_inventory')).length}`],
-            ['needs_information', `รอข้อมูล ${actionableRows.filter((row) => matchesDepartment(row, 'needs_information')).length}`],
+            ['needs_information', `รอข้อมูล ${actionableRows.filter((row) => matchesDepartment(row, 'needs_information')).length + wageWorkflowRows.filter((entry) => !entry.pay_period_id).length}`],
           ] as [DepartmentFilter, string][]).map(([value, label]) => <Chip key={value} clickable color={departmentFilter === value ? 'primary' : 'default'} variant={departmentFilter === value ? 'filled' : 'outlined'} label={label} onClick={() => setDepartmentFilter(value)} />)}
         </Stack>
       </Paper>
+      {visibleWageWorkflowRows.length > 0 && <Paper variant="outlined" sx={{ p: 1.5 }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' }, gap: 1, mb: 1 }}>
+          <Box><Typography sx={{ fontWeight: 800 }}>ค่าแรงตามเส้นเงินจริง</Typography><Typography variant="body2" color="text.secondary">อ่านจาก Ledger กลางและ Source Flow โดยตรง · หนึ่งธุรกรรมแสดงหนึ่งครั้ง</Typography></Box>
+          <Chip color="info" label={`${visibleWageWorkflowRows.length} เส้นเงิน · ${money(visibleWageWorkflowRows.reduce((sum, entry) => sum + Number(entry.amount), 0))}`} />
+        </Stack>
+        <StandardDataTable rows={visibleWageWorkflowRows} getRowId={(entry) => entry.id} getSearchText={(entry) => `${entry.employee_name} ${entry.received_by_name ?? ''} ${entry.bank_reference ?? ''}`} searchLabel="ค้นหาช่าง ผู้รับ หรือเลขอ้างอิง" minWidth={1260} onRowClick={(entry) => setSelectedEmployeeMoney(employeeMoneyRows.find((summary) => summary.employee_profile_id === entry.employee_profile_id) ?? null)} columns={[
+          { id: 'date', label: 'วันที่โอน', minWidth: 170, render: (entry) => entry.transfer_at ? dateTime(entry.transfer_at) : <Chip size="small" color="warning" label="วันที่อ่านไม่ได้" /> },
+          { id: 'employee', label: 'เจ้าของค่าแรง', minWidth: 190, render: (entry) => entry.employee_name },
+          { id: 'recipient', label: 'ผู้รับเงินจริง', minWidth: 190, render: (entry) => entry.received_by_name ?? entry.recipient_name ?? '-' },
+          { id: 'amount', label: 'ยอด', minWidth: 120, align: 'right', render: (entry) => money(Number(entry.amount)) },
+          { id: 'period', label: 'รอบค่าแรง', minWidth: 170, render: (entry) => entry.pay_period_name ?? <Chip size="small" color="warning" label="ยังไม่ผูกรอบ" /> },
+          { id: 'department', label: 'แผนกปัจจุบัน', minWidth: 150, render: () => 'บัญชี + HR' },
+          { id: 'next', label: 'ขั้นตอนถัดไป', minWidth: 220, render: (entry) => entry.pay_period_id ? 'HR ตรวจและยืนยันรอบค่าแรง' : 'ผูกรอบค่าแรงก่อนส่งตรวจ HR' },
+          { id: 'status', label: 'สถานะ', minWidth: 150, render: (entry) => <Chip size="small" color="warning" label={entry.pay_period_id ? 'รอ HR ตรวจ' : 'รอผูกรอบค่าแรง'} /> },
+        ]} />
+      </Paper>}
       <AdvanceTreeTable rows={filteredActionableRows} onOpenQueue={openReviewQueue} />
     </Stack>}
     {activeTab === 1 && <Paper variant="outlined" sx={{ p: 1.5 }}>
