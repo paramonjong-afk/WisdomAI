@@ -16,6 +16,11 @@ export type AdvanceHolderSlipEvidence = {
   lineageId?: string | null
   fundingSourceType?: string | null
   purposeType?: string | null
+  projectId?: string | null
+  siteId?: string | null
+  projectName?: string | null
+  siteName?: string | null
+  projectTaskStatus?: string | null
   routeStatus?: string | null
   nextDestination?: string | null
   canonicalPayerName?: string | null
@@ -40,6 +45,11 @@ export type AdvanceHolderSlipMatch = {
   lineageId: string | null
   fundingSourceType: string | null
   purposeType: string | null
+  projectId: string | null
+  siteId: string | null
+  projectName: string | null
+  siteName: string | null
+  projectTaskStatus: string | null
   routeStatus: string | null
   nextDestination: string | null
   canonicalPayerName: string | null
@@ -140,6 +150,11 @@ export function matchAdvanceHolderSlips(holders: AdvanceHolderMatchSource[], sli
         lineageId: slip.lineageId ?? null,
         fundingSourceType: slip.fundingSourceType ?? null,
         purposeType: slip.purposeType ?? null,
+        projectId: slip.projectId ?? null,
+        siteId: slip.siteId ?? null,
+        projectName: slip.projectName ?? null,
+        siteName: slip.siteName ?? null,
+        projectTaskStatus: slip.projectTaskStatus ?? null,
         routeStatus: slip.routeStatus ?? null,
         nextDestination: slip.nextDestination ?? null,
         canonicalPayerName: slip.canonicalPayerName ?? null,

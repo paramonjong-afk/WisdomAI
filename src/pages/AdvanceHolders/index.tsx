@@ -116,7 +116,7 @@ export function AdvanceHoldersPage() {
     if (!companyId || !holders.length) { setError('ต้องมีผู้ถือเงินที่พร้อมจับคู่ก่อนตรวจหาสลิป'); return }
     setScanning(true); setError('')
     const { data, error: scanError } = await supabase.from('transfer_slip_operational_truth_v1')
-      .select('transaction_id,item_id,evidence_sender_name,evidence_recipient_name,evidence_amount,evidence_transfer_at,truth_status,duplicate_of,lineage_id,funding_source_type,purpose_type,route_status,next_destination,canonical_payer_name,canonical_fund_holder_name,canonical_beneficiary_name')
+      .select('transaction_id,item_id,evidence_sender_name,evidence_recipient_name,evidence_amount,evidence_transfer_at,truth_status,duplicate_of,lineage_id,funding_source_type,purpose_type,project_id,site_id,route_status,next_destination,canonical_payer_name,canonical_fund_holder_name,canonical_beneficiary_name')
       .eq('company_id', companyId)
       .not('transaction_id', 'is', null)
       .order('evidence_transfer_at', { ascending: false, nullsFirst: false })
@@ -135,17 +135,40 @@ export function AdvanceHoldersPage() {
       lineageId: row.lineage_id,
       fundingSourceType: row.funding_source_type,
       purposeType: row.purpose_type,
+      projectId: row.project_id,
+      siteId: row.site_id,
       routeStatus: row.route_status,
       nextDestination: row.next_destination,
       canonicalPayerName: row.canonical_payer_name,
       canonicalFundHolderName: row.canonical_fund_holder_name,
       canonicalBeneficiaryName: row.canonical_beneficiary_name,
     })) satisfies AdvanceHolderSlipEvidence[]
-    setSlipMatches(matchAdvanceHolderSlips(holders.map((holder) => ({
+    const holderSources = holders.map((holder) => ({
       id: holder.id,
       displayName: holder.display_name,
       aliases: (holder.employee_advance_holder_aliases ?? []).map((item) => item.alias_name),
-    })), evidence))
+    }))
+    const preliminaryMatches = matchAdvanceHolderSlips(holderSources, evidence)
+    const projectIds = [...new Set(preliminaryMatches.map((item) => item.projectId).filter((id): id is string => Boolean(id)))]
+    const siteIds = [...new Set(preliminaryMatches.map((item) => item.siteId).filter((id): id is string => Boolean(id)))]
+    const itemIds = [...new Set(preliminaryMatches.map((item) => item.itemId).filter(Boolean))]
+    const [projectResult, siteResult, projectTaskResult] = await Promise.all([
+      projectIds.length ? supabase.from('projects').select('id,name').in('id', projectIds) : Promise.resolve({ data: [], error: null }),
+      siteIds.length ? supabase.from('project_sites').select('id,name').in('id', siteIds) : Promise.resolve({ data: [], error: null }),
+      itemIds.length ? supabase.from('document_flow_destination_tasks').select('item_id,status,updated_at').eq('company_id', companyId).eq('department', 'project').in('item_id', itemIds).order('updated_at', { ascending: false }) : Promise.resolve({ data: [], error: null }),
+    ])
+    const lookupError = projectResult.error ?? siteResult.error ?? projectTaskResult.error
+    if (lookupError) { setError(userError(lookupError)); return }
+    const projectNames = new Map((projectResult.data ?? []).map((row) => [row.id, row.name]))
+    const siteNames = new Map((siteResult.data ?? []).map((row) => [row.id, row.name]))
+    const projectTaskStatuses = new Map<string, string>()
+    for (const task of projectTaskResult.data ?? []) if (!projectTaskStatuses.has(task.item_id)) projectTaskStatuses.set(task.item_id, task.status)
+    setSlipMatches(preliminaryMatches.map((match) => ({
+      ...match,
+      projectName: match.projectId ? projectNames.get(match.projectId) ?? null : null,
+      siteName: match.siteId ? siteNames.get(match.siteId) ?? null : null,
+      projectTaskStatus: projectTaskStatuses.get(match.itemId) ?? null,
+    })))
     setHasScanned(true)
     if (showResults) setTab(1)
   }, [companyId, holders])
@@ -167,6 +190,8 @@ export function AdvanceHoldersPage() {
   const settlementLabel: Record<string, string> = { daily_wage: 'ค่าแรงรายวัน', materials: 'ค่าวัสดุ', travel: 'ค่าเดินทาง', other: 'อื่น ๆ', cash_return: 'คืนบริษัท', payroll_offset: 'หักเงินเดือน', employee_advance: 'เงินเบิกช่าง' }
   const truthLabel = (value: string) => ({ confirmed: 'ยืนยันแล้ว', needs_review: 'รอตรวจ', needs_information: 'รอข้อมูล', duplicate: 'รายการซ้ำ' }[value] ?? value)
   const purposeLabel = (value: string | null) => ({ payroll: 'เงินเดือน/ค่าแรง', advance_transfer: 'เงินสำรอง/เบิกล่วงหน้า', materials: 'ซื้อวัสดุ/อุปกรณ์', project_expense: 'ค่าใช้จ่ายโครงการ', vendor_payment: 'จ่ายผู้ขาย', subcontractor: 'ผู้รับเหมา', travel: 'เดินทาง/หน้างาน', bank_fee: 'ค่าธรรมเนียมธนาคาร', tax: 'ภาษี', refund_return: 'เงินคืน', inter_account: 'โอนระหว่างบัญชี', cash_withdrawal: 'ถอนเงินสด', general_expense: 'ค่าใช้จ่ายทั่วไป', onward_transfer: 'ส่งต่อผู้ถือเงิน', multi_allocation: 'หลายประเภท' }[value ?? ''] ?? 'ยังไม่สรุปประเภทเงิน')
+  const destinationLabel = (row: AdvanceHolderSlipMatch) => [row.projectName ? `โครงการ ${row.projectName}` : null, row.siteName ? `ไซต์ ${row.siteName}` : null].filter(Boolean).join(' · ')
+  const projectTaskLabel = (status: string | null) => ({ queued: 'รอโครงการตรวจต้นทุน', claimed: 'โครงการกำลังตรวจต้นทุน', completed: 'โครงการตรวจต้นทุนแล้ว', returned: 'โครงการส่งกลับแก้ไข', recheck_required: 'โครงการขอให้ตรวจใหม่', cancelled: 'ยกเลิกงานห้องโครงการ' }[status ?? ''] ?? (status ? `สถานะโครงการ: ${status}` : 'ยังไม่มีงานตรวจต้นทุนโครงการ'))
   const routeText = (row: AdvanceHolderSlipMatch) => advanceHolderMoneyRouteParties(row, row.holderName).join(' → ') || '-'
   const destinationPath = (destination: string | null) => destination === 'payroll' ? '/reports' : destination === 'advance_finance' ? '/advance-settlements' : '/accounting-documents'
   const movementReturnPath = (movement: AdvanceHolderSlipMatch) => `/advance-holders?holder_id=${encodeURIComponent(movement.holderId ?? '')}&transaction_id=${encodeURIComponent(movement.transactionId)}`
@@ -202,7 +227,7 @@ export function AdvanceHoldersPage() {
       { id: 'confirmed', label: 'คงเหลือยืนยัน', minWidth: 155, align: 'right', render: (row) => money(row.confirmedBalance) },
       { id: 'variance', label: 'ผลต่าง/รอตรวจ', minWidth: 180, align: 'right', render: (row) => row.reviewCount || row.variance ? <Stack spacing={0.5} sx={{ alignItems: 'flex-end' }}><Typography color={row.variance ? 'warning.main' : 'text.secondary'} sx={{ fontWeight: 800 }}>{money(row.variance)}</Typography><Chip size="small" color="warning" variant="outlined" label={`${row.reviewCount} รายการ · ${money(row.reviewAmount)}`} /></Stack> : '-' },
       { id: 'updated', label: 'อัปเดตล่าสุด', minWidth: 170, render: (row) => dateTime(row.lastActivityAt ?? row.updatedAt) },
-      { id: 'route', label: 'เส้นเงินล่าสุด', minWidth: 340, render: (row) => { const latest = row.movements[0]; return latest ? <Button size="small" sx={{ justifyContent: 'flex-start', textAlign: 'left' }} onClick={(event) => { event.stopPropagation(); openMovement(latest) }}>{routeText(latest)} → {purposeLabel(latest.purposeType)}</Button> : '-' } },
+      { id: 'route', label: 'เส้นเงินล่าสุด', minWidth: 460, render: (row) => { const latest = row.movements[0]; return latest ? <Button size="small" sx={{ justifyContent: 'flex-start', textAlign: 'left' }} onClick={(event) => { event.stopPropagation(); openMovement(latest) }}>{routeText(latest)} → {purposeLabel(latest.purposeType)}{destinationLabel(latest) ? ` → ${destinationLabel(latest)}` : ''}</Button> : '-' } },
       { id: 'active', label: 'สถานะ', minWidth: 150, render: (row) => <Chip size="small" color={!row.is_active ? 'default' : row.projectedBalance < 0 ? 'error' : row.reviewCount || row.variance ? 'warning' : 'success'} label={!row.is_active ? 'ปิดใช้งาน' : row.projectedBalance < 0 ? 'ยอดติดลบ' : row.reviewCount || row.variance ? 'รอตรวจ' : 'ข้อมูลตรงกัน'} /> },
       { id: 'detail', label: 'รายการ', minWidth: 100, render: (row) => <Button size="small" startIcon={<VisibilityOutlined />} onClick={(event) => { event.stopPropagation(); setSelected(row) }}>ดูรายการ</Button> },
     ]} /></Stack>}
@@ -217,7 +242,7 @@ export function AdvanceHoldersPage() {
         { id: 'recipient', label: 'ผู้รับตามสลิป', minWidth: 180, render: (row) => row.recipientName ?? '-' },
         { id: 'amount', label: 'ยอด', minWidth: 130, align: 'right', render: (row) => money(row.amount) },
         { id: 'purpose', label: 'ประเภทเงิน', minWidth: 190, render: (row) => row.routeResolved ? <Chip size="small" color="success" label={purposeLabel(row.purposeType)} /> : <Button size="small" color="warning" variant="contained" onClick={(event) => { event.stopPropagation(); openMovement(row, true) }}>แก้ประเภทเงิน</Button> },
-        { id: 'route', label: 'เส้นทางเงินจริง', minWidth: 300, render: (row) => <Stack spacing={0.5}><Typography variant="body2">{routeText(row)}</Typography><Typography variant="caption" color="text.secondary">{row.routeResolved ? `ถัดไป: ${row.nextDestination ?? 'ตามเส้นทางที่ยืนยัน'}` : 'คลิกแถวเพื่อสรุปประเภทและเส้นทาง'}</Typography></Stack> },
+        { id: 'route', label: 'เส้นทางเงินจริง', minWidth: 420, render: (row) => <Stack spacing={0.5}><Typography variant="body2">{routeText(row)} → {purposeLabel(row.purposeType)}{destinationLabel(row) ? ` → ${destinationLabel(row)}` : ''}</Typography><Typography variant="caption" color="text.secondary">{row.routeResolved ? (row.nextDestination === 'project' ? `ห้องโครงการ · ${projectTaskLabel(row.projectTaskStatus)}` : `ถัดไป: ${row.nextDestination ?? 'ตามเส้นทางที่ยืนยัน'}`) : 'คลิกแถวเพื่อสรุปประเภทและเส้นทาง'}</Typography></Stack> },
         { id: 'destination', label: 'เปิดห้อง', minWidth: 190, render: (row) => <Typography variant="body2" sx={{ fontWeight: 700 }}>{advanceHolderSlipDestination(row).label}</Typography> },
         { id: 'status', label: 'สถานะ', minWidth: 170, render: (row) => <Stack spacing={0.5}><Chip size="small" color={row.truthStatus === 'confirmed' ? 'success' : 'warning'} label={truthLabel(row.truthStatus)} />{!row.routeResolved && <Button size="small" color="warning" variant="outlined" onClick={(event) => { event.stopPropagation(); openMovement(row, true) }}>ตรวจเส้นเงิน</Button>}</Stack> },
       ]} />
@@ -239,7 +264,10 @@ export function AdvanceHoldersPage() {
             <Stack direction="row" useFlexGap spacing={0.5} sx={{ flexWrap: 'wrap', alignItems: 'center', mt: 1 }}>
               {routeParties.map((party, index) => <Fragment key={`${movement.id}:${party}:${index}`}>{index > 0 && <Typography>→</Typography>}<Button size="small" variant="outlined" onClick={() => openMovement(movement)}>{party}</Button></Fragment>)}
               <Typography>→</Typography><Button size="small" color={movement.routeResolved ? 'success' : 'warning'} variant="contained" onClick={() => openDestination(movement)}>{movement.routeResolved ? purposeLabel(movement.purposeType) : 'แก้จุดที่ขาด'}</Button>
+              {movement.projectName && <><Typography>→</Typography><Chip color="primary" variant="outlined" label={`โครงการ ${movement.projectName}`} /></>}
+              {movement.siteName && <><Typography>→</Typography><Chip color="primary" variant="outlined" label={`ไซต์ ${movement.siteName}`} /></>}
             </Stack>
+            {movement.nextDestination === 'project' && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>ปลายทาง: ห้องโครงการ · {projectTaskLabel(movement.projectTaskStatus)} · ยังไม่ใช่รายการบัญชี Final</Typography>}
             <Stack direction="row" spacing={1} sx={{ mt: 1 }}><Chip size="small" color={movement.reviewRequired ? 'warning' : 'success'} label={movement.reviewRequired ? 'ตรวจเส้นเงิน' : 'เส้นทึบ · ยืนยันแล้ว'} /><Button size="small" onClick={() => openMovement(movement)}>เปิดสลิป/Audit</Button></Stack>
           </Paper>
         }) : <Typography color="text.secondary">ยังไม่พบสลิปที่จับคู่ผู้ถือเงินรายนี้</Typography>}</Box>

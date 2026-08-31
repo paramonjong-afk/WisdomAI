@@ -36,6 +36,7 @@ for (const filter of ['มียอดคงเหลือ', 'รอตรว�
 assert.match(page, /scanSlips\(false\)/)
 assert.match(page, /เปิดสลิป\/Audit/)
 for (const action of ['แก้จุดที่ขาด', 'แก้ประเภทเงิน', 'ตรวจเส้นเงิน', 'return_to']) assert.match(page, new RegExp(action))
+for (const destinationDetail of ['project_id,site_id', 'โครงการ ', 'ไซต์ ', 'รอโครงการตรวจต้นทุน', 'ยังไม่ใช่รายการบัญชี Final']) assert.match(page, new RegExp(destinationDetail))
 assert.doesNotMatch(page, /รับเข้ารวม|จ่ายออกรวม|คงเหลือรวม|ยอดรอตรวจ/)
 
 console.log('advance holder realtime contract passed')
