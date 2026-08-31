@@ -47,7 +47,7 @@ export function AdvanceHoldersPage() {
     if (!companyId) return
     const [{ data: holderData, error: holderError }, { data: caseData, error: caseError }, { data: profileData, error: profileError }, { data: personData, error: personError }] = await Promise.all([
       supabase.from('employee_advance_holders').select('id,display_name,is_active,holder_profile_id,holder_person_id,employee_advance_holder_aliases(id,alias_name)').eq('company_id', companyId).order('display_name'),
-      supabase.from('employee_advance_cases').select('id,advance_number,holder_profile_id,holder_person_id,amount_received,status,updated_at,financial_transactions(transfer_at),employee_advance_settlement_items(expense_type,amount,approval_status)').eq('company_id', companyId).order('updated_at', { ascending: false }),
+      supabase.from('employee_advance_cases').select('id,advance_number,holder_profile_id,holder_person_id,amount_received,status,updated_at,financial_transactions(transfer_at),employee_advance_settlement_items!employee_advance_settlement_items_case_id_fkey(expense_type,amount,approval_status)').eq('company_id', companyId).order('updated_at', { ascending: false }),
       supabase.from('employee_employment_records').select('profile_id,profiles!employee_employment_records_profile_id_fkey(full_name)').eq('company_id', companyId).eq('employment_type', 'monthly').in('employment_status', ['active', 'probation', 'notice']),
       supabase.from('employee_people').select('id,full_name').eq('company_id', companyId).eq('employment_type', 'monthly').eq('employee_status', 'active'),
     ])
