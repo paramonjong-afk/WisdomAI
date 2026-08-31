@@ -48,7 +48,7 @@ export function matchAdvanceHolderSlips(holders: AdvanceHolderMatchSource[], sli
 
   const results: AdvanceHolderSlipMatch[] = []
   slips.forEach((slip) => {
-    if (slip.duplicateOf) return
+    if (slip.duplicateOf || slip.truthStatus === 'duplicate') return
     const parties = [
       { direction: 'outgoing' as const, name: slip.senderName },
       { direction: 'incoming' as const, name: slip.recipientName },
