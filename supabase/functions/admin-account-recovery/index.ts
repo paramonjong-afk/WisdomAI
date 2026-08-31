@@ -40,7 +40,7 @@ Deno.serve(async (request) => {
     const { error } = await authClient.auth.resetPasswordForEmail(target.email, { redirectTo: `${siteUrl}/reset-password` })
     if (error) return out({ error: error.message, error_code: 'RESET_EMAIL_FAILED' }, 400)
   } else return out({ error: 'ไม่รู้จัก action' }, 400)
-  const { error: auditError } = await admin.from('app_activity_logs').insert({ profile_id: auth.user.id, event_type: 'mutation_attempt', severity: 'critical', message: body.action === 'unban' ? 'Admin ยกเลิกการระงับบัญชี' : 'Admin ส่งลิงก์ตั้งรหัสผ่านใหม่', metadata: { module: 'admin-account-recovery', target_user_id: target.id, reason, redirect_origin: siteUrl } })
+  const { error: auditError } = await admin.from('app_activity_logs').insert({ profile_id: auth.user.id, event_type: 'mutation_attempt', severity: 'info', message: body.action === 'unban' ? 'Admin ยกเลิกการระงับบัญชี' : 'Admin ส่งลิงก์ตั้งรหัสผ่านใหม่', metadata: { module: 'admin-account-recovery', target_user_id: target.id, reason, redirect_origin: siteUrl } })
   if (auditError) return out({ error: 'ดำเนินการสำเร็จแต่บันทึก Audit ไม่สำเร็จ กรุณาแจ้งผู้ดูแลระบบ', error_code: 'AUDIT_WRITE_FAILED' }, 500)
   return out({ ok: true, userId: target.id, action: body.action })
 })

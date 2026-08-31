@@ -98,3 +98,4 @@ Flow นี้กำหนดเส้นทาง “ลืมรหัสผ�
 | Version | Date | Rationale | Impact | Migration | Verification | Rollback |
 | --- | --- | --- | --- | --- | --- | --- |
 | v1.2 | 31/8/2569 | หน้า Admin มี route แต่ไม่มีเมนู และ Action เดิมสร้าง recovery link โดยไม่ได้ส่งอีเมลจริง | เพิ่มเมนู Admin, status gate, ส่งอีเมลจริง, redirect ไป Production app และ Audit | ไม่มี | contract test, typecheck, lint, build, Edge Function smoke และ authenticated page smoke | revert frontend/function เป็น v1.1; Audit เดิมคงอยู่และไม่มีการแก้ข้อมูลผู้ใช้ย้อนหลัง |
+| v1.2.1 | 31/8/2569 | Audit severity ไม่ตรง constraint ทำให้ mutation สำเร็จแต่ตอบ 500 | ใช้ severity `info` และแสดง error body จาก Function | ไม่มี | ตรวจสถานะ Auth จริง, contract, typecheck, lint, build และ retry หน้า Admin | revert hotfix; สถานะ Auth ที่เปลี่ยนสำเร็จแล้วต้องตรวจและแก้ผ่าน Admin action เท่านั้น |
