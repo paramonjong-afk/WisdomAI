@@ -4,7 +4,7 @@ flowchart TD
   A0[Master Data ยืนยันคู่โอน\nCompany/Internal → Employee/Technician\nเติมเงินทดลองจ่าย] --> Q
   B -->|สลิปโอนเงิน| S0[Slip Analysis Gate<br/>ประเภทเงิน · คู่บัญชี · ยอด · เวลา · ซ้ำ]
   S0 -->|มีข้อมูลขาดหรือขัดแย้ง| Q[Accounting Pending Queue<br/>แสดงเฉพาะจุดที่ต้องยืนยัน/แก้]
-  S0 -->|ข้อมูลยืนยันครบ| SA[เตรียม Auto Route ตามประเภทเงิน]
+  S0 -->|ข้อมูลยืนยันครบ| SA[เตรียม Auto Route ตามประเภทเงิน<br/>เลขท้ายบัญชีตามที่สลิปแสดง 3–4 หลัก]
   SA --> Q
   Q --> Q0[Tab สลิปโอนเงินและตัวกรองสถานะ]
   Q0 --> B1[Drawer แท็บ 1 รูปต้นฉบับและ AI อ่านใหม่เฉพาะรายการ]
@@ -36,7 +36,8 @@ flowchart TD
   C -->|วัสดุหนึ่งหรือหลาย Allocation| M2[ปิด Accounting task และสร้าง Inventory + Project task]
   C -->|โครงการ/ผู้รับเหมา/เดินทาง| M3[ปิด Accounting task และสร้าง Project task]
   C -->|เงินเบิกล่วงหน้า/เงินสำรอง| M4{จับคู่ข้อมูล 2 ฝั่งได้หรือไม่}
-  M4 -->|ผู้โอนตรงผู้ถือเงิน 1 คน<br/>ผู้รับตรงพนักงาน 1 คน| M41[เชื่อมบัญชีทั้งสองฝั่ง<br/>บันทึก Alias + Party Link + Audit]
+  M4 -->|ผู้โอนตรงผู้ถือเงิน 1 คน<br/>ผู้รับตรงพนักงาน 1 คน| M40[บันทึก Draft Classification<br/>expense type = advance + Audit]
+  M40 --> M41[เชื่อมบัญชีทั้งสองฝั่ง<br/>บันทึก Alias + Party Link + Audit]
   M41 --> M5[สร้างบัญชีพักพนักงานและส่ง Advance Finance]
   M5 --> M51{มี Transaction projection เดิมหรือไม่}
   M51 -->|มี| M52[Reverse แถวเดิม เก็บ replacement + Audit]
@@ -77,6 +78,9 @@ flowchart TD
 - Master Data ต้องยืนยันคู่ผู้โอน–ผู้รับของสลิปเดียวกันก่อน: ผู้โอนเป็น `Company/Internal`, ผู้รับเป็น `Employee/Technician`, มี Master Bank Account แยกสองรายการและผูกกลับ Transaction/Message/Document เดิมผ่าน `master_data_transfer_party_reviews`. ถ้าฝั่งใดขาดชื่อหรือเลขท้ายบัญชีจะยังไม่สร้างผลสำเร็จครึ่งเดียวและไม่ส่งต่อบัญชี.
 - Drawer ของสลิปอ่านไฟล์จาก Source Contract กลางและ Timeline จาก `document_flow_events`; ไม่คัดลอกไฟล์ ไม่สร้าง destination task ใหม่ และไม่แก้ raw source
 - Drawer แบ่ง 2 แท็บ: รูปต้นฉบับ/AI และตรวจแก้ข้อมูล; AI อ่านซ้ำด้วย `item_id` เดียวเท่านั้นและรักษา Flow บัญชีเดิม ส่วน Admin บันทึกผ่าน `review_transfer_slip_details` ซึ่งตรวจสิทธิ์/ข้อมูลบังคับและเขียน before/after Audit แบบ idempotent
+- เลขบัญชีที่สลิปปกปิดเก็บเฉพาะเลขท้ายที่มองเห็นจริง 3–4 หลัก พร้อมชื่อและธนาคาร ห้ามเติมเลขที่สี่เอง; การจับคู่ที่กำกวมยังค้าง Accounting Review และข้อมูล OCR เดิมไม่ถูกเขียนทับ
+- `ตั้งต้นกองเงิน/เติมกองให้ผู้ถือเงิน` คือวัตถุประสงค์ `advance_transfer` ส่วนแหล่งเงินยังต้องเลือกตามข้อเท็จจริง (`company_account`, กองเดิม หรือเงินส่วนตัวสำรองก่อน)
+- ก่อนเชื่อมคู่ผู้โอน/ผู้รับ ระบบบันทึก Draft Classification ผ่าน `classify_transfer_slip_advance_draft_v1`; RPC ตรวจ Allocation, กันซ้ำด้วย event key และบันทึก Audit แล้วจึงเรียก Party Resolver
 - Failure/retry: AI ล้มเหลวไม่แก้ routing และกดลองใหม่รายการเดิมได้; draft/ขอข้อมูลเพิ่มทำให้ Accounting task เป็น `recheck_required`; ยืนยันไม่ได้หากชื่อผู้โอน ผู้รับ ยอด หรือวันเวลาไม่ครบ
 - ปลายทางแรกของสลิปยังเป็นบัญชีเสมอ ส่วนป้าย `เบิกล่วงหน้า`/`ค่าแรง` แสดงเส้นทางต่อเมื่อมี evidence ใน candidate department หรือข้อมูลธุรกรรมเท่านั้น
 - `transfer_slip_money_lineages` เก็บเส้นทางเงินที่ Admin ตรวจแล้วแยกจาก Raw/OCR: แหล่งเงิน, รหัสกองเงิน, ผู้ถือเงิน, ผู้จ่ายจริง, ผู้รับสุดท้าย, โครงการ/ไซต์, ยอดตั้งต้น/จ่าย/คืน/คงเหลือ และทอดการส่งทั้งหมด โดยมีหนึ่ง projection ต่อ Document Flow Item

@@ -11,7 +11,8 @@ flowchart LR
   MD -->|No| D
   D -->|No| R[Accounting review queue\nmark missing fields]
   R --> ML[Admin confirms Money Lineage\nsource fund + holder + multi-hop balance]
-  ML -->|Holder registry matched| ML2[สร้าง Root Lineage ของเงินสำรอง]
+  ML -->|ตั้งต้น/เติมกอง + Holder registry matched| ML1[บันทึก Advance Draft Classification + Audit]
+  ML1 --> ML2[สร้าง Root Lineage และ Advance ID ของผู้ถือเงิน]
   ML2 --> F
   ML -->|Missing or unmatched| R
   D -->|Yes| E{Recipient exact-matches\nactive monthly employee?}
@@ -67,6 +68,8 @@ Track money transferred to a monthly employee for company disbursements, then re
 - A holder may issue one or more technician sub-advances. Each is recorded as an approved `employee_advance` line on the parent and creates a child case; a parent cannot close until every child is closed. A technician closes only after their actual spending/return exactly offsets their child advance.
 - Automatic creation is allowed only for a non-duplicate/non-dismissed slip with an amount, complete recipient identity, AI confidence at least 90%, a registered account pair, an Accounting destination queue state, and one exact active **monthly** holder match in the same company. Name comparison removes Thai titles and whitespace and accepts a previously confirmed alias. It creates a `draft` advance case only; it never approves, closes, or posts an accounting journal.
 - Accounting confirmation now also records a Money Lineage projection. A reserve/advance transfer must identify its funding source and holder and reconcile the paid amount with the slip. Only a holder-registry match creates or links the draft Advance Case; otherwise the Accounting task remains `recheck_required` with a visible reason.
+- เงินเข้าที่เริ่มเป็นกองของผู้ถือเงินใช้วัตถุประสงค์ `ตั้งต้นกองเงิน/เติมกองให้ผู้ถือเงิน`; Advance ID เป็นของผู้ถือเงินปลายทางในหลักฐาน ส่วนผู้โอนและบัญชีต้นทางยังคงเป็น Source Fact แยกกัน และยังไม่ลงค่าใช้จ่ายจนมีหลักฐานการใช้เงินจริง
+- สลิปที่แสดงเลขท้ายเพียง 3 หลักยืนยันได้เมื่อชื่อ+ธนาคาร+เลขท้ายตรงเพียงหนึ่งรายการ หากยังไม่ผูกบัญชีให้ค้างรอตรวจโดยไม่สร้างเลขบัญชีสมมติ และเชื่อมหลักฐานเพิ่มเข้ารายการเดิมภายหลังพร้อม Audit
 - The advance funding slip is the Root Lineage. Each later wage/material/vendor/project/refund slip is a child through `parent_lineage_id` and inherits the same `root_lineage_id`; the child can contain multiple reviewed allocations without rewriting or copying the source slip.
 - An advance transfer/onward transfer must be exclusive to one funding slip. Actual wage/material/project uses are recorded from their own evidence slips and reconciled against the root, preventing the system from guessing future spending at the time money is handed to the custodian.
 - An exact daily-worker match does not create a standalone technician advance. A confirmed `payroll` or `advance_transfer` allocation creates an idempotent `employee_money_ledger_entries` holding entry linked to the original transaction/allocation. The entry starts as `matched_pending_review`; it does not create a Payroll Line, deduct wages, close an Advance, or change the source slip.

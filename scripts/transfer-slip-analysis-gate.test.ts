@@ -27,7 +27,7 @@ draft.allocations[0].purposeType = 'advance_transfer'
 draft.allocations[0].confidence = '.95'
 const ready = buildSlipAnalysisGate(row({ candidateDepartments: ['advance_finance'] }), draft)
 assert.equal(ready.purpose, 'advance_transfer')
-assert.equal(ready.destination, 'บัญชี → เงินสำรองจ่าย')
+assert.equal(ready.destination, 'บัญชี → กองเงินผู้ถือเงิน')
 assert.equal(ready.state, 'ready_to_confirm')
 assert.equal(ready.blockers.length, 0)
 

@@ -19,6 +19,8 @@ assert.equal(moneyAllocationTotal(draft.allocations), 10000)
 assert.deepEqual(moneyAllocationDestinations(draft.allocations), ['บัญชี → ต้นทุนโครงการ', 'บัญชี → HR/ค่าแรงรายวัน'])
 assert.deepEqual(moneyPurposeRoute('materials').departments, ['project'])
 assert.equal(moneyPurposeRoute('payroll', 'salary').route, 'บัญชี → HR/เงินเดือน')
+assert.equal(moneyPurposeRoute('advance_transfer').label, 'ตั้งต้น/เติมกองเงินผู้ถือเงิน')
+assert.equal(moneyPurposeRoute('advance_transfer').route, 'บัญชี → กองเงินผู้ถือเงิน')
 assert.deepEqual(legacyMoneyLineageScope(draft.allocations), { projectId: 'project-1', siteId: '' })
 draft.paidAmount = '9000'
 assert.match(validateMoneyLineage(draft, 10000).errors.join(' '), /ยอดจ่ายไม่ตรง/)
