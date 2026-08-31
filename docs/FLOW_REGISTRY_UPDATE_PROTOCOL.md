@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## 2026-08-31 — Admin Account Recovery Audit Hotfix v1.2.1
+
+- **เหตุผล:** การยกเลิกการระงับสำเร็จ แต่ Audit insert ใช้ severity `critical` ซึ่งผิด constraint (`info/warning/error`) ทำให้ Edge Function ตอบ 500 และหน้าเว็บแสดงเพียง non-2xx
+- **ผลกระทบ:** ใช้ severity `info` สำหรับ Admin recovery mutation และอ่าน error body จาก Edge Function เพื่อแสดงสาเหตุจริง
+- **Migration:** ไม่มี; Edge Function `admin-account-recovery` v3
+- **การตรวจสอบ:** ยืนยัน `auth.users.banned_until` เป็น null, contract/typecheck/lint/build และ authenticated retry
+- **Rollback:** deploy Function v2 และ revert frontend ได้; สถานะบัญชีที่ยกเลิกการระงับแล้วไม่ย้อนกลับอัตโนมัติ
+
 ## 2026-08-31 — Admin Account Recovery v1.2
 
 - **เหตุผล:** Route กู้คืนบัญชีถูก Merge แล้วแต่ไม่มีเมนู และ Action เดิมใช้ `generateLink` ซึ่งไม่ส่งอีเมลจริง

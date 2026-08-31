@@ -9,6 +9,19 @@ import { supabase } from '../../lib/supabase'
 type RecoveryAction = 'lookup' | 'unban' | 'send_reset'
 type RecoveryUser = { id: string; email?: string; banned_until?: string | null; last_sign_in_at?: string | null; is_banned: boolean }
 
+const readFunctionError = async (error: unknown, fallback?: string) => {
+  const context = (error as { context?: unknown } | null)?.context
+  if (context instanceof Response) {
+    try {
+      const payload = await context.clone().json() as { error?: string }
+      if (payload.error) return payload.error
+    } catch {
+      // Fall back to the SDK message when the response is not JSON.
+    }
+  }
+  return fallback ?? (error as { message?: string } | null)?.message ?? 'ดำเนินการไม่สำเร็จ'
+}
+
 export function AdminAccountRecoveryPage() {
   usePageTitle('กู้คืนบัญชีผู้ใช้')
   const [email, setEmail] = useState('')
@@ -39,7 +52,7 @@ export function AdminAccountRecoveryPage() {
     })
     setLoadingAction(null)
     if (error || data?.error) {
-      setErrorMessage(data?.error ?? error?.message ?? 'ดำเนินการไม่สำเร็จ')
+      setErrorMessage(await readFunctionError(error, data?.error))
       return
     }
     if (action === 'lookup') {
