@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { logAppEvent, updateAppStatus } from '../lib/telemetry'
 import { releaseHostLabel, releaseInfo, releaseLabel } from '../lib/releaseInfo'
+import { buildFreshLoginUrl } from '../utils/authRouting'
 import { navigationItems } from '../utils/navigation'
 import { isPlatformAdmin as resolvePlatformAdmin } from '../utils/permissions'
 import { NotificationBell } from '../components/NotificationBell'
@@ -30,7 +31,7 @@ export function TopBar() {
         await updateAppStatus(user.id, 'offline')
       }
       await signOut()
-      navigate('/login', { replace: true })
+      window.location.replace(buildFreshLoginUrl(window.location.origin, releaseInfo.revision))
     } finally {
       setSigningOut(false)
     }
