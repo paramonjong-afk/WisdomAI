@@ -1696,6 +1696,26 @@ flowchart LR
 - **Failure/Retry/Audit:** Realtime event รวมภายใน 600ms; polling ทุก 30 วินาทีและ focus/visibility refresh ชดเชย event ที่พลาด ส่วน Source/Lineage/Audit เดิมไม่เปลี่ยน
 - **Owner/Verification/Rollback:** Accounting/Platform; realtime contract, typecheck, lint, build และ authenticated Production smoke; rollback ปิด subscription/polling แล้วคงปุ่ม Refresh
 
+### Advance Holder Balance Projection v2.9 (31/8/2569)
+
+```mermaid
+flowchart LR
+  C[Advance Cases] --> G{cancelled / rejected?}
+  G -->|ใช่| X[ไม่นับยอด · แสดงยอดที่ตัดออก]
+  G -->|ไม่| B[ยอดรับ/ใช้/คืนที่บันทึกแล้ว]
+  S[Operational Truth] --> D{Transaction หรือ Evidence<br/>ลง Case/Settlement แล้ว?}
+  D -->|ใช่| N[แสดงเส้นทาง แต่ไม่คิดซ้ำ]
+  D -->|ยัง| R[รับเข้า/จ่ายออก Real-time]
+  B --> P[คงเหลือคาดการณ์]
+  R --> P
+  P --> U[/advance-holders + Drawer + Deep link/Audit]
+```
+
+- **Flow/Data:** ยอดบันทึกใช้เฉพาะ Case ที่ไม่ใช่ `cancelled/rejected`; รับเข้า Real-time นับเฉพาะ `advance_transfer/onward_transfer`; จ่ายออก Real-time หักจากยอดคาดการณ์ และใช้ Transaction ID/Evidence Item ID กันรายการที่ลงบัญชีแล้วไม่ให้คิดซ้ำ
+- **State/Permission/Audit:** เป็น company-scoped read projection ภายใต้ RLS เดิม ไม่แก้สถานะหรือข้อมูลเงินจริง; รายการยกเลิก/Reject และ Source/Audit ยังคงตรวจย้อนหลังได้
+- **Failure/Retry:** รายการขาดประเภทเงินหรือเส้นทางไม่เปลี่ยนยอดรับเข้าและคงอยู่ในรอตรวจ; Realtime/polling v2.8 โหลด projection ใหม่เมื่อแก้ข้อมูลต้นทาง
+- **Owner/Verification/Rollback:** Accounting/Platform; balance/realtime contract, legacy reconciliation, typecheck/lint/build และ authenticated Production smoke; rollback revert projection v2.9 โดยไม่ย้อนข้อมูลธุรกิจ
+
 ### Borrowed Starting Fund v2.7 (31/8/2569)
 
 ```mermaid
