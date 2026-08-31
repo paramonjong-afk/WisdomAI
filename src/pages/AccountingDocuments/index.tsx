@@ -159,6 +159,7 @@ export function AccountingDocumentsPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const requestedTransactionId = searchParams.get('transaction_id')
+  const requestedDocumentId = searchParams.get('document_id')
   const requestedSlipDetail = searchParams.get('detail')
   const requestedReturnTo = searchParams.get('return_to')
   const safeReturnTo = safeInternalReturnPath(requestedReturnTo)
@@ -196,6 +197,7 @@ export function AccountingDocumentsPage() {
   const [slipDateRepairLoading, setSlipDateRepairLoading] = useState(false)
   const slipRequestRef = useRef(0)
   const openedTransactionRef = useRef<string | null>(null)
+  const openedDocumentRef = useRef<string | null>(null)
   const [inventory, setInventory] = useState<InventoryBalance[]>([])
   const [projectInventory, setProjectInventory] = useState<ProjectInventoryBalance[]>([])
   const [productPrices, setProductPrices] = useState<ProductPriceReference[]>([])
@@ -1202,6 +1204,20 @@ export function AccountingDocumentsPage() {
     const timer = window.setTimeout(() => openDeepLinkedSlip(slip, requestedSlipDetail === 'review' ? 1 : 0), 0)
     return () => window.clearTimeout(timer)
   }, [pendingSlips, requestedSlipDetail, requestedTransactionId])
+
+  const openDeepLinkedDocument = useEffectEvent((document: AccountingDocument) => {
+    setAccountingQueueView('documents')
+    void openDocument(document)
+  })
+
+  useEffect(() => {
+    if (!requestedDocumentId || openedDocumentRef.current === requestedDocumentId) return
+    const document = documents.find((row) => row.id === requestedDocumentId)
+    if (!document) return
+    openedDocumentRef.current = requestedDocumentId
+    const timer = window.setTimeout(() => openDeepLinkedDocument(document), 0)
+    return () => window.clearTimeout(timer)
+  }, [documents, requestedDocumentId])
 
   const rereadSelectedSlip = async () => {
     if (!selectedSlip) return
