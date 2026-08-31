@@ -1327,6 +1327,8 @@
 - **Program Loop boundary:** ปลายทางภายในระบบใช้ห้องต้นทาง/ห้องงาน, HR หลัก และห้องเงินสำรองจ่ายตาม config กลาง โดยใช้ `request_code/event_key` เดิมทุกจุด; ห้อง 00 ของ Codex ไม่ใช่ Web Chat destination และต้องไม่มี duplicate notification ไปที่นั่น
 # Latest changes (23/08/2569)
 
+- Advance Holder Source Registry v2.2 (31/8/2569): `/advance-holders` derives received, approved paid/offset, returned, balance, pending and last-update values from existing company-scoped Advance Case/Settlement records while retaining its slip discovery tab. Negative balances are red and filterable, with a read-only transaction Drawer. No summary cards, migration or financial write are introduced; rollback removes the projection UI only.
+
 - Employee Preboarding Visible List v2.4 (25/8/2569): `/employees` ย้ายทะเบียนที่สร้างแล้วไปแสดงด้านล่างในกลุ่ม “พนักงานเตรียมเริ่มงาน”, แสดงข้อมูลบังคับที่ขาดเป็นสีแดง และสร้างบัญชีจาก Employee Person เดิมผ่าน company/name/duplicate gate; Edge Function ผูก Auth/Profile/Membership/Employment กลับ `employee_people.profile_id`, บันทึก Audit และ rollback สิ่งที่สร้างในรอบเมื่อผิดพลาด โดยยังคง Intake/Document ต้นฉบับ
 - Employee Preboarding Visible List v2.4.1 (25/8/2569): กลุ่มเตรียมเริ่มงานอ่านเฉพาะ `employee_people.profile_id is null`; เมื่อสร้างและผูกบัญชีสำเร็จ รายการจะหายจากกลุ่มทันทีและปรากฏในตารางพนักงานหลักเพียงรายการเดียว จึงไม่มีปุ่มสร้างบัญชีซ้ำ
 
