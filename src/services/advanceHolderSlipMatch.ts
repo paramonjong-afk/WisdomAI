@@ -13,6 +13,14 @@ export type AdvanceHolderSlipEvidence = {
   transferAt: string | null
   truthStatus: string
   duplicateOf: string | null
+  lineageId?: string | null
+  fundingSourceType?: string | null
+  purposeType?: string | null
+  routeStatus?: string | null
+  nextDestination?: string | null
+  canonicalPayerName?: string | null
+  canonicalFundHolderName?: string | null
+  canonicalBeneficiaryName?: string | null
 }
 
 export type AdvanceHolderSlipMatch = {
@@ -29,6 +37,25 @@ export type AdvanceHolderSlipMatch = {
   truthStatus: string
   matchStatus: 'exact' | 'ambiguous'
   matchedName: string
+  lineageId: string | null
+  fundingSourceType: string | null
+  purposeType: string | null
+  routeStatus: string | null
+  nextDestination: string | null
+  canonicalPayerName: string | null
+  canonicalFundHolderName: string | null
+  canonicalBeneficiaryName: string | null
+  routeResolved: boolean
+}
+
+export function hasResolvedMoneyRoute(slip: AdvanceHolderSlipEvidence) {
+  return Boolean(
+    slip.lineageId
+    && slip.purposeType
+    && slip.purposeType !== 'unknown'
+    && slip.routeStatus
+    && !['draft', 'needs_information'].includes(slip.routeStatus),
+  )
 }
 
 export function normalizeAdvanceHolderName(value: string | null | undefined) {
@@ -73,6 +100,15 @@ export function matchAdvanceHolderSlips(holders: AdvanceHolderMatchSource[], sli
         truthStatus: slip.truthStatus,
         matchStatus: exact ? 'exact' : 'ambiguous',
         matchedName: name ?? '',
+        lineageId: slip.lineageId ?? null,
+        fundingSourceType: slip.fundingSourceType ?? null,
+        purposeType: slip.purposeType ?? null,
+        routeStatus: slip.routeStatus ?? null,
+        nextDestination: slip.nextDestination ?? null,
+        canonicalPayerName: slip.canonicalPayerName ?? null,
+        canonicalFundHolderName: slip.canonicalFundHolderName ?? null,
+        canonicalBeneficiaryName: slip.canonicalBeneficiaryName ?? null,
+        routeResolved: hasResolvedMoneyRoute(slip),
       })
     })
   })

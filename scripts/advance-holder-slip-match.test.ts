@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
-import { matchAdvanceHolderSlips, normalizeAdvanceHolderName } from '../src/services/advanceHolderSlipMatch.ts'
+import { hasResolvedMoneyRoute, matchAdvanceHolderSlips, normalizeAdvanceHolderName } from '../src/services/advanceHolderSlipMatch.ts'
 
 assert.equal(normalizeAdvanceHolderName('นาย ทวีชัย ภรามร'), 'ทวีชัยภรามร')
 assert.equal(normalizeAdvanceHolderName('น.ส. จิรภรณ์ พริกสุวรรณ์'), 'จิรภรณ์พริกสุวรรณ์')
+assert.equal(hasResolvedMoneyRoute({ transactionId: 'route-1', itemId: 'item-route-1', senderName: 'บริษัท', recipientName: 'ผู้ถือเงิน', amount: 100, transferAt: null, truthStatus: 'confirmed', duplicateOf: null, lineageId: 'lineage-1', purposeType: 'advance_transfer', routeStatus: 'routed', nextDestination: 'advance_finance' }), true)
+assert.equal(hasResolvedMoneyRoute({ transactionId: 'route-2', itemId: 'item-route-2', senderName: 'บริษัท', recipientName: 'ผู้ถือเงิน', amount: 100, transferAt: null, truthStatus: 'needs_review', duplicateOf: null, lineageId: null, purposeType: 'unknown', routeStatus: 'draft', nextDestination: null }), false)
 
 const holders = [
   { id: 'holder-1', displayName: 'ทวีชัย ภรามร', aliases: ['นาย ทวีชัย ภรามร', 'ทวีศักดิ์ ภรามร'] },

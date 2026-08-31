@@ -35,6 +35,7 @@ export function AdvanceHoldersPage() {
   const [slipMatches, setSlipMatches] = useState<AdvanceHolderSlipMatch[]>([])
   const [scanning, setScanning] = useState(false)
   const [hasScanned, setHasScanned] = useState(false)
+  const [routeFilter, setRouteFilter] = useState<'all' | 'resolved' | 'unresolved'>('all')
 
   const load = useCallback(async () => {
     if (!companyId) return
@@ -81,11 +82,11 @@ export function AdvanceHoldersPage() {
     setAlias(''); await load()
   }
 
-  const scanSlips = async () => {
+  const scanSlips = useCallback(async () => {
     if (!companyId || !holders.length) { setError('ต้องมีผู้ถือเงินที่พร้อมจับคู่ก่อนตรวจหาสลิป'); return }
     setScanning(true); setError('')
     const { data, error: scanError } = await supabase.from('transfer_slip_operational_truth_v1')
-      .select('transaction_id,item_id,evidence_sender_name,evidence_recipient_name,evidence_amount,evidence_transfer_at,truth_status,duplicate_of')
+      .select('transaction_id,item_id,evidence_sender_name,evidence_recipient_name,evidence_amount,evidence_transfer_at,truth_status,duplicate_of,lineage_id,funding_source_type,purpose_type,route_status,next_destination,canonical_payer_name,canonical_fund_holder_name,canonical_beneficiary_name')
       .eq('company_id', companyId)
       .not('transaction_id', 'is', null)
       .order('evidence_transfer_at', { ascending: false, nullsFirst: false })
@@ -101,6 +102,14 @@ export function AdvanceHoldersPage() {
       transferAt: row.evidence_transfer_at,
       truthStatus: row.truth_status,
       duplicateOf: row.duplicate_of,
+      lineageId: row.lineage_id,
+      fundingSourceType: row.funding_source_type,
+      purposeType: row.purpose_type,
+      routeStatus: row.route_status,
+      nextDestination: row.next_destination,
+      canonicalPayerName: row.canonical_payer_name,
+      canonicalFundHolderName: row.canonical_fund_holder_name,
+      canonicalBeneficiaryName: row.canonical_beneficiary_name,
     })) satisfies AdvanceHolderSlipEvidence[]
     setSlipMatches(matchAdvanceHolderSlips(holders.map((holder) => ({
       id: holder.id,
@@ -109,16 +118,31 @@ export function AdvanceHoldersPage() {
     })), evidence))
     setHasScanned(true)
     setTab(1)
-  }
+  }, [companyId, holders])
+
+  useEffect(() => {
+    if (!holders.length || hasScanned) return
+    const timer = window.setTimeout(() => void scanSlips(), 0)
+    return () => window.clearTimeout(timer)
+  }, [hasScanned, holders.length, scanSlips])
 
   const incomingCount = slipMatches.filter((item) => item.direction === 'incoming').length
   const outgoingCount = slipMatches.filter((item) => item.direction === 'outgoing').length
   const ambiguousCount = slipMatches.filter((item) => item.matchStatus === 'ambiguous').length
+  const resolvedCount = slipMatches.filter((item) => item.routeResolved).length
+  const unresolvedCount = slipMatches.length - resolvedCount
+  const visibleSlipMatches = slipMatches.filter((item) => routeFilter === 'all' || (routeFilter === 'resolved' ? item.routeResolved : !item.routeResolved))
   const money = (value: number | null) => value == null ? '-' : new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(value)
   const truthLabel = (value: string) => ({ confirmed: 'ยืนยันแล้ว', needs_review: 'รอตรวจ', needs_information: 'รอข้อมูล', duplicate: 'รายการซ้ำ' }[value] ?? value)
+  const purposeLabel = (value: string | null) => ({ payroll: 'เงินเดือน/ค่าแรง', advance_transfer: 'เงินสำรอง/เบิกล่วงหน้า', materials: 'ซื้อวัสดุ/อุปกรณ์', project_expense: 'ค่าใช้จ่ายโครงการ', vendor_payment: 'จ่ายผู้ขาย', subcontractor: 'ผู้รับเหมา', travel: 'เดินทาง/หน้างาน', bank_fee: 'ค่าธรรมเนียมธนาคาร', tax: 'ภาษี', refund_return: 'เงินคืน', inter_account: 'โอนระหว่างบัญชี', cash_withdrawal: 'ถอนเงินสด', general_expense: 'ค่าใช้จ่ายทั่วไป', onward_transfer: 'ส่งต่อผู้ถือเงิน', multi_allocation: 'หลายประเภท' }[value ?? ''] ?? 'ยังไม่สรุปประเภทเงิน')
+  const routeText = (row: AdvanceHolderSlipMatch) => {
+    const parties = [row.canonicalPayerName ?? row.senderName, row.canonicalFundHolderName, row.canonicalBeneficiaryName ?? row.recipientName]
+      .filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index)
+    return parties.join(' → ') || '-'
+  }
 
   return <Stack spacing={2}>
-    <PageHeader title="ทะเบียนผู้ถือเงินสำรองจ่าย" description="เพิ่มเฉพาะชื่อผู้ถือเงิน ระบบจะอ่านข้อมูลบัญชีจากสลิป และเรียนรู้ชื่อภาษาอังกฤษ/ชื่อสะกดต่างกันเมื่อ Admin ยืนยันครั้งแรก" action={<Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}><Button startIcon={<RefreshOutlined />} onClick={() => void load()}>รีเฟรช</Button><Button disabled={scanning || !holders.length} startIcon={scanning ? <CircularProgress size={16} /> : <FindInPageOutlined />} onClick={() => void scanSlips()}>ตรวจหาสลิป รับ/โอนออก</Button><Button variant="contained" startIcon={<AddOutlined />} onClick={() => setOpen(true)}>เพิ่มผู้ถือเงิน</Button></Stack>} />
+    <PageHeader title="ทะเบียนผู้ถือเงินสำรองจ่าย" description="ระบบค้นสลิปของผู้ถือเงินอัตโนมัติ แสดงทั้งการรับโอน การโอนออก และเส้นทางเงินที่ยืนยันแล้ว" action={<Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}><Button startIcon={<RefreshOutlined />} onClick={() => void load()}>รีเฟรช</Button><Button disabled={scanning || !holders.length} startIcon={scanning ? <CircularProgress size={16} /> : <FindInPageOutlined />} onClick={() => void scanSlips()}>ตรวจใหม่</Button><Button variant="contained" startIcon={<AddOutlined />} onClick={() => setOpen(true)}>เพิ่มผู้ถือเงิน</Button></Stack>} />
     {error && <Alert severity="error">{error}</Alert>}
     <Paper variant="outlined"><Tabs value={tab} onChange={(_event, value: number) => setTab(value)} variant="scrollable" scrollButtons="auto"><Tab label={`ทะเบียนผู้ถือเงิน (${holders.length})`} /><Tab label={`สลิปที่พบ (${slipMatches.length})`} /></Tabs></Paper>
     {tab === 0 && <StandardDataTable rows={holders} getRowId={(row) => row.id} onRowClick={setSelected} getSearchText={(row) => `${row.display_name} ${(row.employee_advance_holder_aliases ?? []).map((item) => item.alias_name).join(' ')}`} searchLabel="ค้นหาชื่อผู้ถือเงินหรือชื่อ alias" emptyText="ยังไม่มีผู้ถือเงินสำรองจ่ายที่ลงทะเบียน" minWidth={650} columns={[
@@ -127,16 +151,18 @@ export function AdvanceHoldersPage() {
       { id: 'active', label: 'สถานะ', minWidth: 130, render: (row) => <Chip size="small" color={row.is_active ? 'success' : 'default'} label={row.is_active ? 'พร้อมจับคู่' : 'ปิดใช้งาน'} /> },
     ]} />}
     {tab === 1 && <Stack spacing={1.5}>
-      <Alert severity="info">ค้นจากชื่อหลักและ alias แบบตรงกันในสลิปกลาง รายการนี้เป็นผลค้นหาเท่านั้น ไม่สร้างข้อมูลหรือแก้สลิปต้นฉบับ</Alert>
-      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}><Chip color="success" label={`รับโอน ${incomingCount}`} /><Chip color="primary" label={`โอนออก ${outgoingCount}`} />{ambiguousCount > 0 && <Chip color="warning" label={`ต้องยืนยัน ${ambiguousCount}`} />}</Stack>
-      <StandardDataTable rows={slipMatches} getRowId={(row) => row.id} onRowClick={(row) => navigate(`/accounting-documents?transaction_id=${encodeURIComponent(row.transactionId)}`)} getSearchText={(row) => `${row.holderName} ${row.senderName ?? ''} ${row.recipientName ?? ''} ${row.transactionId}`} searchLabel="ค้นหาผู้ถือเงิน ผู้โอน ผู้รับ หรือ Transaction ID" emptyText={hasScanned ? 'ไม่พบสลิปที่ชื่อผู้ถือเงินหรือ alias ตรงกัน' : 'กดตรวจหาสลิป เพื่อค้นทั้งรายการรับโอนและโอนออก'} minWidth={1050} columns={[
+      <Alert severity={unresolvedCount ? 'warning' : 'info'}>ระบบค้นให้อัตโนมัติจากชื่อหลักและ alias · รายการที่ยังไม่สรุปให้คลิกแถวเพื่อแก้ประเภทและเส้นทางในสลิปต้นฉบับ</Alert>
+      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}><Button size="small" variant={routeFilter === 'all' ? 'contained' : 'outlined'} onClick={() => setRouteFilter('all')}>ทั้งหมด {slipMatches.length}</Button><Button size="small" color="success" variant={routeFilter === 'resolved' ? 'contained' : 'outlined'} onClick={() => setRouteFilter('resolved')}>มีเส้นทางแล้ว {resolvedCount}</Button><Button size="small" color="warning" variant={routeFilter === 'unresolved' ? 'contained' : 'outlined'} onClick={() => setRouteFilter('unresolved')}>ยังไม่สรุป {unresolvedCount}</Button><Chip color="success" label={`รับโอน ${incomingCount}`} /><Chip color="primary" label={`โอนออก ${outgoingCount}`} />{ambiguousCount > 0 && <Chip color="warning" label={`ต้องยืนยันชื่อ ${ambiguousCount}`} />}</Stack>
+      <StandardDataTable rows={visibleSlipMatches} getRowId={(row) => row.id} onRowClick={(row) => navigate(`/accounting-documents?transaction_id=${encodeURIComponent(row.transactionId)}`)} getSearchText={(row) => `${row.holderName} ${row.senderName ?? ''} ${row.recipientName ?? ''} ${row.transactionId} ${purposeLabel(row.purposeType)} ${routeText(row)}`} searchLabel="ค้นหาผู้ถือเงิน ผู้โอน ผู้รับ ประเภทเงิน หรือ Transaction ID" emptyText={hasScanned ? 'ไม่พบสลิปตามตัวกรองนี้' : 'ระบบกำลังตรวจหาสลิป'} minWidth={1450} columns={[
         { id: 'date', label: 'วันที่โอน', minWidth: 150, render: (row) => row.transferAt ? new Date(row.transferAt).toLocaleString('th-TH') : '-' },
         { id: 'holder', label: 'ผู้ถือเงินที่พบ', minWidth: 180, render: (row) => <Stack spacing={0.5}><Typography variant="body2">{row.holderName}</Typography>{row.matchStatus === 'ambiguous' && <Chip size="small" color="warning" label="ต้องยืนยันผู้ถือเงิน" />}</Stack> },
         { id: 'direction', label: 'ทิศทาง', minWidth: 120, render: (row) => <Chip size="small" color={row.direction === 'incoming' ? 'success' : 'primary'} label={row.direction === 'incoming' ? 'รับโอน' : 'โอนออก'} /> },
         { id: 'sender', label: 'ผู้โอนตามสลิป', minWidth: 180, render: (row) => row.senderName ?? '-' },
         { id: 'recipient', label: 'ผู้รับตามสลิป', minWidth: 180, render: (row) => row.recipientName ?? '-' },
         { id: 'amount', label: 'ยอด', minWidth: 130, align: 'right', render: (row) => money(row.amount) },
-        { id: 'status', label: 'สถานะสลิป', minWidth: 130, render: (row) => <Chip size="small" color={row.truthStatus === 'confirmed' ? 'success' : 'warning'} label={truthLabel(row.truthStatus)} /> },
+        { id: 'purpose', label: 'ประเภทเงิน', minWidth: 190, render: (row) => <Chip size="small" color={row.routeResolved ? 'success' : 'warning'} label={purposeLabel(row.purposeType)} /> },
+        { id: 'route', label: 'เส้นทางเงินจริง', minWidth: 300, render: (row) => <Stack spacing={0.5}><Typography variant="body2">{routeText(row)}</Typography><Typography variant="caption" color="text.secondary">{row.routeResolved ? `ถัดไป: ${row.nextDestination ?? 'ตามเส้นทางที่ยืนยัน'}` : 'คลิกแถวเพื่อสรุปประเภทและเส้นทาง'}</Typography></Stack> },
+        { id: 'status', label: 'สถานะ', minWidth: 150, render: (row) => <Stack spacing={0.5}><Chip size="small" color={row.truthStatus === 'confirmed' ? 'success' : 'warning'} label={truthLabel(row.truthStatus)} />{!row.routeResolved && <Chip size="small" color="warning" variant="outlined" label="ยังไม่สรุปเส้นทาง" />}</Stack> },
       ]} />
     </Stack>}
     <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm"><DialogTitle>เพิ่มผู้ถือเงินสำรองจ่าย</DialogTitle><DialogContent><Stack spacing={2} sx={{ pt: 1 }}><TextField select label="ชื่อพนักงานรายเดือน" value={form.candidate} onChange={(event) => setForm({ ...form, candidate: event.target.value })}>{candidates.map((candidate) => <MenuItem key={`${candidate.kind}:${candidate.id}`} value={`${candidate.kind}:${candidate.id}`}>{candidate.name}</MenuItem>)}</TextField><TextField select label="สถานะ" value={form.active} onChange={(event) => setForm({ ...form, active: event.target.value })}><MenuItem value="true">พร้อมจับคู่</MenuItem><MenuItem value="false">ปิดใช้งาน</MenuItem></TextField></Stack></DialogContent><DialogActions><Button onClick={() => setOpen(false)}>ยกเลิก</Button><Button disabled={saving || !form.candidate} variant="contained" onClick={() => void saveHolder()}>บันทึกชื่อ</Button></DialogActions></Dialog>
