@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { logAppEvent, updateAppStatus } from '../lib/telemetry'
 import { releaseHostLabel, releaseInfo, releaseLabel } from '../lib/releaseInfo'
+import { brandAssets } from '../lib/brandAssets'
 import { buildFreshLoginUrl } from '../utils/authRouting'
 import { navigationItems } from '../utils/navigation'
 import { isPlatformAdmin as resolvePlatformAdmin } from '../utils/permissions'
@@ -69,14 +70,12 @@ export function TopBar() {
           >
             <Box
               component="img"
-              src="/branding/wisdom-ai-app-icon-192.png"
+              src={brandAssets.transparentMark}
               alt=""
               sx={{
-                width: 40,
-                height: 40,
+                width: 44,
+                height: 'auto',
                 display: 'block',
-                borderRadius: 2,
-                boxShadow: '0 5px 14px rgba(22, 37, 68, .18)',
               }}
             />
           </Box>

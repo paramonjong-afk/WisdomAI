@@ -66,7 +66,7 @@ function NavigationContent() {
     <Box sx={{ width:sidebarWidth,height:'100%',display:'flex',flexDirection:'column',bgcolor:'#333333',color:'common.white' }}>
       <Toolbar sx={{ px:3,minHeight:'64px!important' }}>
         <Typography variant="h6" sx={{ fontWeight:900,letterSpacing:'-0.5px' }}>
-          WisdomAI
+          Wisdom Power
         </Typography>
       </Toolbar>
       <Typography variant="overline" sx={{ px:3,color:'#FABFB2',letterSpacing:'.08em' }}>
