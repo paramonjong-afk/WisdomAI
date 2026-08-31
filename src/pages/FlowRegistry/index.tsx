@@ -47,9 +47,9 @@ const workforceFlows = [
 const accountingFlows = [
   {
     title: 'ค่าใช้จ่ายขาย → ตรวจอนุมัติ → บัญชีร่าง',
-    version: 'Sales Expense Accounting v1.0 · 31/8/2569',
+    version: 'Sales Expense Accounting v1.1 · 31/8/2569',
     icon: <PaymentsOutlinedIcon color="primary" />,
-    summary: 'บันทึกยอดก่อน VAT พร้อมผู้ขาย/เอกสาร → ผู้ตรวจคนที่สองอนุมัติ → สร้าง Debit/Credit ร่างแบบสมดุล → ส่งฝ่ายบัญชีตรวจ Posting',
+    summary: 'บันทึกยอดก่อน VAT พร้อมผู้ขาย/เอกสาร → ผู้ตรวจคนที่สองอนุมัติ → ตรวจว่าไม่มีบัญชีร่างเดิม → สร้าง Debit/Credit ร่างแบบสมดุล → ส่งฝ่ายบัญชีตรวจ Posting',
     bullets: ['อ่านจาก docs/SALES_EXPENSE_ACCOUNTING_FLOW.md', 'รายการเดิมถูกเก็บเป็น legacy_unverified และต้องตรวจฐานยอดใหม่ ไม่ลบประวัติ', 'UI บันทึกและเปลี่ยนสถานะผ่าน RPC เท่านั้น พร้อม idempotency key และ old/new Audit', 'สร้าง Accounting Draft เท่านั้น ไม่ปิดยอด ไม่จ่ายเงิน และไม่ Posting อัตโนมัติ'],
     path: '/project-controls',
     action: 'ไปตรวจค่าใช้จ่ายขาย',

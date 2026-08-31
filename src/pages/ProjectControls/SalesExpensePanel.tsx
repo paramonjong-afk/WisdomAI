@@ -319,7 +319,10 @@ export function SalesExpensePanel({ projects, contextProjectId }: { projects: Pr
         closeDrawer()
       }
     } catch (caught) {
-      setError(userError(caught))
+      const message = userError(caught)
+      setError(message.includes('sales_expense_existing_accounting_draft_requires_review')
+        ? 'เอกสารนี้มีรายการบัญชีร่างเดิม ระบบจะไม่ลบหรือเขียนทับ กรุณาให้ฝ่ายบัญชีตรวจและจัดการรายการเดิมก่อน'
+        : message)
     } finally {
       setSaving(false)
     }

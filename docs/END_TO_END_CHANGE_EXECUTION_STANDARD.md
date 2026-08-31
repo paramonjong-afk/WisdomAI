@@ -17,7 +17,7 @@ flowchart LR
 
 ## Flow Registry Change Log
 
-- `31/8/2569 · Sales Expense Accounting v1.0`: ค่าใช้จ่ายขายเปลี่ยนจาก direct table mutation เป็น Draft → Maker-Checker → Accounting Draft ผ่าน company-scoped RPC, idempotency และ append-only Audit; รายการเดิมคงอยู่เป็น `legacy_unverified` จนกว่าจะตรวจฐานยอดใหม่ รายละเอียดที่ `docs/SALES_EXPENSE_ACCOUNTING_FLOW.md`
+- `31/8/2569 · Sales Expense Accounting v1.1`: ค่าใช้จ่ายขายเปลี่ยนจาก direct table mutation เป็น Draft → Maker-Checker → Accounting Draft ผ่าน company-scoped RPC, idempotency และ append-only Audit; รายการเดิมคงอยู่เป็น `legacy_unverified` และ draft lines เดิมจะถูก block ให้ฝ่ายบัญชีตรวจแทนการลบหรือเขียนทับ รายละเอียดที่ `docs/SALES_EXPENSE_ACCOUNTING_FLOW.md`
 
 ## วัตถุประสงค์
 

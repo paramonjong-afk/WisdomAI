@@ -503,10 +503,12 @@ begin
         and entry.source_sales_expense_id <> before_row.id
     ) then raise exception 'sales_expense_document_has_other_accounting_draft'; end if;
 
-    -- Confirmed documents may already have generic draft lines. They are safe to
-    -- reclassify only while unposted and not owned by another sales expense.
-    delete from public.accounting_draft_entries entry
-    where entry.document_id = document_row.id;
+    -- Never replace accounting work implicitly. Existing draft lines require an
+    -- accountant to resolve the document before this workflow can create lines.
+    if exists(
+      select 1 from public.accounting_draft_entries entry
+      where entry.document_id = document_row.id
+    ) then raise exception 'sales_expense_existing_accounting_draft_requires_review'; end if;
     insert into public.accounting_draft_entries(
       document_id, line_number, account_code, account_name, debit, credit,
       project_id, description, source_sales_expense_id

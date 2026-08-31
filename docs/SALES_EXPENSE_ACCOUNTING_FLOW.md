@@ -31,7 +31,7 @@ flowchart LR
 | Draft | Project, date, expense category, account category, description, payee/vendor, base amount | Admin/Manager ผู้จัดทำ | `sales_expenses.status=draft` |
 | Submit | Evidence reference, Accounting Document หรือ Advance ID อย่างน้อยหนึ่งรายการ; tax invoice เมื่อมี VAT | Maker | `pending`, submit Audit |
 | Review | Reviewer คนละคนกับผู้ส่งตรวจ | Checker/Admin/Manager | `approved` หรือ `rejected` พร้อมเหตุผล |
-| Accounting draft | Accounting Document สถานะ confirmed และยอดตรงใน tolerance 1 บาท | Accounting reviewer | balanced `accounting_draft_entries`, `status=accounting_draft` |
+| Accounting draft | Accounting Document สถานะ confirmed, ยอดตรงใน tolerance 1 บาท และไม่มี draft lines เดิม | Accounting reviewer | balanced `accounting_draft_entries`, `status=accounting_draft` |
 | Posting/payment | การตรวจและ Posting ใน Accounting Documents | ฝ่ายบัญชีตาม Flow เดิม | อยู่นอก RPC นี้; Flow นี้ไม่ Posting หรือจ่ายเงินอัตโนมัติ |
 
 ## Accounting Mapping
@@ -53,6 +53,7 @@ flowchart LR
 - `pending`: รอผู้ตรวจคนที่สอง; maker อนุมัติรายการตัวเองไม่ได้
 - `approved`: ผ่านการตรวจ แต่ยังไม่ใช่รายการบัญชีหรือการจ่ายเงิน
 - `accounting_draft`: สร้างบรรทัดบัญชีร่างแบบสมดุลแล้ว รอฝ่ายบัญชีตรวจ Posting
+- หาก Accounting Document มี draft lines เดิม RPC จะหยุดด้วย `sales_expense_existing_accounting_draft_requires_review` โดยไม่ลบหรือเขียนทับข้อมูล ฝ่ายบัญชีต้องตรวจรายการเดิมก่อน
 - `rejected`: เปิดแก้ร่างได้ โดยรักษาเหตุผลและ Version เดิมใน Audit
 - `paid`: สถานะข้อมูลเดิม ระบบใหม่ไม่สร้างสถานะนี้
 - `void`: ยกเลิกรายการ แต่ไม่ลบต้นฉบับหรือ Audit

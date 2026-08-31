@@ -137,11 +137,43 @@ insert into public.accounting_draft_entries(
   ('50000000-0000-4000-8000-000000000001', 2, '2100', 'Accounts payable', 0, 10500, '30000000-0000-4000-8000-000000000001', 'Generic AP'),
   ('50000000-0000-4000-8000-000000000001', 3, '2150', 'Withholding payable', 0, 200, '30000000-0000-4000-8000-000000000001', 'Generic WHT');
 
+do $$
+declare existing_draft_was_blocked boolean := false;
+begin
+  begin
+    perform public.transition_sales_expense(
+      (select expense_id from runtime_sales_expense),
+      'create_accounting_draft',
+      'sales-expense-runtime:accounting-draft-blocked',
+      'Existing draft must require accounting review'
+    );
+  exception when others then
+    if sqlerrm = 'sales_expense_existing_accounting_draft_requires_review' then
+      existing_draft_was_blocked := true;
+    else
+      raise;
+    end if;
+  end;
+  if not existing_draft_was_blocked then raise exception 'runtime_existing_draft_guard_failed'; end if;
+  if (select count(*) from public.accounting_draft_entries where document_id = '50000000-0000-4000-8000-000000000001') <> 3 then
+    raise exception 'runtime_existing_draft_was_modified';
+  end if;
+  if (select status from public.sales_expenses where id = (select expense_id from runtime_sales_expense)) <> 'approved' then
+    raise exception 'runtime_existing_draft_changed_expense_status';
+  end if;
+end;
+$$;
+
+-- Test setup cleanup happens inside this rolled-back transaction only. The
+-- production migration never deletes or replaces existing accounting lines.
+delete from public.accounting_draft_entries
+where document_id = '50000000-0000-4000-8000-000000000001';
+
 select public.transition_sales_expense(
   (select expense_id from runtime_sales_expense),
   'create_accounting_draft',
   'sales-expense-runtime:accounting-draft',
-  'Create balanced draft after approval'
+  'Create balanced draft after the accounting conflict is resolved'
 );
 
 do $$
@@ -162,9 +194,6 @@ begin
   end if;
   if (select count(*) from public.accounting_draft_entries where source_sales_expense_id = target_id) <> 4 then
     raise exception 'runtime_expected_four_accounting_lines';
-  end if;
-  if exists(select 1 from public.accounting_draft_entries where document_id = '50000000-0000-4000-8000-000000000001' and account_code = '5200') then
-    raise exception 'runtime_generic_draft_not_reclassified';
   end if;
   if not exists(select 1 from public.accounting_draft_entries where source_sales_expense_id = target_id and account_code = '6210' and debit = 10000) then
     raise exception 'runtime_sales_account_missing';
