@@ -36,6 +36,8 @@ flowchart LR
   G -->|Approved| H[Reconcile received - approved use - returned/offset]
   H -->|Balance = 0| I[Closed + audit]
   H -->|Balance != 0| J[Settlement required]
+  H --> HS[ทะเบียนผู้ถือเงิน<br/>รับเข้า · จ่าย/ตัดยอด · คืน · คงเหลือ · รอตรวจ]
+  HS -->|คงเหลือ < 0| HX[เตือนสีแดง + ตัวกรอง<br/>เปิด Drawer ตรวจรายการ]
   K --> N[Program Loop: queue System Confirmation]
   N --> O[Ensure standard rooms: source when verified / HR / Finance]
   O --> P[Web Chat delivery ledger: queued to sent to delivered]
@@ -67,6 +69,7 @@ Track money transferred to a monthly employee for company disbursements, then re
 - A correction never rewrites OCR, the transaction, or an earlier ledger fact. Reject/reverse changes status with Audit, and any debit/credit correction is a new entry linked through `adjusts_entry_id`, with reason, actor, time, before/after and event key.
 - Every extracted source/destination field is presented independently. A missing field is recorded as `missing`/`needs_review`, never filled by inference.
 - Reconciliation is fixed: `amount_received - approved expenses/sub-advances - cash return - payroll offset = outstanding_balance`. A case cannot close while the outstanding balance is non-zero or an item is still pending/rejected.
+- `/advance-holders` derives received, approved paid/offset, approved cash return, outstanding balance, pending count/amount and latest update from the same company-scoped Advance Case and Settlement records. Pending lines never change the balance. Negative balances remain red and filterable and open a read-only transaction Drawer; the UI never silently adjusts financial data.
 - Every central command uses an event key, version check, audit row, and linked Document Flow event. Duplicate commands do not create duplicate cases/items.
 - The advance table is a read-only projection of the central records: it shows the standardized holder, how the name was matched (`auto`, `Admin confirmed`, or legacy), source-data completeness, current reconciliation state, and the complete route. It never overwrites fields extracted from the original slip.
 - Opening a case shows its source slip, current central flow state, and an automatic timeline from `employee_advance_audit`. The same source route is retained for a technician sub-advance through its parent case.
@@ -118,3 +121,4 @@ flowchart LR
 | v1.9 | 26/8/2569 | Link every downstream spending/refund slip back to the original advance and allow project/purpose splits without duplicating Intake evidence | `20260826220000_transfer_slip_money_allocations_v2.sql` | allocation balance/root-parent/idempotency contracts, migration dry-run, lint/typecheck/build and Accounting/Advance smoke | Disable v2 allocation RPC/UI; retain source, root/parent links, allocation versions and audit for recovery |
 | v2.0 | 26/8/2569 | Route exact active daily-employee transfer slips into per-employee/per-transfer-date confirmation and expose Web Chat delivery status without posting payroll early | `20260826042045_daily_wage_transfer_intake_routing.sql`, `20260826042334_daily_wage_transfer_route_trigger.sql` | routing contract, Production schema/history parity, typecheck, lint, build and authenticated report smoke | Disable the routing trigger and hide the delivery projection; retain source slips, confirmations, deliveries and audit for reconciliation |
 | v2.1 | 26/8/2569 | Put exact daily-worker wage/advance transfers into a reversible holding ledger before Payroll, including safe legacy projection and carry-forward math | `20260826231000_employee_money_ledger.sql`, `20260826231500_employee_money_legacy_backfill.sql` | name normalization, duplicate/date gates, ledger math, adjustment/audit contracts, typecheck/lint/build and Advance page smoke | Disable projection trigger/RPC and hide holding summary; retain source, ledger and Audit, and never delete or rewrite Payroll/source evidence |
+| v2.2 | 31/8/2569 | Add holder-level received/paid-or-offset/returned/balance/pending columns, negative warning/filter and read-only transaction Drawer on `/advance-holders`; retain the slip discovery tab and omit summary cards | No migration; reads existing company-scoped Advance Case and Settlement records | Hide the balance columns/filter/Drawer; all source, settlement and Audit records remain unchanged |

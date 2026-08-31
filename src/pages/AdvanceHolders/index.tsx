@@ -1,6 +1,6 @@
-import { AddOutlined, FindInPageOutlined, RefreshOutlined } from '@mui/icons-material'
-import { Alert, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography } from '@mui/material'
-import { useCallback, useEffect, useState } from 'react'
+import { AddOutlined, CloseOutlined, FindInPageOutlined, RefreshOutlined, VisibilityOutlined, WarningAmberOutlined } from '@mui/icons-material'
+import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Drawer, IconButton, MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography } from '@mui/material'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '../../components/PageHeader'
 import { StandardDataTable } from '../../components/StandardDataTable'
@@ -9,13 +9,17 @@ import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
 import { matchAdvanceHolderSlips, type AdvanceHolderSlipEvidence, type AdvanceHolderSlipMatch } from '../../services/advanceHolderSlipMatch'
 import { userError } from '../../utils/userError'
+import { calculateHolderBalance, type HolderAdvanceCase, type HolderBalance } from './advanceHolderBalances'
 
 type Holder = {
   id: string
   display_name: string
   is_active: boolean
+  holder_profile_id: string | null
+  holder_person_id: string | null
   employee_advance_holder_aliases: { id: string; alias_name: string }[] | null
 }
+type HolderRow = Holder & HolderBalance
 type Candidate = { id: string; name: string; kind: 'profile' | 'person' }
 
 export function AdvanceHoldersPage() {
@@ -24,6 +28,7 @@ export function AdvanceHoldersPage() {
   const { currentCompany } = useAuth()
   const companyId = currentCompany?.company_id ?? ''
   const [holders, setHolders] = useState<Holder[]>([])
+  const [advanceCases, setAdvanceCases] = useState<HolderAdvanceCase[]>([])
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [error, setError] = useState('')
   const [open, setOpen] = useState(false)
@@ -36,22 +41,32 @@ export function AdvanceHoldersPage() {
   const [scanning, setScanning] = useState(false)
   const [hasScanned, setHasScanned] = useState(false)
   const [routeFilter, setRouteFilter] = useState<'all' | 'resolved' | 'unresolved'>('all')
+  const [negativeOnly, setNegativeOnly] = useState(false)
 
   const load = useCallback(async () => {
     if (!companyId) return
-    const [{ data: holderData, error: holderError }, { data: profileData, error: profileError }, { data: personData, error: personError }] = await Promise.all([
-      supabase.from('employee_advance_holders').select('id,display_name,is_active,employee_advance_holder_aliases(id,alias_name)').eq('company_id', companyId).order('display_name'),
+    const [{ data: holderData, error: holderError }, { data: caseData, error: caseError }, { data: profileData, error: profileError }, { data: personData, error: personError }] = await Promise.all([
+      supabase.from('employee_advance_holders').select('id,display_name,is_active,holder_profile_id,holder_person_id,employee_advance_holder_aliases(id,alias_name)').eq('company_id', companyId).order('display_name'),
+      supabase.from('employee_advance_cases').select('id,advance_number,holder_profile_id,holder_person_id,amount_received,status,updated_at,financial_transactions(transfer_at),employee_advance_settlement_items(expense_type,amount,approval_status)').eq('company_id', companyId).order('updated_at', { ascending: false }),
       supabase.from('employee_employment_records').select('profile_id,profiles!employee_employment_records_profile_id_fkey(full_name)').eq('company_id', companyId).eq('employment_type', 'monthly').in('employment_status', ['active', 'probation', 'notice']),
       supabase.from('employee_people').select('id,full_name').eq('company_id', companyId).eq('employment_type', 'monthly').eq('employee_status', 'active'),
     ])
-    if (holderError || profileError || personError) { setError(userError(holderError ?? profileError ?? personError)); return }
+    if (holderError || caseError || profileError || personError) { setError(userError(holderError ?? caseError ?? profileError ?? personError)); return }
     setHolders((holderData ?? []) as unknown as Holder[])
+    setAdvanceCases((caseData ?? []) as unknown as HolderAdvanceCase[])
     setCandidates([
       ...((profileData ?? []) as unknown as { profile_id: string; profiles: { full_name: string | null } | null }[]).map((row) => ({ id: row.profile_id, name: row.profiles?.full_name ?? row.profile_id, kind: 'profile' as const })),
       ...((personData ?? []) as { id: string; full_name: string | null }[]).map((row) => ({ id: row.id, name: row.full_name ?? row.id, kind: 'person' as const })),
     ])
     setError('')
   }, [companyId])
+
+  const holderRows = useMemo<HolderRow[]>(() => holders.map((holder) => {
+    const cases = advanceCases.filter((advanceCase) => (holder.holder_profile_id && advanceCase.holder_profile_id === holder.holder_profile_id) || (holder.holder_person_id && advanceCase.holder_person_id === holder.holder_person_id))
+    return { ...holder, ...calculateHolderBalance(cases) }
+  }), [advanceCases, holders])
+  const visibleHolderRows = negativeOnly ? holderRows.filter((row) => row.balance < 0) : holderRows
+  const selectedRow = selected ? holderRows.find((row) => row.id === selected.id) ?? null : null
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0)
@@ -133,6 +148,8 @@ export function AdvanceHoldersPage() {
   const unresolvedCount = slipMatches.length - resolvedCount
   const visibleSlipMatches = slipMatches.filter((item) => routeFilter === 'all' || (routeFilter === 'resolved' ? item.routeResolved : !item.routeResolved))
   const money = (value: number | null) => value == null ? '-' : new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(value)
+  const dateTime = (value: string | null | undefined) => value ? new Date(value).toLocaleString('th-TH') : '-'
+  const settlementLabel: Record<string, string> = { daily_wage: 'ค่าแรงรายวัน', materials: 'ค่าวัสดุ', travel: 'ค่าเดินทาง', other: 'อื่น ๆ', cash_return: 'คืนบริษัท', payroll_offset: 'หักเงินเดือน', employee_advance: 'เงินเบิกช่าง' }
   const truthLabel = (value: string) => ({ confirmed: 'ยืนยันแล้ว', needs_review: 'รอตรวจ', needs_information: 'รอข้อมูล', duplicate: 'รายการซ้ำ' }[value] ?? value)
   const purposeLabel = (value: string | null) => ({ payroll: 'เงินเดือน/ค่าแรง', advance_transfer: 'เงินสำรอง/เบิกล่วงหน้า', materials: 'ซื้อวัสดุ/อุปกรณ์', project_expense: 'ค่าใช้จ่ายโครงการ', vendor_payment: 'จ่ายผู้ขาย', subcontractor: 'ผู้รับเหมา', travel: 'เดินทาง/หน้างาน', bank_fee: 'ค่าธรรมเนียมธนาคาร', tax: 'ภาษี', refund_return: 'เงินคืน', inter_account: 'โอนระหว่างบัญชี', cash_withdrawal: 'ถอนเงินสด', general_expense: 'ค่าใช้จ่ายทั่วไป', onward_transfer: 'ส่งต่อผู้ถือเงิน', multi_allocation: 'หลายประเภท' }[value ?? ''] ?? 'ยังไม่สรุปประเภทเงิน')
   const routeText = (row: AdvanceHolderSlipMatch) => {
@@ -145,11 +162,17 @@ export function AdvanceHoldersPage() {
     <PageHeader title="ทะเบียนผู้ถือเงินสำรองจ่าย" description="ระบบค้นสลิปของผู้ถือเงินอัตโนมัติ แสดงทั้งการรับโอน การโอนออก และเส้นทางเงินที่ยืนยันแล้ว" action={<Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}><Button startIcon={<RefreshOutlined />} onClick={() => void load()}>รีเฟรช</Button><Button disabled={scanning || !holders.length} startIcon={scanning ? <CircularProgress size={16} /> : <FindInPageOutlined />} onClick={() => void scanSlips()}>ตรวจใหม่</Button><Button variant="contained" startIcon={<AddOutlined />} onClick={() => setOpen(true)}>เพิ่มผู้ถือเงิน</Button></Stack>} />
     {error && <Alert severity="error">{error}</Alert>}
     <Paper variant="outlined"><Tabs value={tab} onChange={(_event, value: number) => setTab(value)} variant="scrollable" scrollButtons="auto"><Tab label={`ทะเบียนผู้ถือเงิน (${holders.length})`} /><Tab label={`สลิปที่พบ (${slipMatches.length})`} /></Tabs></Paper>
-    {tab === 0 && <StandardDataTable rows={holders} getRowId={(row) => row.id} onRowClick={setSelected} getSearchText={(row) => `${row.display_name} ${(row.employee_advance_holder_aliases ?? []).map((item) => item.alias_name).join(' ')}`} searchLabel="ค้นหาชื่อผู้ถือเงินหรือชื่อ alias" emptyText="ยังไม่มีผู้ถือเงินสำรองจ่ายที่ลงทะเบียน" minWidth={650} columns={[
+    {tab === 0 && <Stack spacing={1}><Stack direction="row" sx={{ justifyContent: 'flex-end' }}><Button size="small" variant={negativeOnly ? 'contained' : 'outlined'} color={negativeOnly ? 'error' : 'inherit'} startIcon={<WarningAmberOutlined />} onClick={() => setNegativeOnly((value) => !value)}>เฉพาะยอดติดลบ{holderRows.some((row) => row.balance < 0) ? ` (${holderRows.filter((row) => row.balance < 0).length})` : ''}</Button></Stack><StandardDataTable rows={visibleHolderRows} getRowId={(row) => row.id} onRowClick={setSelected} getSearchText={(row) => `${row.display_name} ${(row.employee_advance_holder_aliases ?? []).map((item) => item.alias_name).join(' ')}`} searchLabel="ค้นหาชื่อผู้ถือเงินหรือชื่อ alias" emptyText={negativeOnly ? 'ไม่พบผู้ถือเงินที่มียอดติดลบ' : 'ยังไม่มีผู้ถือเงินสำรองจ่ายที่ลงทะเบียน'} minWidth={1320} columns={[
       { id: 'name', label: 'ผู้ถือเงิน', minWidth: 220, render: (row) => row.display_name },
-      { id: 'aliases', label: 'ชื่อที่ใช้จับคู่', minWidth: 260, render: (row) => (row.employee_advance_holder_aliases ?? []).length ? (row.employee_advance_holder_aliases ?? []).map((item) => <Chip key={item.id} size="small" sx={{ mr: 0.5 }} label={item.alias_name} />) : '-' },
+      { id: 'received', label: 'รับเข้า', minWidth: 130, align: 'right', render: (row) => money(row.received) },
+      { id: 'paid', label: 'จ่าย/ตัดยอด', minWidth: 130, align: 'right', render: (row) => money(row.paidOrOffset) },
+      { id: 'returned', label: 'คืนบริษัท', minWidth: 130, align: 'right', render: (row) => money(row.returned) },
+      { id: 'balance', label: 'คงเหลือ', minWidth: 150, align: 'right', render: (row) => <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end', alignItems: 'center' }}>{row.balance < 0 && <WarningAmberOutlined color="error" fontSize="small" />}<Typography sx={{ fontWeight: 800, color: row.balance < 0 ? 'error.main' : row.balance > 0 ? 'success.main' : 'text.primary' }}>{money(row.balance)}</Typography></Stack> },
+      { id: 'pending', label: 'รอตรวจ', minWidth: 150, align: 'right', render: (row) => row.pendingCount ? <Chip size="small" color="warning" label={`${row.pendingCount} รายการ · ${money(row.pendingAmount)}`} /> : '-' },
+      { id: 'updated', label: 'อัปเดตล่าสุด', minWidth: 170, render: (row) => dateTime(row.updatedAt) },
       { id: 'active', label: 'สถานะ', minWidth: 130, render: (row) => <Chip size="small" color={row.is_active ? 'success' : 'default'} label={row.is_active ? 'พร้อมจับคู่' : 'ปิดใช้งาน'} /> },
-    ]} />}
+      { id: 'detail', label: 'รายการ', minWidth: 100, render: (row) => <Button size="small" startIcon={<VisibilityOutlined />} onClick={(event) => { event.stopPropagation(); setSelected(row) }}>ดูรายการ</Button> },
+    ]} /></Stack>}
     {tab === 1 && <Stack spacing={1.5}>
       <Alert severity={unresolvedCount ? 'warning' : 'info'}>ระบบค้นให้อัตโนมัติจากชื่อหลักและ alias · รายการที่ยังไม่สรุปให้คลิกแถวเพื่อแก้ประเภทและเส้นทางในสลิปต้นฉบับ</Alert>
       <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}><Button size="small" variant={routeFilter === 'all' ? 'contained' : 'outlined'} onClick={() => setRouteFilter('all')}>ทั้งหมด {slipMatches.length}</Button><Button size="small" color="success" variant={routeFilter === 'resolved' ? 'contained' : 'outlined'} onClick={() => setRouteFilter('resolved')}>มีเส้นทางแล้ว {resolvedCount}</Button><Button size="small" color="warning" variant={routeFilter === 'unresolved' ? 'contained' : 'outlined'} onClick={() => setRouteFilter('unresolved')}>ยังไม่สรุป {unresolvedCount}</Button><Chip color="success" label={`รับโอน ${incomingCount}`} /><Chip color="primary" label={`โอนออก ${outgoingCount}`} />{ambiguousCount > 0 && <Chip color="warning" label={`ต้องยืนยันชื่อ ${ambiguousCount}`} />}</Stack>
@@ -166,6 +189,14 @@ export function AdvanceHoldersPage() {
       ]} />
     </Stack>}
     <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm"><DialogTitle>เพิ่มผู้ถือเงินสำรองจ่าย</DialogTitle><DialogContent><Stack spacing={2} sx={{ pt: 1 }}><TextField select label="ชื่อพนักงานรายเดือน" value={form.candidate} onChange={(event) => setForm({ ...form, candidate: event.target.value })}>{candidates.map((candidate) => <MenuItem key={`${candidate.kind}:${candidate.id}`} value={`${candidate.kind}:${candidate.id}`}>{candidate.name}</MenuItem>)}</TextField><TextField select label="สถานะ" value={form.active} onChange={(event) => setForm({ ...form, active: event.target.value })}><MenuItem value="true">พร้อมจับคู่</MenuItem><MenuItem value="false">ปิดใช้งาน</MenuItem></TextField></Stack></DialogContent><DialogActions><Button onClick={() => setOpen(false)}>ยกเลิก</Button><Button disabled={saving || !form.candidate} variant="contained" onClick={() => void saveHolder()}>บันทึกชื่อ</Button></DialogActions></Dialog>
-    <Dialog open={Boolean(selected)} onClose={() => setSelected(null)} fullWidth maxWidth="sm"><DialogTitle>{selected?.display_name}</DialogTitle><DialogContent><Stack spacing={1.5} sx={{ pt: 1 }}><Typography variant="body2" color="text.secondary">เมื่อ Admin ยืนยันชื่อที่ระบบแนะนำจากสลิป ระบบจะเรียนรู้ชื่อ alias ให้อัตโนมัติ คุณสามารถเพิ่ม alias เองได้ที่นี่เช่นกัน</Typography><TextField label="ชื่อ alias" value={alias} onChange={(event) => setAlias(event.target.value)} /></Stack></DialogContent><DialogActions><Button onClick={() => setSelected(null)}>ปิด</Button><Button disabled={saving || alias.trim().length < 2} variant="contained" onClick={() => void addAlias()}>เพิ่มชื่อจับคู่</Button></DialogActions></Dialog>
+    <Drawer anchor="right" open={Boolean(selectedRow)} onClose={() => setSelected(null)} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 560 }, p: 2 } } }}><Stack spacing={2}>
+      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}><Box><Typography variant="overline">ผู้ถือเงินสำรองจ่าย</Typography><Typography variant="h6">{selectedRow?.display_name}</Typography></Box><IconButton aria-label="ปิด" onClick={() => setSelected(null)}><CloseOutlined /></IconButton></Stack>
+      {selectedRow && <>
+        {selectedRow.balance < 0 && <Alert severity="error">ยอดคงเหลือติดลบ {money(selectedRow.balance)} กรุณาตรวจรายการจ่าย/คืนและหลักฐานต้นทาง</Alert>}
+        <Paper variant="outlined" sx={{ p: 1.5 }}><Stack direction="row" useFlexGap spacing={2} sx={{ flexWrap: 'wrap' }}>{[['รับเข้า', selectedRow.received], ['จ่าย/ตัดยอด', selectedRow.paidOrOffset], ['คืนบริษัท', selectedRow.returned], ['คงเหลือ', selectedRow.balance]].map(([label, value]) => <Box key={String(label)}><Typography variant="caption">{label}</Typography><Typography sx={{ fontWeight: 900, color: label === 'คงเหลือ' && Number(value) < 0 ? 'error.main' : 'text.primary' }}>{money(Number(value))}</Typography></Box>)}</Stack></Paper>
+        <Box><Typography sx={{ fontWeight: 800, mb: 1 }}>รายการรับ–จ่ายตามลำดับเวลา</Typography>{selectedRow.cases.length ? selectedRow.cases.map((advanceCase) => { const balance = calculateHolderBalance([advanceCase]); return <Paper key={advanceCase.id} variant="outlined" sx={{ p: 1.25, mb: 1 }}><Stack direction="row" sx={{ justifyContent: 'space-between', gap: 1 }}><Box><Typography sx={{ fontWeight: 800 }}>{advanceCase.advance_number}</Typography><Typography variant="caption" color="text.secondary">{dateTime(advanceCase.financial_transactions?.transfer_at ?? advanceCase.updated_at)} · {advanceCase.status}</Typography></Box><Typography sx={{ fontWeight: 800, color: balance.balance < 0 ? 'error.main' : 'text.primary' }}>{money(balance.balance)}</Typography></Stack><Typography variant="body2" sx={{ mt: 0.5 }}>รับ {money(balance.received)} · จ่าย/ตัด {money(balance.paidOrOffset)} · คืน {money(balance.returned)}</Typography>{(advanceCase.employee_advance_settlement_items ?? []).map((item, index) => <Typography key={`${advanceCase.id}-${index}`} variant="caption" sx={{ display: 'block', color: item.approval_status === 'approved' ? 'text.secondary' : 'warning.main' }}>• {settlementLabel[item.expense_type] ?? item.expense_type} {money(Number(item.amount))} · {item.approval_status}</Typography>)}</Paper> }) : <Typography color="text.secondary">ยังไม่มีรายการเงินสำรองที่ผูกกับผู้ถือนี้</Typography>}</Box>
+        <Box><Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>ชื่อ alias ใช้จับคู่สลิปกับผู้ถือเงินรายนี้</Typography><Stack direction="row" spacing={1}><TextField fullWidth size="small" label="ชื่อ alias" value={alias} onChange={(event) => setAlias(event.target.value)} /><Button disabled={saving || alias.trim().length < 2} variant="contained" onClick={() => void addAlias()}>เพิ่ม</Button></Stack></Box>
+      </>}
+    </Stack></Drawer>
   </Stack>
 }
