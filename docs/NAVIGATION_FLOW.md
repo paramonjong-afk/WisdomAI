@@ -17,7 +17,8 @@ flowchart LR
   E -->|employee| G[My Profile / หน้าของตัวเอง]
   E -->|ยังโหลดไม่ได้| H[Launcher สำรองที่ /]
   D --> D1[เลือก ลงเวลา → /time-tracking หรือ Web Chat → /chat]
-  D1 --> I[Router permission guard]
+  D1 --> D2[แถบบนมือถือ: โลโก้ Wisdom เปิดเมนูนำทาง<br/>ไม่มีปุ่มนาฬิกาซ้ำ]
+  D2 --> I[Router permission guard]
   F --> I
   G --> I
   H --> I
@@ -37,7 +38,7 @@ In DEV only, `local_test_data=1` keeps `ProtectedRoute` and the role gate open f
 ## Inputs, output, permission, failure and audit
 
 - **Inputs:** Smart Entry target health/latency and release revision parity, PWA install/open request, the single WisdomAI app icon assets, device signals (`userAgent`, viewport, touch/coarse pointer), effective company role, requested path, allowed roles, platform-admin flag, and unread Web Chat count for the active company/profile.
-- **Output:** Mobile defaults to `/` Application Launcher with two same-level buttons: `/time-tracking` and `/chat`; desktop `admin/manager` defaults to `/dashboard`; desktop `employee` defaults to `/my-profile`. The launcher is a safe fallback while profile data is unavailable.
+- **Output:** Mobile defaults to `/` Application Launcher with two same-level buttons: `/time-tracking` and `/chat`; the Wisdom logo in the mobile top bar opens navigation and no separate clock shortcut is repeated there. Desktop `admin/manager` defaults to `/dashboard`; desktop `employee` defaults to `/my-profile`. The launcher is a safe fallback while profile data is unavailable.
 - **Permissions:** Sidebar filters by role for usability; the route itself also enforces the permission boundary. No financial, document, or HR data is loaded by navigation.
 - **Failure/retry:** if device detection is uncertain, the system uses the desktop branch; if profile data is unavailable, it stays at `/` and retries through the existing AuthContext refresh. An unavailable or denied destination follows its Router guard. If an installed icon is stale, reinstalling the PWA/refreshing its cache picks up the versioned PNG without changing route access.
 - **Audit/owner:** navigation has no business mutation or audit event. Platform UI owns device routing/labels/icons; each destination module owns its data and audit.
@@ -54,3 +55,4 @@ In DEV only, `local_test_data=1` keeps `ProtectedRoute` and the role gate open f
 | v1.5 | 23/8/2569 | Require Cloudflare fallback release revision to match Vercel before Smart Entry selects it | smart-entry/release tests, lint, build and both-host manifest check after deploy | Revert parity gate only after both hosts are rolled back to the same revision |
 | v1.6 | 23/8/2569 | Keep mobile post-login at the Application Launcher so ลงเวลา and Web Chat remain separate same-level entry buttons | auth-routing test, launcher contract test, lint, build and mobile route verification | Restore direct mobile `/time-tracking` routing; launcher and module routes remain available |
 | v1.7 | 23/8/2569 | Allow DEV-only `local_test_data=1` routes to open local fixture UAT through `ProtectedRoute` without changing Production login guards | flow-registry, document-flow and auth-routing tests, lint and build | Remove the local test query flag; production routes remain guarded |
+| v1.8 | 31/8/2569 | Replace the mobile hamburger glyph with the Wisdom logo as the same navigation trigger and remove the duplicate clock shortcut from the top bar | auth-routing contract, typecheck, lint, build and mobile browser check | Restore the hamburger glyph and clock shortcut; launcher routes and permissions remain unchanged |
