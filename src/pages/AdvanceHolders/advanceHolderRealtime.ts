@@ -5,6 +5,7 @@ export type HolderRealtimeMovement = AdvanceHolderSlipMatch & {
 }
 
 export type HolderRealtimeBalance = {
+  realtimeReceived: number
   realtimePaid: number
   inTransit: number
   projectedBalance: number
@@ -35,6 +36,8 @@ export function calculateHolderRealtimeBalance(
     .sort((left, right) => (right.transferAt ?? '').localeCompare(left.transferAt ?? ''))
 
   const outgoing = movements.filter((movement) => movement.direction === 'outgoing')
+  const incoming = movements.filter((movement) => movement.direction === 'incoming')
+  const realtimeReceived = incoming.reduce((total, movement) => total + amount(movement.amount), 0)
   const realtimePaid = outgoing.reduce((total, movement) => total + amount(movement.amount), 0)
   const inTransit = outgoing
     .filter((movement) => movement.reviewRequired)
@@ -44,6 +47,7 @@ export function calculateHolderRealtimeBalance(
   const projectedBalance = confirmedBalance - realtimePaid
 
   return {
+    realtimeReceived,
     realtimePaid,
     inTransit,
     projectedBalance,

@@ -19,6 +19,7 @@ const movements: AdvanceHolderSlipMatch[] = [
 
 const result = calculateHolderRealtimeBalance('holder-1', 1_500, movements)
 assert.equal(result.realtimePaid, 600)
+assert.equal(result.realtimeReceived, 1000)
 assert.equal(result.inTransit, 200)
 assert.equal(result.projectedBalance, 900)
 assert.equal(result.confirmedBalance, 1_500)
@@ -29,7 +30,7 @@ assert.equal(result.lastActivityAt, '2026-08-31T09:00:00Z')
 assert.equal(result.movements.length, 3)
 
 const page = readFileSync(new URL('../src/pages/AdvanceHolders/index.tsx', import.meta.url), 'utf8')
-for (const label of ['จ่ายออก Real-time', 'เงินกำลังเดินทาง', 'คงเหลือคาดการณ์', 'คงเหลือยืนยัน', 'ผลต่าง/รอตรวจ', 'เส้นเงินล่าสุด']) assert.match(page, new RegExp(label))
+for (const label of ['รับเข้า Real-time', 'จ่ายออก Real-time', 'เงินกำลังเดินทาง', 'คงเหลือคาดการณ์', 'คงเหลือยืนยัน', 'ผลต่าง/รอตรวจ', 'เส้นเงินล่าสุด']) assert.match(page, new RegExp(label))
 for (const filter of ['มียอดคงเหลือ', 'รอตรวจ', 'ยอดติดลบ', 'ไม่มีการเคลื่อนไหว']) assert.match(page, new RegExp(filter))
 assert.match(page, /scanSlips\(false\)/)
 assert.match(page, /เปิดสลิป\/Audit/)
