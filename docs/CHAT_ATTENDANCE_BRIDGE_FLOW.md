@@ -4,10 +4,10 @@
 flowchart TD
   M0[ติดตั้ง/เปิดไอคอน WisdomAI เดียวบนมือถือ] --> L0[Login สำเร็จ]
   L0 --> L1{ตรวจอุปกรณ์และบทบาท}
-  L1 -->|มือถือ| L2[หน้า Time Tracking เดิม]
+  L1 -->|มือถือ| L2[Launcher: ลงเวลา / Web Chat]
   L1 -->|คอม + admin/manager| L3[Dashboard รวม]
   L1 -->|คอม + employee| L4[My Profile]
-  L2 --> L5[ทางลัด Web Chat]
+  L2 --> L5[เลือก Web Chat พร้อม unread badge]
   L3 --> L6[Sidebar Web Chat]
   L4 --> L6
   L5 --> U[ผู้ใช้เข้า Web Chat]
@@ -43,7 +43,7 @@ flowchart TD
   AA -->|ไม่ใช่| AC[แสดงรายการห้องแบบย่อด้านซ้าย]
 ```
 
-กราฟนี้สรุปภาพรวมใหม่ของห้อง HR: ผู้ใช้มือถือเปิดจากไอคอน WisdomAI เดียวแล้วเข้า Time Tracking เดิม ส่วนคอมพิวเตอร์จะไป Dashboard รวมเมื่อเป็น admin/manager หรือไป My Profile เมื่อเป็น employee จากนั้นผู้ใช้เปิด Web Chat ผ่านทางลัดหรือ Sidebar และทุก event ที่เป็นงาน HR จะถูกส่งผ่าน publisher กลางไปยังห้องเดียวกัน โดยใช้ delivery ledger กันข้อความซ้ำและเก็บ error/retry แยกจากข้อมูลต้นทาง ขณะเดียวกัน Web Chat จะเปิด Presence ของผู้ใช้ แสดงสถานะออนไลน์ เปิด private call channel ตามบริษัท/ห้องสำหรับโทรเสียง 1 ต่อ 1 ผ่าน WebRTC และใช้พื้นที่สนทนาแบบ compact เพื่อให้ข้อความเป็นศูนย์กลาง โดยเฉพาะบนมือถือจะซ่อนรายการห้องไว้ในเมนูเลือกห้อง
+กราฟนี้สรุปภาพรวมใหม่ของห้อง HR: ผู้ใช้มือถือเปิดจากไอคอน WisdomAI เดียวแล้วเข้า Launcher เพื่อเลือกลงเวลาหรือ Web Chat เป็นคนละปุ่ม โดย Web Chat แสดงจำนวนข้อความค้าง ส่วนคอมพิวเตอร์จะไป Dashboard รวมหรือ My Profile ตามบทบาท ทุก event ที่เป็นงาน HR จะถูกส่งผ่าน publisher กลางไปยังห้องเดียวกัน โดยใช้ delivery ledger กันข้อความซ้ำและเก็บ error/retry แยกจากข้อมูลต้นทาง
 
 ## วัตถุประสงค์
 
@@ -235,8 +235,10 @@ flowchart LR
 ```mermaid
 flowchart LR
   A[Login สำเร็จ] --> B[Launcher โหลดห้องที่เข้าถึงได้]
-  B --> C[อ่าน read cursor + นับข้อความใหม่]
-  C --> D[แสดง badge บนไอคอน Web Chat]
+  B --> C[อ่าน membership/joined_at + read cursor]
+  C --> D[นับข้อความใหม่ที่ไม่ใช่ของตนเอง/ไม่ถูกลบ]
+  D --> D1[แสดง badge+ข้อความใน Launcher]
+  D1 --> D2[ซิงก์ไอคอน PWA เมื่อ Badging API รองรับ]
   B --> E[กดไอคอนลงเวลา หรือ Web Chat]
   E --> F[เข้า module ภายใน Auth session เดิม]
   G[เลือกไฟล์รูป/เอกสาร] --> H[ตรวจขนาดและ normalize MIME]
@@ -249,12 +251,12 @@ flowchart LR
   K --> L[insert chat_messages แบบ file]
 ```
 
-- **Input:** `company_id`, `profile_id`, ห้องที่ RLS ให้เห็น, `chat_room_read_states`, `chat_messages.created_at`, ไฟล์จาก `<input type=file>` และ MIME/นามสกุลไฟล์
-- **Output:** launcher icon สองรายการ, badge จำนวนข้อความค้าง, หรือ `chat_messages` แบบ file พร้อม signed URL สำหรับสมาชิกห้อง
+- **Input:** `company_id`, `profile_id`, `chat_room_members.joined_at`, `chat_room_read_states`, `chat_messages.created_at/sender_profile_id/deleted_at`, ไฟล์จาก `<input type=file>` และ MIME/นามสกุลไฟล์
+- **Output:** launcher icon สองรายการ, badge+ข้อความจำนวนค้าง, PWA app badge เมื่อรองรับ หรือ `chat_messages` แบบ file พร้อม signed URL สำหรับสมาชิกห้อง
 - **States:** `loading → ready|unread_error`; ไฟล์ `selected → validated → session_checked → uploaded → message_recorded|failed`; ถ้า session หมดอายุและ refresh ไม่สำเร็จจะคงไฟล์ไว้เพื่อ retry หลัง login ใหม่; HEIC/HEIF/AVIF/TIFF ถูก normalize ก่อนตรวจ allow-list
 - **Roles / Permission:** launcher ใช้ Auth session; unread query จำกัดบริษัท/ห้องตาม RLS; upload ใช้ `storage.objects` policy โดยสมาชิกบริษัทต้องเป็นสมาชิกห้อง และ company manager ใช้สิทธิ์ผู้จัดการตาม policy ที่มีอยู่; bucket ยังคง private
-- **Integrations:** `/` Application Launcher, `src/services/chatUnread.ts`, Supabase PostgREST/Realtime, Storage bucket `chat-attachments`, `chat_messages` และ signed URL
-- **Failure / Retry:** unread อ่านไม่ได้ให้คงไอคอนไว้และ retry ทุก 30 วินาที/เมื่อมี Realtime insert; MIME/ขนาดไม่ผ่านหยุดก่อน upload; ตรวจ `expires_at` และ refresh session ก่อน upload; ถ้า Storage ตอบ 401/RLS จะ refresh แล้วลอง upload ซ้ำหนึ่งครั้ง หาก refresh ไม่สำเร็จให้คงไฟล์ไว้และให้ login ใหม่; Storage หรือ insert ล้มเหลวลบ object ค้างและแจ้งผู้ใช้ โดยแยก session หมดอายุออกจากสิทธิ์ห้อง
+- **Integrations:** `/` Application Launcher, `src/services/chatUnread.ts`, `src/services/appBadge.ts`, Supabase PostgREST/Realtime, Web Badging API, Storage bucket `chat-attachments`, `chat_messages` และ signed URL
+- **Failure / Retry:** unread อ่านไม่ได้ให้ล้างเลขที่อาจเก่าและ retry ทุก 30 วินาที/เมื่อมี Realtime insert/read-state update; OS ไม่รองรับหรือปฏิเสธ App Badge ให้ใช้ badge ภายในต่อ; MIME/ขนาดไม่ผ่านหยุดก่อน upload; ตรวจ `expires_at` และ refresh session ก่อน upload; ถ้า Storage ตอบ 401/RLS จะ refresh แล้วลอง upload ซ้ำหนึ่งครั้ง หาก refresh ไม่สำเร็จให้คงไฟล์ไว้และให้ login ใหม่
 - **Audit events:** การเปลี่ยน route เป็น navigation event; การส่งไฟล์อยู่ใน `chat_messages` และ mutation attempt `send-file-message`; ไม่บันทึกไฟล์ซ้ำเมื่อ insert ล้มเหลว
 - **Owner:** ผู้ใช้เป็น owner ของการเลือก module/แนบไฟล์; ทีมระบบเป็น owner ของ unread service, Storage allow-list, RLS และ cleanup path
 
@@ -584,3 +586,11 @@ flowchart LR
 - Migration: ไม่มี schema/data migration; ตรวจ Production แล้วไม่พบ `line_attendance_requests` หรือ `line_task_commands` ที่มาจากข้อความ generic เหล่านี้ จึงไม่มีรายการค้างให้ลบ/ยกเลิก
 - Verification: parser test สำหรับ generic/directional commands, targeted lint, build, Edge Function deploy และ query ตรวจรายการค้าง/สถานะบน Production
 - Rollback: คืน parser เดิมและ deploy `line-webhook` รุ่นก่อนหน้าได้; ข้อมูลคำขอ/attendance ที่มีอยู่ก่อนการเปลี่ยนไม่ถูกลบหรือแก้ย้อนหลัง
+
+### v2.5 — 31/8/2569
+
+- เหตุผล: ให้ผู้ใช้มือถือเห็นจำนวน Web Chat ค้างจาก Launcher/ไอคอน PWA และไม่วางทางลัด Chat ซ้ำในหน้าลงเวลาที่ต้องโฟกัสการเข้า–ออก
+- ผลกระทบ: unread ใช้ membership/join/read cutoff, ตัดข้อความตนเองและข้อความลบ, ซิงก์ Web Badging API เมื่อรองรับ; หน้า Time Tracking มือถือเปลี่ยนเฉพาะ presentation
+- Migration: ไม่มี; Chat room/message/read state, attendance, HR delivery และ RLS เดิมไม่เปลี่ยน
+- Verification: launcher/attachment contract, attendance tests, typecheck, lint, build และ authenticated mobile smoke
+- Rollback: revert unread/App Badge/mobile UI; ข้อมูลข้อความ ไฟล์ attendance และ Audit คงอยู่

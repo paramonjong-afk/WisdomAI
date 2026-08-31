@@ -12,6 +12,7 @@ flowchart LR
   A --> B[Resolve profile + company role]
   B --> C{ตรวจอุปกรณ์}
   C -->|มือถือ| D[Launcher: 2 ปุ่มแยก ลงเวลา / Web Chat]
+  D --> D0[Unread count จากห้องที่เป็นสมาชิก<br/>Badge ในหน้า + PWA badge เมื่อรองรับ]
   C -->|คอมพิวเตอร์| E{ตรวจบทบาทจาก Profile}
   E -->|admin หรือ manager| F[Dashboard รวม]
   E -->|employee| G[My Profile / หน้าของตัวเอง]
@@ -37,10 +38,10 @@ In DEV only, `local_test_data=1` keeps `ProtectedRoute` and the role gate open f
 
 ## Inputs, output, permission, failure and audit
 
-- **Inputs:** Smart Entry target health/latency and release revision parity, PWA install/open request, the single WisdomAI app icon assets, device signals (`userAgent`, viewport, touch/coarse pointer), effective company role, requested path, allowed roles, platform-admin flag, and unread Web Chat count for the active company/profile.
-- **Output:** Mobile defaults to `/` Application Launcher with two same-level buttons: `/time-tracking` and `/chat`; the Wisdom logo in the mobile top bar opens navigation and no separate clock shortcut is repeated there. Desktop `admin/manager` defaults to `/dashboard`; desktop `employee` defaults to `/my-profile`. The launcher is a safe fallback while profile data is unavailable.
+- **Inputs:** Smart Entry target health/latency and release revision parity, PWA install/open request, the single WisdomAI app icon assets, device signals (`userAgent`, viewport, touch/coarse pointer), effective company role, requested path, allowed roles, platform-admin flag, and unread Web Chat count from membership/join time/read state/messages for the active company/profile.
+- **Output:** Mobile defaults to `/` Application Launcher with two same-level buttons: `/time-tracking` and `/chat`; Web Chat shows a red in-app unread badge/text and mirrors the total to an installed PWA icon when the platform supports it. The Wisdom logo in the mobile top bar opens navigation and no separate clock/Chat shortcut is repeated inside Time Tracking. Desktop `admin/manager` defaults to `/dashboard`; desktop `employee` defaults to `/my-profile`.
 - **Permissions:** Sidebar filters by role for usability; the route itself also enforces the permission boundary. No financial, document, or HR data is loaded by navigation.
-- **Failure/retry:** if device detection is uncertain, the system uses the desktop branch; if profile data is unavailable, it stays at `/` and retries through the existing AuthContext refresh. An unavailable or denied destination follows its Router guard. If an installed icon is stale, reinstalling the PWA/refreshing its cache picks up the versioned PNG without changing route access.
+- **Failure/retry:** if device detection is uncertain, the system uses the desktop branch; if profile data is unavailable, it stays at `/` and retries through the existing AuthContext refresh. Unread load failure clears a potentially stale count and retries through Realtime/30-second polling. Unsupported/denied OS badging silently falls back to the in-app badge. An unavailable or denied destination follows its Router guard.
 - **Audit/owner:** navigation has no business mutation or audit event. Platform UI owns device routing/labels/icons; each destination module owns its data and audit.
 
 ## Change record
@@ -56,3 +57,4 @@ In DEV only, `local_test_data=1` keeps `ProtectedRoute` and the role gate open f
 | v1.6 | 23/8/2569 | Keep mobile post-login at the Application Launcher so ลงเวลา and Web Chat remain separate same-level entry buttons | auth-routing test, launcher contract test, lint, build and mobile route verification | Restore direct mobile `/time-tracking` routing; launcher and module routes remain available |
 | v1.7 | 23/8/2569 | Allow DEV-only `local_test_data=1` routes to open local fixture UAT through `ProtectedRoute` without changing Production login guards | flow-registry, document-flow and auth-routing tests, lint and build | Remove the local test query flag; production routes remain guarded |
 | v1.8 | 31/8/2569 | Replace the mobile hamburger glyph with the Wisdom logo as the same navigation trigger and remove the duplicate clock shortcut from the top bar | auth-routing contract, typecheck, lint, build and mobile browser check | Restore the hamburger glyph and clock shortcut; launcher routes and permissions remain unchanged |
+| v1.9 | 31/8/2569 | Make Launcher unread count membership-aware, show the count as badge/text, mirror it to supported installed PWA icons, and remove the duplicated Chat shortcut from focused mobile Time Tracking | launcher contract, attendance tests, typecheck, lint, build and authenticated mobile `/` + `/time-tracking` smoke | Revert App Badge sync and focused mobile UI; Chat/read-state/attendance data remain unchanged |

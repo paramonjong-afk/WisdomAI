@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## 2026-08-31 — Mobile Unread Badge + Focused Time Tracking v1.9/v1.6
+
+- **เหตุผล:** ให้พนักงานเห็นจำนวน Web Chat ค้างจากหน้ารวมมือถือ และลดหน้าลงเวลาให้เหลือข้อมูล/การกระทำที่จำเป็นโดยไม่วางไอคอน Chat ซ้ำภายใน
+- **ผลกระทบ:** Launcher นับ unread เฉพาะห้องที่ผู้ใช้เป็นสมาชิก หลังเวลาเข้าห้อง/read state ไม่รวมข้อความตนเองหรือข้อความที่ลบ; แสดง badge+ข้อความ และซิงก์ไอคอน PWA เมื่ออุปกรณ์รองรับ ส่วน `/time-tracking` มือถือแสดงสถานะ เวลา ความพร้อม GPS/ไซต์/Selfie ปุ่มหลัก และสรุปเวลาเข้า–ออกวันนี้
+- **Migration:** ไม่มี; ไม่เปลี่ยน Chat/Attendance schema, RLS, read state, `attendance-clock`, Selfie, HR bridge หรือ Audit ธุรกิจ
+- **การตรวจสอบ:** chat launcher contract, attendance/tenant/session tests, typecheck, lint, build และ authenticated mobile smoke บน `/` กับ `/time-tracking`
+- **Rollback:** revert `appBadge`, Launcher และ mobile Time Tracking UI; ข้อมูลข้อความ/read state/attendance/Selfie/Audit เดิมคงอยู่
+
 ## 2026-08-31 — Mobile Top Bar Brand Navigation v1.8
 
 - **เหตุผล:** ลดไอคอนซ้ำบนมือถือและให้จุดเปิดเมนูสื่อแบรนด์ชัดเจน โดยใช้โลโก้ Wisdom แทนสัญลักษณ์สามขีด
