@@ -1679,6 +1679,23 @@ flowchart LR
 - **Verification:** visible-tail contract, money-lineage contract, migration dry-run/local schema, typecheck, lint, build และ authenticated Accounting Drawer → Advance Finance/Audit smoke
 - **Rollback:** ซ่อน label/preset และ revoke classification RPC; ก่อนคืน constraint 4 หลักต้อง reconcile หลักฐาน 3 หลัก ห้ามลบ Raw/OCR, Lineage, Advance ID หรือ Audit
 
+### Advance Holder Live Refresh v2.8 (31/8/2569)
+
+```mermaid
+flowchart LR
+  S[Case / Settlement / Transaction / Lineage / Task เปลี่ยน] --> R[Realtime event]
+  R --> D[Debounce 600ms]
+  D --> P[โหลดทะเบียน + Operational Truth projection ใหม่]
+  X[Realtime ขาดช่วง] --> F[Polling 30 วินาที / Focus / กลับแท็บ]
+  F --> P
+  P --> U[ตาราง Drawer สถานะ Live และเวลาอัปเดต]
+```
+
+- **Flow/State:** `/advance-holders` อัปเดตทั้งบัญชียืนยันและสลิปที่จับคู่เมื่อข้อมูลต้นทางเปลี่ยน; สถานะ UI คือ `connecting → live|polling` และ fallback ไม่หยุดการทำงาน
+- **Permission/Data:** ใช้ session/RLS เดิมและโหลดเฉพาะบริษัทปัจจุบัน; migration `20260831084415_enable_advance_holder_realtime.sql` เพิ่มเฉพาะตาราง Flow นี้ใน `supabase_realtime` publication ไม่แก้ข้อมูลธุรกิจ
+- **Failure/Retry/Audit:** Realtime event รวมภายใน 600ms; polling ทุก 30 วินาทีและ focus/visibility refresh ชดเชย event ที่พลาด ส่วน Source/Lineage/Audit เดิมไม่เปลี่ยน
+- **Owner/Verification/Rollback:** Accounting/Platform; realtime contract, typecheck, lint, build และ authenticated Production smoke; rollback ปิด subscription/polling แล้วคงปุ่ม Refresh
+
 ### Borrowed Starting Fund v2.7 (31/8/2569)
 
 ```mermaid

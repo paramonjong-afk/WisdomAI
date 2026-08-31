@@ -23,6 +23,7 @@ type Holder = {
 type HolderRow = Holder & HolderBalance & HolderRealtimeBalance
 type Candidate = { id: string; name: string; kind: 'profile' | 'person' }
 type HolderFilter = 'all' | 'balance' | 'review' | 'negative' | 'transit' | 'inactive'
+type LiveStatus = 'connecting' | 'live' | 'polling'
 
 export function AdvanceHoldersPage() {
   usePageTitle('ทะเบียนผู้ถือเงินสำรอง')
@@ -48,23 +49,28 @@ export function AdvanceHoldersPage() {
   const [routeFilter, setRouteFilter] = useState<'all' | 'resolved' | 'unresolved'>('all')
   const [negativeOnly, setNegativeOnly] = useState(false)
   const [holderFilter, setHolderFilter] = useState<HolderFilter>('all')
+  const [refreshing, setRefreshing] = useState(false)
+  const [liveStatus, setLiveStatus] = useState<LiveStatus>('connecting')
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null)
 
   const load = useCallback(async () => {
-    if (!companyId) return
+    if (!companyId) return null
     const [{ data: holderData, error: holderError }, { data: caseData, error: caseError }, { data: profileData, error: profileError }, { data: personData, error: personError }] = await Promise.all([
       supabase.from('employee_advance_holders').select('id,display_name,is_active,holder_profile_id,holder_person_id,employee_advance_holder_aliases(id,alias_name)').eq('company_id', companyId).order('display_name'),
       supabase.from('employee_advance_cases').select('id,advance_number,holder_profile_id,holder_person_id,amount_received,status,updated_at,financial_transactions(transfer_at),employee_advance_settlement_items!employee_advance_settlement_items_case_id_fkey(expense_type,amount,approval_status)').eq('company_id', companyId).order('updated_at', { ascending: false }),
       supabase.from('employee_employment_records').select('profile_id,profiles!employee_employment_records_profile_id_fkey(full_name)').eq('company_id', companyId).eq('employment_type', 'monthly').in('employment_status', ['active', 'probation', 'notice']),
       supabase.from('employee_people').select('id,full_name').eq('company_id', companyId).eq('employment_type', 'monthly').eq('employee_status', 'active'),
     ])
-    if (holderError || caseError || profileError || personError) { setError(userError(holderError ?? caseError ?? profileError ?? personError)); return }
-    setHolders((holderData ?? []) as unknown as Holder[])
+    if (holderError || caseError || profileError || personError) { setError(userError(holderError ?? caseError ?? profileError ?? personError)); return null }
+    const nextHolders = (holderData ?? []) as unknown as Holder[]
+    setHolders(nextHolders)
     setAdvanceCases((caseData ?? []) as unknown as HolderAdvanceCase[])
     setCandidates([
       ...((profileData ?? []) as unknown as { profile_id: string; profiles: { full_name: string | null } | null }[]).map((row) => ({ id: row.profile_id, name: row.profiles?.full_name ?? row.profile_id, kind: 'profile' as const })),
       ...((personData ?? []) as { id: string; full_name: string | null }[]).map((row) => ({ id: row.id, name: row.full_name ?? row.id, kind: 'person' as const })),
     ])
     setError('')
+    return nextHolders
   }, [companyId])
 
   const holderRows = useMemo<HolderRow[]>(() => holders.map((holder) => {
@@ -82,11 +88,6 @@ export function AdvanceHoldersPage() {
     return true
   })
   const selectedRow = selected ? holderRows.find((row) => row.id === selected.id) ?? null : null
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 0)
-    return () => window.clearTimeout(timer)
-  }, [load])
 
   const saveHolder = async () => {
     const candidate = candidates.find((item) => `${item.kind}:${item.id}` === form.candidate)
@@ -112,8 +113,8 @@ export function AdvanceHoldersPage() {
     setAlias(''); await load()
   }
 
-  const scanSlips = useCallback(async (showResults = false) => {
-    if (!companyId || !holders.length) { setError('ต้องมีผู้ถือเงินที่พร้อมจับคู่ก่อนตรวจหาสลิป'); return }
+  const scanSlips = useCallback(async (showResults = false, sourceHolders: Holder[] = []) => {
+    if (!companyId || !sourceHolders.length) { if (showResults) setError('ต้องมีผู้ถือเงินที่พร้อมจับคู่ก่อนตรวจหาสลิป'); return }
     setScanning(true); setError('')
     const { data, error: scanError } = await supabase.from('transfer_slip_operational_truth_v1')
       .select('transaction_id,item_id,evidence_sender_name,evidence_recipient_name,evidence_amount,evidence_transfer_at,truth_status,duplicate_of,lineage_id,funding_source_type,purpose_type,project_id,site_id,route_status,next_destination,canonical_payer_name,canonical_fund_holder_name,canonical_beneficiary_name')
@@ -143,7 +144,7 @@ export function AdvanceHoldersPage() {
       canonicalFundHolderName: row.canonical_fund_holder_name,
       canonicalBeneficiaryName: row.canonical_beneficiary_name,
     })) satisfies AdvanceHolderSlipEvidence[]
-    const holderSources = holders.map((holder) => ({
+    const holderSources = sourceHolders.map((holder) => ({
       id: holder.id,
       displayName: holder.display_name,
       aliases: (holder.employee_advance_holder_aliases ?? []).map((item) => item.alias_name),
@@ -171,13 +172,56 @@ export function AdvanceHoldersPage() {
     })))
     setHasScanned(true)
     if (showResults) setTab(1)
-  }, [companyId, holders])
+  }, [companyId])
+
+  const refreshAll = useCallback(async () => {
+    if (!companyId) return
+    setRefreshing(true)
+    try {
+      const nextHolders = await load()
+      if (nextHolders === null) return
+      if (nextHolders.length) await scanSlips(false, nextHolders)
+      else { setSlipMatches([]); setHasScanned(true) }
+      setLastUpdatedAt(new Date())
+    } finally {
+      setRefreshing(false)
+    }
+  }, [companyId, load, scanSlips])
 
   useEffect(() => {
-    if (!holders.length || hasScanned) return
-    const timer = window.setTimeout(() => void scanSlips(false), 0)
+    const timer = window.setTimeout(() => void refreshAll(), 0)
     return () => window.clearTimeout(timer)
-  }, [hasScanned, holders.length, scanSlips])
+  }, [refreshAll])
+
+  useEffect(() => {
+    if (!companyId) return
+    let refreshTimer: number | null = null
+    const queueRefresh = () => {
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(() => void refreshAll(), 600)
+    }
+    const channel = supabase.channel(`advance-holder-live:${companyId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'employee_advance_holders', filter: `company_id=eq.${companyId}` }, queueRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'employee_advance_holder_aliases' }, queueRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'employee_advance_cases', filter: `company_id=eq.${companyId}` }, queueRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'employee_advance_settlement_items' }, queueRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'financial_transactions', filter: `company_id=eq.${companyId}` }, queueRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transfer_slip_money_lineages', filter: `company_id=eq.${companyId}` }, queueRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'document_flow_destination_tasks', filter: `company_id=eq.${companyId}` }, queueRefresh)
+      .subscribe((status) => setLiveStatus(status === 'SUBSCRIBED' ? 'live' : status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' ? 'polling' : 'connecting'))
+    const interval = window.setInterval(() => void refreshAll(), 30_000)
+    const onFocus = () => void refreshAll()
+    const onVisibility = () => { if (document.visibilityState === 'visible') void refreshAll() }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer)
+      window.clearInterval(interval)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibility)
+      void supabase.removeChannel(channel)
+    }
+  }, [companyId, refreshAll])
 
   const incomingCount = slipMatches.filter((item) => item.direction === 'incoming').length
   const outgoingCount = slipMatches.filter((item) => item.direction === 'outgoing').length
@@ -215,7 +259,7 @@ export function AdvanceHoldersPage() {
   }, [holderRows.length, holders, requestedHolderId])
 
   return <Stack spacing={2}>
-    <PageHeader title="ทะเบียนผู้ถือเงินสำรองจ่าย" description="ยอดบัญชียืนยัน + การเคลื่อนไหวจากสลิป Real-time พร้อมเส้นเงินที่ตรวจย้อนกลับได้" action={<Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}><Button startIcon={<RefreshOutlined />} onClick={() => { void load(); void scanSlips(false) }}>รีเฟรช</Button><Button disabled={scanning || !holders.length} startIcon={scanning ? <CircularProgress size={16} /> : <FindInPageOutlined />} onClick={() => void scanSlips(true)}>ตรวจใหม่</Button><Button variant="contained" startIcon={<AddOutlined />} onClick={() => setOpen(true)}>เพิ่มผู้ถือเงิน</Button></Stack>} />
+    <PageHeader title="ทะเบียนผู้ถือเงินสำรองจ่าย" description="ยอดบัญชียืนยัน + การเคลื่อนไหวจากสลิป Real-time พร้อมเส้นเงินที่ตรวจย้อนกลับได้" action={<Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }}><Chip size="small" color={liveStatus === 'live' ? 'success' : liveStatus === 'polling' ? 'warning' : 'default'} label={liveStatus === 'live' ? 'Live' : liveStatus === 'polling' ? 'สำรอง: อัปเดตทุก 30 วินาที' : 'กำลังเชื่อมต่อ'} /><Typography variant="caption" color="text.secondary">อัปเดตล่าสุด {lastUpdatedAt ? lastUpdatedAt.toLocaleTimeString('th-TH') : '-'}</Typography><Button disabled={refreshing} startIcon={refreshing ? <CircularProgress size={16} /> : <RefreshOutlined />} onClick={() => void refreshAll()}>รีเฟรช</Button><Button disabled={scanning || !holders.length} startIcon={scanning ? <CircularProgress size={16} /> : <FindInPageOutlined />} onClick={() => void scanSlips(true, holders)}>ตรวจใหม่</Button><Button variant="contained" startIcon={<AddOutlined />} onClick={() => setOpen(true)}>เพิ่มผู้ถือเงิน</Button></Stack>} />
     {error && <Alert severity="error">{error}</Alert>}
     <Paper variant="outlined"><Tabs value={tab} onChange={(_event, value: number) => setTab(value)} variant="scrollable" scrollButtons="auto"><Tab label={`ทะเบียนผู้ถือเงิน (${holders.length})`} /><Tab label={`สลิปที่พบ (${slipMatches.length})`} /></Tabs></Paper>
     {tab === 0 && <Stack spacing={1}><Stack direction="row" useFlexGap spacing={1} sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>{([['all', 'ทั้งหมด'], ['balance', 'มียอดคงเหลือ'], ['review', 'รอตรวจ'], ['negative', 'ยอดติดลบ'], ['transit', 'เงินกำลังเดินทาง'], ['inactive', 'ไม่มีการเคลื่อนไหว']] as [HolderFilter, string][]).map(([value, label]) => <Button key={value} size="small" variant={effectiveHolderFilter === value ? 'contained' : 'outlined'} color={value === 'negative' ? 'error' : value === 'review' || value === 'transit' ? 'warning' : 'inherit'} startIcon={value === 'negative' ? <WarningAmberOutlined /> : undefined} onClick={() => { setNegativeOnly(false); setHolderFilter(value) }}>{label}</Button>)}</Stack><StandardDataTable rows={visibleHolderRows} getRowId={(row) => row.id} onRowClick={setSelected} getSearchText={(row) => `${row.display_name} ${(row.employee_advance_holder_aliases ?? []).map((item) => item.alias_name).join(' ')}`} searchLabel="ค้นหาชื่อผู้ถือเงินหรือชื่อ alias" emptyText={effectiveHolderFilter === 'all' ? 'ยังไม่มีผู้ถือเงินสำรองจ่ายที่ลงทะเบียน' : 'ไม่พบรายการตามตัวกรอง'} minWidth={2050} columns={[

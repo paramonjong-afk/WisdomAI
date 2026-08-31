@@ -45,6 +45,10 @@ flowchart LR
   B --> RT[Operational Truth<br/>ตัด Duplicate + จับคู่ Holder/Alias]
   RT --> HS
   HS --> RP[รับเข้า · จ่ายออก Real-time · เงินกำลังเดินทาง<br/>คงเหลือคาดการณ์ · คงเหลือยืนยัน · ผลต่าง]
+  RT[Case / Settlement / Slip / Lineage เปลี่ยน] --> DB[Realtime debounce 600ms]
+  DB --> HS
+  FB[Realtime ขาดช่วง] --> P[Polling 30 วินาที<br/>Focus / กลับมาเปิดแท็บ]
+  P --> HS
   RP -->|ข้อมูลครบ/Route ยืนยัน| RL[เส้นทึบสีเขียว<br/>คลิกต้นทาง · ผู้ถือ · ผู้รับ · ปลายทาง]
   RP -->|ข้อมูลขาด/Route ยังไม่ยืนยัน| RQ[แสดงสาเหตุ + แก้จุดที่ขาด<br/>Deep Link ไป Transaction เดิม]
   RQ --> AR[Accounting Drawer<br/>กรอง Transaction + เปิดแท็บตรวจ]
@@ -126,6 +130,7 @@ flowchart LR
 
 | Version | Date | Rationale / impact | Migration | Rollback |
 |---|---|---|---|---|
+| v2.8 | 31/8/2569 | หน้า Holder เคยใช้คำว่า Real-time แต่โหลด snapshot ครั้งเดียว ทำให้แก้สลิปจากหน้าอื่นแล้วไม่อัปเดต | `20260831084415_enable_advance_holder_realtime.sql`; เปิด publication เฉพาะตาราง Flow นี้, subscribe แบบ debounce, fallback polling 30 วินาทีและ refresh เมื่อกลับแท็บ พร้อม Live/เวลาที่อัปเดต | ปิด subscription/pollingและนำตารางออกจาก publication เฉพาะเมื่อไม่มี consumer อื่น; ข้อมูลการเงินและ Audit ไม่เปลี่ยน |
 | v2.7 | 31/8/2569 | เงินยืมเป็นต้นทางเติมกองได้ แต่ต้องติดตามเจ้าหนี้และยอดคงค้างโดยไม่ลงค่าใช้จ่ายทันที | `20260831072537_borrowed_fund_obligations.sql` | ปิด Source/RPC และคง obligation/Audit เดิมเพื่อกระทบยอด |
 | v2.5 | 31/8/2569 | Separate new/top-up holder funding from holder-to-daily-worker transfers; recipient holder/account is canonical while payer remains source evidence | `20260831064514_starting_fund_recipient_holder_gate.sql` | Revoke the starting-fund RPC and return these slips to Accounting manual review; retain source, links, bank facts and Audit |
 | v2.0 | 26/8/2569 | Persist both sender and recipient of an advance-funding slip before Accounting/Advance continuation; prevent one-sided or half-saved Master references | `20260826223000_master_data_transfer_party_review.sql` | Revoke v2 RPC and revert Drawer; retain pair/account/audit/source records for reconciliation |
