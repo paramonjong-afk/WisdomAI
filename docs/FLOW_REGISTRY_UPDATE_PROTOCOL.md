@@ -1,5 +1,34 @@
 # Flow Registry Update Protocol
 
+## 2026-08-31 — Web Chat In-App Camera + File System Picker v3.0
+
+```mermaid
+flowchart LR
+  A[แตะไอคอนแนบ] --> B{เลือกแหล่งไฟล์}
+  B -->|ถ่ายรูปในแอป| C[getUserMedia กล้องหลัง]
+  C --> D[Canvas → JPEG File]
+  B -->|เลือกรูปหรือไฟล์| E[showOpenFilePicker]
+  B -->|สำรอง| F[Native hidden input]
+  D --> G[Validation]
+  E --> G
+  F --> G
+  G --> H[Membership + Session]
+  H --> I[Private Storage]
+  I --> J[chat_messages + Preview]
+  C -->|ไม่พร้อม/ไม่อนุญาต| K[แจ้งเหตุผล + Audit]
+  E -->|ไม่รองรับ/ล้มเหลว| F
+```
+
+- **เหตุผล/หลักฐาน:** Android revision `217c798` เปิด picker ได้สองครั้ง แต่ทุกครั้งหน้า `/chat` เริ่ม session ใหม่ทันทีหลังกลับจากกล้อง/แกลเลอรี และไม่มี `file_received`; Chromium มีปัญหา Media Picker/การคืนหน้า mobile ที่อาจทำให้ File handle สูญหาย จึงต้องมีเส้นทางที่ไม่สลับไปแอปกล้องภายนอก
+- **Input/Output/States:** ผู้ใช้เลือก camera/file-system/native fallback → `File` → received/validated/uploading/message_recorded → image/file card; cancel เป็น no-op, camera permission/picker/validation error แสดงเหตุผลและไม่สร้างข้อความ
+- **Roles/Permissions:** ต้อง login, มี company/room, เป็นสมาชิกห้อง และ Program Development ยังคง owner-only; ไม่เปลี่ยน RLS, private bucket หรือ allow-list
+- **Integrations:** `getUserMedia` + Canvas สำหรับกล้องในแอป, `showOpenFilePicker` สำหรับไฟล์, native input เป็น fallback, จากนั้นใช้ Supabase Auth/Storage/chat_messages/Realtime/preview เดิม
+- **Failure/Retry:** กล้องไม่พร้อมหรือ permission ถูกปฏิเสธหยุด stream และแจ้งผู้ใช้; File System Picker ไม่รองรับใช้ native fallback; upload/message failure คง Preview และ cleanup object ตาม flow เดิม
+- **Audit/Owner:** เพิ่ม `chat_attachment_camera_ready`, source `camera|file_system`, reason `camera_unavailable|picker_failed`; telemetry ไม่เก็บชื่อไฟล์ เจ้าของคือ Web Chat/Application Platform
+- **Impact/Migration:** เปลี่ยน UI แนบเป็นตัวเลือกสามทางและเพิ่มกล้องในแอป; ไม่มี schema migrationและไม่แก้ข้อมูลเดิม
+- **Verification:** attachment contract, camera/file picker mocks, typecheck, lint, build, release parity และ authenticated Android E2E ทั้ง camera กับ gallery/file
+- **Rollback:** revert v3.0 เป็น v2.9 ผ่าน Git integration; ไฟล์/ข้อความ/Audit เดิมคงอยู่ และ native fallback ยังเป็น recovery path
+
 ## 2026-08-31 — Web Chat Direct Native Input Overlay v2.9
 
 ```mermaid

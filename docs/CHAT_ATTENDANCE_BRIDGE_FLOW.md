@@ -691,3 +691,32 @@ flowchart LR
 - Migration: ไม่มี; RLS, bucket allow-list, company/room path และข้อมูลเดิมไม่เปลี่ยน
 - Verification: contract, lint, typecheck, build, Production revision parity และ authenticated Android smoke/read-back ตั้งแต่ pointer → File → Storage → message → Preview
 - Rollback: revert v2.9 แล้ว deploy ผ่าน Git integration; ไฟล์/ข้อความ/Audit เดิมไม่ถูกลบ
+
+### v3.0 — 31/8/2569
+
+```mermaid
+flowchart LR
+  A[แตะไอคอนแนบ] --> B{เลือกวิธี}
+  B -->|ถ่ายรูปในแอป| C[getUserMedia กล้องหลัง]
+  C --> D[Canvas สร้าง JPEG File]
+  B -->|เลือกรูปหรือไฟล์| E[File System Picker]
+  B -->|แบบสำรอง| F[Native input]
+  D --> G[Validation + Telemetry]
+  E --> G
+  F --> G
+  G --> H[Membership + Session]
+  H --> I[Private Storage]
+  I --> J[chat_messages + Preview]
+  C -->|ไม่อนุญาต/ไม่พร้อม| K[หยุดกล้อง + แจ้งเหตุผล]
+  E -->|ใช้ไม่ได้| F
+```
+
+- เหตุผล: Production Android revision `217c798` เปิด picker ได้ แต่เมื่อกลับจากกล้อง/แกลเลอรีหน้า Chat เริ่ม session ใหม่และไม่มี File event ทั้งสองครั้ง จึงยืนยันว่าจุดขาดเกิดก่อน validation/Storage และสัมพันธ์กับ native Media Picker/page restore
+- Input/Output/States: รับภาพจากกล้องในหน้าเว็บหรือ File System Picker/native fallback → File → validation → upload → message/Preview; ยกเลิกไม่สร้างข้อมูล และ error คง recovery เดิม
+- ผลกระทบ UI: แตะไอคอนแนบแล้วเลือก `ถ่ายรูปในแอป`, `เลือกรูปหรือไฟล์` หรือ `เลือกไฟล์แบบสำรอง`; กล้องในแอปไม่เปิด Android Camera app จึงลดโอกาสหน้า Chat ถูกทิ้งและ File สูญหาย
+- สิทธิ์/Integration: ต้อง login/มีห้อง/เป็นสมาชิก และ owner-only ยังเหมือนเดิม; ใช้ browser camera permission, Canvas JPEG, File System Access API แล้วต่อ Auth/private Storage/chat_messages/Realtime เดิม
+- Failure/Retry: permission กล้องไม่ผ่าน/กล้องไม่พร้อมหยุด media tracks; File System Picker ล้มเหลวเปิดหน้าตัวเลือกให้ใช้ fallback; validation/session/Storage/message error แจ้งเหตุผลและ retry ได้
+- Audit/Owner: `chat_attachment_camera_ready`, `file_received` source `camera|file_system`, `selection_blocked` reason `camera_unavailable|picker_failed`; ไม่เก็บชื่อไฟล์ เจ้าของ Web Chat/Application Platform
+- Migration: ไม่มี; RLS, bucket, allow-list, company/room path และข้อมูลเดิมไม่เปลี่ยน
+- Verification: camera/file picker contract, typecheck, lint, build, Production revision parity และ Android E2E แยกทั้งถ่ายรูปกับเลือกรูป/ไฟล์
+- Rollback: revert v3.0 และ deploy ผ่าน Git integration; ไฟล์/ข้อความ/Audit ที่มีอยู่ไม่ถูกลบ

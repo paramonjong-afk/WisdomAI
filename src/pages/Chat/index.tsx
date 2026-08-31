@@ -45,6 +45,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
+import useMediaQuery from '@mui/material/useMediaQuery'
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
@@ -118,6 +119,11 @@ type ChatMessage = {
 type MessageAttachmentUrlMap = Record<string, string>
 type UnreadCountMap = Record<string, number>
 type OnlineProfileMap = Record<string, boolean>
+type AttachmentSelectionSource = 'input' | 'change' | 'drop' | 'camera' | 'file_system'
+type FileSystemFileHandleLike = { getFile: () => Promise<File> }
+type FilePickerWindow = Window & {
+  showOpenFilePicker?: (options?: { multiple?: boolean }) => Promise<FileSystemFileHandleLike[]>
+}
 type PresenceConnectionState = 'offline' | 'connecting' | 'online'
 type CallSignalType = 'call_invite' | 'call_accept' | 'call_reject' | 'call_busy' | 'offer' | 'answer' | 'ice_candidate' | 'hangup'
 type CallStatus = 'calling' | 'connecting' | 'connected'
@@ -458,6 +464,7 @@ const labelFromProfile = (profile: RoomMemberProfile | null | undefined, fallbac
 
 export function ChatPage() {
   usePageTitle('ห้องแชต')
+  const isMobile = useMediaQuery('(max-width:600px)')
   const navigate = useNavigate()
   const { user, profile, currentCompany } = useAuth()
   const companyId = currentCompany?.company_id
@@ -527,10 +534,15 @@ export function ChatPage() {
   const [pendingAttachment, setPendingAttachment] = useState<File | null>(null)
   const [pendingAttachmentPreviewUrl, setPendingAttachmentPreviewUrl] = useState('')
   const [isDragActive, setIsDragActive] = useState(false)
+  const [attachmentSourceOpen, setAttachmentSourceOpen] = useState(false)
+  const [attachmentCameraOpen, setAttachmentCameraOpen] = useState(false)
+  const [attachmentCameraReady, setAttachmentCameraReady] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const lastHandledAttachmentSelectionRef = useRef('')
   const dragDepthRef = useRef(0)
   const messageBottomRef = useRef<HTMLDivElement | null>(null)
+  const attachmentCameraVideoRef = useRef<HTMLVideoElement | null>(null)
+  const attachmentCameraStreamRef = useRef<MediaStream | null>(null)
   const attendanceVideoRef = useRef<HTMLVideoElement | null>(null)
   const attendanceStreamRef = useRef<MediaStream | null>(null)
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null)
@@ -615,6 +627,8 @@ export function ChatPage() {
       URL.revokeObjectURL(pendingAttachmentPreviewUrlRef.current)
       pendingAttachmentPreviewUrlRef.current = ''
     }
+    attachmentCameraStreamRef.current?.getTracks().forEach((track) => track.stop())
+    attachmentCameraStreamRef.current = null
   }, [])
   const presenceLabel = presenceConnection === 'online'
     ? 'คุณออนไลน์'
@@ -2264,7 +2278,7 @@ export function ChatPage() {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  const handleAttachmentSelected = (file: File | null, source: 'input' | 'change' | 'drop') => {
+  const handleAttachmentSelected = (file: File | null, source: AttachmentSelectionSource) => {
     const contentType = file ? getChatAttachmentContentType(file) : ''
     if (activeProfileId) {
       void logAppEvent(activeProfileId, {
@@ -2372,6 +2386,121 @@ export function ChatPage() {
         metadata: { room_id: selectedRoom?.id ?? null },
       }).catch(() => undefined)
     }
+  }
+
+  const openNativeAttachmentPicker = () => {
+    setAttachmentSourceOpen(false)
+    handleAttachmentPickerPointerDown()
+    fileInputRef.current?.click()
+  }
+
+  const openFileSystemAttachmentPicker = async () => {
+    if (!canSend) return
+    setAttachmentSourceOpen(false)
+    const picker = (window as FilePickerWindow).showOpenFilePicker
+    if (!picker) {
+      openNativeAttachmentPicker()
+      return
+    }
+    if (activeProfileId) {
+      void logAppEvent(activeProfileId, {
+        eventType: 'page_view',
+        pagePath: '/chat',
+        message: 'chat_attachment_picker_opened',
+        metadata: { room_id: selectedRoom?.id ?? null, picker_mode: 'file_system' },
+      }).catch(() => undefined)
+    }
+    try {
+      const handles = await picker.call(window, { multiple: false })
+      const file = handles[0] ? await handles[0].getFile() : null
+      handleAttachmentSelected(file, 'file_system')
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return
+      if (activeProfileId) {
+        void logAppEvent(activeProfileId, {
+          eventType: 'client_error',
+          severity: 'warning',
+          pagePath: '/chat',
+          message: 'chat_attachment_selection_blocked',
+          metadata: { room_id: selectedRoom?.id ?? null, source: 'file_system', reason: 'picker_failed' },
+        }).catch(() => undefined)
+      }
+      setAttachmentSourceOpen(true)
+      setToast('ตัวเลือกไฟล์ของ Chrome ใช้งานไม่ได้ กรุณากด “เลือกไฟล์แบบสำรอง”', true)
+    }
+  }
+
+  const stopAttachmentCamera = () => {
+    attachmentCameraStreamRef.current?.getTracks().forEach((track) => track.stop())
+    attachmentCameraStreamRef.current = null
+    if (attachmentCameraVideoRef.current) attachmentCameraVideoRef.current.srcObject = null
+    setAttachmentCameraReady(false)
+    setAttachmentCameraOpen(false)
+  }
+
+  const startAttachmentCamera = async () => {
+    if (!canSend) return
+    setAttachmentSourceOpen(false)
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('อุปกรณ์หรือเบราว์เซอร์นี้ไม่รองรับกล้องในแอป')
+      setAttachmentCameraOpen(true)
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1600 }, height: { ideal: 1200 } },
+        audio: false,
+      })
+      attachmentCameraStreamRef.current = stream
+      if (!attachmentCameraVideoRef.current) throw new Error('ไม่พบหน้าต่างแสดงภาพจากกล้อง')
+      attachmentCameraVideoRef.current.srcObject = stream
+      await attachmentCameraVideoRef.current.play()
+      setAttachmentCameraReady(true)
+      if (activeProfileId) {
+        void logAppEvent(activeProfileId, {
+          eventType: 'page_view',
+          pagePath: '/chat',
+          message: 'chat_attachment_camera_ready',
+          metadata: { room_id: selectedRoom?.id ?? null },
+        }).catch(() => undefined)
+      }
+    } catch (error) {
+      stopAttachmentCamera()
+      if (activeProfileId) {
+        void logAppEvent(activeProfileId, {
+          eventType: 'client_error',
+          severity: 'warning',
+          pagePath: '/chat',
+          message: 'chat_attachment_selection_blocked',
+          metadata: { room_id: selectedRoom?.id ?? null, source: 'camera', reason: 'camera_unavailable' },
+        }).catch(() => undefined)
+      }
+      setToast(error instanceof Error ? `เปิดกล้องในแอปไม่ได้: ${userError(error)}` : 'เปิดกล้องในแอปไม่ได้', true)
+    }
+  }
+
+  const captureAttachmentPhoto = async () => {
+    const video = attachmentCameraVideoRef.current
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setToast('กล้องยังไม่พร้อม กรุณารอสักครู่', true)
+      return
+    }
+    const canvas = document.createElement('canvas')
+    const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight))
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale))
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale))
+    const context = canvas.getContext('2d')
+    if (!context) {
+      setToast('ไม่สามารถบันทึกภาพจากกล้องได้', true)
+      return
+    }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.82))
+    if (!blob) {
+      setToast('ไม่สามารถบันทึกภาพจากกล้องได้', true)
+      return
+    }
+    const file = new File([blob], `chat-photo-${Date.now()}.jpg`, { type: 'image/jpeg' })
+    stopAttachmentCamera()
+    handleAttachmentSelected(file, 'camera')
   }
 
   const resetDragState = () => {
@@ -3412,41 +3541,26 @@ export function ChatPage() {
                     <KeyboardVoiceOutlinedIcon />
                   </IconButton>
                   <Tooltip title="เลือกไฟล์ หรือ ลากไฟล์มาวางในพื้นที่แชต">
-                    <Box
-                      component="span"
-                      sx={{ position: 'relative', display: 'inline-flex', width: 44, height: 44 }}
+                    <IconButton
+                      color="primary"
+                      disabled={!canSend}
+                      aria-label="แนบรูปหรือไฟล์"
+                      onClick={() => setAttachmentSourceOpen(true)}
+                      sx={{ minWidth: 44, minHeight: 44 }}
                     >
-                      <IconButton
-                        component="span"
-                        color="primary"
-                        disabled={!canSend}
-                        aria-hidden="true"
-                        tabIndex={-1}
-                        sx={{ minWidth: 44, minHeight: 44, pointerEvents: 'none' }}
-                      >
-                        <AttachFileOutlinedIcon />
-                      </IconButton>
-                      <input
-                        type="file"
-                        ref={fileInputRef}
-                        disabled={!canSend}
-                        aria-label="เลือกไฟล์ หรือ ลากไฟล์มาวางในพื้นที่แชต"
-                        style={{
-                          position: 'absolute',
-                          inset: 0,
-                          width: '100%',
-                          height: '100%',
-                          opacity: 0,
-                          cursor: canSend ? 'pointer' : 'default',
-                          zIndex: 1,
-                        }}
-                        accept="image/*,.heic,.heif,.avif,.tif,.tiff,application/pdf,text/plain,.doc,.docx,.xls,.xlsx"
-                        onPointerDown={handleAttachmentPickerPointerDown}
-                        onInput={(event) => handleAttachmentInputEvent(event.currentTarget, 'input')}
-                        onChange={(event) => handleAttachmentInputEvent(event.currentTarget, 'change')}
-                      />
-                    </Box>
+                      <AttachFileOutlinedIcon />
+                    </IconButton>
                   </Tooltip>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    disabled={!canSend}
+                    aria-label="เลือกไฟล์แบบสำรอง"
+                    style={{ display: 'none' }}
+                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/avif,image/tiff,application/pdf,text/plain,.doc,.docx,.xls,.xlsx"
+                    onInput={(event) => handleAttachmentInputEvent(event.currentTarget, 'input')}
+                    onChange={(event) => handleAttachmentInputEvent(event.currentTarget, 'change')}
+                  />
                   <Button
                     size="medium"
                     variant="contained"
@@ -3463,6 +3577,85 @@ export function ChatPage() {
           )}
         </Paper>
       </Box>
+
+      <Dialog
+        open={attachmentSourceOpen}
+        onClose={() => setAttachmentSourceOpen(false)}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>แนบรูปหรือไฟล์</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+            <Alert severity="info">บนมือถือแนะนำให้ถ่ายรูปในแอป เพื่อไม่ให้ Chrome โหลดหน้า Chat ใหม่</Alert>
+            <Button
+              variant="contained"
+              startIcon={<CameraAltOutlinedIcon />}
+              onClick={() => void startAttachmentCamera()}
+              disabled={!canSend}
+              sx={{ minHeight: 48 }}
+            >
+              ถ่ายรูปในแอป
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<AttachFileOutlinedIcon />}
+              onClick={() => void openFileSystemAttachmentPicker()}
+              disabled={!canSend}
+              sx={{ minHeight: 48 }}
+            >
+              เลือกรูปหรือไฟล์
+            </Button>
+            <Button
+              variant="text"
+              onClick={openNativeAttachmentPicker}
+              disabled={!canSend}
+              sx={{ minHeight: 44 }}
+            >
+              เลือกไฟล์แบบสำรอง
+            </Button>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAttachmentSourceOpen(false)}>ยกเลิก</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={attachmentCameraOpen}
+        onClose={stopAttachmentCamera}
+        fullWidth
+        maxWidth="sm"
+        fullScreen={isMobile}
+      >
+        <DialogTitle>ถ่ายรูปแนบใน Web Chat</DialogTitle>
+        <DialogContent sx={{ px: { xs: 1.5, sm: 3 } }}>
+          <Stack spacing={1.25}>
+            <Box sx={{ borderRadius: 2, overflow: 'hidden', bgcolor: 'common.black', minHeight: { xs: 280, sm: 360 } }}>
+              <video
+                ref={attachmentCameraVideoRef}
+                autoPlay
+                muted
+                playsInline
+                style={{ display: 'block', width: '100%', height: '100%', minHeight: 280, objectFit: 'cover' }}
+              />
+            </Box>
+            {!attachmentCameraReady && <Alert severity="info">กำลังเปิดกล้อง… กรุณาอนุญาตการใช้กล้อง</Alert>}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: { xs: 1.5, sm: 3 }, pb: 2, gap: 1 }}>
+          <Button onClick={stopAttachmentCamera} sx={{ minHeight: 44 }}>ยกเลิก</Button>
+          <Button
+            variant="contained"
+            startIcon={<CameraAltOutlinedIcon />}
+            onClick={() => void captureAttachmentPhoto()}
+            disabled={!attachmentCameraReady || !canSend}
+            sx={{ minHeight: 48 }}
+          >
+            ถ่ายและส่งรูป
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={Boolean(developmentResultTask)} onClose={() => setDevelopmentResultTask(null)} fullWidth maxWidth="sm">
         <DialogTitle>ผลลัพธ์งานพัฒนา {developmentResultTask?.task_code ?? ''}</DialogTitle>
