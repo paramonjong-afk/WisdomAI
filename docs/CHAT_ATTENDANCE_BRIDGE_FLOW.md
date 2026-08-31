@@ -745,3 +745,27 @@ flowchart LR
 - Migration/Legacy: ไม่มี migration; รูป auto-send ที่บันทึกก่อน v3.1 คงอยู่ ไม่ลบและไม่สร้างซ้ำ
 - Verification: contract, typecheck, lint, build, revision parity และ Android E2E ตั้งแต่ Preview รอส่งจนเห็นรูปในห้อง
 - Rollback: revert v3.1 กลับ auto-send; ข้อมูลที่ส่งแล้วไม่เปลี่ยน
+
+### v3.2 — 31/8/2569
+
+```mermaid
+flowchart LR
+  A[เลือกหรือถ่ายรูป] --> B[Validation]
+  B --> C[IndexedDB Draft แยกผู้ใช้และห้อง]
+  C --> D[Preview รอส่ง]
+  D -->|หน้า Reload| E[Restore Draft]
+  E --> D
+  D -->|กดส่ง| F[Membership/Session → Storage → Message]
+  F --> G[ลบ Draft + แสดงรูป]
+  D -->|ยกเลิก/เปลี่ยนห้อง| H[ลบ Draft]
+```
+
+- เหตุผล: Production `870e033` รับ JPEG 1.2 MB และเข้า waiting confirmation แล้ว แต่ Android สร้าง session หน้า Chat ใหม่ภายในประมาณ 0.35 วินาที ทำให้ state/Preview ใน memory หายก่อนผู้ใช้เห็น
+- Input/Output/States: ไฟล์ผ่าน validation → local draft → ready; reload → restored ready; send → uploading → message recorded/failed; cancel/room change/success → draft removed
+- UI: เมื่อหน้า Android คืน/โหลดใหม่ การ์ด Preview ป้าย `รอส่ง` และปุ่ม `ส่งรูป` ถูกกู้คืนโดยอัตโนมัติ พร้อมข้อความแจ้งกู้คืน
+- สิทธิ์/ข้อมูล: IndexedDB เป็นพื้นที่เฉพาะ origin/device และ key มี company/profile/room; เก็บ Blob/ชื่อ/MIME/เวลาเฉพาะไม่เกิน 30 นาที; ไม่ส่ง server จนผู้ใช้กดส่ง
+- Failure/Retry: browser ไม่รองรับ draft ยังใช้ memory พร้อมเตือน; draft เสีย/หมดอายุไม่สร้างข้อความ; upload failure คง draft; สำเร็จ/ยกเลิก/เปลี่ยนห้องลบ draft
+- Audit/Owner: เพิ่ม `draft_persisted`, `draft_restored`; ไม่ส่งชื่อไฟล์หรือ bytes เข้า telemetry; owner Web Chat/Application Platform
+- Migration/Legacy: ไม่มี Supabase migration; เพิ่ม IndexedDB schema v1; ไฟล์และข้อความเดิมคงอยู่
+- Verification: contract/typecheck/lint/build/revision และ Android E2E ครบ restore หลัง session reload จนส่งสำเร็จ
+- Rollback: revert v3.2; draft local ที่เหลือหมดอายุภายใน 30 นาที ไม่มีผลกับ Storage/message

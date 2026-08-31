@@ -1,5 +1,31 @@
 # Flow Registry Update Protocol
 
+## 2026-08-31 — Web Chat Reload-Safe Attachment Draft v3.2
+
+```mermaid
+flowchart LR
+  A[Picker คืน File] --> B[Validation]
+  B --> C[พัก Blob ใน IndexedDB ตาม Company/Profile/Room]
+  C --> D[Preview + รอส่ง]
+  D -->|Android โหลดหน้าใหม่| E[โหลด Draft อายุไม่เกิน 30 นาที]
+  E --> D
+  D -->|กดส่ง| F[Membership + Session]
+  F --> G[Private Storage + chat_messages]
+  G --> H[ลบ Local Draft + แสดงรูปในห้อง]
+  D -->|ยกเลิก/เปลี่ยนห้อง| I[ลบ Local Draft]
+  C -->|พักไม่ได้| J[แจ้งให้กดส่งก่อนออกจากหน้า]
+```
+
+- **เหตุผล/หลักฐาน:** Android revision `870e033` บันทึก `file_received` และ `waiting_confirmation` แต่รุ่นนั้นยังไม่มี persistent draft จากนั้นเกิด `session_start` ใหม่ในประมาณ 0.35 วินาที จึงล้าง React memory ก่อนผู้ใช้เห็น Preview; Storage/RLS ยังไม่ถูกเรียก
+- **Input/Output/States:** File ที่ผ่าน validation ถูกเก็บแบบ origin-local Blob → ready/รอส่ง; reload กู้ File/Preview; ส่งสำเร็จหรือยกเลิก/เปลี่ยนห้องลบ draft; expired เกิน 30 นาทีลบอัตโนมัติ
+- **Roles/Permissions:** draft key แยก company + profile + room และอยู่ใน IndexedDB ของ origin/device เท่านั้น; server mutation ยังเริ่มเมื่อกดส่งและตรวจ membership/session เดิม
+- **Integrations:** camera/File System Picker/native input/drag-drop → IndexedDB draft → Preview → Supabase Auth/private Storage/chat_messages/Realtime
+- **Failure/Retry:** IndexedDB ไม่พร้อมยังแสดง Preview ใน memory พร้อมเตือน; draft restore error ไม่ส่งข้อมูล; upload/message failure คง draft/Preview; message success cleanup local draft
+- **Audit/Owner:** `chat_attachment_draft_persisted`, `chat_attachment_draft_restored` และ `waiting_confirmation.metadata.draft_persisted`; telemetry ไม่เก็บชื่อหรือ bytes เจ้าของ Web Chat/Application Platform
+- **Impact/Migration/Legacy:** ไม่มี database migration; เพิ่ม IndexedDB v1 ฝั่ง browser; ข้อความ/ไฟล์เดิมไม่เปลี่ยน และ draft local ไม่มีสิทธิ์ข้ามผู้ใช้/ห้อง
+- **Verification:** draft contract, attachment/Web Chat tests, typecheck, lint, build, revision parity และ Android read-back `file_received → draft_persisted → session_start → draft_restored → send_started → message_recorded`
+- **Rollback/Recovery:** revert v3.2 กลับ memory-only v3.1; IndexedDB record ที่ไม่ได้ใช้หมดอายุเองใน 30 นาที และไม่มีผลต่อข้อมูล server
+
 ## 2026-08-31 — Web Chat Confirm-Before-Send Attachment v3.1
 
 ```mermaid

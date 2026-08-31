@@ -57,6 +57,11 @@ import { userError } from '../../utils/userError'
 import { ensureProgramDevelopmentRoom } from '../../services/programDevelopmentGateway'
 import { ensureGeneralWorkRoom } from '../../services/generalWorkRoomGateway'
 import {
+  loadChatAttachmentDraft,
+  removeChatAttachmentDraft,
+  saveChatAttachmentDraft,
+} from '../../services/chatAttachmentDraft'
+import {
   applyOperationalAction as applyOperationalCoreAction,
   buildOperationalTaskCards,
   dailyOperationalSummary,
@@ -600,6 +605,13 @@ export function ChatPage() {
     : ''
   const selectRoom = useCallback((roomId: string) => {
     if (pendingAttachmentRoomId && pendingAttachmentRoomId !== roomId) {
+      if (companyId && activeProfileId) {
+        void removeChatAttachmentDraft({
+          companyId,
+          profileId: activeProfileId,
+          roomId: pendingAttachmentRoomId,
+        }).catch(() => undefined)
+      }
       if (pendingAttachmentPreviewUrlRef.current && typeof URL !== 'undefined') {
         URL.revokeObjectURL(pendingAttachmentPreviewUrlRef.current)
       }
@@ -618,7 +630,7 @@ export function ChatPage() {
     } catch {
       // Some private/mobile browser modes block sessionStorage; in-memory selection still works.
     }
-  }, [pendingAttachmentRoomId, roomSelectionStorageKey])
+  }, [activeProfileId, companyId, pendingAttachmentRoomId, roomSelectionStorageKey])
   const canSend = !!selectedRoomId && !!selectedRoom && !!companyId && !!activeProfileId && !busy
     && (!isProgramDevelopmentRoom || isProgramDevelopmentOwner)
   const updatePendingAttachment = useCallback((file: File | null) => {
@@ -637,11 +649,18 @@ export function ChatPage() {
   }, [])
 
   const clearPendingAttachment = useCallback(() => {
+    if (companyId && activeProfileId && pendingAttachmentRoomId) {
+      void removeChatAttachmentDraft({
+        companyId,
+        profileId: activeProfileId,
+        roomId: pendingAttachmentRoomId,
+      }).catch(() => undefined)
+    }
     updatePendingAttachment(null)
     setPendingAttachmentStatus('ready')
     setPendingAttachmentRoomId('')
     if (fileInputRef.current) fileInputRef.current.value = ''
-  }, [updatePendingAttachment])
+  }, [activeProfileId, companyId, pendingAttachmentRoomId, updatePendingAttachment])
 
   useEffect(() => () => {
     if (pendingAttachmentPreviewUrlRef.current && typeof URL !== 'undefined') {
@@ -771,6 +790,34 @@ export function ChatPage() {
     setNote(message)
     if (reset) setTimeout(() => setNote(''), 2400)
   }, [])
+
+  useEffect(() => {
+    if (!companyId || !activeProfileId || !selectedRoomId || pendingAttachment) return undefined
+    let cancelled = false
+    const roomId = selectedRoomId
+    void loadChatAttachmentDraft({ companyId, profileId: activeProfileId, roomId })
+      .then((file) => {
+        if (cancelled || !file || selectedRoomIdRef.current !== roomId) return
+        updatePendingAttachment(file)
+        setPendingAttachmentRoomId(roomId)
+        setPendingAttachmentStatus('ready')
+        setToast('กู้คืนรูปหรือไฟล์ที่รอส่งแล้ว กรุณาตรวจ Preview และกดส่ง')
+        void logAppEvent(activeProfileId, {
+          eventType: 'page_view',
+          pagePath: '/chat',
+          message: 'chat_attachment_draft_restored',
+          metadata: {
+            room_id: roomId,
+            file_size: file.size || 0,
+            content_type: getChatAttachmentContentType(file),
+          },
+        }).catch(() => undefined)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [activeProfileId, companyId, pendingAttachment, selectedRoomId, setToast, updatePendingAttachment])
 
   const actOperationalTask = useCallback((card: OperationalTaskCard, action: OperationalAction) => {
     if (!operationalLocalMode) {
@@ -2313,7 +2360,7 @@ export function ChatPage() {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  const handleAttachmentSelected = (file: File | null, source: AttachmentSelectionSource) => {
+  const handleAttachmentSelected = async (file: File | null, source: AttachmentSelectionSource) => {
     const contentType = file ? getChatAttachmentContentType(file) : ''
     if (activeProfileId) {
       void logAppEvent(activeProfileId, {
@@ -2380,9 +2427,24 @@ export function ChatPage() {
       return
     }
     updatePendingAttachment(file)
-    setPendingAttachmentRoomId(selectedRoom?.id ?? '')
+    const draftRoomId = selectedRoom?.id ?? ''
+    setPendingAttachmentRoomId(draftRoomId)
     setPendingAttachmentStatus('ready')
-    setToast('เลือกรูปหรือไฟล์แล้ว กรุณาตรวจ Preview และกดส่ง')
+    let draftPersisted = false
+    if (companyId && activeProfileId && draftRoomId) {
+      try {
+        draftPersisted = await saveChatAttachmentDraft({
+          companyId,
+          profileId: activeProfileId,
+          roomId: draftRoomId,
+        }, file)
+      } catch {
+        draftPersisted = false
+      }
+    }
+    setToast(draftPersisted
+      ? 'เลือกรูปหรือไฟล์แล้ว กรุณาตรวจ Preview และกดส่ง'
+      : 'เลือกรูปแล้ว แต่เบราว์เซอร์พักไฟล์ไม่ได้ กรุณากดส่งก่อนออกจากหน้านี้')
     if (activeProfileId) {
       void logAppEvent(activeProfileId, {
         eventType: 'page_view',
@@ -2402,8 +2464,21 @@ export function ChatPage() {
           room_id: selectedRoom?.id ?? null,
           file_size: file.size || 0,
           content_type: contentType,
+          draft_persisted: draftPersisted,
         },
       }).catch(() => undefined)
+      if (draftPersisted) {
+        void logAppEvent(activeProfileId, {
+          eventType: 'page_view',
+          pagePath: '/chat',
+          message: 'chat_attachment_draft_persisted',
+          metadata: {
+            room_id: selectedRoom?.id ?? null,
+            file_size: file.size || 0,
+            content_type: contentType,
+          },
+        }).catch(() => undefined)
+      }
     }
   }
 
@@ -2416,7 +2491,7 @@ export function ChatPage() {
       if (lastHandledAttachmentSelectionRef.current === selectionKey) return
       lastHandledAttachmentSelectionRef.current = selectionKey
     }
-    handleAttachmentSelected(file, source)
+    void handleAttachmentSelected(file, source)
   }
 
   const handleAttachmentPickerPointerDown = () => {
@@ -2460,7 +2535,7 @@ export function ChatPage() {
     try {
       const handles = await picker.call(window, { multiple: false })
       const file = handles[0] ? await handles[0].getFile() : null
-      handleAttachmentSelected(file, 'file_system')
+      await handleAttachmentSelected(file, 'file_system')
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
       if (activeProfileId) {
@@ -2547,7 +2622,7 @@ export function ChatPage() {
     }
     const file = new File([blob], `chat-photo-${Date.now()}.jpg`, { type: 'image/jpeg' })
     stopAttachmentCamera()
-    handleAttachmentSelected(file, 'camera')
+    await handleAttachmentSelected(file, 'camera')
   }
 
   const resetDragState = () => {
@@ -2590,7 +2665,7 @@ export function ChatPage() {
     const file = event.dataTransfer.files?.[0] ?? null
     if (!file) return
     if ((event.dataTransfer.files?.length ?? 0) > 1) setToast('แนบได้ครั้งละ 1 ไฟล์ ระบบจะใช้ไฟล์แรกที่เลือก')
-    handleAttachmentSelected(file, 'drop')
+    void handleAttachmentSelected(file, 'drop')
   }
 
   const sendCurrentMessage = () => {
