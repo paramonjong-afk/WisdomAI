@@ -1,7 +1,7 @@
 import { AddOutlined, CloseOutlined, FindInPageOutlined, RefreshOutlined, VisibilityOutlined, WarningAmberOutlined } from '@mui/icons-material'
 import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Drawer, IconButton, MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography } from '@mui/material'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '../../components/PageHeader'
 import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
@@ -10,7 +10,7 @@ import { supabase } from '../../lib/supabase'
 import { advanceHolderSlipDestination, matchAdvanceHolderSlips, type AdvanceHolderSlipEvidence, type AdvanceHolderSlipMatch } from '../../services/advanceHolderSlipMatch'
 import { userError } from '../../utils/userError'
 import { calculateHolderBalance, type HolderAdvanceCase, type HolderBalance } from './advanceHolderBalances'
-import { calculateHolderRealtimeBalance, type HolderRealtimeBalance } from './advanceHolderRealtime'
+import { calculateHolderRealtimeBalance, movementReviewReasons, type HolderRealtimeBalance } from './advanceHolderRealtime'
 
 type Holder = {
   id: string
@@ -27,6 +27,9 @@ type HolderFilter = 'all' | 'balance' | 'review' | 'negative' | 'transit' | 'ina
 export function AdvanceHoldersPage() {
   usePageTitle('ทะเบียนผู้ถือเงินสำรอง')
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const requestedHolderId = searchParams.get('holder_id')
+  const requestedTransactionId = searchParams.get('transaction_id')
   const { currentCompany } = useAuth()
   const companyId = currentCompany?.company_id ?? ''
   const [holders, setHolders] = useState<Holder[]>([])
@@ -170,7 +173,25 @@ export function AdvanceHoldersPage() {
     return parties.join(' → ') || '-'
   }
   const destinationPath = (destination: string | null) => destination === 'payroll' ? '/reports' : destination === 'advance_finance' ? '/advance-settlements' : '/accounting-documents'
-  const openMovement = (movement: AdvanceHolderSlipMatch) => navigate(`/accounting-documents?transaction_id=${encodeURIComponent(movement.transactionId)}`)
+  const movementReturnPath = (movement: AdvanceHolderSlipMatch) => `/advance-holders?holder_id=${encodeURIComponent(movement.holderId ?? '')}&transaction_id=${encodeURIComponent(movement.transactionId)}`
+  const openMovement = (movement: AdvanceHolderSlipMatch, review = false) => {
+    const query = new URLSearchParams({ transaction_id: movement.transactionId, return_to: movementReturnPath(movement) })
+    if (review) query.set('detail', 'review')
+    navigate(`/accounting-documents?${query.toString()}`)
+  }
+  const openDestination = (movement: AdvanceHolderSlipMatch) => {
+    if (!movement.routeResolved) { openMovement(movement, true); return }
+    const query = new URLSearchParams({ transaction_id: movement.transactionId, return_to: movementReturnPath(movement) })
+    navigate(`${destinationPath(movement.nextDestination)}?${query.toString()}`)
+  }
+
+  useEffect(() => {
+    if (!requestedHolderId || !holderRows.length) return
+    const holder = holders.find((item) => item.id === requestedHolderId)
+    if (!holder) return
+    const timer = window.setTimeout(() => setSelected(holder), 0)
+    return () => window.clearTimeout(timer)
+  }, [holderRows.length, holders, requestedHolderId])
 
   return <Stack spacing={2}>
     <PageHeader title="ทะเบียนผู้ถือเงินสำรองจ่าย" description="ยอดบัญชียืนยัน + การเคลื่อนไหวจากสลิป Real-time พร้อมเส้นเงินที่ตรวจย้อนกลับได้" action={<Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}><Button startIcon={<RefreshOutlined />} onClick={() => { void load(); void scanSlips(false) }}>รีเฟรช</Button><Button disabled={scanning || !holders.length} startIcon={scanning ? <CircularProgress size={16} /> : <FindInPageOutlined />} onClick={() => void scanSlips(true)}>ตรวจใหม่</Button><Button variant="contained" startIcon={<AddOutlined />} onClick={() => setOpen(true)}>เพิ่มผู้ถือเงิน</Button></Stack>} />
@@ -199,10 +220,10 @@ export function AdvanceHoldersPage() {
         { id: 'sender', label: 'ผู้โอนตามสลิป', minWidth: 180, render: (row) => row.senderName ?? '-' },
         { id: 'recipient', label: 'ผู้รับตามสลิป', minWidth: 180, render: (row) => row.recipientName ?? '-' },
         { id: 'amount', label: 'ยอด', minWidth: 130, align: 'right', render: (row) => money(row.amount) },
-        { id: 'purpose', label: 'ประเภทเงิน', minWidth: 190, render: (row) => <Chip size="small" color={row.routeResolved ? 'success' : 'warning'} label={purposeLabel(row.purposeType)} /> },
+        { id: 'purpose', label: 'ประเภทเงิน', minWidth: 190, render: (row) => row.routeResolved ? <Chip size="small" color="success" label={purposeLabel(row.purposeType)} /> : <Button size="small" color="warning" variant="contained" onClick={(event) => { event.stopPropagation(); openMovement(row, true) }}>แก้ประเภทเงิน</Button> },
         { id: 'route', label: 'เส้นทางเงินจริง', minWidth: 300, render: (row) => <Stack spacing={0.5}><Typography variant="body2">{routeText(row)}</Typography><Typography variant="caption" color="text.secondary">{row.routeResolved ? `ถัดไป: ${row.nextDestination ?? 'ตามเส้นทางที่ยืนยัน'}` : 'คลิกแถวเพื่อสรุปประเภทและเส้นทาง'}</Typography></Stack> },
         { id: 'destination', label: 'เปิดห้อง', minWidth: 190, render: (row) => <Typography variant="body2" sx={{ fontWeight: 700 }}>{advanceHolderSlipDestination(row).label}</Typography> },
-        { id: 'status', label: 'สถานะ', minWidth: 150, render: (row) => <Stack spacing={0.5}><Chip size="small" color={row.truthStatus === 'confirmed' ? 'success' : 'warning'} label={truthLabel(row.truthStatus)} />{!row.routeResolved && <Chip size="small" color="warning" variant="outlined" label="ยังไม่สรุปเส้นทาง" />}</Stack> },
+        { id: 'status', label: 'สถานะ', minWidth: 170, render: (row) => <Stack spacing={0.5}><Chip size="small" color={row.truthStatus === 'confirmed' ? 'success' : 'warning'} label={truthLabel(row.truthStatus)} />{!row.routeResolved && <Button size="small" color="warning" variant="outlined" onClick={(event) => { event.stopPropagation(); openMovement(row, true) }}>ตรวจเส้นเงิน</Button>}</Stack> },
       ]} />
     </Stack>}
     <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm"><DialogTitle>เพิ่มผู้ถือเงินสำรองจ่าย</DialogTitle><DialogContent><Stack spacing={2} sx={{ pt: 1 }}><TextField select label="ชื่อพนักงานรายเดือน" value={form.candidate} onChange={(event) => setForm({ ...form, candidate: event.target.value })}>{candidates.map((candidate) => <MenuItem key={`${candidate.kind}:${candidate.id}`} value={`${candidate.kind}:${candidate.id}`}>{candidate.name}</MenuItem>)}</TextField><TextField select label="สถานะ" value={form.active} onChange={(event) => setForm({ ...form, active: event.target.value })}><MenuItem value="true">พร้อมจับคู่</MenuItem><MenuItem value="false">ปิดใช้งาน</MenuItem></TextField></Stack></DialogContent><DialogActions><Button onClick={() => setOpen(false)}>ยกเลิก</Button><Button disabled={saving || !form.candidate} variant="contained" onClick={() => void saveHolder()}>บันทึกชื่อ</Button></DialogActions></Dialog>
@@ -212,7 +233,7 @@ export function AdvanceHoldersPage() {
         {selectedRow.projectedBalance < 0 && <Alert severity="error">ยอดคงเหลือคาดการณ์ติดลบ {money(selectedRow.projectedBalance)} กรุณาตรวจรายการจ่ายและเส้นเงินก่อนปิดยอด</Alert>}
         {selectedRow.reviewCount > 0 && <Alert severity="warning">มี {selectedRow.reviewCount} รายการ รวม {money(selectedRow.reviewAmount)} ที่พบแบบ Real-time แต่ยังต้องตรวจประเภทเงินหรือเส้นทาง</Alert>}
         <Paper variant="outlined" sx={{ p: 1.5 }}><Stack direction="row" useFlexGap spacing={2} sx={{ flexWrap: 'wrap' }}>{[['รับเข้ายืนยัน', selectedRow.received], ['จ่ายออก Real-time', selectedRow.realtimePaid], ['กำลังเดินทาง', selectedRow.inTransit], ['คงเหลือคาดการณ์', selectedRow.projectedBalance], ['คงเหลือยืนยัน', selectedRow.confirmedBalance], ['ผลต่าง', selectedRow.variance]].map(([label, value]) => <Box key={String(label)} sx={{ minWidth: 135 }}><Typography variant="caption">{label}</Typography><Typography sx={{ fontWeight: 900, color: (label === 'คงเหลือคาดการณ์' && Number(value) < 0) ? 'error.main' : label === 'ผลต่าง' && Number(value) !== 0 ? 'warning.main' : 'text.primary' }}>{money(Number(value))}</Typography></Box>)}</Stack></Paper>
-        <Box><Typography sx={{ fontWeight: 800, mb: 1 }}>เส้นเงิน Real-time</Typography>{selectedRow.movements.length ? selectedRow.movements.map((movement) => <Paper key={movement.id} variant="outlined" sx={{ p: 1.25, mb: 1, borderStyle: movement.reviewRequired ? 'dashed' : 'solid', borderColor: movement.reviewRequired ? 'warning.main' : 'success.light' }}><Stack direction="row" sx={{ justifyContent: 'space-between', gap: 1 }}><Box><Typography sx={{ fontWeight: 800 }}>{dateTime(movement.transferAt)} · {movement.direction === 'incoming' ? 'รับเข้า' : 'จ่ายออก'}</Typography><Typography variant="caption" color="text.secondary">Transaction {movement.transactionId.slice(0, 10)}… · {movement.truthStatus}</Typography></Box><Typography sx={{ fontWeight: 900, color: movement.direction === 'incoming' ? 'success.main' : 'text.primary' }}>{movement.direction === 'incoming' ? '+' : '-'}{money(movement.amount)}</Typography></Stack><Stack direction="row" useFlexGap spacing={0.5} sx={{ flexWrap: 'wrap', alignItems: 'center', mt: 1 }}><Button size="small" variant="outlined" onClick={() => openMovement(movement)}>{movement.canonicalPayerName ?? movement.senderName ?? 'ไม่ทราบต้นทาง'}</Button><Typography>→</Typography><Button size="small" variant="outlined" onClick={() => setSelected(selectedRow)}>{selectedRow.display_name}</Button><Typography>→</Typography><Button size="small" variant="outlined" onClick={() => openMovement(movement)}>{movement.canonicalBeneficiaryName ?? movement.recipientName ?? 'ไม่ทราบผู้รับ'}</Button><Typography>→</Typography><Button size="small" color={movement.routeResolved ? 'success' : 'warning'} variant="contained" onClick={() => navigate(destinationPath(movement.nextDestination))}>{purposeLabel(movement.purposeType)}</Button></Stack><Stack direction="row" spacing={1} sx={{ mt: 1 }}><Chip size="small" color={movement.reviewRequired ? 'warning' : 'success'} label={movement.reviewRequired ? 'เส้นประ · รอตรวจ' : 'เส้นทึบ · ยืนยันแล้ว'} /><Button size="small" onClick={() => openMovement(movement)}>เปิดสลิป/Audit</Button></Stack></Paper>) : <Typography color="text.secondary">ยังไม่พบสลิปที่จับคู่ผู้ถือเงินรายนี้</Typography>}</Box>
+        <Box><Typography sx={{ fontWeight: 800, mb: 1 }}>เส้นเงิน Real-time</Typography>{selectedRow.movements.length ? selectedRow.movements.map((movement) => { const reasons = movementReviewReasons(movement); const focused = requestedTransactionId === movement.transactionId; return <Paper key={movement.id} variant="outlined" sx={{ p: 1.25, mb: 1, borderWidth: focused ? 2 : 1, borderStyle: movement.reviewRequired ? 'dashed' : 'solid', borderColor: movement.reviewRequired ? 'warning.main' : 'success.light', bgcolor: focused ? 'action.hover' : undefined }}><Stack direction="row" sx={{ justifyContent: 'space-between', gap: 1 }}><Box><Typography sx={{ fontWeight: 800 }}>{dateTime(movement.transferAt)} · {movement.direction === 'incoming' ? 'รับเข้า' : 'จ่ายออก'}</Typography><Typography variant="caption" color="text.secondary">Transaction {movement.transactionId.slice(0, 10)}… · {movement.truthStatus}</Typography></Box><Typography sx={{ fontWeight: 900, color: movement.direction === 'incoming' ? 'success.main' : 'text.primary' }}>{movement.direction === 'incoming' ? '+' : '-'}{money(movement.amount)}</Typography></Stack>{reasons.length > 0 && <Alert severity="warning" sx={{ mt: 1, py: 0 }}><strong>จุดที่ต้องแก้:</strong> {reasons.join(' · ')}</Alert>}<Stack direction="row" useFlexGap spacing={0.5} sx={{ flexWrap: 'wrap', alignItems: 'center', mt: 1 }}><Button size="small" variant="outlined" onClick={() => openMovement(movement)}>{movement.canonicalPayerName ?? movement.senderName ?? 'ไม่ทราบต้นทาง'}</Button><Typography>→</Typography><Button size="small" variant="outlined" onClick={() => setSelected(selectedRow)}>{selectedRow.display_name}</Button><Typography>→</Typography><Button size="small" variant="outlined" onClick={() => openMovement(movement)}>{movement.canonicalBeneficiaryName ?? movement.recipientName ?? 'ไม่ทราบผู้รับ'}</Button><Typography>→</Typography><Button size="small" color={movement.routeResolved ? 'success' : 'warning'} variant="contained" onClick={() => openDestination(movement)}>{movement.routeResolved ? purposeLabel(movement.purposeType) : 'แก้จุดที่ขาด'}</Button></Stack><Stack direction="row" spacing={1} sx={{ mt: 1 }}><Chip size="small" color={movement.reviewRequired ? 'warning' : 'success'} label={movement.reviewRequired ? 'ตรวจเส้นเงิน' : 'เส้นทึบ · ยืนยันแล้ว'} /><Button size="small" onClick={() => openMovement(movement)}>เปิดสลิป/Audit</Button></Stack></Paper> }) : <Typography color="text.secondary">ยังไม่พบสลิปที่จับคู่ผู้ถือเงินรายนี้</Typography>}</Box>
         <Box><Typography sx={{ fontWeight: 800, mb: 1 }}>บัญชีเงินสำรองที่ยืนยันแล้ว</Typography>{selectedRow.cases.length ? selectedRow.cases.map((advanceCase) => { const balance = calculateHolderBalance([advanceCase]); return <Paper key={advanceCase.id} variant="outlined" sx={{ p: 1.25, mb: 1 }}><Stack direction="row" sx={{ justifyContent: 'space-between', gap: 1 }}><Box><Typography sx={{ fontWeight: 800 }}>{advanceCase.advance_number}</Typography><Typography variant="caption" color="text.secondary">{dateTime(advanceCase.financial_transactions?.transfer_at ?? advanceCase.updated_at)} · {advanceCase.status}</Typography></Box><Typography sx={{ fontWeight: 800, color: balance.balance < 0 ? 'error.main' : 'text.primary' }}>{money(balance.balance)}</Typography></Stack><Typography variant="body2" sx={{ mt: 0.5 }}>รับ {money(balance.received)} · จ่าย/ตัด {money(balance.paidOrOffset)} · คืน {money(balance.returned)}</Typography>{(advanceCase.employee_advance_settlement_items ?? []).map((item, index) => <Typography key={`${advanceCase.id}-${index}`} variant="caption" sx={{ display: 'block', color: item.approval_status === 'approved' ? 'text.secondary' : 'warning.main' }}>• {settlementLabel[item.expense_type] ?? item.expense_type} {money(Number(item.amount))} · {item.approval_status}</Typography>)}</Paper> }) : <Typography color="text.secondary">ยังไม่มีรายการบัญชีเงินสำรองที่ยืนยันแล้ว</Typography>}</Box>
         <Box><Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>ชื่อ alias ใช้จับคู่สลิปกับผู้ถือเงินรายนี้</Typography><Stack direction="row" spacing={1}><TextField fullWidth size="small" label="ชื่อ alias" value={alias} onChange={(event) => setAlias(event.target.value)} /><Button disabled={saving || alias.trim().length < 2} variant="contained" onClick={() => void addAlias()}>เพิ่ม</Button></Stack></Box>
       </>}

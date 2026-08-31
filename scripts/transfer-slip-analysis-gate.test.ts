@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { buildSlipAnalysisGate, inferSlipMoneyPurpose, slipPurposeNeedsFundHolder, slipPurposeNeedsProject } from '../src/services/transferSlipAnalysisGate.ts'
+import { buildSlipAnalysisGate, inferSlipMoneyPurpose, isSuspiciousTransferDate, slipPurposeNeedsFundHolder, slipPurposeNeedsProject } from '../src/services/transferSlipAnalysisGate.ts'
 import { emptyMoneyLineage } from '../src/services/transferSlipMoneyLineage.ts'
 import type { TransferSlipQueueRow } from '../src/services/accountingTransferSlipQueue.ts'
 import { readFileSync } from 'node:fs'
@@ -33,6 +33,10 @@ assert.equal(ready.blockers.length, 0)
 
 const routed = buildSlipAnalysisGate(row({ candidateDepartments: ['advance_finance'], truthStatus: 'confirmed', isPostable: true }), draft)
 assert.equal(routed.state, 'auto_routed')
+assert.equal(isSuspiciousTransferDate('3112-08-29T00:00:00Z', new Date('2026-08-31T00:00:00Z')), true)
+const invalidDate = buildSlipAnalysisGate(row({ candidateDepartments: ['advance_finance'], truthStatus: 'confirmed', isPostable: true, transferAt: '3112-08-29T00:00:00Z' }), draft)
+assert.equal(invalidDate.state, 'needs_confirmation')
+assert.ok(invalidDate.blockers.includes('วันที่ผิดปกติ ต้องตรวจจากสลิป'))
 const blocked = buildSlipAnalysisGate(row({ senderAccountLast4: null, recipientName: null, amount: null }), null)
 assert.ok(blocked.blockers.includes('ยืนยันบัญชีผู้โอน'))
 assert.ok(blocked.blockers.includes('ยืนยันผู้รับ'))
@@ -46,6 +50,8 @@ const advancePartyMigration = readFileSync('supabase/migrations/20260827003009_t
 assert.match(accountingPage, /จ่ายผู้ขายผ่านบัญชีบุคคล \(เงินสำรองจ่าย\)/)
 assert.match(accountingPage, /resolve_transfer_slip_advance_parties/)
 assert.match(accountingPage, /ตรวจข้อมูล 2 ฝั่ง · เงินเบิกล่วงหน้า/)
+assert.match(accountingPage, /กลับไปเส้นเงินเดิม/)
+assert.match(accountingPage, /startsWith\('\/advance-holders'\)/)
 assert.match(advancePartyMigration, /transfer_slip_advance_party_links/)
 assert.match(advancePartyMigration, /sender_bank_account_owner_conflict/)
 assert.match(advancePartyMigration, /recipient_bank_account_owner_conflict/)
