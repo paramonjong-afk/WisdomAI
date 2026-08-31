@@ -181,6 +181,7 @@ export function AccountingDocumentsPage() {
   const [slipReviewDraft, setSlipReviewDraft] = useState<SlipReviewDraft | null>(null)
   const [slipMoneyLineageDraft, setSlipMoneyLineageDraft] = useState<MoneyLineageDraft | null>(null)
   const [slipMoneyLineageStatus, setSlipMoneyLineageStatus] = useState<{ routeStatus: string; nextDestination: string } | null>(null)
+  const [slipCorrectionMode, setSlipCorrectionMode] = useState(false)
   const [moneyLineageOptions, setMoneyLineageOptions] = useState<MoneyLineageOption[]>([])
   const [slipAiGuidance, setSlipAiGuidance] = useState('')
   const [slipAdvancePartyMatch, setSlipAdvancePartyMatch] = useState<AdvancePartyMatch | null>(null)
@@ -1041,6 +1042,7 @@ export function AccountingDocumentsPage() {
   const slipLineageValidation = slipMoneyLineageDraft ? validateMoneyLineage(slipMoneyLineageDraft, slipTransferAmount) : { missing: [], errors: [] }
   const slipLineagePendingMatch = slipMoneyLineageStatus?.routeStatus === 'accounting_review'
   const slipLineageFinalized = Boolean(slipMoneyLineageStatus && !['draft', 'needs_information'].includes(slipMoneyLineageStatus.routeStatus))
+  const slipLineageReadOnly = slipLineageFinalized && !slipCorrectionMode
   const senderAliasError = slipReviewDraft ? paymentAliasValidation({ paymentMethod: slipReviewDraft.senderPaymentMethod, aliasType: slipReviewDraft.senderAliasType, aliasValue: slipReviewDraft.senderAliasValue }) : null
   const recipientAliasError = slipReviewDraft ? paymentAliasValidation({ paymentMethod: slipReviewDraft.recipientPaymentMethod, aliasType: slipReviewDraft.recipientAliasType, aliasValue: slipReviewDraft.recipientAliasValue }) : null
   const slipAnalysis = useMemo(() => selectedSlip ? buildSlipAnalysisGate(selectedSlip, slipMoneyLineageDraft) : null, [selectedSlip, slipMoneyLineageDraft])
@@ -1053,7 +1055,7 @@ export function AccountingDocumentsPage() {
     setSlipPreviewMessage('')
     setSlipEvents([])
     setSlipDetailLoading(false)
-    setSlipDetailTab(0); setSlipReviewDraft(null); setSlipMoneyLineageDraft(null); setSlipMoneyLineageStatus(null); setMoneyLineageOptions([]); setSlipAiGuidance(''); setSlipAdvancePartyMatch(null); setSlipActionLoading(false)
+    setSlipDetailTab(0); setSlipReviewDraft(null); setSlipMoneyLineageDraft(null); setSlipMoneyLineageStatus(null); setSlipCorrectionMode(false); setMoneyLineageOptions([]); setSlipAiGuidance(''); setSlipAdvancePartyMatch(null); setSlipActionLoading(false)
   }
 
   const openSlipDetail = async (slip: AccountingPendingSlip) => {
@@ -1071,7 +1073,7 @@ export function AccountingDocumentsPage() {
       suggestedLineage.allocations = suggestedLineage.allocations.map(allocation => ({ ...allocation, purposeType: suggestedPurpose, confidence: String(suggestion.confidence) }))
     }
     setSelectedSlip(slip)
-    setSlipDetailTab(0); setSlipReviewDraft(slipDraftFromRow(slip)); setSlipMoneyLineageDraft(suggestedLineage); setSlipMoneyLineageStatus(null); setMoneyLineageOptions([]); setSlipAiGuidance(''); setSlipAdvancePartyMatch(null)
+    setSlipDetailTab(0); setSlipReviewDraft(slipDraftFromRow(slip)); setSlipMoneyLineageDraft(suggestedLineage); setSlipMoneyLineageStatus(null); setSlipCorrectionMode(false); setMoneyLineageOptions([]); setSlipAiGuidance(''); setSlipAdvancePartyMatch(null)
     setSlipPreviewFiles([])
     setSlipPreviewIndex(0)
     setSlipPreviewMessage('กำลังเปิดไฟล์ต้นฉบับ…')
@@ -1235,8 +1237,8 @@ export function AccountingDocumentsPage() {
 
   const saveSlipReview = async (decision: 'draft' | 'confirm' | 'request_information') => {
     if (!selectedSlip || !slipReviewDraft || !slipMoneyLineageDraft) return
-    if (slipLineageFinalized) {
-      setError(slipLineagePendingMatch ? 'รายการนี้บันทึกยืนยันแล้วและกำลังรอจับคู่ผู้ถือเงิน ไม่ต้องบันทึกซ้ำ' : 'รายการนี้ยืนยันและส่งต่อแล้ว ไม่ต้องบันทึกซ้ำ หากต้องแก้ไขให้ดำเนินการจาก Module ปลายทางพร้อมบันทึก Audit')
+    if (slipLineageFinalized && !slipCorrectionMode) {
+      setError(slipLineagePendingMatch ? 'รายการนี้บันทึกยืนยันแล้วและกำลังรอจับคู่ผู้ถือเงิน ไม่ต้องบันทึกซ้ำ' : 'รายการนี้ยืนยันและส่งต่อแล้ว · ไม่ต้องบันทึกซ้ำ หากต้องแก้ไขให้กดแก้ไขข้อมูลจัดสรรเพื่อบันทึก Version/Audit ใหม่')
       return
     }
     setSlipActionLoading(true); setError(null); setSuccess(null)
@@ -1395,7 +1397,8 @@ export function AccountingDocumentsPage() {
       const destinationLabel = moneyAllocationDestinations(effectiveLineageDraft.allocations).join(' · ')
       setSlipMoneyLineageDraft(effectiveLineageDraft)
       setSlipMoneyLineageStatus({ routeStatus: persistedRoute.route_status, nextDestination: persistedRoute.next_destination || destinationLabel })
-      setSuccess(decision === 'confirm' ? persistedRoute.route_status === 'accounting_review' ? 'บันทึกแล้ว · รอจับคู่ผู้ถือเงิน ไม่ต้องบันทึกซ้ำ' : `ยืนยันการจัดสรรและส่งงานต่อแล้ว: ${destinationLabel}` : decision === 'request_information' ? 'ส่งกลับเพื่อขอข้อมูลเพิ่มแล้ว' : 'บันทึกฉบับร่างพร้อมเส้นทางเงินและ Audit แล้ว')
+      setSuccess(decision === 'confirm' ? slipCorrectionMode ? `แก้ไขข้อมูลจัดสรรแล้ว · บันทึก Version/Audit ใหม่และส่งต่อ: ${destinationLabel}` : persistedRoute.route_status === 'accounting_review' ? 'บันทึกแล้ว · รอจับคู่ผู้ถือเงิน ไม่ต้องบันทึกซ้ำ' : `ยืนยันการจัดสรรและส่งงานต่อแล้ว: ${destinationLabel}` : decision === 'request_information' ? 'ส่งกลับเพื่อขอข้อมูลเพิ่มแล้ว' : 'บันทึกฉบับร่างพร้อมเส้นทางเงินและ Audit แล้ว')
+      if (decision === 'confirm') setSlipCorrectionMode(false)
       await loadData()
       const updatedSlip: AccountingPendingSlip = { ...selectedSlip, senderName: slipReviewDraft.senderName || null, senderBankName: slipReviewDraft.senderBankName || null, senderAccountLast4: slipReviewDraft.senderAccountLast4 || null, recipientName: slipReviewDraft.recipientName || null, recipientBankName: slipReviewDraft.recipientBankName || null, recipientAccountLast4: slipReviewDraft.recipientAccountLast4 || null, amount, transferAt: slipReviewDraft.transferAt ? new Date(slipReviewDraft.transferAt).toISOString() : null, bankReference: slipReviewDraft.bankReference || null, reviewStatus: decision === 'confirm' ? 'confirmed' : 'pending', dataReviewStatus: decision === 'confirm' ? 'rechecked' : 'incomplete', dataReviewNote: slipReviewDraft.note || null }
       setSelectedSlip(updatedSlip)
@@ -1654,8 +1657,8 @@ export function AccountingDocumentsPage() {
         <Button variant="contained" disabled={!canManage || slipActionLoading || !activeSlipPreview} onClick={() => void rereadSelectedSlip()}>{slipActionLoading ? 'AI กำลังอ่าน…' : 'ให้ AI อ่านสลิปใหม่'}</Button>
         <Paper variant="outlined" sx={{ p: 1.5 }}><Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Source Reference</Typography><Typography variant="body2">{selectedSlip.sourceChannel ?? 'ไม่ระบุ'} · {selectedSlip.sourceRoomName ?? 'ไม่ระบุห้อง'} · {selectedSlip.sourceSenderName ?? 'ไม่ระบุผู้ส่ง'}</Typography><Typography variant="caption" color="text.secondary">Message ID: {selectedSlip.sourceMessageId ?? '-'}</Typography></Paper>
         </>}
-        {slipDetailTab === 1 && slipReviewDraft && slipMoneyLineageDraft && <Stack spacing={2} sx={slipLineageFinalized ? { pointerEvents: 'none', opacity: .72 } : undefined}>
-          {slipLineageFinalized && <Alert severity={slipLineagePendingMatch ? 'info' : 'success'}><Typography sx={{ fontWeight: 800 }}>{slipLineagePendingMatch ? 'บันทึกยืนยันแล้ว · รอจับคู่ผู้ถือเงิน' : 'รายการนี้ยืนยันและส่งต่อแล้ว'}</Typography><Typography variant="body2">ไม่ต้องบันทึกซ้ำ · ปลายทาง: {slipMoneyLineageStatus?.nextDestination || 'Module ถัดไป'} · ข้อมูลหน้านี้แสดงแบบอ่านอย่างเดียว</Typography></Alert>}
+        {slipDetailTab === 1 && slipReviewDraft && slipMoneyLineageDraft && <Stack spacing={2} sx={slipLineageReadOnly ? { pointerEvents: 'none', opacity: .72 } : undefined}>
+          {slipLineageFinalized && <Alert severity={slipCorrectionMode ? 'warning' : slipLineagePendingMatch ? 'info' : 'success'}><Typography sx={{ fontWeight: 800 }}>{slipCorrectionMode ? 'โหมดแก้ไขข้อมูลจัดสรร' : slipLineagePendingMatch ? 'บันทึกยืนยันแล้ว · รอจับคู่ผู้ถือเงิน' : 'รายการนี้ยืนยันและส่งต่อแล้ว'}</Typography><Typography variant="body2">{slipCorrectionMode ? 'แก้เฉพาะค่าที่ต้องการ แล้วกดยืนยัน ระบบจะเก็บ Version และ Audit ก่อน/หลังโดยใช้ Transaction เดิม' : `ไม่ต้องบันทึกซ้ำ · ปลายทาง: ${slipMoneyLineageStatus?.nextDestination || 'Module ถัดไป'} · กด “แก้ไขข้อมูลจัดสรร” หากข้อมูลยังไม่ครบหรือจัดประเภทผิด`}</Typography></Alert>}
           <Alert severity="info">ข้อมูลใช้งานจริงมีชุดเดียวจาก Canonical projection เท่านั้น รูปสลิปและค่าที่ AI อ่านเป็นหลักฐานอ้างอิง ไม่ใช่ข้อมูลธุรกิจและห้ามนำไปลงบัญชีก่อนยืนยัน ระบบเก็บ Source และ Audit เดิมเพื่อย้อนตรวจได้</Alert>
           {slipAnalysis && <TransferSlipAnalysisGateCard analysis={slipAnalysis} />}
           {slipAdvancePartyMatch?.applicable && <Paper variant="outlined" sx={{ p: 1.5, borderLeft: 4, borderLeftColor: slipAdvancePartyMatch.ready ? 'success.main' : 'warning.main' }}><Stack spacing={1}>
@@ -1795,9 +1798,9 @@ export function AccountingDocumentsPage() {
         </Stack></AccordionDetails></Accordion>
         <Button href={`/document-flows?document_view=task_types&item_id=${encodeURIComponent(selectedSlip.itemId)}`} variant="text">เปิดในศูนย์เส้นทางเอกสาร</Button>
         </Stack>
-        {slipDetailTab === 1 && (slipLineageFinalized
-          ? <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ position: 'sticky', bottom: 0, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider', p: 2, zIndex: 2, alignItems: { sm: 'center' } }}><Alert severity={slipLineagePendingMatch ? 'info' : 'success'} sx={{ flex: 1, py: 0 }}>{slipLineagePendingMatch ? 'บันทึกแล้ว · รอจับคู่ผู้ถือเงิน ไม่ต้องบันทึกซ้ำ' : 'ส่งต่อแล้ว · ไม่ต้องบันทึกซ้ำ'}</Alert><Button variant="contained" onClick={closeSlipDetail}>ปิด</Button></Stack>
-          : <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ position: 'sticky', bottom: 0, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider', p: 2, zIndex: 2 }}><Button disabled={!canManage || slipActionLoading} onClick={() => void saveSlipReview('draft')}>บันทึกฉบับร่าง</Button><Button color="warning" variant="outlined" disabled={!canManage || slipActionLoading || !slipMoneyLineageDraft?.note.trim()} onClick={() => void saveSlipReview('request_information')}>ขอข้อมูลเพิ่ม</Button><Button color="success" variant="contained" disabled={!canManage || slipActionLoading || Boolean(senderAliasError || recipientAliasError) || slipLineageValidation.missing.length > 0 || slipLineageValidation.errors.length > 0} onClick={() => void saveSlipReview('confirm')}>{slipActionLoading ? 'กำลังบันทึกและส่งต่อ…' : 'ยืนยันการจัดสรรและส่งปลายทาง'}</Button></Stack>)}
+        {slipDetailTab === 1 && (slipLineageReadOnly
+          ? <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ position: 'sticky', bottom: 0, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider', p: 2, zIndex: 2, alignItems: { sm: 'center' } }}><Alert severity={slipLineagePendingMatch ? 'info' : 'success'} sx={{ flex: 1, py: 0 }}>{slipLineagePendingMatch ? 'บันทึกแล้ว · รอจับคู่ผู้ถือเงิน ไม่ต้องบันทึกซ้ำ' : 'ส่งต่อแล้ว · ข้อมูลเดิมถูกเก็บใน Audit'}</Alert><Button variant="outlined" color="warning" disabled={!canManage} onClick={() => setSlipCorrectionMode(true)}>แก้ไขข้อมูลจัดสรร</Button><Button variant="contained" onClick={closeSlipDetail}>ปิด</Button></Stack>
+          : <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ position: 'sticky', bottom: 0, bgcolor: 'background.paper', borderTop: 1, borderColor: 'divider', p: 2, zIndex: 2 }}>{slipCorrectionMode ? <Button disabled={slipActionLoading} onClick={() => setSlipCorrectionMode(false)}>ยกเลิกการแก้ไข</Button> : <><Button disabled={!canManage || slipActionLoading} onClick={() => void saveSlipReview('draft')}>บันทึกฉบับร่าง</Button><Button color="warning" variant="outlined" disabled={!canManage || slipActionLoading || !slipMoneyLineageDraft?.note.trim()} onClick={() => void saveSlipReview('request_information')}>ขอข้อมูลเพิ่ม</Button></>}<Button color="success" variant="contained" disabled={!canManage || slipActionLoading || Boolean(senderAliasError || recipientAliasError) || slipLineageValidation.missing.length > 0 || slipLineageValidation.errors.length > 0} onClick={() => void saveSlipReview('confirm')}>{slipActionLoading ? 'กำลังบันทึกและส่งต่อ…' : slipCorrectionMode ? 'ยืนยันการแก้ไขและส่งต่อ' : 'ยืนยันการจัดสรรและส่งปลายทาง'}</Button></Stack>)}
       </Stack>}
     </Drawer>
 
