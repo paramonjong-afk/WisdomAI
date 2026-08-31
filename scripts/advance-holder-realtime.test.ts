@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { calculateHolderRealtimeBalance } from '../src/pages/AdvanceHolders/advanceHolderRealtime.ts'
+import { calculateHolderRealtimeBalance, movementReviewReasons } from '../src/pages/AdvanceHolders/advanceHolderRealtime.ts'
 import type { AdvanceHolderSlipMatch } from '../src/services/advanceHolderSlipMatch.ts'
 
 const base = {
@@ -27,12 +27,15 @@ assert.equal(result.reviewCount, 1)
 assert.equal(result.reviewAmount, 200)
 assert.equal(result.lastActivityAt, '2026-08-31T09:00:00Z')
 assert.equal(result.movements.length, 3)
+assert.deepEqual(movementReviewReasons(movements[1], new Date('2026-08-31T00:00:00Z')), ['ข้อมูลสลิปยังไม่ยืนยัน', 'ขาดเส้นทางปลายทาง'])
+assert.ok(movementReviewReasons({ ...movements[0], transferAt: '3112-08-29T00:00:00Z' }, new Date('2026-08-31T00:00:00Z')).includes('วันที่ผิดปกติ'))
 
 const page = readFileSync(new URL('../src/pages/AdvanceHolders/index.tsx', import.meta.url), 'utf8')
 for (const label of ['จ่ายออก Real-time', 'เงินกำลังเดินทาง', 'คงเหลือคาดการณ์', 'คงเหลือยืนยัน', 'ผลต่าง/รอตรวจ', 'เส้นเงินล่าสุด']) assert.match(page, new RegExp(label))
 for (const filter of ['มียอดคงเหลือ', 'รอตรวจ', 'ยอดติดลบ', 'ไม่มีการเคลื่อนไหว']) assert.match(page, new RegExp(filter))
 assert.match(page, /scanSlips\(false\)/)
 assert.match(page, /เปิดสลิป\/Audit/)
+for (const action of ['แก้จุดที่ขาด', 'แก้ประเภทเงิน', 'ตรวจเส้นเงิน', 'return_to']) assert.match(page, new RegExp(action))
 assert.doesNotMatch(page, /รับเข้ารวม|จ่ายออกรวม|คงเหลือรวม|ยอดรอตรวจ/)
 
 console.log('advance holder realtime contract passed')

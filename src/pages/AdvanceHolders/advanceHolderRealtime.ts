@@ -24,6 +24,20 @@ export function isReviewRequired(movement: AdvanceHolderSlipMatch) {
     || !movement.routeResolved
 }
 
+export function movementReviewReasons(movement: AdvanceHolderSlipMatch, now = new Date()) {
+  const reasons: string[] = []
+  if (movement.matchStatus !== 'exact') reasons.push('ต้องยืนยันผู้ถือเงิน')
+  if (movement.truthStatus !== 'confirmed') reasons.push('ข้อมูลสลิปยังไม่ยืนยัน')
+  if (!movement.purposeType || movement.purposeType === 'unknown') reasons.push('ขาดประเภทเงิน')
+  if (!movement.routeResolved) reasons.push('ขาดเส้นทางปลายทาง')
+  if (movement.transferAt) {
+    const parsed = new Date(movement.transferAt)
+    const year = parsed.getUTCFullYear()
+    if (Number.isNaN(parsed.getTime()) || year < 2020 || year > now.getUTCFullYear() + 1) reasons.push('วันที่ผิดปกติ')
+  } else reasons.push('ขาดวันเวลาโอน')
+  return [...new Set(reasons)]
+}
+
 export function calculateHolderRealtimeBalance(
   holderId: string,
   confirmedBalance: number,
@@ -55,4 +69,3 @@ export function calculateHolderRealtimeBalance(
     movements,
   }
 }
-

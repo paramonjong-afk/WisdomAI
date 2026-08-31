@@ -11,6 +11,14 @@ export type SlipAnalysisGate = {
   state: 'auto_routed' | 'ready_to_confirm' | 'needs_confirmation'
 }
 
+export function isSuspiciousTransferDate(value: string | null | undefined, now = new Date()) {
+  if (!value) return false
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return true
+  const year = parsed.getUTCFullYear()
+  return year < 2020 || year > now.getUTCFullYear() + 1
+}
+
 const contains = (value: string | null | undefined, pattern: RegExp) => pattern.test(value?.toLowerCase() ?? '')
 
 export function inferSlipMoneyPurpose(row: Pick<TransferSlipQueueRow, 'candidateDepartments' | 'expenseType' | 'laborAmount' | 'notes'>): Pick<SlipAnalysisGate, 'purpose' | 'confidence' | 'reasons'> {
@@ -36,6 +44,7 @@ export function buildSlipAnalysisGate(row: TransferSlipQueueRow, draft: MoneyLin
   if (!row.recipientAccountLast4) blockers.push('ยืนยันบัญชีผู้รับ')
   if (row.amount == null || row.amount <= 0) blockers.push('ยืนยันยอดเงิน')
   if (!row.transferAt) blockers.push('ยืนยันวันเวลาโอน')
+  else if (isSuspiciousTransferDate(row.transferAt)) blockers.push('วันที่ผิดปกติ ต้องตรวจจากสลิป')
   if (purpose === 'unknown') blockers.push('ยืนยันประเภทเงิน')
   if (draft) {
     const validation = validateMoneyLineage(draft, row.amount)
