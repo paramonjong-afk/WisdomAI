@@ -104,10 +104,10 @@ const systemFlows = [
   },
   {
     title: 'Application Launcher',
-    version: 'Navigation v1.9 · 31/8/2569',
+    version: 'Navigation v1.10 · 31/8/2569',
     icon: <AppsOutlinedIcon color="primary" />,
     summary: 'หลัง Login มือถือเห็น Launcher ที่มี 2 ปุ่มแยก: ลงเวลา และ Web Chat พร้อมจำนวนข้อความค้าง; คอมพิวเตอร์ไป Dashboard รวมหรือ My Profile ตามสิทธิ์',
-    bullets: ['อ่านจาก docs/NAVIGATION_FLOW.md และ docs/TIME_TRACKING_FLOW.md', 'mobile → `/` Launcher → เลือก `/time-tracking` หรือ `/chat`; admin/manager บน desktop → `/dashboard`; employee บน desktop → `/my-profile`', 'Unread นับเฉพาะห้องที่เป็นสมาชิก หลัง joined/read cutoff ไม่รวมข้อความตนเองหรือข้อความที่ลบ', 'Badge แสดงใน Launcher ทุกอุปกรณ์ และซิงก์ไปไอคอน PWA เมื่อ OS/Browser รองรับ', 'หน้า Time Tracking มือถือไม่วางไอคอน Web Chat ซ้ำ'],
+    bullets: ['อ่านจาก docs/NAVIGATION_FLOW.md และ docs/TIME_TRACKING_FLOW.md', 'หลัง Login มือถือไป `/` Launcher เสมอและไม่คืน deep route เดิม → เลือก `/time-tracking` หรือ `/chat`; admin/manager บน desktop → `/dashboard`; employee บน desktop → `/my-profile`', 'Unread นับเฉพาะห้องที่เป็นสมาชิก หลัง joined/read cutoff ไม่รวมข้อความตนเองหรือข้อความที่ลบ', 'Badge แสดงใน Launcher ทุกอุปกรณ์ และซิงก์ไปไอคอน PWA เมื่อ OS/Browser รองรับ', 'หน้า Time Tracking มือถือไม่วางไอคอน Web Chat ซ้ำ'],
     path: '/',
     action: 'ทดสอบจุดเข้าโปรแกรม',
   },
