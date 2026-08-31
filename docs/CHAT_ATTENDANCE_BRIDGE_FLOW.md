@@ -241,8 +241,11 @@ flowchart LR
   D1 --> D2[ซิงก์ไอคอน PWA เมื่อ Badging API รองรับ]
   B --> E[กดไอคอนลงเวลา หรือ Web Chat]
   E --> F[เข้า module ภายใน Auth session เดิม]
-  G[เลือกไฟล์รูป/เอกสาร] --> H[ตรวจขนาดและ normalize MIME]
-  H --> I{ชนิดไฟล์อยู่ใน allow-list หรือไม่}
+  G[เลือกไฟล์รูป/เอกสาร] --> H[แสดง Preview และเริ่มส่งอัตโนมัติ]
+  H --> M[ตรวจสมาชิกห้องจากฐานข้อมูล]
+  M -->|ไม่เป็นสมาชิก| J[หยุดและแจ้งให้เพิ่มสมาชิก]
+  M -->|เป็นสมาชิก| V[ตรวจขนาดและ normalize MIME]
+  V --> I{ชนิดไฟล์อยู่ใน allow-list หรือไม่}
   I -->|ไม่| J[หยุดและแจ้งชนิดไฟล์ที่รองรับ]
   I -->|ใช่| S[ตรวจ Auth session และ expires_at]
   S -->|หมดอายุ/refresh ไม่สำเร็จ| T[คงไฟล์ค้างและแจ้งให้เข้าสู่ระบบใหม่]
@@ -594,3 +597,23 @@ flowchart LR
 - Migration: ไม่มี; Chat room/message/read state, attendance, HR delivery และ RLS เดิมไม่เปลี่ยน
 - Verification: launcher/attachment contract, attendance tests, typecheck, lint, build และ authenticated mobile smoke
 - Rollback: revert unread/App Badge/mobile UI; ข้อมูลข้อความ ไฟล์ attendance และ Audit คงอยู่
+
+### v2.6 — 31/8/2569
+
+```mermaid
+flowchart LR
+  A[ผู้ใช้เลือกหรือลากรูป] --> B[Preview ไฟล์ที่เลือก]
+  B --> C[ตรวจ membership ห้องจริง]
+  C -->|ผ่าน| D[ตรวจ session/MIME/ขนาด]
+  C -->|ไม่ผ่าน| E[คงไฟล์และแจ้งวิธีแก้]
+  D --> F[Upload Storage อัตโนมัติ]
+  F -->|สำเร็จ| G[บันทึก chat_messages + แสดงรูปในห้อง]
+  F -->|ล้มเหลว| H[คง Preview + ปุ่มลองส่งอีกครั้ง]
+```
+
+- เหตุผล: Production bucket, migration และสิทธิ์ของเจ้าของระบบผ่าน แต่ไม่พบคำขอ Upload ใหม่หลังเลือกไฟล์ แสดงว่า flow สองจังหวะ “เลือกแล้วกดส่งไฟล์อีกครั้ง” ทำให้ผู้ใช้หยุดก่อนถึง Storage
+- ผลกระทบ: เลือกหรือลากไฟล์แล้วเริ่มส่งทันที, แสดง Preview/สถานะอัปโหลด, ตรวจ membership จริงก่อน Storage และคงไฟล์พร้อมปุ่มลองส่งอีกครั้งเมื่อผิดพลาด; ข้อความ/ไฟล์จะเกิดเพียงหลัง Storage และ `chat_messages` สำเร็จตาม flow เดิม
+- สิทธิ์: ไม่ขยาย RLS; ต้องเป็นสมาชิกห้องที่เลือก และยังใช้ Auth session, private bucket, company/room path และ policy เดิม
+- Migration: ไม่มี; Production migration `20260822003747` และ `20260822194037` ยังเป็นฐานเดิม
+- Verification: query bucket/policies/membership, Storage log, attachment contract, typecheck, lint, build และ authenticated runtime smoke โดยใช้รูปทดสอบที่ไม่ใช่ข้อมูลจริง
+- Rollback: revert auto-send/preview/preflight ใน `src/pages/Chat/index.tsx`; ไฟล์และข้อความที่ส่งสำเร็จแล้วคงอยู่และไม่ต้อง rollback ข้อมูล

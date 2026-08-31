@@ -1,5 +1,14 @@
 # Flow Registry Update Protocol
 
+## 2026-08-31 — Web Chat Attachment One-Step Send v2.6
+
+- **เหตุผล:** Production ยืนยันว่า bucket, allow-list, RLS และ membership ของเจ้าของระบบพร้อม แต่ไม่มี Storage upload request หลังเลือกไฟล์ เพราะ UI เดิมรอการกด `ส่งไฟล์` รอบที่สอง
+- **Flow:** เลือก/ลากไฟล์ → Preview → ตรวจสมาชิกห้อง → ตรวจ session/MIME/ขนาด → Upload อัตโนมัติ → สร้าง `chat_messages` → แสดงรูป; หากล้มเหลวคง Preview และ Retry โดยไม่สร้างข้อความหลอก
+- **สิทธิ์/ข้อมูล:** ไม่ขยาย RLS และไม่แก้ข้อมูลเดิม; ต้องเป็นสมาชิกห้องจริง, bucket ยัง private, object path ยังผูก company/room และ cleanup object เมื่อ message insert ล้มเหลว
+- **Migration:** ไม่มี; ใช้ `20260822003747_chat_attachment_mobile_images.sql` และ `20260822194037_chat_attachment_manager_storage_policy.sql` ที่ Production มีอยู่
+- **การตรวจสอบ:** Production schema/policy/membership/log evidence, attachment contract, typecheck, lint, build และ authenticated `/chat` smoke
+- **Rollback:** revert auto-send/preview/membership preflight; ข้อความและไฟล์ที่ส่งสำเร็จแล้วคงอยู่
+
 ## 2026-08-31 — Mobile Unread Badge + Focused Time Tracking v1.9/v1.6
 
 - **เหตุผล:** ให้พนักงานเห็นจำนวน Web Chat ค้างจากหน้ารวมมือถือ และลดหน้าลงเวลาให้เหลือข้อมูล/การกระทำที่จำเป็นโดยไม่วางไอคอน Chat ซ้ำภายใน
