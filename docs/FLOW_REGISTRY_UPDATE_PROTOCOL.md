@@ -1,5 +1,24 @@
 # Flow Registry Update Protocol
 
+## 2026-08-31 — Accounting Drawer Return-to-Origin v2.8
+
+```mermaid
+flowchart LR
+  A[Advance Holder / Module ต้นทาง] -->|transaction_id + return_to| B[Accounting Slip Drawer]
+  B -->|ปิด / Backdrop / Escape| C{safe internal return_to?}
+  C -->|มี| D[ล้าง Drawer state]
+  D --> E[replace กลับหน้าต้นทางพร้อม query context]
+  C -->|ไม่มี| F[ปิด Drawerและอยู่ Accounting Queue]
+  C -->|external/ผิดรูปแบบ| F
+```
+
+- **เหตุผล:** Drawer รับ `return_to` จาก Advance Holder อยู่แล้ว แต่ปุ่มปิดเรียกเพียง state cleanup จึงค้างหน้า Accounting และทำให้ผู้ใช้ต้องค้นหา Holder/Transaction ซ้ำ
+- **Input/Output/State:** รับ internal `return_to` พร้อม `holder_id/transaction_id`; ทุกวิธีปิดล้าง preview/request/form state แล้ว `replace` กลับต้นทาง หรือ fallback อยู่คิวเดิมเมื่อไม่มีเส้นทางปลอดภัย
+- **สิทธิ์/ข้อมูล/Audit:** ไม่เปลี่ยน Auth, RLS, RPC, financial state หรือ Audit; ปฏิเสธ absolute URL, protocol-relative URL, backslash และ encoded protocol-relative path
+- **Migration/Legacy:** ไม่มี migration และไม่แก้รายการเดิม; deep link เดิมทำงานต่อได้
+- **Verification:** navigation/security contract, Accounting transfer-slip contracts, typecheck, lint, build และ authenticated Advance Holder → Accounting → Close round-trip
+- **Rollback:** revert utility และ close handler; ข้อมูล Source/Lineage/Allocation/Audit เดิมไม่เปลี่ยน
+
 ## 2026-08-31 — Web Chat Reload-Safe Attachment Draft v3.2
 
 ```mermaid

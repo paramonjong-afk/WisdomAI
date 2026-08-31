@@ -26,6 +26,7 @@ import { emptyPaymentPartyDraft, paymentAliasValidation, paymentMethodLabel } fr
 import type { PaymentAliasType, PaymentMethod } from '../../services/paymentAlias'
 import type { VendorMatchStatus } from '../../services/vendorPaymentMatching'
 import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
+import { safeInternalReturnPath } from '../../utils/safeReturnPath'
 import { userError } from '../../utils/userError'
 import { TransferSlipAnalysisGateCard } from './TransferSlipAnalysisGateCard'
 
@@ -160,7 +161,7 @@ export function AccountingDocumentsPage() {
   const requestedTransactionId = searchParams.get('transaction_id')
   const requestedSlipDetail = searchParams.get('detail')
   const requestedReturnTo = searchParams.get('return_to')
-  const safeReturnTo = requestedReturnTo?.startsWith('/advance-holders') ? requestedReturnTo : null
+  const safeReturnTo = safeInternalReturnPath(requestedReturnTo)
   const { profile,currentCompany } = useAuth()
   const canManage = profile?.role === 'admin' || profile?.role === 'manager'
   const runAttempt = (action: string, request: Record<string, unknown>, operation: () => unknown) =>
@@ -1062,6 +1063,7 @@ export function AccountingDocumentsPage() {
     setSlipEvents([])
     setSlipDetailLoading(false)
     setSlipDetailTab(0); setSlipReviewDraft(null); setSlipMoneyLineageDraft(null); setSlipMoneyLineageStatus(null); setSlipCorrectionMode(false); setMoneyLineageOptions([]); setSlipAiGuidance(''); setSlipAdvancePartyMatch(null); setSlipActionLoading(false)
+    if (safeReturnTo) navigate(safeReturnTo, { replace: true })
   }
 
   const openSlipDetail = async (slip: AccountingPendingSlip, initialDetailTab = 0) => {
@@ -1674,7 +1676,7 @@ export function AccountingDocumentsPage() {
 
     <Drawer anchor="right" open={Boolean(selectedSlip)} onClose={closeSlipDetail} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 680 }, p: 0 } } }}>
       {selectedSlip && <Stack sx={{ minHeight: '100%' }}>
-        <Box sx={{ position: 'sticky', top: 0, zIndex: 2, bgcolor: 'background.paper', px: 3, pt: 2.5, borderBottom: 1, borderColor: 'divider' }}>{safeReturnTo && <Button size="small" sx={{ mb: 1 }} onClick={() => navigate(safeReturnTo)}>← กลับไปเส้นเงินเดิม</Button>}<Typography variant="overline" color="text.secondary">Accounting Pending Queue</Typography><Typography variant="h5" sx={{ fontWeight: 800 }}>ตรวจสลิปโอนเงิน</Typography><Typography variant="body2" sx={{ fontFamily: 'monospace' }}>Document ID: {selectedSlip.intakeId ?? selectedSlip.itemId}</Typography>
+        <Box sx={{ position: 'sticky', top: 0, zIndex: 2, bgcolor: 'background.paper', px: 3, pt: 2.5, borderBottom: 1, borderColor: 'divider' }}>{safeReturnTo && <Button size="small" sx={{ mb: 1 }} onClick={closeSlipDetail}>← กลับไปหน้าต้นทาง</Button>}<Typography variant="overline" color="text.secondary">Accounting Pending Queue</Typography><Typography variant="h5" sx={{ fontWeight: 800 }}>ตรวจสลิปโอนเงิน</Typography><Typography variant="body2" sx={{ fontFamily: 'monospace' }}>Document ID: {selectedSlip.intakeId ?? selectedSlip.itemId}</Typography>
         <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
           <Chip color="primary" label="ปลายทางแรก: บัญชี" />
           <Chip color={transferSlipQueueBucket(selectedSlip) === 'duplicate' ? 'error' : transferSlipQueueBucket(selectedSlip) === 'incomplete' ? 'warning' : transferSlipQueueBucket(selectedSlip) === 'reviewed' ? 'success' : 'info'} label={transferSlipQueueBucket(selectedSlip) === 'duplicate' ? 'รายการซ้ำ' : transferSlipQueueBucket(selectedSlip) === 'incomplete' ? 'ข้อมูลไม่ครบ' : transferSlipQueueBucket(selectedSlip) === 'reviewed' ? 'ตรวจแล้ว' : 'รอตรวจ'} />

@@ -56,10 +56,10 @@ const accountingFlows = [
   },
   {
     title: 'ตรวจและยืนยันเอกสารบัญชี',
-    version: 'Accounting Confirmation v1.0 · 23/8/2569',
+    version: 'Accounting Confirmation v2.8 · 31/8/2569',
     icon: <RuleOutlinedIcon color="primary" />,
-    summary: 'แยก Error ตามขั้นตอนบันทึกประเภท โครงการ/บัญชี และยืนยัน เพื่อแก้ไขจุดที่ผิดก่อน retry โดยไม่สร้าง Accounting/Stock/AP ซ้ำ',
-    bullets: ['อ่านจาก docs/ACCOUNTING_DOCUMENT_CONFIRMATION_FLOW.md', 'ทุก mutation ผ่าน Mutation Attempt Center', 'จำกัด company และสิทธิ์ด้วย RPC/RLS', 'retry ใช้เอกสารเดิมและแจ้งขั้นตอนที่ล้มเหลวใกล้ปุ่มดำเนินการ'],
+    summary: 'ตรวจสลิปและเอกสารตาม Source/Audit เดิม พร้อมกลับหน้าต้นทางและบริบทเดิมเมื่อปิด Drawer โดยไม่สร้าง Accounting/Stock/AP ซ้ำ',
+    bullets: ['อ่านจาก docs/ACCOUNTING_DOCUMENT_CONFIRMATION_FLOW.md', 'ปุ่มปิดใช้ safe return_to และคง holder/transaction context', 'ทุก mutation ผ่าน Mutation Attempt Center', 'จำกัด company และสิทธิ์ด้วย RPC/RLS'],
     path: '/accounting-documents',
     action: 'ไปตรวจเอกสารบัญชี',
   },

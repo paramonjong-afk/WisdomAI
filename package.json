@@ -72,6 +72,7 @@
     "test:accounting-transfer-slips": "node --experimental-strip-types scripts/accounting-transfer-slip-queue.test.ts",
     "test:transfer-slip-analysis-gate": "node --experimental-strip-types scripts/transfer-slip-analysis-gate.test.ts",
     "test:accounting-transfer-slip-review": "node --experimental-strip-types scripts/accounting-transfer-slip-review.test.ts",
+    "test:accounting-drawer-return": "node --experimental-strip-types scripts/accounting-drawer-return-navigation.test.ts",
     "test:transfer-slip-operational-truth": "node --experimental-strip-types scripts/transfer-slip-operational-truth.test.ts",
     "test:transfer-slip-money-lineage": "node --experimental-strip-types scripts/transfer-slip-money-lineage.test.ts",
     "test:transfer-slip-account-selection": "node --experimental-strip-types scripts/transfer-slip-account-selection.test.ts",
