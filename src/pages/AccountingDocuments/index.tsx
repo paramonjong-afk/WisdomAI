@@ -28,6 +28,8 @@ import type { VendorMatchStatus } from '../../services/vendorPaymentMatching'
 import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 import { safeInternalReturnPath } from '../../utils/safeReturnPath'
 import { userError } from '../../utils/userError'
+import { payrollEmployeeLabel, payrollEmployeeOptions } from '../../services/payrollEmployeeOptions'
+import type { PayrollEmployeeOption, PayrollEmployeeRow } from '../../services/payrollEmployeeOptions'
 import { TransferSlipAnalysisGateCard } from './TransferSlipAnalysisGateCard'
 
 type DocumentStatus = 'pending' | 'confirmed' | 'duplicate' | 'dismissed' | 'needs_correction'
@@ -61,7 +63,6 @@ const slipDraftFromRow = (row: AccountingPendingSlip): SlipReviewDraft => {
 }
 type StoredPaymentPartyLink = { party_role: 'sender' | 'recipient'; payment_method: PaymentMethod; canonical_party_type: string | null; canonical_party_name: string | null; match_status: string; match_reason: string; master_payment_aliases: { alias_type: PaymentAliasType; masked_value: string; verification_status: string } | null }
 type StoredMoneyAllocation = { allocation_key: string; purpose_type: MoneyPurpose; allocation_amount: number; cost_category_id: string | null; account_code: string | null; account_name: string | null; project_id: string | null; site_id: string | null; payee_name: string | null; responsible_name: string | null; description: string | null; confidence: number | null; evidence: Array<{ field?: string; value?: string }> | null }
-type PayrollEmployeeOption = { id: string; name: string }
 type PayPeriodOption = { id: string; name: string; starts_on: string; ends_on: string; status: string }
 type StoredVendorMatch = { allocation_key: string; vendor_id: string | null; vendor_name: string | null; vendor_tax_id: string | null; vendor_bank_name: string | null; vendor_account_last4: string | null; payer_name: string | null; match_status: VendorMatchStatus; confidence: number | null; reason: string }
 type StoredBorrowedFund = { lender_name: string; due_date: string; terms: string | null }
@@ -266,7 +267,7 @@ export function AccountingDocumentsPage() {
       supabase.from('project_sites').select('id,project_id,name').eq('active', true).order('name'),
       supabase.from('accounting_cost_categories').select('id,parent_id,code,name_th,default_account_code,default_account_name').eq('active', true).order('sort_order'),
       supabase.from('vendors').select('id,name,tax_id,phone').order('name'),
-      supabase.from('employee_employment_records').select('profile_id,profiles!employee_employment_records_profile_id_fkey(full_name)').eq('company_id', currentCompany?.company_id ?? '').in('employment_status', ['active', 'probation', 'notice']),
+      supabase.from('employee_employment_records').select('profile_id,employment_status,profiles!employee_employment_records_profile_id_fkey(full_name)').eq('company_id', currentCompany?.company_id ?? ''),
       supabase.from('pay_periods').select('id,name,starts_on,ends_on,status').eq('company_id', currentCompany?.company_id ?? '').not('status', 'in', '(closed,paying,paid,cancelled)').order('starts_on', { ascending: false }).limit(24),
     ])
     const firstError = [documentResult.error, inventoryResult.error, projectInventoryResult.error, productPriceResult.error, actualPriceResult.error, projectResult.error, siteResult.error, categoryResult.error, vendorResult.error, payrollEmployeeResult.error, payPeriodResult.error].find(Boolean)
@@ -291,10 +292,7 @@ export function AccountingDocumentsPage() {
     setSites((siteResult.data ?? []) as Site[])
     setCategories((categoryResult.data ?? []) as CostCategory[])
     setVendors((vendorResult.data ?? []) as VendorOption[])
-    setPayrollEmployees((payrollEmployeeResult.data ?? []).map(row => {
-      const linkedProfile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
-      return { id: row.profile_id, name: linkedProfile?.full_name ?? row.profile_id }
-    }))
+    setPayrollEmployees(payrollEmployeeOptions((payrollEmployeeResult.data ?? []) as PayrollEmployeeRow[]))
     setPayPeriods((payPeriodResult.data ?? []) as PayPeriodOption[])
     setLoading(false)
   }, [currentCompany?.company_id])
@@ -1808,8 +1806,8 @@ export function AccountingDocumentsPage() {
               <TextField size="small" type="number" label="3. จำนวนเงินที่จัดสรร" value={allocation.amount} onChange={event => { const amount = event.target.value; setSlipMoneyLineageDraft(current => { if (!current) return current; const allocations = current.allocations.map(item => item.key === allocation.key ? { ...item, amount } : item); return { ...current, allocations, remainingAmount: calculateUnallocatedAmount(slipTransferAmount, allocations, current.returnedAmount) } }) }} sx={{ gridColumn: { sm: '1 / -1' } }} />
               {allocation.purposeType === 'payroll' && <>
                 <TextField select size="small" label="ชนิดเงินเดือน/ค่าแรง" value={allocation.payrollKind} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => item.key === allocation.key ? { ...item, payrollKind: event.target.value as PayrollKind } : item) }))}><MenuItem value="">กรุณาเลือก</MenuItem><MenuItem value="salary">เงินเดือน</MenuItem><MenuItem value="daily_wage">ค่าแรงรายวัน</MenuItem><MenuItem value="contract_labor">ค่าจ้างเหมาแรงงาน</MenuItem><MenuItem value="other">ค่าตอบแทนอื่น</MenuItem></TextField>
-                <TextField select size="small" label="เจ้าของเงินเดือน/ค่าแรง" value={allocation.employeeProfileId} onChange={event => { const employeeProfileId = event.target.value; const employee = payrollEmployees.find(item => item.id === employeeProfileId); setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => item.key === allocation.key ? { ...item, employeeProfileId, receivedByProfileId: item.receivedByProfileId || employeeProfileId, payeeName: employee?.name ?? item.payeeName } : item) })) }}><MenuItem value="">เลือกพนักงาน</MenuItem>{payrollEmployees.map(employee => <MenuItem key={employee.id} value={employee.id}>{employee.name}</MenuItem>)}</TextField>
-                <TextField select size="small" label="ผู้รับเงินจริง" value={allocation.receivedByProfileId} onChange={event => { const receivedByProfileId = event.target.value; setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => item.key === allocation.key ? { ...item, receivedByProfileId, recipientRelationship: receivedByProfileId === item.employeeProfileId ? 'self' : 'received_for_other' } : item) })) }} helperText="กรณีคนหนึ่งรับเงินแทนอีกคน ให้เลือกชื่อผู้รับเงินจริง"><MenuItem value="">เหมือนเจ้าของค่าแรง</MenuItem>{payrollEmployees.map(employee => <MenuItem key={employee.id} value={employee.id}>{employee.name}</MenuItem>)}</TextField>
+                <TextField select size="small" label="เจ้าของเงินเดือน/ค่าแรง" value={allocation.employeeProfileId} onChange={event => { const employeeProfileId = event.target.value; const employee = payrollEmployees.find(item => item.id === employeeProfileId); setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => item.key === allocation.key ? { ...item, employeeProfileId, receivedByProfileId: item.receivedByProfileId || employeeProfileId, payeeName: employee?.name ?? item.payeeName } : item) })) }} helperText="เลือกอดีตพนักงานได้เพื่อบันทึกรายการย้อนหลัง โดยไม่เปิดสถานะการจ้างกลับ"><MenuItem value="">เลือกพนักงาน</MenuItem>{payrollEmployees.map(employee => <MenuItem key={employee.id} value={employee.id}>{payrollEmployeeLabel(employee)}</MenuItem>)}</TextField>
+                <TextField select size="small" label="ผู้รับเงินจริง" value={allocation.receivedByProfileId} onChange={event => { const receivedByProfileId = event.target.value; setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => item.key === allocation.key ? { ...item, receivedByProfileId, recipientRelationship: receivedByProfileId === item.employeeProfileId ? 'self' : 'received_for_other' } : item) })) }} helperText="กรณีคนหนึ่งรับเงินแทนอีกคน ให้เลือกชื่อผู้รับเงินจริง; อดีตพนักงานยังเลือกได้สำหรับหลักฐานย้อนหลัง"><MenuItem value="">เหมือนเจ้าของค่าแรง</MenuItem>{payrollEmployees.map(employee => <MenuItem key={employee.id} value={employee.id}>{payrollEmployeeLabel(employee)}</MenuItem>)}</TextField>
                 <TextField select size="small" label="รอบปิดงวดค่าแรง" value={allocation.payPeriodId} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, allocations: current.allocations.map(item => item.key === allocation.key ? { ...item, payPeriodId: event.target.value } : item) }))} sx={{ gridColumn: { sm: '1 / -1' } }}><MenuItem value="">เลือกงวด</MenuItem>{payPeriods.map(period => <MenuItem key={period.id} value={period.id}>{period.name} · {new Date(period.starts_on).toLocaleDateString('th-TH')}–{new Date(period.ends_on).toLocaleDateString('th-TH')} · {period.status}</MenuItem>)}</TextField>
                 {allocation.receivedByProfileId && allocation.employeeProfileId && allocation.receivedByProfileId !== allocation.employeeProfileId && <Alert severity="info" sx={{ gridColumn: { sm: '1 / -1' } }}>รายการนี้บันทึกค่าแรงให้เจ้าของที่เลือก แต่หลักฐานระบุว่ามีอีกคนรับเงินจริง ระบบจะเก็บทั้งสองด้านและไม่สร้างยอดซ้ำ</Alert>}
               </>}

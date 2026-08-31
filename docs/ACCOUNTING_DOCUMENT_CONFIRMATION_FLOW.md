@@ -33,7 +33,10 @@ flowchart TD
   VM --> C2[ยืนยัน Allocation ผู้ขาย]
   C2 --> C
   QV -->|แก้หลักฐาน/เลือก Vendor| VP
-  C -->|ค่าแรงหนึ่งหรือหลาย Allocation| M01{ชื่อผู้รับตรงทะเบียนช่างรายวัน?}
+  C -->|ค่าแรงหนึ่งหรือหลาย Allocation| ME{เลือกเจ้าของค่าแรง/ผู้รับเงินจริง}
+  ME -->|กำลังทำงาน| M01{ชื่อผู้รับตรงทะเบียนช่างรายวัน?}
+  ME -->|ออกจากงานแล้ว| MH[ใช้ Profile และประวัติเดิม\nติดป้ายอดีตพนักงาน · ไม่ Reactivate]
+  MH --> M01
   M01 -->|ตรงชื่อ/alias ที่ยืนยัน| M02[สร้างบัญชีพักช่าง\nmatched pending review]
   M01 -->|ไม่ตรง/กำกวม| M03[คิวตรวจชื่อ ห้ามเดา]
   M02 --> M1[ปิด Accounting task และสร้าง HR/Payroll task]
@@ -85,6 +88,7 @@ flowchart TD
 - Failure/retry: ต้องบอกขั้นตอนที่ล้มเหลวชัดเจนใกล้ปุ่มดำเนินการ; retry ใช้ document เดิมและ RPC idempotency/constraint ป้องกันรายการซ้ำ
 - Audit: ทุก mutation ผ่าน `runWithMutationAttempt`; correction/confirmation เก็บผู้ทำ เวลา เหตุผล และ document id
 - Owner: Accounting Admin/Manager; ทีมระบบเป็นเจ้าของ RPC, validation และ error contract
+- รายการค่าแรงย้อนหลังเลือกได้ทั้งพนักงานปัจจุบันและอดีตพนักงานจาก `employee_employment_records`; ระบบรวม Profile ซ้ำเป็นตัวเลือกเดียว เรียงพนักงานปัจจุบันก่อน และติดป้าย `อดีตพนักงาน` โดยไม่เปิดสถานะการจ้างหรือสร้าง Profile ใหม่
 - Accounting Pending Queue แยก `สลิปโอนเงิน` ออกจาก `เอกสารบัญชีทั่วไป`; ยอดสลิปหลักไม่นับ duplicate, system/context หรือ non-slip และตัวกรองทุกตัวใช้รายการ projection ชุดเดียวกัน
 - ทุกสลิปผ่าน `Slip Analysis Gate` เพื่อเสนอประเภทเงิน เหตุผล ความมั่นใจ คู่บัญชี ยอด เวลา รายการซ้ำ และปลายทางก่อนแสดงฟอร์ม Drawer; Drawer แสดงเฉพาะฟิลด์ที่ประเภทนั้นต้องใช้ พร้อมรายการ blocker แบบแก้เฉพาะจุด. เมื่อ Canonical truth ยืนยัน, postable และไม่มี blocker ระบบใช้ RPC/idempotency เดิมส่งต่ออัตโนมัติ; รายการที่ยังค้างจึงต้องมีเหตุผลให้คนยืนยันหรือแก้จริง
 - Master Data mode `เติมเงินทดลองจ่าย` ยืนยันเฉพาะบุคคล/บัญชีและสร้างหรือเปิด Accounting destination task เดิมแบบ idempotent; Project ยังเป็น `awaiting allocation`. บัญชีต้องตรวจ Money Lineage ก่อนส่ง Advance Finance และไม่มีการ posting/ตัดยอด/ปิด Job จาก Master Data action นี้
@@ -117,6 +121,7 @@ flowchart TD
 
 | Version | Date | Rationale | Impact | Migration | Verification | Rollback |
 | --- | --- | --- | --- | --- | --- | --- |
+| v3.0 | 31/8/2569 | รายการค่าแรงย้อนหลังเลือกผู้ที่ออกจากงานแล้วไม่ได้ เพราะ Drawer กรองเฉพาะสถานะจ้างปัจจุบัน | ตัวเลือกเจ้าของค่าแรงและผู้รับเงินจริงรวมประวัติพนักงานทั้งหมด พร้อมป้ายอดีตพนักงานและ dedupe ตาม Profile; ไม่เปลี่ยนสถานะการจ้าง | ไม่มี | former-employee contract, typecheck, lint, build และ authenticated Accounting Drawer smoke | revert query/label; Allocation, Payroll Ledger, Profile และ Audit เดิมไม่เปลี่ยน |
 | v2.8 | 31/8/2569 | ปุ่มปิด Drawer จาก Advance Holder ล้างรายละเอียดแต่ค้างหน้า Accounting ทำให้ผู้ใช้เสียบริบทต้นทาง | ใช้ safe internal `return_to` ร่วมกันสำหรับปุ่มกลับ ปุ่มปิด backdrop และ Escape; คง Holder/Transaction query และ fallback อยู่ Accounting Queue | ไม่มี migration และไม่เขียนข้อมูลธุรกิจ | navigation/security contract, Accounting transfer-slip tests, typecheck, lint, build และ authenticated round-trip smoke | revert utility/close navigation; Source, Lineage, Allocation และ Audit ไม่เปลี่ยน |
 | v2.7 | 31/8/2569 | รองรับเงินยืมจากบุคคล/กรรมการเป็นต้นทางกองเงิน | เพิ่ม Source Gate, เจ้าหนี้, วันครบกำหนด, ยอดคงค้าง, RLS และ Audit ก่อนส่ง Advance Finance | `20260831072537_borrowed_fund_obligations.sql` | contract, typecheck, lint, build, migration dry-run/apply และ authenticated Drawer smoke | ปิดตัวเลือกและ revoke RPC; คง Lineage/ภาระหนี้/Audit เพื่อ recovery |
 | v2.6 | 31/8/2569 | Admin could select the old-holder fund source for a new starting-fund slip and keep seeing a stale gate error | Rename source choices by money direction, warn on the old-holder path and clear stale gate feedback when the source changes | None | starting-fund UI contract, typecheck/lint/build and authenticated Drawer smoke | Revert UI commit; no confirmed data or Audit is changed |

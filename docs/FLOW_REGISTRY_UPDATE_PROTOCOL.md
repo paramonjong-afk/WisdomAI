@@ -1731,3 +1731,21 @@ flowchart LR
 - **Permission/Audit/Retry:** company manager/platform เป็นผู้บันทึก; accounting/HR อ่านได้ภายใต้ RLS; event key กันคำสั่งซ้ำและ append `borrowed_fund_obligation_recorded`
 - **Migration/Verification:** `20260831072537_borrowed_fund_obligations.sql`; contract, typecheck, lint, build, dry-run/apply และ authenticated Drawer smoke
 - **Owner/Rollback:** Accounting owner; ปิด Source และ revoke RPC ได้โดยคง Obligation, Slip, Lineage และ Audit เพื่อ recovery
+
+### Historical Payroll Employee Selection v3.0 (31/8/2569)
+
+```mermaid
+flowchart LR
+  E[Employment history ของบริษัท] --> D[รวมซ้ำด้วย Profile ID]
+  D --> A[พนักงานปัจจุบัน]
+  D --> F[อดีตพนักงาน · มีป้ายกำกับ]
+  A --> P[เลือกเจ้าของค่าแรง / ผู้รับเงินจริง]
+  F --> P
+  P --> W[บันทึก Allocation + Audit ตาม Flow เดิม]
+  F -. ไม่ทำ .-> R[Reactivate หรือสร้าง Profile ใหม่]
+```
+
+- **Input/Output/State:** อ่านประวัติ `employee_employment_records` ทุกสถานะภายในบริษัท แล้วสร้างตัวเลือก Profile เดียวต่อคนสำหรับรายการค่าแรงย้อนหลัง; ไม่แก้ employment state
+- **Roles/Permissions/Integration:** ใช้สิทธิ์ Accounting Admin/Manager และ RLS เดิม; Allocation, Payroll destination และ Audit ใช้คำสั่งยืนยันเดิม
+- **Failure/Retry:** ถ้ามีหลายประวัติของ Profile เดียว ระบบเลือกสถานะปัจจุบันก่อน; ชื่อยังไม่ชัดคงค้าง Review โดยไม่สร้างบุคคลซ้ำ
+- **Owner/Migration/Verification/Rollback:** Accounting/HR; ไม่มี migration; former-employee contract + typecheck/lint/build + authenticated Drawer; rollback เฉพาะ query/label โดยข้อมูลเดิมไม่เปลี่ยน
