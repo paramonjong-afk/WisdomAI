@@ -54,7 +54,6 @@ import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 import { userError } from '../../utils/userError'
 import { ensureProgramDevelopmentRoom } from '../../services/programDevelopmentGateway'
 import { ensureGeneralWorkRoom } from '../../services/generalWorkRoomGateway'
-import { ensureEmployeePrivateChatRoom } from '../../services/employeePrivateChatRoomGateway'
 import {
   applyOperationalAction as applyOperationalCoreAction,
   buildOperationalTaskCards,
@@ -85,7 +84,6 @@ type ChatRoom = {
   name: string
   company_id?: string
   room_key?: string | null
-  employee_profile_id?: string | null
   is_private?: boolean
   room_purpose?: string | null
   created_by: string | null
@@ -561,10 +559,9 @@ export function ChatPage() {
   const canManageThisRoom = useMemo(() => {
     if (!selectedRoom) return false
     if (selectedRoom.room_key === 'program_development_primary') return isProgramDevelopmentOwner
-    if (selectedRoom.employee_profile_id) return ['company_admin', 'executive', 'manager'].includes(currentCompany?.company_role ?? '')
     if (canManageCompany) return true
     return roomMembers.some((member) => member.profile_id === activeProfileId && member.member_role === 'owner')
-  }, [activeProfileId, canManageCompany, currentCompany?.company_role, isProgramDevelopmentOwner, roomMembers, selectedRoom])
+  }, [activeProfileId, canManageCompany, isProgramDevelopmentOwner, roomMembers, selectedRoom])
 
   const profileNameMap = useMemo(() => {
     const map = new Map<string, RoomMemberProfile>()
@@ -1192,15 +1189,6 @@ export function ChatPage() {
     if (!currentCompany?.company_id) return
 
     setLoadingRooms(true)
-    if (currentCompany.company_role === 'employee' && activeProfileId) {
-      try {
-        await ensureEmployeePrivateChatRoom(currentCompany.company_id, activeProfileId)
-      } catch (error) {
-        // Keep older deployments usable until the employee-room migration is applied.
-        const code = (error as { code?: string } | null)?.code
-        if (code !== '42883' && code !== '42704' && code !== 'PGRST202') setToast(userError(error), true)
-      }
-    }
     if (canProvisionProgramDevelopmentRoom) {
       try {
         await ensureProgramDevelopmentRoom(currentCompany.company_id)
@@ -1221,7 +1209,7 @@ export function ChatPage() {
 
     const metadataQuery = await supabase
       .from('chat_rooms')
-      .select('id,name,company_id,room_key,employee_profile_id,is_private,room_purpose,created_by,created_at,updated_at,chat_room_members(profile_id,member_role,joined_at,profiles(full_name,email))')
+      .select('id,name,company_id,room_key,is_private,room_purpose,created_by,created_at,updated_at,chat_room_members(profile_id,member_role,joined_at,profiles(full_name,email))')
       .eq('company_id', currentCompany.company_id)
       .order('updated_at', { ascending: false })
     let data: unknown[] | null = metadataQuery.data as unknown[] | null
@@ -1267,7 +1255,6 @@ export function ChatPage() {
         name: typeof raw.name === 'string' ? raw.name : '',
         company_id: typeof raw.company_id === 'string' ? raw.company_id : undefined,
         room_key: typeof raw.room_key === 'string' ? raw.room_key : null,
-        employee_profile_id: typeof raw.employee_profile_id === 'string' ? raw.employee_profile_id : null,
         is_private: raw.is_private === true,
         room_purpose: typeof raw.room_purpose === 'string' ? raw.room_purpose : null,
         created_by: typeof raw.created_by === 'string' ? raw.created_by : null,
@@ -1290,7 +1277,7 @@ export function ChatPage() {
         selectedRoomIdRef.current = preferred
         return preferred
       }
-      const fallback = next.find((room) => room.employee_profile_id === activeProfileId)?.id ?? next[0]?.id ?? ''
+      const fallback = next[0]?.id ?? ''
       selectedRoomIdRef.current = fallback
       if (roomSelectionStorageKey && typeof window !== 'undefined') {
         try {
@@ -1303,7 +1290,7 @@ export function ChatPage() {
       return fallback
     })
     setLoadingRooms(false)
-  }, [activeProfileId, canManageCompany, canProvisionProgramDevelopmentRoom, currentCompany?.company_id, currentCompany?.company_role, loadUnreadCounts, roomSelectionStorageKey, setToast])
+  }, [canManageCompany, canProvisionProgramDevelopmentRoom, currentCompany?.company_id, loadUnreadCounts, roomSelectionStorageKey, setToast])
 
   const loadRoomMembers = useCallback(async (roomId: string) => {
     setLoadingMembers(true)
@@ -2517,7 +2504,7 @@ export function ChatPage() {
       >
         <ListItemText
           disableTypography
-          primary={<Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', minWidth: 0 }}><Typography variant="body2" noWrap sx={{ fontWeight: 700 }}>{room.name}</Typography>{room.employee_profile_id && <Chip size="small" label="พนักงาน" color="info" sx={{ height: 18, fontSize: 10 }} />}{room.room_key === 'general_work_primary' && <Chip size="small" label="งานทั่วไป" sx={{ height: 18, fontSize: 10 }} />}{room.room_key === 'program_development_primary' && <Chip size="small" label="ส่วนตัว" color="secondary" sx={{ height: 18, fontSize: 10 }} />}</Stack>}
+          primary={<Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', minWidth: 0 }}><Typography variant="body2" noWrap sx={{ fontWeight: 700 }}>{room.name}</Typography>{room.room_key === 'general_work_primary' && <Chip size="small" label="งานทั่วไป" sx={{ height: 18, fontSize: 10 }} />}{room.room_key === 'program_development_primary' && <Chip size="small" label="ส่วนตัว" color="secondary" sx={{ height: 18, fontSize: 10 }} />}</Stack>}
           secondary={(
             <Typography component="span" variant="caption" color="text.secondary" noWrap>
               {room.chat_room_members?.length ?? 0} คน · {roomOnlineCount} ออนไลน์

@@ -44,6 +44,7 @@ export const navigationGroups:NavigationGroup[]=[
   {label:'บัญชีและตั้งค่า',items:[
     {label:'ข้อมูลส่วนตัว',path:'/my-profile',roles:all},
     {label:'ตั้งค่าระบบ',path:'/settings',roles:['admin']},
+    {label:'กู้คืนบัญชีผู้ใช้',path:'/admin-account-recovery',roles:['admin']},
   ]},
   {label:'การสื่อสาร',items:[
     {label:'ห้องแชต',path:'/chat',roles:all},

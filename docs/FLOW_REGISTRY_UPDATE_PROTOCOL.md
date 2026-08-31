@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## 2026-08-31 — Admin Account Recovery v1.2
+
+- **เหตุผล:** Route กู้คืนบัญชีถูก Merge แล้วแต่ไม่มีเมนู และ Action เดิมใช้ `generateLink` ซึ่งไม่ส่งอีเมลจริง
+- **ผลกระทบ:** Admin เห็นเมนู “กู้คืนบัญชีผู้ใช้”; ต้องตรวจสถานะก่อน ยกเลิกการระงับและส่งอีเมลเป็นคนละ Action พร้อมเหตุผล/Audit
+- **Migration:** ไม่มี; อัปเดต Edge Function `admin-account-recovery`
+- **การตรวจสอบ:** account recovery contract, typecheck, lint, build, authenticated Admin smoke และตรวจอีเมล/redirect โดยไม่บันทึก token
+- **Rollback:** revert frontend และ Edge Function เป็นรุ่นก่อน; Audit เดิมคงอยู่และไม่มีการลบ/แก้รหัสผ่านโดยตรง
+
 ## 2026-08-29 — Notification Center Type Filter and Scoped Mark-All v1.3
 
 - **เหตุผล:** หน้า Notification Center มีรายการหลายประเภทและการอ่านทีละรายการใช้เวลานาน จึงต้องกรอง Type ได้ตรงจุดและทำเครื่องหมายอ่านแล้วแบบไม่กระทบงานต้นทางทั้งหมด

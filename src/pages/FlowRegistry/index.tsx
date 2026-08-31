@@ -131,12 +131,12 @@ const systemFlows = [
   },
   {
     title: 'Login / Reset Password',
-    version: 'Auth v1.1 · 21/8/2569',
+    version: 'Auth v1.2 · 31/8/2569',
     icon: <LockResetOutlinedIcon color="primary" />,
     summary: 'ขอลิงก์ reset จาก Login → รับ recovery hash/code จาก Supabase → ตั้งรหัสใหม่เฉพาะเมื่อมี recovery session',
-    bullets: ['อ่านจาก docs/AUTH_PASSWORD_RESET_FLOW.md', 'รองรับลิงก์กลับ /reset-password, / หรือ /login', 'ไม่บันทึก password/token ลง log และล้าง token จาก URL หลังตรวจสำเร็จ'],
-    path: '/login',
-    action: 'ไปหน้า Login',
+    bullets: ['อ่านจาก docs/AUTH_PASSWORD_RESET_FLOW.md', 'รองรับลิงก์กลับ /reset-password, / หรือ /login', 'Admin ตรวจสถานะ → ยกเลิกการระงับ → ส่งอีเมลใหม่จากหน้าเดียว พร้อม Audit', 'ไม่บันทึก password/token ลง log และล้าง token จาก URL หลังตรวจสำเร็จ'],
+    path: '/admin-account-recovery',
+    action: 'ไปหน้ากู้คืนบัญชี',
   },
   {
     title: 'HR Attendance → ห้องแชต',
