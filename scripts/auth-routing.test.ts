@@ -31,7 +31,7 @@ assert.equal(detectEntryDevice({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64
 assert.equal(detectEntryDevice({ userAgent: 'Mozilla/5.0 (X11; Linux x86_64)', maxTouchPoints: 5, viewportWidth: 390, coarsePointer: true }), 'mobile')
 
 const topBar = readFileSync('src/layouts/TopBar.tsx', 'utf8')
-assert.match(topBar, /component="summary"[\s\S]*wisdom-ai-app-icon-192\.png/, 'mobile menu trigger must use the Wisdom logo')
+assert.match(topBar, /component="summary"[\s\S]*brandAssets\.transparentMark/, 'mobile menu trigger must use the versioned Wisdom Power logo')
 assert.doesNotMatch(topBar, /TimerOutlinedIcon|href="\/time-tracking"/, 'mobile header must not duplicate the Time Tracking launcher action')
 assert.match(topBar, /aria-label="เปิดเมนูนำทาง"/, 'logo menu trigger must keep an accessible label')
 assert.match(topBar, /window\.location\.replace\(buildFreshLoginUrl/, 'logout must perform a fresh document navigation')

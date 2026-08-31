@@ -182,6 +182,15 @@ flowchart LR
 - **การตรวจสอบ:** auth-routing contract, typecheck, lint, build และ mobile browser smoke
 - **Rollback:** คืนสัญลักษณ์สามขีดและปุ่มนาฬิกาใน `TopBar`; route `/time-tracking`, `/chat` และข้อมูลเดิมไม่เปลี่ยน
 
+## 2026-08-31 — Wisdom Power Branding + PWA Icon Refresh v1.2
+
+- **เหตุผล:** Company Selector เปลี่ยนเป็น Wisdom Power แล้ว แต่ Production frontend และไอคอนติดตั้งบนมือถือยังใช้ไฟล์ WisdomAI รุ่นเดิมจาก cache
+- **Flow:** commit ใหม่ → Vite เติม release revision ใน manifest/favicon/Apple touch icon/App Icon/Web mark → Cloudflare revalidate `/manifest.webmanifest` และ `/branding/*` → browser/PWA ดึงแบรนด์รุ่นใหม่
+- **ผลกระทบ:** ชื่อหน้า, Login, Sidebar, Smart Entry, Launcher, mobile menu mark และ PWA App Icon เป็น Wisdom Power; unread badge, mobile launcher, route, permission และข้อมูลธุรกิจเดิมไม่เปลี่ยน
+- **Migration:** `20260831074502_rename_default_company_to_wisdom_power.sql` ถูก Apply ที่ Supabase project `xkieyqixlufjqructjkr`; Company ID/slug เดิมและ Audit event เดียว
+- **การตรวจสอบ:** company-branding/auth-routing tests, typecheck, lint, build artifact manifest/index, Cloudflare cache headers, release revision และ authenticated runtime smoke
+- **Rollback:** revert frontend commit และเปลี่ยนชื่อ canonical tenant กลับพร้อม Audit ใหม่; ห้ามเปลี่ยน Company ID/slug หรือข้อมูลธุรกิจ
+
 ## 2026-08-31 — Admin Account Recovery Audit Hotfix v1.2.1
 
 - **เหตุผล:** การยกเลิกการระงับสำเร็จ แต่ Audit insert ใช้ severity `critical` ซึ่งผิด constraint (`info/warning/error`) ทำให้ Edge Function ตอบ 500 และหน้าเว็บแสดงเพียง non-2xx

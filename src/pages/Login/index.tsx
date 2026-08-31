@@ -1,4 +1,3 @@
-import LockOutlinedIcon from '@mui/icons-material/LockOutlined'
 import {
   Alert,
   Avatar,
@@ -18,6 +17,7 @@ import { userError } from '../../utils/userError'
 import { getPasswordResetRedirectUrl } from '../../utils/authRedirect'
 import { registerAuthSecurityEvent } from '../../utils/authSecurityEvent'
 import { getLoginNavigationTarget } from '../../utils/authRouting'
+import { brandAssets } from '../../lib/brandAssets'
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -108,9 +108,12 @@ export function LoginPage() {
             sx={{ p: { xs: 3, sm: 4 } }}
           >
             <Stack spacing={3} sx={{ alignItems: 'center' }}>
-              <Avatar sx={{ bgcolor: 'primary.main' }}>
-                <LockOutlinedIcon />
-              </Avatar>
+              <Avatar
+                src={brandAssets.appIcon192}
+                alt="Wisdom Power"
+                variant="rounded"
+                sx={{ width: 72, height: 72, borderRadius: 2, boxShadow: '0 8px 24px rgba(22, 37, 68, .16)' }}
+              />
 
               <Box sx={{ textAlign: 'center' }}>
                 <Typography variant="h4" sx={{ fontWeight: 800 }}>
@@ -118,7 +121,7 @@ export function LoginPage() {
                 </Typography>
 
                 <Typography color="text.secondary">
-                  Sign in to WisdomAI
+                  Sign in to Wisdom Power
                 </Typography>
               </Box>
 
