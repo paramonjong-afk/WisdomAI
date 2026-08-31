@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { detectEntryDevice, getPostLoginDestination } from '../src/utils/authRouting.ts'
 
 assert.equal(getPostLoginDestination('employee', 'mobile'), '/')
@@ -15,5 +16,10 @@ assert.equal(getPostLoginDestination('employee'), '/my-profile')
 assert.equal(detectEntryDevice({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile' }), 'mobile')
 assert.equal(detectEntryDevice({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', maxTouchPoints: 0, viewportWidth: 1440 }), 'desktop')
 assert.equal(detectEntryDevice({ userAgent: 'Mozilla/5.0 (X11; Linux x86_64)', maxTouchPoints: 5, viewportWidth: 390, coarsePointer: true }), 'mobile')
+
+const topBar = readFileSync('src/layouts/TopBar.tsx', 'utf8')
+assert.match(topBar, /component="summary"[\s\S]*wisdom-ai-app-icon-192\.png/, 'mobile menu trigger must use the Wisdom logo')
+assert.doesNotMatch(topBar, /TimerOutlinedIcon|href="\/time-tracking"/, 'mobile header must not duplicate the Time Tracking launcher action')
+assert.match(topBar, /aria-label="เปิดเมนูนำทาง"/, 'logo menu trigger must keep an accessible label')
 
 console.log('auth routing tests passed')

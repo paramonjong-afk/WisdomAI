@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## 2026-08-31 — Mobile Top Bar Brand Navigation v1.8
+
+- **เหตุผล:** ลดไอคอนซ้ำบนมือถือและให้จุดเปิดเมนูสื่อแบรนด์ชัดเจน โดยใช้โลโก้ Wisdom แทนสัญลักษณ์สามขีด
+- **ผลกระทบ:** โลโก้บนแถบบนมือถือกดเปิดเมนูนำทางเดิมได้ และนำปุ่มนาฬิกา/ลงเวลาแบบซ้ำออก; ปุ่มลงเวลาหลักบน Application Launcher, route และสิทธิ์เดิมไม่เปลี่ยน
+- **Migration:** ไม่มี; ไม่มีการแก้ข้อมูลหรือ Audit ธุรกิจ
+- **การตรวจสอบ:** auth-routing contract, typecheck, lint, build และ mobile browser smoke
+- **Rollback:** คืนสัญลักษณ์สามขีดและปุ่มนาฬิกาใน `TopBar`; route `/time-tracking`, `/chat` และข้อมูลเดิมไม่เปลี่ยน
+
 ## 2026-08-31 — Admin Account Recovery Audit Hotfix v1.2.1
 
 - **เหตุผล:** การยกเลิกการระงับสำเร็จ แต่ Audit insert ใช้ severity `critical` ซึ่งผิด constraint (`info/warning/error`) ทำให้ Edge Function ตอบ 500 และหน้าเว็บแสดงเพียง non-2xx

@@ -1,5 +1,4 @@
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined'
-import TimerOutlinedIcon from '@mui/icons-material/TimerOutlined'
 import { AppBar, Avatar, Box, Chip, Divider, IconButton, ListSubheader, MenuItem, Paper, TextField, Toolbar, Tooltip, Typography } from '@mui/material'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -67,7 +66,18 @@ export function TopBar() {
               '&::-webkit-details-marker': { display: 'none' },
             }}
           >
-            ☰
+            <Box
+              component="img"
+              src="/branding/wisdom-ai-app-icon-192.png"
+              alt=""
+              sx={{
+                width: 40,
+                height: 40,
+                display: 'block',
+                borderRadius: 2,
+                boxShadow: '0 5px 14px rgba(22, 37, 68, .18)',
+              }}
+            />
           </Box>
           <Paper elevation={12} sx={{
             position: 'absolute', zIndex: 2147483647, top: 52, left: 0,
@@ -114,25 +124,6 @@ export function TopBar() {
           {currentCompany?.company_name ?? 'Construction Management Platform'}
         </Typography>
         <Box sx={{ flexGrow: 1, display: { xs: 'block', sm: 'none' } }} />
-        <Tooltip title="ลงเวลา">
-          <IconButton
-            component="a"
-            href="/time-tracking"
-            color="primary"
-            aria-label="ลงเวลา"
-            sx={{
-              display: { xs: 'inline-flex', md: 'none' },
-              '@media (pointer: coarse)': { display: 'inline-flex' },
-              mr: 1,
-              width: 44,
-              height: 44,
-              border: '1px solid',
-              borderColor: 'primary.main',
-            }}
-          >
-            <TimerOutlinedIcon />
-          </IconButton>
-        </Tooltip>
         {(companies.length>1||isPlatformAdmin)&&<TextField
           select size="small" aria-label="เลือกบริษัท" value={currentCompany?.company_id??''}
           onChange={(event)=>event.target.value==='__platform__'?navigate('/platform-control-center'):void switchCompany(event.target.value)}
