@@ -528,6 +528,7 @@ export function ChatPage() {
   const [pendingAttachmentPreviewUrl, setPendingAttachmentPreviewUrl] = useState('')
   const [isDragActive, setIsDragActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const lastHandledAttachmentSelectionRef = useRef('')
   const dragDepthRef = useRef(0)
   const messageBottomRef = useRef<HTMLDivElement | null>(null)
   const attendanceVideoRef = useRef<HTMLVideoElement | null>(null)
@@ -2263,20 +2264,68 @@ export function ChatPage() {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  const handleAttachmentSelected = (file: File | null) => {
+  const handleAttachmentSelected = (file: File | null, source: 'input' | 'change' | 'drop') => {
+    const contentType = file ? getChatAttachmentContentType(file) : ''
+    if (activeProfileId) {
+      void logAppEvent(activeProfileId, {
+        eventType: 'page_view',
+        pagePath: '/chat',
+        message: 'chat_attachment_file_received',
+        metadata: {
+          room_id: selectedRoom?.id ?? null,
+          source,
+          file_present: Boolean(file),
+          file_size: file?.size ?? 0,
+          raw_content_type: file?.type.trim().toLowerCase() || null,
+          normalized_content_type: contentType || null,
+        },
+      }).catch(() => undefined)
+    }
     if (!file) return
     if (!canSend) {
+      if (activeProfileId) {
+        void logAppEvent(activeProfileId, {
+          eventType: 'client_error',
+          severity: 'warning',
+          pagePath: '/chat',
+          message: 'chat_attachment_selection_blocked',
+          metadata: { room_id: selectedRoom?.id ?? null, source, reason: 'not_ready' },
+        }).catch(() => undefined)
+      }
       setToast('กรุณาเลือกห้องและรอการเชื่อมต่อก่อนแนบไฟล์')
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
     if (file.size > maxChatAttachmentBytes) {
+      if (activeProfileId) {
+        void logAppEvent(activeProfileId, {
+          eventType: 'client_error',
+          severity: 'warning',
+          pagePath: '/chat',
+          message: 'chat_attachment_selection_blocked',
+          metadata: { room_id: selectedRoom?.id ?? null, source, reason: 'file_too_large', file_size: file.size },
+        }).catch(() => undefined)
+      }
       setToast('ไฟล์ใหญ่เกิน 50 MB กรุณาเลือกรูปหรือไฟล์ที่เล็กลง')
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
-    const contentType = getChatAttachmentContentType(file)
     if (!supportedChatAttachmentTypes.has(contentType)) {
+      if (activeProfileId) {
+        void logAppEvent(activeProfileId, {
+          eventType: 'client_error',
+          severity: 'warning',
+          pagePath: '/chat',
+          message: 'chat_attachment_selection_blocked',
+          metadata: {
+            room_id: selectedRoom?.id ?? null,
+            source,
+            reason: 'unsupported_type',
+            raw_content_type: file.type.trim().toLowerCase() || null,
+            normalized_content_type: contentType || null,
+          },
+        }).catch(() => undefined)
+      }
       setToast('ไฟล์ชนิดนี้ยังไม่รองรับ กรุณาใช้รูป JPG, PNG, WebP, HEIC หรือ PDF')
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
@@ -2297,11 +2346,23 @@ export function ChatPage() {
     void sendFileMessage(file)
   }
 
+  const handleAttachmentInputEvent = (input: HTMLInputElement, source: 'input' | 'change') => {
+    const file = input.files?.[0] ?? null
+    if (file) {
+      // Android Chrome can emit both input and change for one native picker
+      // result. Keep the first File and ignore only the duplicate DOM event.
+      const selectionKey = `${file.size}:${file.type}:${file.lastModified}`
+      if (lastHandledAttachmentSelectionRef.current === selectionKey) return
+      lastHandledAttachmentSelectionRef.current = selectionKey
+    }
+    handleAttachmentSelected(file, source)
+  }
+
   const handleAttachmentPickerPointerDown = () => {
     if (!canSend) return
-    // Android Chrome can dispatch the input click again after the native picker
-    // closes. Clear the old selection on pointer-down, before the picker opens,
-    // so that the returned File is still present when the change event runs.
+    // Clear before the direct native input opens so choosing the same file again
+    // still emits an event. Never clear when the picker returns the File.
+    lastHandledAttachmentSelectionRef.current = ''
     if (fileInputRef.current) fileInputRef.current.value = ''
     if (activeProfileId) {
       void logAppEvent(activeProfileId, {
@@ -2353,7 +2414,7 @@ export function ChatPage() {
     const file = event.dataTransfer.files?.[0] ?? null
     if (!file) return
     if ((event.dataTransfer.files?.length ?? 0) > 1) setToast('แนบได้ครั้งละ 1 ไฟล์ ระบบจะใช้ไฟล์แรกที่เลือก')
-    handleAttachmentSelected(file)
+    handleAttachmentSelected(file, 'drop')
   }
 
   const sendCurrentMessage = () => {
@@ -3351,30 +3412,40 @@ export function ChatPage() {
                     <KeyboardVoiceOutlinedIcon />
                   </IconButton>
                   <Tooltip title="เลือกไฟล์ หรือ ลากไฟล์มาวางในพื้นที่แชต">
-                    <span>
+                    <Box
+                      component="span"
+                      sx={{ position: 'relative', display: 'inline-flex', width: 44, height: 44 }}
+                    >
                       <IconButton
-                        component="label"
+                        component="span"
                         color="primary"
                         disabled={!canSend}
-                        aria-label="เลือกไฟล์ หรือ ลากไฟล์มาวางในพื้นที่แชต"
-                        onPointerDown={handleAttachmentPickerPointerDown}
-                        sx={{ minWidth: 44, minHeight: 44 }}
+                        aria-hidden="true"
+                        tabIndex={-1}
+                        sx={{ minWidth: 44, minHeight: 44, pointerEvents: 'none' }}
                       >
                         <AttachFileOutlinedIcon />
-                        <input
-                          type="file"
-                          ref={fileInputRef}
-                          disabled={!canSend}
-                          aria-label="เลือกไฟล์แนบ"
-                          style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', border: 0 }}
-                          accept="image/*,.heic,.heif,.avif,.tif,.tiff,application/pdf,text/plain,.doc,.docx,.xls,.xlsx"
-                          onChange={(event) => {
-                            const file = event.currentTarget.files?.[0] ?? null
-                            handleAttachmentSelected(file)
-                          }}
-                        />
                       </IconButton>
-                    </span>
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        disabled={!canSend}
+                        aria-label="เลือกไฟล์ หรือ ลากไฟล์มาวางในพื้นที่แชต"
+                        style={{
+                          position: 'absolute',
+                          inset: 0,
+                          width: '100%',
+                          height: '100%',
+                          opacity: 0,
+                          cursor: canSend ? 'pointer' : 'default',
+                          zIndex: 1,
+                        }}
+                        accept="image/*,.heic,.heif,.avif,.tif,.tiff,application/pdf,text/plain,.doc,.docx,.xls,.xlsx"
+                        onPointerDown={handleAttachmentPickerPointerDown}
+                        onInput={(event) => handleAttachmentInputEvent(event.currentTarget, 'input')}
+                        onChange={(event) => handleAttachmentInputEvent(event.currentTarget, 'change')}
+                      />
+                    </Box>
                   </Tooltip>
                   <Button
                     size="medium"

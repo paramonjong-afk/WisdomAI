@@ -1,5 +1,34 @@
 # Flow Registry Update Protocol
 
+## 2026-08-31 — Web Chat Direct Native Input Overlay v2.9
+
+```mermaid
+flowchart LR
+  A[ผู้ใช้แตะไอคอนแนบ] --> B[Native file input โปร่งใสรับ Pointer โดยตรง]
+  B --> C[Android/iOS picker]
+  C -->|เลือกไฟล์| D[input/change รับ File]
+  C -->|ยกเลิก| X[ไม่เขียนข้อมูล]
+  D --> E[Deduplicate DOM event]
+  E --> F{Validation พร้อมหรือไม่}
+  F -->|ผ่าน| G[Membership + Session]
+  G --> H[Private Storage]
+  H --> I[chat_messages]
+  I --> J[Preview ในห้อง]
+  F -->|ไม่ผ่าน| K[แจ้งเหตุผล + Telemetry]
+  G -->|ล้มเหลว| L[คงไฟล์เพื่อ Retry]
+  H -->|ล้มเหลว| L
+```
+
+- **เหตุผล:** Android Production หลัง v2.8 ยังมีเพียง `chat_attachment_picker_opened` โดยไม่พบ Storage/message; การ forward click จาก MUI label ยังเป็นจุดเสี่ยง และ telemetry เดิมเกิดหลัง validation จึงแยกไม่ได้ว่าไม่ได้รับ File หรือถูกปฏิเสธก่อนส่ง
+- **Input/Output/States:** รับ `File` จาก native input หรือ drag/drop → `received` → `validated` → `uploading` → `message_recorded`; ยกเลิกเป็น no-op และ validation/auth/Storage ล้มเหลวคง flow แจ้งเตือน/Retry เดิม
+- **Roles/Permissions:** ผู้ส่งต้อง login, อยู่ใน company/room และเป็นสมาชิกห้อง; ห้อง Program Development ยัง owner-only; ไม่ขยาย RLS, Storage policy หรือ allow-list
+- **Integration:** native browser picker → Supabase Auth/session → private bucket `chat-attachments` → `chat_messages` → signed preview/Realtime ตาม flow เดิม
+- **Failure/Retry:** input/change ที่ browser ยิงซ้ำถูก deduplicate ใน memory; ไฟล์เกิน 50 MB, MIME ไม่รองรับ และสถานะห้องไม่พร้อมบันทึก reason แยก; upload/message failure คงไฟล์ให้ลองใหม่และ cleanup object เมื่อ message insert ล้มเหลว
+- **Audit/Owner:** telemetry `picker_opened`, `file_received`, `selection_blocked`, `file_selected`, `send_started`, `message_recorded` ไม่เก็บชื่อไฟล์; owner คือ Web Chat/Application Platform
+- **Impact/Migration:** แก้เฉพาะตัวรับไฟล์และ telemetry หน้า Chat; ไม่มี schema migration และไม่เปลี่ยนข้อมูลเดิม
+- **Verification:** attachment contract, targeted/full lint, typecheck, build, Git/release parity และ authenticated Android read-back ครบ File → Storage → message → preview
+- **Rollback:** revert v2.9 เป็น v2.8 ผ่าน Git integration; ไฟล์/ข้อความ/Audit ที่สำเร็จแล้วคงอยู่ และใช้ telemetry แยกสาเหตุเพื่อ recovery
+
 ## 2026-08-31 — Web Chat Android Picker Change Recovery v2.8
 
 - **เหตุผล:** Production Android มี `chat_attachment_picker_opened` แต่ไม่มี `file_selected`, Storage object หรือ message หลังผู้ใช้เลือกรูป จึงยืนยันว่าจุดขาดอยู่ระหว่าง native picker กลับมาและ input `change`

@@ -662,3 +662,32 @@ flowchart LR
 - Migration: ไม่มี
 - Verification: attachment contract, targeted ESLint, typecheck, lint, build, Production revision parity และ Android smoke ตั้งแต่ `picker_opened → file_selected → send_started → Storage → message_recorded → image preview`
 - Rollback: revert v2.8 เพื่อคืน reset ที่ input click; ไฟล์/ข้อความที่ส่งสำเร็จแล้วไม่ถูกลบ
+
+### v2.9 — 31/8/2569
+
+```mermaid
+flowchart LR
+  A[แตะไอคอนแนบ] --> B[Native input overlay รับ Pointer โดยตรง]
+  B --> C[Android/iOS picker]
+  C -->|เลือกไฟล์| D[input/change ได้ File]
+  D --> E[กัน DOM event ซ้ำ]
+  E --> F[Telemetry file_received ก่อน validation]
+  F --> G{ห้อง/ขนาด/MIME ผ่านหรือไม่}
+  G -->|ผ่าน| H[Membership + Session]
+  H --> I[Private Storage]
+  I --> J[chat_messages + Preview]
+  G -->|ไม่ผ่าน| K[selection_blocked พร้อม reason]
+  H -->|ล้มเหลว| L[คงไฟล์ + Retry]
+  I -->|ล้มเหลว| L
+  C -->|ยกเลิก| M[ไม่สร้างข้อมูล]
+```
+
+- เหตุผล: หลัง deploy v2.8 Android ห้องจริงยังบันทึกเพียง `chat_attachment_picker_opened`; ไม่มีหลักฐานว่า browser ส่ง File กลับ และ telemetry เดิมอยู่หลัง validation จึงยังแยกกรณีถูกบล็อกไม่ได้
+- Input/Output/States: รับ File จาก native picker หรือ drag/drop → received/validated/uploading/message_recorded → แสดง Preview; ยกเลิกไม่สร้างข้อมูล และ failure คงไฟล์ให้ Retry ตามเดิม
+- ผลกระทบ: วาง native file input โปร่งใสเต็มไอคอนให้รับการแตะโดยตรง ไม่พึ่ง MUI label forwarding; ฟังทั้ง `input`/`change` และใช้ ref กัน event ซ้ำโดยไม่ส่งไฟล์ซ้ำ
+- สิทธิ์/Integration: ต้อง login, มี company/room และ membership จริง; Program Development ยัง owner-only; ใช้ Auth/session, private `chat-attachments`, `chat_messages`, signed preview และ Realtime เดิม
+- Failure/Retry: แยก `not_ready`, `file_too_large`, `unsupported_type`; session/Storage/message error ยังคง Preview และลองส่งใหม่ได้ โดยลบ object เมื่อ message insert ล้มเหลว
+- Audit/Owner: telemetry เพิ่ม `chat_attachment_file_received` และ `chat_attachment_selection_blocked` ก่อน validation โดยเก็บเฉพาะ source, room, ขนาด และ MIME ไม่เก็บชื่อไฟล์; owner คือ Web Chat/Application Platform
+- Migration: ไม่มี; RLS, bucket allow-list, company/room path และข้อมูลเดิมไม่เปลี่ยน
+- Verification: contract, lint, typecheck, build, Production revision parity และ authenticated Android smoke/read-back ตั้งแต่ pointer → File → Storage → message → Preview
+- Rollback: revert v2.9 แล้ว deploy ผ่าน Git integration; ไฟล์/ข้อความ/Audit เดิมไม่ถูกลบ
