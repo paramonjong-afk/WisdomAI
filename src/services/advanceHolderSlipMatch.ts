@@ -82,6 +82,27 @@ export function normalizeAdvanceHolderName(value: string | null | undefined) {
     .toLocaleLowerCase('th-TH')
 }
 
+export function advanceHolderMoneyRouteParties(
+  slip: Pick<AdvanceHolderSlipMatch, 'senderName' | 'recipientName' | 'canonicalPayerName' | 'canonicalFundHolderName' | 'canonicalBeneficiaryName'>,
+  holderDisplayName?: string | null,
+) {
+  const parties: string[] = []
+  const append = (name: string | null | undefined, preferThisLabel = false) => {
+    if (!name?.trim()) return
+    const previous = parties.at(-1)
+    if (previous && normalizeAdvanceHolderName(previous) === normalizeAdvanceHolderName(name)) {
+      if (preferThisLabel) parties[parties.length - 1] = name
+      return
+    }
+    parties.push(name)
+  }
+
+  append(slip.canonicalPayerName ?? slip.senderName)
+  append(slip.canonicalFundHolderName ?? holderDisplayName, true)
+  append(slip.canonicalBeneficiaryName ?? slip.recipientName)
+  return parties
+}
+
 export function matchAdvanceHolderSlips(holders: AdvanceHolderMatchSource[], slips: AdvanceHolderSlipEvidence[]) {
   const nameIndex = new Map<string, AdvanceHolderMatchSource[]>()
   holders.forEach((holder) => {
