@@ -36,8 +36,13 @@ flowchart LR
   G -->|Approved| H[Reconcile received - approved use - returned/offset]
   H -->|Balance = 0| I[Closed + audit]
   H -->|Balance != 0| J[Settlement required]
-  H --> HS[ทะเบียนผู้ถือเงิน<br/>รับเข้า · จ่าย/ตัดยอด · คืน · คงเหลือ · รอตรวจ]
-  HS -->|คงเหลือ < 0| HX[เตือนสีแดง + ตัวกรอง<br/>เปิด Drawer ตรวจรายการ]
+  H --> HS[ทะเบียนผู้ถือเงินหน้าเดียว<br/>ยอดยืนยัน + สลิป Real-time]
+  B --> RT[Operational Truth<br/>ตัด Duplicate + จับคู่ Holder/Alias]
+  RT --> HS
+  HS --> RP[รับเข้า · จ่ายออก Real-time · เงินกำลังเดินทาง<br/>คงเหลือคาดการณ์ · คงเหลือยืนยัน · ผลต่าง]
+  RP -->|ข้อมูลครบ/Route ยืนยัน| RL[เส้นทึบสีเขียว<br/>คลิกต้นทาง · ผู้ถือ · ผู้รับ · ปลายทาง]
+  RP -->|ข้อมูลขาด/Route ยังไม่ยืนยัน| RQ[เส้นประสีส้ม + คิวรอตรวจ<br/>เปิดสลิป/Audit เพื่อแก้]
+  RP -->|คงเหลือคาดการณ์ < 0| HX[เตือนสีแดง + ตัวกรอง<br/>เปิด Drawer ตรวจรายการ]
   K --> N[Program Loop: queue System Confirmation]
   N --> O[Ensure standard rooms: source when verified / HR / Finance]
   O --> P[Web Chat delivery ledger: queued to sent to delivered]
@@ -70,6 +75,9 @@ Track money transferred to a monthly employee for company disbursements, then re
 - Every extracted source/destination field is presented independently. A missing field is recorded as `missing`/`needs_review`, never filled by inference.
 - Reconciliation is fixed: `amount_received - approved expenses/sub-advances - cash return - payroll offset = outstanding_balance`. A case cannot close while the outstanding balance is non-zero or an item is still pending/rejected.
 - `/advance-holders` derives received, approved paid/offset, approved cash return, outstanding balance, pending count/amount and latest update from the same company-scoped Advance Case and Settlement records. Pending lines never change the balance. Negative balances remain red and filterable and open a read-only transaction Drawer; the UI never silently adjusts financial data.
+- The same main table overlays matching non-duplicate rows from `transfer_slip_operational_truth_v1` without copying or posting them. It shows outgoing evidence in real time, unresolved outgoing as money in transit, projected balance, confirmed balance, variance/review count, last activity and the latest clickable money route. Unresolved evidence changes only the projected balance and never changes the confirmed accounting balance.
+- Exact holder/alias matches are grouped by holder ID. Ambiguous matches remain in the detailed review queue and are never silently assigned. Confirmed resolved routes render as solid green; missing purpose/lineage/route or non-confirmed truth renders dashed orange. Every node links to the existing source or destination module, and the Drawer keeps the evidence timeline separate from the confirmed Advance Case/Settlement ledger.
+- Quick filters cover all holders, non-zero projected balance, review/variance, negative projected balance, money in transit and no movement. Automatic scanning refreshes the main projection without forcing the user to the slip tab; explicit “ตรวจใหม่” may open the detailed slip list.
 - Every central command uses an event key, version check, audit row, and linked Document Flow event. Duplicate commands do not create duplicate cases/items.
 - The advance table is a read-only projection of the central records: it shows the standardized holder, how the name was matched (`auto`, `Admin confirmed`, or legacy), source-data completeness, current reconciliation state, and the complete route. It never overwrites fields extracted from the original slip.
 - Opening a case shows its source slip, current central flow state, and an automatic timeline from `employee_advance_audit`. The same source route is retained for a technician sub-advance through its parent case.
@@ -122,3 +130,4 @@ flowchart LR
 | v2.0 | 26/8/2569 | Route exact active daily-employee transfer slips into per-employee/per-transfer-date confirmation and expose Web Chat delivery status without posting payroll early | `20260826042045_daily_wage_transfer_intake_routing.sql`, `20260826042334_daily_wage_transfer_route_trigger.sql` | routing contract, Production schema/history parity, typecheck, lint, build and authenticated report smoke | Disable the routing trigger and hide the delivery projection; retain source slips, confirmations, deliveries and audit for reconciliation |
 | v2.1 | 26/8/2569 | Put exact daily-worker wage/advance transfers into a reversible holding ledger before Payroll, including safe legacy projection and carry-forward math | `20260826231000_employee_money_ledger.sql`, `20260826231500_employee_money_legacy_backfill.sql` | name normalization, duplicate/date gates, ledger math, adjustment/audit contracts, typecheck/lint/build and Advance page smoke | Disable projection trigger/RPC and hide holding summary; retain source, ledger and Audit, and never delete or rewrite Payroll/source evidence |
 | v2.2 | 31/8/2569 | Add holder-level received/paid-or-offset/returned/balance/pending columns, negative warning/filter and read-only transaction Drawer on `/advance-holders`; retain the slip discovery tab and omit summary cards | No migration; reads existing company-scoped Advance Case and Settlement records | Hide the balance columns/filter/Drawer; all source, settlement and Audit records remain unchanged |
+| v2.3 | 31/8/2569 | Add a one-page real-time evidence overlay, projected/confirmed variance, money-in-transit and clickable source→holder→beneficiary→destination routes while keeping the confirmed ledger as source of truth | No migration; reads existing company-scoped Advance Case/Settlement and `transfer_slip_operational_truth_v1` records | Revert the v2.3 projection/helper/UI; confirmed ledger, operational truth, source files and Audit remain unchanged |
