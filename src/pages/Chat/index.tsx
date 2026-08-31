@@ -524,6 +524,7 @@ export function ChatPage() {
   const [operationalCheckedAt] = useState(() => Date.now())
   const [voiceListening, setVoiceListening] = useState(false)
   const [pendingAttachment, setPendingAttachment] = useState<File | null>(null)
+  const [pendingAttachmentPreviewUrl, setPendingAttachmentPreviewUrl] = useState('')
   const [isDragActive, setIsDragActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const dragDepthRef = useRef(0)
@@ -537,6 +538,7 @@ export function ChatPage() {
   const remoteCallStreamRef = useRef<MediaStream | null>(null)
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null)
   const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([])
+  const pendingAttachmentPreviewUrlRef = useRef('')
   const activeCallRef = useRef<ActiveCall | null>(null)
   const incomingCallRef = useRef<CallSignal | null>(null)
   const roomsRef = useRef<ChatRoom[]>([])
@@ -591,6 +593,27 @@ export function ChatPage() {
   }, [roomSelectionStorageKey])
   const canSend = !!selectedRoomId && !!selectedRoom && !!companyId && !!activeProfileId && !busy
     && (!isProgramDevelopmentRoom || isProgramDevelopmentOwner)
+  const updatePendingAttachment = useCallback((file: File | null) => {
+    if (pendingAttachmentPreviewUrlRef.current && typeof URL !== 'undefined') {
+      URL.revokeObjectURL(pendingAttachmentPreviewUrlRef.current)
+    }
+    const nextPreviewUrl = file
+      && isChatImageAttachment(getChatAttachmentContentType(file))
+      && typeof URL !== 'undefined'
+      && typeof URL.createObjectURL === 'function'
+      ? URL.createObjectURL(file)
+      : ''
+    pendingAttachmentPreviewUrlRef.current = nextPreviewUrl
+    setPendingAttachment(file)
+    setPendingAttachmentPreviewUrl(nextPreviewUrl)
+  }, [])
+
+  useEffect(() => () => {
+    if (pendingAttachmentPreviewUrlRef.current && typeof URL !== 'undefined') {
+      URL.revokeObjectURL(pendingAttachmentPreviewUrlRef.current)
+      pendingAttachmentPreviewUrlRef.current = ''
+    }
+  }, [])
   const presenceLabel = presenceConnection === 'online'
     ? 'คุณออนไลน์'
     : presenceConnection === 'connecting' ? 'กำลังเชื่อมต่อ' : 'ออฟไลน์'
@@ -2051,21 +2074,40 @@ export function ChatPage() {
     if (!file) return
     if (!selectedRoom || !currentCompany?.company_id || !activeProfileId) {
       setToast('ยังไม่พร้อมส่งไฟล์ กรุณาเลือกห้องและเข้าสู่ระบบใหม่อีกครั้ง')
-      setPendingAttachment(file)
+      updatePendingAttachment(file)
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
     if (file.size > maxChatAttachmentBytes) {
       setToast('ไฟล์ใหญ่เกิน 50 MB กรุณาเลือกรูปหรือไฟล์ที่เล็กลง')
-      setPendingAttachment(null)
+      updatePendingAttachment(null)
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
     const contentType = getChatAttachmentContentType(file)
     if (!supportedChatAttachmentTypes.has(contentType)) {
       setToast('ไฟล์ชนิดนี้ยังไม่รองรับ กรุณาใช้รูป JPG, PNG, WebP, HEIC หรือ PDF')
-      setPendingAttachment(null)
+      updatePendingAttachment(null)
       if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+    updatePendingAttachment(file)
+    setBusy(true)
+    setToast('กำลังตรวจสิทธิ์ห้องและเตรียมส่งไฟล์…')
+    const { data: membership, error: membershipError } = await supabase
+      .from('chat_room_members')
+      .select('profile_id')
+      .eq('room_id', selectedRoom.id)
+      .eq('profile_id', activeProfileId)
+      .maybeSingle()
+    if (membershipError) {
+      setToast(userError(membershipError, 'ตรวจสิทธิ์สมาชิกห้องไม่สำเร็จ กรุณาลองใหม่'))
+      setBusy(false)
+      return
+    }
+    if (!membership) {
+      setToast('บัญชีนี้ยังไม่ได้เป็นสมาชิกห้อง กรุณาให้เจ้าของห้องเพิ่มสมาชิกก่อนส่งไฟล์')
+      setBusy(false)
       return
     }
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
@@ -2080,12 +2122,11 @@ export function ChatPage() {
     }
     if (refreshError || !session?.access_token) {
       setToast('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ก่อนแนบไฟล์')
-      setPendingAttachment(file)
+      updatePendingAttachment(file)
       setBusy(false)
       return
     }
     selectRoom(selectedRoom.id)
-    setBusy(true)
     setToast('กำลังส่งไฟล์…')
     const sanitized = file.name.replace(/[^a-zA-Z0-9._-]+/g, '-')
     const objectPath = `${currentCompany.company_id}/${selectedRoom.id}/${Date.now()}-${createChatAttachmentId()}-${sanitized}`
@@ -2107,7 +2148,7 @@ export function ChatPage() {
         const { data: refreshedSession, error: uploadRefreshError } = await supabase.auth.refreshSession()
         if (uploadRefreshError || !refreshedSession.session?.access_token) {
           setToast('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ก่อนแนบไฟล์')
-          setPendingAttachment(file)
+          updatePendingAttachment(file)
           setBusy(false)
           return
         }
@@ -2127,13 +2168,13 @@ export function ChatPage() {
               ? 'ข้อมูลห้องไม่ถูกต้อง กรุณารีเฟรชหน้าแล้วเลือกห้องใหม่'
               : userError(uploadError, 'อัปโหลดไฟล์ไม่สำเร็จ กรุณาตรวจอินเทอร์เน็ตแล้วลองใหม่')
         setToast(message)
-        setPendingAttachment(file)
+        updatePendingAttachment(file)
         setBusy(false)
         return
       }
     } catch (error) {
       setToast(userError(error))
-      setPendingAttachment(file)
+      updatePendingAttachment(file)
       setBusy(false)
       return
     }
@@ -2164,7 +2205,7 @@ export function ChatPage() {
       })
       setBusy(false)
       setMessageText('')
-      setPendingAttachment(null)
+      updatePendingAttachment(null)
       await loadMessages(selectedRoom.id)
       setToast('ส่งไฟล์เรียบร้อยแล้ว', true)
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -2195,9 +2236,9 @@ export function ChatPage() {
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
-    setPendingAttachment(file)
-    setToast(`เลือกไฟล์ ${file.name} แล้ว กดปุ่มส่งเพื่อแนบในห้องนี้`)
+    setToast(`กำลังส่ง ${file.name} อัตโนมัติ…`)
     if (fileInputRef.current) fileInputRef.current.value = ''
+    void sendFileMessage(file)
   }
 
   const resetDragState = () => {
@@ -3172,18 +3213,35 @@ export function ChatPage() {
                   <Card variant="outlined" sx={{ mb: 0.75, bgcolor: 'action.hover' }}>
                     <CardContent sx={{ py: 0.75, px: 1, '&:last-child': { pb: 0.75 } }}>
                       <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
-                        <AttachFileOutlinedIcon color="primary" fontSize="small" />
+                        {pendingAttachmentPreviewUrl ? (
+                          <Box
+                            component="img"
+                            src={pendingAttachmentPreviewUrl}
+                            alt={`รูปที่กำลังส่ง ${pendingAttachment.name}`}
+                            sx={{ width: 64, height: 64, borderRadius: 1.25, objectFit: 'cover', flexShrink: 0, border: '1px solid', borderColor: 'divider' }}
+                          />
+                        ) : (
+                          <AttachFileOutlinedIcon color="primary" fontSize="small" />
+                        )}
                         <Box sx={{ minWidth: 0, flex: 1 }}>
                           <Typography variant="body2" noWrap sx={{ fontWeight: 700 }}>
                             {pendingAttachment.name}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            พร้อมส่ง · {Math.ceil(pendingAttachment.size / 1024).toLocaleString('th-TH')} KB
+                            {busy ? 'กำลังตรวจสิทธิ์และอัปโหลด' : 'ส่งไม่สำเร็จ · กดลองส่งอีกครั้ง'} · {Math.ceil(pendingAttachment.size / 1024).toLocaleString('th-TH')} KB
                           </Typography>
                         </Box>
+                        {busy ? (
+                          <CircularProgress size={22} aria-label="กำลังอัปโหลดไฟล์" />
+                        ) : (
+                          <Button size="small" variant="outlined" onClick={() => void sendFileMessage(pendingAttachment)}>
+                            ลองส่งอีกครั้ง
+                          </Button>
+                        )}
                         <IconButton
                           size="small"
-                          onClick={() => setPendingAttachment(null)}
+                          onClick={() => updatePendingAttachment(null)}
+                          disabled={busy}
                           aria-label="ยกเลิกไฟล์ที่เลือก"
                         >
                           <CloseOutlinedIcon fontSize="small" />

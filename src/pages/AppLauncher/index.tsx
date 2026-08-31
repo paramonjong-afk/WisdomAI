@@ -7,6 +7,7 @@ import { AuthLoadingScreen } from '../../components/AuthLoadingScreen'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { syncAppBadge } from '../../services/appBadge'
 import { fetchChatUnreadCount } from '../../services/chatUnread'
 import { getPostLoginDestination } from '../../utils/authRouting'
 
@@ -32,6 +33,7 @@ export function AppLauncherPage() {
       setUnreadCount(count)
       setUnreadError('')
     } catch (error) {
+      setUnreadCount(0)
       setUnreadError(error instanceof Error ? error.message : 'ไม่สามารถอ่านจำนวนข้อความค้างได้')
     } finally {
       setLoadingUnread(false)
@@ -53,6 +55,14 @@ export function AppLauncherPage() {
       }, () => {
         void loadUnreadCount()
       })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'chat_room_read_states',
+        filter: `profile_id=eq.${profileId}`,
+      }, () => {
+        void loadUnreadCount()
+      })
       .subscribe()
 
     return () => {
@@ -61,6 +71,10 @@ export function AppLauncherPage() {
       void supabase.removeChannel(channel)
     }
   }, [companyId, loadUnreadCount, profileId])
+
+  useEffect(() => {
+    void syncAppBadge(unreadCount)
+  }, [unreadCount])
 
   useEffect(() => {
     if (!profile || entryDestination === '/') return
@@ -115,7 +129,9 @@ export function AppLauncherPage() {
                 </Badge>
                 <Typography variant="h6" sx={{ fontWeight: 850 }}>Web Chat</Typography>
                 <Typography variant="body2" color="text.secondary">
-                  พูดคุย ส่งรูป/ไฟล์ และแจ้งลงเวลา
+                  {unreadCount > 0
+                    ? `${unreadCount > 99 ? '99+' : unreadCount} ข้อความยังไม่ได้อ่าน`
+                    : 'ไม่มีข้อความค้างอ่าน'}
                 </Typography>
                 {loadingUnread && <CircularProgress size={18} aria-label="กำลังตรวจข้อความใหม่" />}
               </Stack>

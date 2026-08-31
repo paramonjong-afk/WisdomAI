@@ -1,5 +1,9 @@
-import { Alert, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Paper, Stack, TextField, Tooltip, Typography, Chip } from '@mui/material'
-import ChatBubbleOutlineOutlinedIcon from '@mui/icons-material/ChatBubbleOutlineOutlined'
+import AccessTimeRoundedIcon from '@mui/icons-material/AccessTimeRounded'
+import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
+import GpsFixedRoundedIcon from '@mui/icons-material/GpsFixedRounded'
+import LocationOnRoundedIcon from '@mui/icons-material/LocationOnRounded'
+import PhotoCameraRoundedIcon from '@mui/icons-material/PhotoCameraRounded'
+import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
 import { StandardDataTable } from '../../components/StandardDataTable'
@@ -9,7 +13,6 @@ import { supabase } from '../../lib/supabase'
 import { userError } from '../../utils/userError'
 import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 import { isEmployeeResigned } from '../../utils/employeeLifecycle'
-import { useNavigate } from 'react-router-dom'
 
 type Site = { id:string; name:string; latitude:number; longitude:number; radius_meters:number; projects:{name:string}|null }
 type Attendance = { id:string; clock_in_at:string; clock_out_at:string|null; status:string; project_sites:Site|null }
@@ -98,7 +101,6 @@ const getDeviceInfo = () => {
 
 export function TimeTrackingPage() {
   usePageTitle('ลงเวลาทำงาน')
-  const navigate = useNavigate()
   const { user, profile, currentCompany } = useAuth()
   const isManager = profile?.role === 'admin' || profile?.role === 'manager'
   const [sites, setSites] = useState<Site[]>([])
@@ -119,6 +121,7 @@ export function TimeTrackingPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const [message, setMessage] = useState('')
+  const [now, setNow] = useState(() => new Date())
   const [resultDialog, setResultDialog] = useState<ResultDialog>({ open:false, success:false, title:'', detail:'' })
   const [busy, setBusy] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
@@ -250,6 +253,11 @@ export function TimeTrackingPage() {
     }
   }, [loadData, user])
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
   useEffect(()=>{
     if(!user)return
     const cleanup=async()=>{
@@ -292,6 +300,14 @@ export function TimeTrackingPage() {
     : null
   const isStaleOpenSession = Boolean(openSession && openSessionDay !== todayInBangkok)
   const staleOpenSessions = allOpenSessions.filter((session) => session !== openSession)
+  const mobileStatus = completedToday ? 'ลงเวลาวันนี้ครบแล้ว' : openSession ? 'กำลังทำงาน' : 'พร้อมลงเวลาเข้างาน'
+  const mobileStatusColor = completedToday ? 'success' : openSession ? 'warning' : 'primary'
+  const todayClockIn = todaySession
+    ? new Date(todaySession.clock_in_at).toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit' })
+    : '--:--'
+  const todayClockOut = todaySession?.clock_out_at
+    ? new Date(todaySession.clock_out_at).toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit' })
+    : '--:--'
 
   const getLocation = () => new Promise<GeolocationPosition>((resolve, reject) => {
     if (!navigator.geolocation) reject(new Error('อุปกรณ์นี้ไม่รองรับ GPS'))
@@ -597,27 +613,57 @@ export function TimeTrackingPage() {
     }
   }
 
-  return <Stack spacing={3}>
-    <PageHeader
-      title="ลงเวลาทำงาน"
-      description="บันทึกเวลาเซิร์ฟเวอร์ พิกัด GPS รูป Selfie และแจ้งกลุ่ม LINE หรือเปิด Web Chat เพื่อพูดคุย/แจ้งลงเวลา"
-      action={
-        <Tooltip title="เปิด Web Chat">
-          <IconButton
-            color="primary"
-            onClick={() => navigate('/chat')}
-            aria-label="เปิด Web Chat"
-            sx={{ width: 48, height: 48, border: '1px solid', borderColor: 'primary.main' }}
-          >
-            <ChatBubbleOutlineOutlinedIcon />
-          </IconButton>
-        </Tooltip>
-      }
-    />
+  return <Stack spacing={{xs:2, md:3}}>
+    <Box sx={{ display:{xs:'none', md:'block'} }}>
+      <PageHeader
+        title="ลงเวลาทำงาน"
+        description="ตรวจ GPS ถ่ายรูป Selfie และยืนยันเวลาเข้า–ออก โดยใช้เวลาจากเซิร์ฟเวอร์"
+      />
+    </Box>
+    <Paper
+      elevation={0}
+      sx={{
+        display:{xs:'block', md:'none'},
+        p:2.25,
+        borderRadius:4,
+        color:'common.white',
+        background:'linear-gradient(145deg, #162544 0%, #9a5039 100%)',
+        boxShadow:'0 16px 36px rgba(22, 37, 68, .22)',
+      }}
+    >
+      <Stack spacing={1.5}>
+        <Stack direction="row" spacing={1} sx={{ alignItems:'flex-start', justifyContent:'space-between' }}>
+          <Stack spacing={.25} sx={{ minWidth:0 }}>
+            <Typography variant="overline" sx={{ opacity:.78, letterSpacing:1.2 }}>ลงเวลาของฉัน</Typography>
+            <Typography variant="h6" noWrap sx={{ fontWeight:850 }}>
+              {profile?.full_name || profile?.email || 'พนักงาน'}
+            </Typography>
+            <Typography variant="body2" sx={{ opacity:.8 }}>
+              {now.toLocaleDateString('th-TH', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}
+            </Typography>
+          </Stack>
+          <Chip
+            size="small"
+            icon={completedToday ? <CheckCircleRoundedIcon /> : <AccessTimeRoundedIcon />}
+            label={mobileStatus}
+            sx={{
+              maxWidth:150,
+              bgcolor:'rgba(255,255,255,.16)',
+              color:'common.white',
+              fontWeight:750,
+              '& .MuiChip-icon':{ color:'inherit' },
+            }}
+          />
+        </Stack>
+        <Box>
+          <Typography sx={{ fontSize:'2.6rem', lineHeight:1, fontWeight:900, fontVariantNumeric:'tabular-nums' }}>
+            {now.toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit' })}
+          </Typography>
+          <Typography variant="caption" sx={{ opacity:.72 }}>เวลาปัจจุบัน · เวลาบันทึกจริงยึดจากเซิร์ฟเวอร์</Typography>
+        </Box>
+      </Stack>
+    </Paper>
     {message && <Alert severity={message.includes('สำเร็จ') ? 'success' : 'warning'}>{message}</Alert>}
-    <Alert severity="info" sx={{ display: { xs: 'flex', md: 'none' } }}>
-      เวลาทำงานมาตรฐาน 08:00–17:00 น.
-    </Alert>
     {staleOpenSessions.length > 0 && (
       <Alert severity="warning">
         พบ {staleOpenSessions.length} รายการจากวันก่อนที่ยังไม่มีเวลาออก ระบบแยกไว้รอตรวจสอบแล้ว
@@ -683,17 +729,43 @@ export function TimeTrackingPage() {
     <Paper
       variant="outlined"
       sx={{
-        p:{xs:0, md:3},
-        minHeight:{xs:'62vh', md:'auto'},
-        borderWidth:{xs:0, md:1},
-        bgcolor:{xs:'transparent', md:'background.paper'},
+        p:{xs:2, md:3},
+        minHeight:{xs:'auto', md:'auto'},
+        borderWidth:1,
+        borderRadius:{xs:4, md:1},
+        bgcolor:'background.paper',
+        boxShadow:{xs:'0 12px 30px rgba(22, 37, 68, .08)', md:'none'},
         display:'flex',
         flexDirection:'column',
-        justifyContent:{xs:'center', md:'flex-start'},
+        justifyContent:'flex-start',
       }}
     >
+      <Stack spacing={1.25} sx={{ display:{xs:'flex', md:'none'} }}>
+        <Stack direction="row" sx={{ alignItems:'center', justifyContent:'space-between' }}>
+          <Stack spacing={.25}>
+            <Typography variant="h6" sx={{ fontWeight:850 }}>{mobileStatus}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {openSession?.project_sites?.name ?? (sites.length === 1 ? sites[0].name : 'ระบบจะเลือกไซต์ที่ใกล้ที่สุด')}
+            </Typography>
+          </Stack>
+          <Chip size="small" color={mobileStatusColor} label={openSession ? 'เข้างานแล้ว' : completedToday ? 'เสร็จแล้ว' : 'ยังไม่เข้างาน'} />
+        </Stack>
+        <Stack direction="row" spacing={.75} sx={{ flexWrap:'wrap', rowGap:.75 }}>
+          <Chip size="small" variant="outlined" icon={<GpsFixedRoundedIcon />} color={navigator.geolocation ? 'success' : 'warning'} label={navigator.geolocation ? 'พร้อมตรวจ GPS' : 'อุปกรณ์ไม่มี GPS'} />
+          <Chip size="small" variant="outlined" icon={<LocationOnRoundedIcon />} color={sites.length > 0 ? 'success' : 'warning'} label={sites.length > 0 ? `${sites.length} ไซต์` : 'ยังไม่มีไซต์'} />
+          <Chip size="small" variant="outlined" icon={<PhotoCameraRoundedIcon />} label="Selfie เมื่อกด" />
+        </Stack>
+      </Stack>
       <Typography variant="h6" sx={{display:{xs:'none', md:'block'}}}>{completedToday ? 'ลงเวลาวันนี้ครบแล้ว' : openSession ? `กำลังทำงาน: ${openSession.project_sites?.name ?? ''}` : 'ลงเวลาเข้างาน'}</Typography>
-      {!openSession && !completedToday && <TextField select fullWidth label="ไซต์ที่ได้รับมอบหมาย" value={siteId} onChange={(event) => setSiteId(event.target.value)} sx={{mt:2}}>
+      {!openSession && !completedToday && <TextField
+        select
+        fullWidth
+        label="ไซต์สำรอง กรณี GPS เลือกไม่ได้"
+        value={siteId}
+        onChange={(event) => setSiteId(event.target.value)}
+        helperText={sites.length > 1 ? 'เลือกไว้ล่วงหน้าได้ หรือปล่อยให้ระบบเลือกไซต์ที่ใกล้ที่สุด' : undefined}
+        sx={{ mt:2, display:{xs:sites.length > 1 ? 'flex' : 'none', md:'flex'} }}
+      >
         {sites.map((site) => <MenuItem key={site.id} value={site.id}>{site.projects?.name} · {site.name}</MenuItem>)}
       </TextField>}
       {!openSession && sites.length === 0 && <Alert severity="info" sx={{mt:2}}>ยังไม่มีไซต์ที่ได้รับมอบหมาย กรุณาติดต่อผู้จัดการ</Alert>}
@@ -707,11 +779,12 @@ export function TimeTrackingPage() {
         color={openSession ? 'error' : 'primary'}
         disabled={busy || completedToday || (!openSession && sites.length === 0)}
         sx={{
-          mt:{xs:0, md:2},
-          minHeight:{xs:112, md:42},
-          borderRadius:{xs:4, md:1},
-          fontSize:{xs:'1.75rem', md:'0.9375rem'},
+          mt:{xs:2, md:2},
+          minHeight:{xs:76, md:42},
+          borderRadius:{xs:3, md:1},
+          fontSize:{xs:'1.35rem', md:'0.9375rem'},
           fontWeight:800,
+          boxShadow:{xs:3, md:0},
         }}
         onClick={() => void prepareAttendance()}
       >
@@ -726,6 +799,24 @@ export function TimeTrackingPage() {
               </Typography>
             </>}
       </Button>
+      <Stack spacing={1.5} sx={{ display:{xs:'flex', md:'none'}, mt:1.5 }}>
+        <Typography variant="caption" color="text.secondary" sx={{ textAlign:'center' }}>
+          กดครั้งเดียว ระบบจะตรวจ GPS → เปิดกล้อง Selfie → ให้คุณยืนยันก่อนบันทึก
+        </Typography>
+        <Box sx={{ display:'grid', gridTemplateColumns:'repeat(2, minmax(0, 1fr))', gap:1 }}>
+          <Box sx={{ p:1.25, borderRadius:2.5, bgcolor:'action.hover' }}>
+            <Typography variant="caption" color="text.secondary">เวลาเข้า</Typography>
+            <Typography variant="h6" sx={{ fontWeight:850, fontVariantNumeric:'tabular-nums' }}>{todayClockIn}</Typography>
+          </Box>
+          <Box sx={{ p:1.25, borderRadius:2.5, bgcolor:'action.hover' }}>
+            <Typography variant="caption" color="text.secondary">เวลาออก</Typography>
+            <Typography variant="h6" sx={{ fontWeight:850, fontVariantNumeric:'tabular-nums' }}>{todayClockOut}</Typography>
+          </Box>
+        </Box>
+        <Typography variant="caption" color="text.secondary" sx={{ textAlign:'center' }}>
+          เวลาทำงานมาตรฐาน 08:00–17:00 น. · {lastUpdated ? `อัปเดต ${lastUpdated.toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit' })}` : 'กำลังโหลดข้อมูล'}
+        </Typography>
+      </Stack>
     </Paper>
     <Dialog open={cameraOpen} onClose={stopCamera} fullWidth maxWidth="sm">
       <DialogTitle>ถ่ายรูป Selfie สด</DialogTitle>
