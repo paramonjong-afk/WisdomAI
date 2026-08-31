@@ -1650,3 +1650,19 @@ flowchart LR
 - **Migration:** `20260831054814_support_masked_bank_digits_and_starting_fund.sql`; แก้ constraint/validation/trigger แบบ fail-closed และเพิ่ม `classify_transfer_slip_advance_draft_v1`
 - **Verification:** visible-tail contract, money-lineage contract, migration dry-run/local schema, typecheck, lint, build และ authenticated Accounting Drawer → Advance Finance/Audit smoke
 - **Rollback:** ซ่อน label/preset และ revoke classification RPC; ก่อนคืน constraint 4 หลักต้อง reconcile หลักฐาน 3 หลัก ห้ามลบ Raw/OCR, Lineage, Advance ID หรือ Audit
+
+### Borrowed Starting Fund v2.7 (31/8/2569)
+
+```mermaid
+flowchart LR
+  S[สลิปเงินเข้า] --> G{Source = เงินยืม?}
+  G -->|ใช่| V[ตรวจผู้ให้ยืม กำหนดคืน ผู้รับ และยอด]
+  V -->|ครบ| O[สร้างภาระหนี้ outstanding + Audit]
+  O --> H[เชื่อมกองผู้ถือเงินและส่ง Advance Finance]
+  V -->|ขาด| R[คง Accounting Review พร้อมเหตุผล]
+```
+
+- **Flow/Data:** `borrowed_funds` เชื่อม Source → Slip → Money Lineage → `borrowed_fund_obligations` → Holder Fund → Advance Finance โดยไม่ลงรายได้/ค่าใช้จ่ายทันที
+- **Permission/Audit/Retry:** company manager/platform เป็นผู้บันทึก; accounting/HR อ่านได้ภายใต้ RLS; event key กันคำสั่งซ้ำและ append `borrowed_fund_obligation_recorded`
+- **Migration/Verification:** `20260831072537_borrowed_fund_obligations.sql`; contract, typecheck, lint, build, dry-run/apply และ authenticated Drawer smoke
+- **Owner/Rollback:** Accounting owner; ปิด Source และ revoke RPC ได้โดยคง Obligation, Slip, Lineage และ Audit เพื่อ recovery

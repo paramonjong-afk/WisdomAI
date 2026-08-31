@@ -37,6 +37,10 @@ flowchart TD
   C -->|โครงการ/ผู้รับเหมา/เดินทาง| M3[ปิด Accounting task และสร้าง Project task]
   C -->|เงินเบิกล่วงหน้า/เงินสำรอง| AF{แหล่งเงินเป็นกองเดิมหรือเงินตั้งต้น}
   AF -->|บัญชีบริษัท/เงินส่วนตัวสำรองก่อน| SF{ผู้รับตรงทะเบียนผู้ถือเงิน 1 คน?}
+  AF -->|เงินยืมจากบุคคล/กรรมการ| BF{ผู้ให้ยืมและกำหนดคืนครบ?}
+  BF -->|ไม่ครบ| QI
+  BF -->|ครบ| BF1[สร้างภาระหนี้ยังไม่คืน<br/>ผูกสลิป Lineage กองเงิน และ Audit]
+  BF1 --> SF
   SF -->|ตรงและบัญชีรับไม่ขัดแย้ง| SF1[เก็บผู้โอนเป็น Source Fact<br/>เชื่อมผู้รับกับ Holder + Bank + Audit]
   SF1 --> M5
   SF -->|ไม่พบ/หลายคน/บัญชีขัดแย้ง| QI
@@ -84,7 +88,8 @@ flowchart TD
 - Drawer ของสลิปอ่านไฟล์จาก Source Contract กลางและ Timeline จาก `document_flow_events`; ไม่คัดลอกไฟล์ ไม่สร้าง destination task ใหม่ และไม่แก้ raw source
 - Drawer แบ่ง 2 แท็บ: รูปต้นฉบับ/AI และตรวจแก้ข้อมูล; AI อ่านซ้ำด้วย `item_id` เดียวเท่านั้นและรักษา Flow บัญชีเดิม ส่วน Admin บันทึกผ่าน `review_transfer_slip_details` ซึ่งตรวจสิทธิ์/ข้อมูลบังคับและเขียน before/after Audit แบบ idempotent
 - เลขบัญชีที่สลิปปกปิดเก็บเฉพาะเลขท้ายที่มองเห็นจริง 3–4 หลัก พร้อมชื่อและธนาคาร ห้ามเติมเลขที่สี่เอง; การจับคู่ที่กำกวมยังค้าง Accounting Review และข้อมูล OCR เดิมไม่ถูกเขียนทับ
-- `ตั้งต้นกองเงิน/เติมกองให้ผู้ถือเงิน` คือวัตถุประสงค์ `advance_transfer` ส่วนแหล่งเงินยังต้องเลือกตามข้อเท็จจริง (`company_account`, กองเดิม หรือเงินส่วนตัวสำรองก่อน)
+- `ตั้งต้นกองเงิน/เติมกองให้ผู้ถือเงิน` คือวัตถุประสงค์ `advance_transfer` ส่วนแหล่งเงินต้องเลือกตามข้อเท็จจริง (`company_account`, กองเดิม, เงินส่วนตัวสำรองก่อน หรือ `borrowed_funds` เงินยืมจากบุคคล/กรรมการ)
+- `borrowed_funds` บังคับชื่อผู้ให้ยืมและกำหนดคืน แล้วสร้าง `borrowed_fund_obligations` สถานะ `outstanding` เชื่อมสลิป, Money Lineage, Transaction และกองผู้ถือเงินในคำสั่งยืนยันเดียวกันแบบ idempotent; เงินก้อนนี้ไม่ใช่รายได้หรือค่าใช้จ่าย ค่าใช้จ่ายเกิดภายหลังเมื่อมีหลักฐานการใช้เงินจริง
 - เมื่อแหล่งเงินเป็น `company_account` หรือ `personal_reimbursement` ระบบถือเป็นเงินตั้งต้น/เติมกอง: ผู้โอนเป็น Source Fact ไม่ต้องอยู่ทะเบียนผู้ถือเงิน ผู้รับต้องตรงผู้ถือเงินที่เปิดใช้งานหนึ่งรายและบัญชีรับต้องไม่ผูกกับบุคคลอื่น; Flow กองเดิมยังคงตรวจผู้โอนเป็นผู้ถือเงินและผู้รับเป็นพนักงานรายวัน
 - Drawer ต้องเรียกแหล่งเงินตามทิศทางจริง: `company_account`/`personal_reimbursement` คือเงินใหม่ที่เข้ากองผู้รับ ส่วน `reserve_fund` คือการโอนต่อจากกองเดิมและผู้โอนต้องเป็นผู้ถือเงิน เมื่อ Admin เปลี่ยนแหล่งเงิน ระบบล้าง Error จาก Gate ก่อนหน้าทันทีเพื่อไม่แสดงข้อความค้าง
 - ก่อนเชื่อมคู่ผู้โอน/ผู้รับ ระบบบันทึก Draft Classification ผ่าน `classify_transfer_slip_advance_draft_v1`; RPC ตรวจ Allocation, กันซ้ำด้วย event key และบันทึก Audit แล้วจึงเรียก Party Resolver
@@ -107,6 +112,7 @@ flowchart TD
 
 | Version | Date | Rationale | Impact | Migration | Verification | Rollback |
 | --- | --- | --- | --- | --- | --- | --- |
+| v2.7 | 31/8/2569 | รองรับเงินยืมจากบุคคล/กรรมการเป็นต้นทางกองเงิน | เพิ่ม Source Gate, เจ้าหนี้, วันครบกำหนด, ยอดคงค้าง, RLS และ Audit ก่อนส่ง Advance Finance | `20260831072537_borrowed_fund_obligations.sql` | contract, typecheck, lint, build, migration dry-run/apply และ authenticated Drawer smoke | ปิดตัวเลือกและ revoke RPC; คง Lineage/ภาระหนี้/Audit เพื่อ recovery |
 | v2.5 | 31/8/2569 | Starting-fund slip was incorrectly validated as holder-to-daily-worker transfer | Route company/personal starting funds through recipient-holder gate; preserve payer as source fact and link only the receiving holder account | `20260831064514_starting_fund_recipient_holder_gate.sql` | starting-fund/legacy/idempotency/security contracts, migration dry-run, typecheck/lint/build and authenticated Drawer smoke | Revoke v1 RPC and restore manual review; preserve source, party link, bank fact and Audit |
 | v2.6 | 31/8/2569 | Admin could select the old-holder fund source for a new starting-fund slip and keep seeing a stale gate error | Rename source choices by money direction, warn on the old-holder path and clear stale gate feedback when the source changes | None | starting-fund UI contract, typecheck/lint/build and authenticated Drawer smoke | Revert UI commit; no confirmed data or Audit is changed |
 | v2.4 | 31/8/2569 | Admin had to search again after selecting an unresolved holder movement | Accept exact Transaction review deep links, provide a safe return to the same holder context, and reject suspicious transfer dates from the auto-route gate | No migration or financial write | analysis/realtime contracts, typecheck, lint, build and authenticated round-trip smoke | Revert UI/helper commit; source Transaction, Allocation, destination and Audit remain unchanged |

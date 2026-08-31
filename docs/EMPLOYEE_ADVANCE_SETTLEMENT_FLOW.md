@@ -11,7 +11,9 @@ flowchart LR
   MD -->|No| D
   D -->|No| R[Accounting review queue\nmark missing fields]
   R --> ML[Admin confirms Money Lineage\nsource fund + holder + multi-hop balance]
-  ML -->|ตั้งต้น/เติมกองจากบริษัทหรือเงินส่วนตัว| SG{ผู้รับตรง Holder registry 1 คน?}
+  ML -->|ตั้งต้น/เติมกองจากบริษัท เงินส่วนตัว หรือเงินยืม| SG{ผู้รับตรง Holder registry 1 คน?}
+  ML -->|เงินยืม| BG[บันทึกเจ้าหนี้ กำหนดคืน ยอดคงค้าง และ Audit]
+  BG --> SG
   SG -->|Yes| ML1[เก็บผู้โอนเป็น Source Fact<br/>เชื่อมบัญชีรับ + Draft Classification + Audit]
   SG -->|No/conflict| R
   ML1 --> ML2[สร้าง Root Lineage และ Advance ID ของผู้ถือเงิน]
@@ -71,7 +73,7 @@ Track money transferred to a monthly employee for company disbursements, then re
 - Automatic creation is allowed only for a non-duplicate/non-dismissed slip with an amount, complete recipient identity, AI confidence at least 90%, a registered account pair, an Accounting destination queue state, and one exact active **monthly** holder match in the same company. Name comparison removes Thai titles and whitespace and accepts a previously confirmed alias. It creates a `draft` advance case only; it never approves, closes, or posts an accounting journal.
 - Accounting confirmation now also records a Money Lineage projection. A reserve/advance transfer must identify its funding source and holder and reconcile the paid amount with the slip. Only a holder-registry match creates or links the draft Advance Case; otherwise the Accounting task remains `recheck_required` with a visible reason.
 - เงินเข้าที่เริ่มเป็นกองของผู้ถือเงินใช้วัตถุประสงค์ `ตั้งต้นกองเงิน/เติมกองให้ผู้ถือเงิน`; Advance ID เป็นของผู้ถือเงินปลายทางในหลักฐาน ส่วนผู้โอนและบัญชีต้นทางยังคงเป็น Source Fact แยกกัน และยังไม่ลงค่าใช้จ่ายจนมีหลักฐานการใช้เงินจริง
-- เงินตั้งต้นจากบัญชีบริษัทหรือเงินส่วนตัวสำรองก่อนตรวจผู้รับกับทะเบียนผู้ถือเงิน ไม่บังคับผู้โอนเป็นผู้ถือเงินและไม่บังคับผู้รับเป็นพนักงานรายวัน; การส่งต่อจากกองเดิมยังใช้ Gate ผู้ถือเงิน → พนักงานรายวันเดิม
+- เงินตั้งต้นจากบัญชีบริษัท เงินส่วนตัวสำรองก่อน หรือเงินยืม ตรวจผู้รับกับทะเบียนผู้ถือเงิน ไม่บังคับผู้โอนเป็นผู้ถือเงินและไม่บังคับผู้รับเป็นพนักงานรายวัน; เงินยืมต้องมีผู้ให้ยืม/กำหนดคืนและสร้างภาระหนี้คงค้างก่อนเข้ากอง ส่วนการส่งต่อจากกองเดิมยังใช้ Gate ผู้ถือเงิน → พนักงานรายวันเดิม
 - สลิปที่แสดงเลขท้ายเพียง 3 หลักยืนยันได้เมื่อชื่อ+ธนาคาร+เลขท้ายตรงเพียงหนึ่งรายการ หากยังไม่ผูกบัญชีให้ค้างรอตรวจโดยไม่สร้างเลขบัญชีสมมติ และเชื่อมหลักฐานเพิ่มเข้ารายการเดิมภายหลังพร้อม Audit
 - The advance funding slip is the Root Lineage. Each later wage/material/vendor/project/refund slip is a child through `parent_lineage_id` and inherits the same `root_lineage_id`; the child can contain multiple reviewed allocations without rewriting or copying the source slip.
 - An advance transfer/onward transfer must be exclusive to one funding slip. Actual wage/material/project uses are recorded from their own evidence slips and reconciled against the root, preventing the system from guessing future spending at the time money is handed to the custodian.
@@ -124,6 +126,7 @@ flowchart LR
 
 | Version | Date | Rationale / impact | Migration | Rollback |
 |---|---|---|---|---|
+| v2.7 | 31/8/2569 | เงินยืมเป็นต้นทางเติมกองได้ แต่ต้องติดตามเจ้าหนี้และยอดคงค้างโดยไม่ลงค่าใช้จ่ายทันที | `20260831072537_borrowed_fund_obligations.sql` | ปิด Source/RPC และคง obligation/Audit เดิมเพื่อกระทบยอด |
 | v2.5 | 31/8/2569 | Separate new/top-up holder funding from holder-to-daily-worker transfers; recipient holder/account is canonical while payer remains source evidence | `20260831064514_starting_fund_recipient_holder_gate.sql` | Revoke the starting-fund RPC and return these slips to Accounting manual review; retain source, links, bank facts and Audit |
 | v2.0 | 26/8/2569 | Persist both sender and recipient of an advance-funding slip before Accounting/Advance continuation; prevent one-sided or half-saved Master references | `20260826223000_master_data_transfer_party_review.sql` | Revoke v2 RPC and revert Drawer; retain pair/account/audit/source records for reconciliation |
 | v2.0.1 | 26/8/2569 | Fix Production save failure caused by PostgreSQL `min(uuid)` in the canonical holder-match RPC | `20260826224000_fix_master_advance_uuid_min.sql` | UUID-fix contract, migration dry-run/apply, typecheck/lint/build and authenticated Drawer error-path smoke | Restore the prior RPC definition; preserve all source, candidate, pair, task, lineage, version and Audit rows |

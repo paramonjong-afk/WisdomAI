@@ -1,4 +1,4 @@
-export type MoneyFundingSource = 'company_account' | 'reserve_fund' | 'employee_advance' | 'personal_reimbursement' | 'unknown'
+export type MoneyFundingSource = 'company_account' | 'reserve_fund' | 'employee_advance' | 'personal_reimbursement' | 'borrowed_funds' | 'unknown'
 export type PayrollKind = '' | 'salary' | 'daily_wage' | 'contract_labor' | 'other'
 export type MoneyPurpose =
   | 'payroll'
@@ -57,6 +57,9 @@ export type MoneyLineageDraft = {
   parentLineageId: string
   fundingSourceType: MoneyFundingSource
   fundingSourceReference: string
+  loanLenderName: string
+  loanDueDate: string
+  loanTerms: string
   fundHolderName: string
   payerName: string
   finalBeneficiaryName: string
@@ -85,7 +88,7 @@ export const emptyMoneyAllocation = (amount: number | null = null, payeeName = '
 
 export const emptyMoneyLineage = (senderName = '', recipientName = '', amount: number | null = null, transferredAt = ''): MoneyLineageDraft => ({
   parentLineageId: '',
-  fundingSourceType: 'unknown', fundingSourceReference: '', fundHolderName: '', payerName: senderName,
+  fundingSourceType: 'unknown', fundingSourceReference: '', loanLenderName: '', loanDueDate: '', loanTerms: '', fundHolderName: '', payerName: senderName,
   finalBeneficiaryName: recipientName, purposeType: 'unknown', projectId: '', siteId: '', responsibleName: '',
   startingAmount: '', paidAmount: amount == null ? '' : String(amount), returnedAmount: '0', remainingAmount: amount == null ? '' : '0', note: '',
   hops: [{ fromParty: senderName, toParty: recipientName, amount: amount == null ? '' : String(amount), transferredAt, note: '' }],
@@ -139,6 +142,8 @@ export const validateMoneyLineage = (draft: MoneyLineageDraft, transferAmount: n
   const returned = numberOrNull(draft.returnedAmount) ?? 0
   const remaining = numberOrNull(draft.remainingAmount)
   if (draft.fundingSourceType === 'unknown') missing.push('แหล่งเงิน')
+  if (draft.fundingSourceType === 'borrowed_funds' && !draft.loanLenderName.trim()) missing.push('ผู้ให้ยืม')
+  if (draft.fundingSourceType === 'borrowed_funds' && !draft.loanDueDate) missing.push('กำหนดคืนเงินยืม')
   if (moneyFundingSourceNeedsHolder(draft.fundingSourceType) && !draft.fundHolderName.trim()) missing.push('ผู้ถือเงิน')
   if (!draft.payerName.trim()) missing.push('ผู้จ่ายจริง')
   if (!draft.finalBeneficiaryName.trim()) missing.push('ผู้รับปลายทาง')
