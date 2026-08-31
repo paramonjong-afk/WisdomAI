@@ -49,6 +49,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } fro
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
+import { logAppEvent } from '../../lib/telemetry'
 import { parseChatAttendanceCommand, type ChatAttendanceAction } from '../../utils/chatAttendanceCommand'
 import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 import { userError } from '../../utils/userError'
@@ -2094,6 +2095,16 @@ export function ChatPage() {
     updatePendingAttachment(file)
     setBusy(true)
     setToast('กำลังตรวจสิทธิ์ห้องและเตรียมส่งไฟล์…')
+    void logAppEvent(activeProfileId, {
+      eventType: 'page_view',
+      pagePath: '/chat',
+      message: 'chat_attachment_send_started',
+      metadata: {
+        room_id: selectedRoom.id,
+        file_size: file.size || 0,
+        content_type: contentType,
+      },
+    }).catch(() => undefined)
     const { data: membership, error: membershipError } = await supabase
       .from('chat_room_members')
       .select('profile_id')
@@ -2101,11 +2112,25 @@ export function ChatPage() {
       .eq('profile_id', activeProfileId)
       .maybeSingle()
     if (membershipError) {
+      void logAppEvent(activeProfileId, {
+        eventType: 'client_error',
+        severity: 'error',
+        pagePath: '/chat',
+        message: 'chat_attachment_membership_check_failed',
+        metadata: { room_id: selectedRoom.id },
+      }).catch(() => undefined)
       setToast(userError(membershipError, 'ตรวจสิทธิ์สมาชิกห้องไม่สำเร็จ กรุณาลองใหม่'))
       setBusy(false)
       return
     }
     if (!membership) {
+      void logAppEvent(activeProfileId, {
+        eventType: 'client_error',
+        severity: 'warning',
+        pagePath: '/chat',
+        message: 'chat_attachment_membership_missing',
+        metadata: { room_id: selectedRoom.id },
+      }).catch(() => undefined)
       setToast('บัญชีนี้ยังไม่ได้เป็นสมาชิกห้อง กรุณาให้เจ้าของห้องเพิ่มสมาชิกก่อนส่งไฟล์')
       setBusy(false)
       return
@@ -2155,6 +2180,16 @@ export function ChatPage() {
         ({ error: uploadError } = await upload())
       }
       if (uploadError) {
+        void logAppEvent(activeProfileId, {
+          eventType: 'client_error',
+          severity: 'error',
+          pagePath: '/chat',
+          message: 'chat_attachment_upload_failed',
+          metadata: {
+            room_id: selectedRoom.id,
+            content_type: contentType,
+          },
+        }).catch(() => undefined)
         const lowerMessage = uploadError.message.toLowerCase()
         const message = lowerMessage.includes('mime') || lowerMessage.includes('content type')
           ? 'รูปแบบรูปนี้ยังไม่รองรับบน Storage กรุณาลอง JPG/PNG หรืออัปเดตแอปก่อน'
@@ -2207,6 +2242,16 @@ export function ChatPage() {
       setMessageText('')
       updatePendingAttachment(null)
       await loadMessages(selectedRoom.id)
+      void logAppEvent(activeProfileId, {
+        eventType: 'page_view',
+        pagePath: '/chat',
+        message: 'chat_attachment_message_recorded',
+        metadata: {
+          room_id: selectedRoom.id,
+          file_size: file.size || 0,
+          content_type: contentType,
+        },
+      }).catch(() => undefined)
       setToast('ส่งไฟล์เรียบร้อยแล้ว', true)
       if (fileInputRef.current) fileInputRef.current.value = ''
     } catch (error) {
@@ -2237,7 +2282,18 @@ export function ChatPage() {
       return
     }
     setToast(`กำลังส่ง ${file.name} อัตโนมัติ…`)
-    if (fileInputRef.current) fileInputRef.current.value = ''
+    if (activeProfileId) {
+      void logAppEvent(activeProfileId, {
+        eventType: 'page_view',
+        pagePath: '/chat',
+        message: 'chat_attachment_file_selected',
+        metadata: {
+          room_id: selectedRoom?.id ?? null,
+          file_size: file.size || 0,
+          content_type: contentType,
+        },
+      }).catch(() => undefined)
+    }
     void sendFileMessage(file)
   }
 
@@ -3280,8 +3336,33 @@ export function ChatPage() {
                   </IconButton>
                   <Tooltip title="เลือกไฟล์ หรือ ลากไฟล์มาวางในพื้นที่แชต">
                     <span>
-                      <IconButton color="primary" onClick={() => fileInputRef.current?.click()} disabled={!canSend} aria-label="เลือกไฟล์ หรือ ลากไฟล์มาวางในพื้นที่แชต" sx={{ minWidth: 44, minHeight: 44 }}>
+                      <IconButton component="label" color="primary" disabled={!canSend} aria-label="เลือกไฟล์ หรือ ลากไฟล์มาวางในพื้นที่แชต" sx={{ minWidth: 44, minHeight: 44 }}>
                         <AttachFileOutlinedIcon />
+                        <input
+                          type="file"
+                          ref={fileInputRef}
+                          disabled={!canSend}
+                          aria-label="เลือกไฟล์แนบ"
+                          style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', border: 0 }}
+                          accept="image/*,.heic,.heif,.avif,.tif,.tiff,application/pdf,text/plain,.doc,.docx,.xls,.xlsx"
+                          onClick={(event) => {
+                            // Reset before opening the native picker so selecting the same
+                            // photo twice still emits change without detaching the chosen File.
+                            event.currentTarget.value = ''
+                            if (activeProfileId) {
+                              void logAppEvent(activeProfileId, {
+                                eventType: 'page_view',
+                                pagePath: '/chat',
+                                message: 'chat_attachment_picker_opened',
+                                metadata: { room_id: selectedRoom?.id ?? null },
+                              }).catch(() => undefined)
+                            }
+                          }}
+                          onChange={(event) => {
+                            const file = event.currentTarget.files?.[0] ?? null
+                            handleAttachmentSelected(file)
+                          }}
+                        />
                       </IconButton>
                     </span>
                   </Tooltip>
@@ -3296,17 +3377,6 @@ export function ChatPage() {
                     {pendingAttachment ? 'ส่งไฟล์' : 'ส่ง'}
                   </Button>
                 </Stack>
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  aria-label="เลือกไฟล์แนบ"
-                  style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', border: 0 }}
-                  accept="image/*,.heic,.heif,.avif,.tif,.tiff,application/pdf,text/plain,.doc,.docx,.xls,.xlsx"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0] ?? null
-                    handleAttachmentSelected(file)
-                  }}
-                />
               </Stack>
             </>
           )}

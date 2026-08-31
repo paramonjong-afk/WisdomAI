@@ -9,6 +9,7 @@ import KeyboardArrowDownOutlined from '@mui/icons-material/KeyboardArrowDownOutl
 import KeyboardArrowLeftOutlined from '@mui/icons-material/KeyboardArrowLeftOutlined'
 import KeyboardArrowRightOutlined from '@mui/icons-material/KeyboardArrowRightOutlined'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { StandardDataTable } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
@@ -286,6 +287,8 @@ function FlowStatusIcon({ status }: { status: FlowNodeStatus }) {
 
 export function AdvanceSettlementsPage() {
   usePageTitle('เงินทดรองและปิดยอด')
+  const [searchParams] = useSearchParams()
+  const requestedTransactionId = searchParams.get('transaction_id')
   const { currentCompany, profile } = useAuth()
   const [rows, setRows] = useState<AdvanceCase[]>([])
   const [selected, setSelected] = useState<AdvanceCase | null>(null)
@@ -582,6 +585,24 @@ export function AdvanceSettlementsPage() {
     setSelectedEmployeeMoneyEntryId(entry.id)
     setSelectedEmployeeMoney(employeeMoneyRows.find((row) => row.employee_profile_id === entry.employee_profile_id) ?? null)
   }
+
+  useEffect(() => {
+    if (!requestedTransactionId || selectedEmployeeMoneyEntryId) return
+    const entry = canonicalEmployeeMoneyEntries(employeeMoneyEntries)
+      .find((row) => row.entry_type === 'advance_issued' && row.financial_transaction_id === requestedTransactionId)
+    const employee = entry
+      ? employeeMoneyRows.find((row) => row.employee_profile_id === entry.employee_profile_id)
+      : null
+    if (!entry || !employee) return
+    const timer = window.setTimeout(() => {
+      setActiveTab(0)
+      setDepartmentFilter(entry.current_room === 'hr_payroll_advance_queue' || entry.target_department === 'hr' ? 'hr' : 'accounting')
+      setSelectedEmployeeMoneyEntryId(entry.id)
+      setSelectedEmployeeMoney(employee)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [employeeMoneyEntries, employeeMoneyRows, requestedTransactionId, selectedEmployeeMoneyEntryId])
+
   const reviewEmployeeMoney = async (entry: EmployeeMoneyLedgerEntry, action: 'approve' | 'reject') => {
     const reason = action === 'reject' ? employeeMoneyRejectReason.trim() : null
     if (action === 'reject' && (!reason || reason.length < 3)) return
