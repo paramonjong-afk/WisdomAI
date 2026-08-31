@@ -38,6 +38,7 @@ type Project = { id: string; name: string; code: string | null }
 type Site = { id: string; project_id: string; name: string }
 type CostCategory = { id: string; parent_id: string | null; code: string; name_th: string; default_account_code: string | null; default_account_name: string | null }
 type VendorOption = { id: string; name: string; tax_id: string | null; phone: string | null }
+type ManualReceiptDraft = { receivedAt: string; amount: string; method: 'cash' | 'bank_transfer' | 'cash_deposit'; debitCode: string; debitName: string; lenderName: string; borrowerName: string; dueDate: string; terms: string; evidenceReference: string; remark: string }
 
 type AccountingDocument = {
   id: string; document_type: string; document_number: string | null; document_date: string | null
@@ -143,6 +144,7 @@ const itemTypeLabels: Record<ItemType, string> = {
 const money = (value: number | null | undefined) => value == null ? '-' : new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(value)
 const roundMoney = (value: number) => Math.round(value * 100) / 100
 const emptyHeader = { project_id: '', site_id: '', cost_center_code: '', wbs_code: '', contract_reference: '', recognition_date: '' }
+const emptyManualReceipt = (): ManualReceiptDraft => ({ receivedAt: new Date().toISOString().slice(0, 16), amount: '', method: 'bank_transfer', debitCode: '1110', debitName: 'เงินฝากธนาคาร', lenderName: '', borrowerName: '', dueDate: '', terms: '', evidenceReference: '', remark: 'รับเงินแล้ว รอ Bank Statement/ใบรับเงิน/สัญญาเงินยืม' })
 const quotationActionLabels: Record<QuotationAction, string> = {
   order_full: 'สั่งซื้อทั้งใบ', order_partial: 'สั่งซื้อบางส่วน', not_ordered: 'ไม่สั่งซื้อ',
   reference_only: 'เก็บเป็นราคาอ้างอิง', expired: 'ใบเสนอราคาหมดอายุ', cancelled: 'ยกเลิก',
@@ -252,6 +254,9 @@ export function AccountingDocumentsPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [manualReceiptOpen, setManualReceiptOpen] = useState(false)
+  const [manualReceiptSaving, setManualReceiptSaving] = useState(false)
+  const [manualReceipt, setManualReceipt] = useState<ManualReceiptDraft>(emptyManualReceipt)
   const [savedDraftSnapshot, setSavedDraftSnapshot] = useState('')
   const [draftTrackingReady, setDraftTrackingReady] = useState(false)
 
@@ -296,6 +301,39 @@ export function AccountingDocumentsPage() {
     setPayPeriods((payPeriodResult.data ?? []) as PayPeriodOption[])
     setLoading(false)
   }, [currentCompany?.company_id])
+
+  const saveManualReceipt = async () => {
+    if (!canManage || !currentCompany?.company_id) return
+    const amount = Number(manualReceipt.amount)
+    if (!Number.isFinite(amount) || amount <= 0 || !manualReceipt.receivedAt || !manualReceipt.lenderName.trim() || !manualReceipt.borrowerName.trim() || !manualReceipt.remark.trim()) {
+      setError('กรุณากรอกวันที่ ยอดเงิน ผู้ให้ยืม ผู้ถือเงิน และ Remark ให้ครบ')
+      return
+    }
+    setManualReceiptSaving(true); setError(null); setSuccess(null)
+    try {
+      const idempotencyKey = `manual-cash-receipt:${currentCompany.company_id}:${manualReceipt.receivedAt}:${amount}:${manualReceipt.lenderName.trim()}:${manualReceipt.borrowerName.trim()}`
+      const { data, error: rpcError } = await supabase.rpc('create_manual_cash_receipt_v1', {
+        target_company_id: currentCompany.company_id,
+        target_idempotency_key: idempotencyKey,
+        target_received_at: new Date(manualReceipt.receivedAt).toISOString(),
+        target_amount: amount,
+        target_receipt_method: manualReceipt.method,
+        target_debit_account_code: manualReceipt.debitCode,
+        target_debit_account_name: manualReceipt.debitName,
+        target_lender_name: manualReceipt.lenderName.trim(),
+        target_borrower_holder_name: manualReceipt.borrowerName.trim(),
+        target_due_date: manualReceipt.dueDate || null,
+        target_terms: manualReceipt.terms.trim() || null,
+        target_evidence_reference: manualReceipt.evidenceReference.trim() || null,
+        target_remark: manualReceipt.remark.trim(),
+      })
+      if (rpcError) throw rpcError
+      const saved = data as { receipt_number?: string; status?: string } | null
+      setSuccess(`รับเงินไว้ก่อนแล้ว ${saved?.receipt_number ?? ''} · ${saved?.status === 'evidence_ready' ? 'มีเลขอ้างอิง รอตรวจหลักฐาน' : 'รอแนบเอกสาร'} · ยังไม่บันทึกเป็นรายได้`)
+      setManualReceiptOpen(false); setManualReceipt(emptyManualReceipt())
+    } catch (saveError) { setError(userError(saveError)) }
+    finally { setManualReceiptSaving(false) }
+  }
 
   useEffect(() => { const timer = window.setTimeout(() => void loadData(), 0); return () => window.clearTimeout(timer) }, [loadData])
 
@@ -1288,6 +1326,23 @@ export function AccountingDocumentsPage() {
           : { ...allocation, costCategoryId: '', accountCode: '', accountName: '' }),
       }
       const hasAdvanceAllocation = effectiveLineageDraft.allocations.some(allocation => allocation.purposeType === 'advance_transfer')
+      const shouldRecordBorrowedFund = effectiveLineageDraft.fundingSourceType === 'borrowed_funds'
+      const resolveBorrowedFundBorrower = () => (effectiveLineageDraft.fundHolderName || effectiveLineageDraft.payerName || effectiveLineageDraft.finalBeneficiaryName).trim()
+      const recordBorrowedFundObligation = async (lineageId: string) => {
+        if (!shouldRecordBorrowedFund || !lineageId) return
+        const borrowerName = resolveBorrowedFundBorrower()
+        if (!borrowerName) throw new Error('ไม่พบชื่อผู้กู้เงินยืม กรุณาระบุผู้ถือเงิน/ผู้รับที่กู้เงินในช่องผู้ถือเงินหรือผู้รับรายได้')
+        const obligationResult = await supabase.rpc('record_borrowed_fund_obligation_v1', {
+          target_lineage_id: lineageId,
+          target_event_key: `${eventKey}:borrowed-fund`,
+          target_lender_name: effectiveLineageDraft.loanLenderName.trim(),
+          target_borrower_holder_name: borrowerName,
+          target_principal_amount: amount,
+          target_due_date: effectiveLineageDraft.loanDueDate,
+          target_terms: effectiveLineageDraft.loanTerms.trim() || null,
+        })
+        if (obligationResult.error) throw obligationResult.error
+      }
       const isStartingFund = hasAdvanceAllocation && ['company_account', 'personal_reimbursement', 'borrowed_funds'].includes(effectiveLineageDraft.fundingSourceType)
       const eventKey = `transfer-slip-money-lineage:${selectedSlip.itemId}:${crypto.randomUUID()}`
       if (decision === 'confirm' && !hasAdvanceAllocation) { const validation = validateMoneyLineage(effectiveLineageDraft, amount); if (validation.missing.length || validation.errors.length) throw new Error([...validation.missing.map(value => `ขาด ${value}`), ...validation.errors].join(' · ')) }
@@ -1368,10 +1423,7 @@ export function AccountingDocumentsPage() {
         // The resolver intentionally rejects a transaction that is still classified as labor.
         routeResult = await saveBase('draft', `${eventKey}:advance-classification-draft`)
         if (!routeResult?.lineage_id) throw new Error('ไม่พบเส้นทางเงินหลังบันทึกประเภทเงินเบิกล่วงหน้า')
-        if (effectiveLineageDraft.fundingSourceType === 'borrowed_funds') {
-          const obligationResult = await supabase.rpc('record_borrowed_fund_obligation_v1', { target_lineage_id: routeResult.lineage_id, target_event_key: `${eventKey}:borrowed-fund`, target_lender_name: effectiveLineageDraft.loanLenderName.trim(), target_borrower_holder_name: effectiveLineageDraft.finalBeneficiaryName.trim(), target_principal_amount: amount, target_due_date: effectiveLineageDraft.loanDueDate, target_terms: effectiveLineageDraft.loanTerms.trim() || null })
-          if (obligationResult.error) throw obligationResult.error
-        }
+        await recordBorrowedFundObligation(routeResult.lineage_id)
         const classificationResult = await supabase.rpc('classify_transfer_slip_advance_draft_v1', {
           target_item_id: selectedSlip.itemId,
           target_event_key: `${eventKey}:advance-classification`,
@@ -1394,6 +1446,7 @@ export function AccountingDocumentsPage() {
       } else if (hasVendorAllocations && decision === 'confirm') {
         routeResult = await saveBase('draft', `${eventKey}:draft`)
         if (!routeResult?.lineage_id) throw new Error('ไม่พบเส้นทางเงินหลังบันทึกฉบับร่าง')
+        await recordBorrowedFundObligation(routeResult.lineage_id)
         await savePaymentParties()
         for (const allocation of effectiveLineageDraft.allocations.filter(item => item.purposeType === 'vendor_payment')) {
           const matchResult = await supabase.rpc('save_transfer_slip_vendor_match_v1', {
@@ -1416,6 +1469,7 @@ export function AccountingDocumentsPage() {
         routeResult = await saveBase('confirm', eventKey)
       } else if (decision === 'confirm') {
         routeResult = await saveBase('draft', `${eventKey}:draft`)
+        await recordBorrowedFundObligation(routeResult?.lineage_id || '')
         await savePaymentParties()
         routeResult = await saveBase('confirm', eventKey)
       } else {
@@ -1680,13 +1734,34 @@ export function AccountingDocumentsPage() {
   }
 
   return <Stack spacing={3}>
-    <PageHeader title="เอกสารบัญชีและสต๊อก" description="ตรวจเอกสาร กำหนดโครงการ/WBS หมวดต้นทุน รหัสบัญชี และแบ่งค่าใช้จ่ายหลายโครงการก่อนอนุมัติ" action={<Button startIcon={<RefreshOutlinedIcon />} onClick={() => void loadData()}>รีเฟรช</Button>} />
+    <PageHeader title="เอกสารบัญชีและสต๊อก" description="ตรวจเอกสาร กำหนดโครงการ/WBS หมวดต้นทุน รหัสบัญชี และแบ่งค่าใช้จ่ายหลายโครงการก่อนอนุมัติ" action={<Stack direction="row" spacing={1}><Button variant="contained" startIcon={<AddOutlinedIcon />} disabled={!canManage} onClick={() => setManualReceiptOpen(true)}>รับเงิน Manual</Button><Button startIcon={<RefreshOutlinedIcon />} onClick={() => void loadData()}>รีเฟรช</Button></Stack>} />
     {error && <Alert severity="error">{error}</Alert>}{success && <Alert severity="success">{success}</Alert>}
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3,1fr)' }, gap: 2 }}>
       {([['รอตรวจสอบ', money(pendingAmount), 'warning.main'], ['ยืนยันแล้ว', money(confirmedAmount), 'success.main'], ['เอกสารซ้ำ', `${documents.filter(item => item.status === 'duplicate').length} รายการ`, 'error.main']] as const).map(([label, value, color]) => <Paper key={label} variant="outlined" sx={{ p: 2, borderTop: 3, borderTopColor: color }}><Typography color="text.secondary">{label}</Typography><Typography variant="h5" sx={{ fontWeight: 800 }}>{value}</Typography></Paper>)}
     </Box>
     <Paper variant="outlined"><Tabs value={tab} onChange={(_event, value) => setTab(value)} variant="scrollable"><Tab label="เอกสารและเส้นทางจัดซื้อ" /><Tab label="Match Flow" /><Tab label={`รายการราคาสินค้า (${productPrices.length})`} /><Tab label="Stock รวม" /><Tab label="Stock แยกโครงการ/คลัง" /></Tabs></Paper>
     {renderTabContent()}
+
+    <Dialog open={manualReceiptOpen} onClose={() => !manualReceiptSaving && setManualReceiptOpen(false)} maxWidth="md" fullWidth>
+      <DialogTitle>รับเงินสด/เงินยืมเข้าบัญชี Manual</DialogTitle>
+      <DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
+        <Alert severity="info">บันทึกเป็น “รับเงินแล้ว · รอเอกสาร” ก่อน ไม่ถือเป็นรายได้และยังไม่โพสต์บัญชีถาวร</Alert>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
+          <TextField type="datetime-local" required label="วันที่รับเงิน" slotProps={{ inputLabel: { shrink: true } }} value={manualReceipt.receivedAt} onChange={event => setManualReceipt(current => ({ ...current, receivedAt: event.target.value }))} />
+          <TextField type="number" required label="จำนวนเงิน" value={manualReceipt.amount} onChange={event => setManualReceipt(current => ({ ...current, amount: event.target.value }))} />
+          <TextField select label="วิธีรับเงิน" value={manualReceipt.method} onChange={event => setManualReceipt(current => ({ ...current, method: event.target.value as ManualReceiptDraft['method'], debitCode: event.target.value === 'cash' ? '1100' : '1110', debitName: event.target.value === 'cash' ? 'เงินสด' : 'เงินฝากธนาคาร' }))}><MenuItem value="bank_transfer">โอนเข้าบัญชีธนาคาร</MenuItem><MenuItem value="cash_deposit">ฝากเงินสดเข้าบัญชี</MenuItem><MenuItem value="cash">รับเป็นเงินสด</MenuItem></TextField>
+          <TextField label="บัญชีเดบิต" value={`${manualReceipt.debitCode} · ${manualReceipt.debitName}`} disabled helperText="ระบบลงคู่กับ 2199 เงินรับรอตรวจสอบ จนกว่าเอกสารครบ" />
+          <TextField required label="ผู้ให้ยืม/ผู้ส่งมอบเงิน" value={manualReceipt.lenderName} onChange={event => setManualReceipt(current => ({ ...current, lenderName: event.target.value }))} />
+          <TextField required label="ผู้กู้/ผู้ถือเงิน" value={manualReceipt.borrowerName} onChange={event => setManualReceipt(current => ({ ...current, borrowerName: event.target.value }))} />
+          <TextField type="date" label="กำหนดคืน" slotProps={{ inputLabel: { shrink: true } }} value={manualReceipt.dueDate} onChange={event => setManualReceipt(current => ({ ...current, dueDate: event.target.value }))} />
+          <TextField label="เลขอ้างอิงหลักฐาน (ถ้ามี)" value={manualReceipt.evidenceReference} onChange={event => setManualReceipt(current => ({ ...current, evidenceReference: event.target.value }))} helperText="เช่นเลขรายการ Bank Statement/ใบฝากเงิน หากยังไม่มีให้เว้นว่าง" />
+          <TextField multiline minRows={2} label="เงื่อนไขการยืม/คืน" value={manualReceipt.terms} onChange={event => setManualReceipt(current => ({ ...current, terms: event.target.value }))} sx={{ gridColumn: { sm: '1 / -1' } }} />
+          <TextField required multiline minRows={2} label="Remark" value={manualReceipt.remark} onChange={event => setManualReceipt(current => ({ ...current, remark: event.target.value }))} sx={{ gridColumn: { sm: '1 / -1' } }} />
+        </Box>
+        <Alert severity="warning">คู่บัญชีชั่วคราว: เดบิต {manualReceipt.debitCode} {manualReceipt.debitName} / เครดิต 2199 เงินรับรอตรวจสอบ เมื่อหลักฐานครบจึงย้ายเครดิตเป็นเจ้าหนี้เงินยืม</Alert>
+      </Stack></DialogContent>
+      <DialogActions><Button disabled={manualReceiptSaving} onClick={() => setManualReceiptOpen(false)}>ยกเลิก</Button><Button variant="contained" disabled={manualReceiptSaving} onClick={() => void saveManualReceipt()}>{manualReceiptSaving ? 'กำลังบันทึก…' : 'รับเงินไว้ก่อน'}</Button></DialogActions>
+    </Dialog>
 
     <Drawer anchor="right" open={Boolean(selectedSlip)} onClose={closeSlipDetail} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 680 }, p: 0 } } }}>
       {selectedSlip && <Stack sx={{ minHeight: '100%' }}>
@@ -1777,7 +1852,7 @@ export function AccountingDocumentsPage() {
             <TextField select label="เงินที่จ่ายมาจากไหน" value={slipMoneyLineageDraft.fundingSourceType} onChange={event => { setError(null); setSlipAdvancePartyMatch(null); setSlipMoneyLineageDraft(current => current && applyMoneyFundingSource(current, event.target.value as MoneyFundingSource)) }}><MenuItem value="unknown">ยังไม่ทราบ</MenuItem><MenuItem value="company_account">เงินจากบัญชีบริษัท → ตั้งต้น/เติมกองผู้รับ</MenuItem><MenuItem value="personal_reimbursement">เงินส่วนตัวผู้โอน → ตั้งต้น/เติมกองผู้รับ</MenuItem><MenuItem value="borrowed_funds">เงินยืมจากบุคคล/กรรมการ → ตั้งต้น/เติมกองผู้รับ</MenuItem><MenuItem value="reserve_fund">โอนต่อจากกองเดิมของผู้โอน (ผู้โอนต้องเป็นผู้ถือเงิน)</MenuItem><MenuItem value="employee_advance">เงินทดลองจ่าย/เบิกล่วงหน้าเดิม</MenuItem></TextField>
             {slipMoneyLineageDraft.fundingSourceType === 'borrowed_funds' && <><TextField label="ผู้ให้ยืม" required value={slipMoneyLineageDraft.loanLenderName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, loanLenderName: event.target.value }))} helperText="เจ้าหนี้ที่ต้องคืนเงิน ไม่บันทึกเป็นรายได้" /><TextField type="date" label="กำหนดคืน" required slotProps={{ inputLabel: { shrink: true } }} value={slipMoneyLineageDraft.loanDueDate} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, loanDueDate: event.target.value }))} /><TextField label="เงื่อนไขการยืม/คืน" multiline minRows={2} value={slipMoneyLineageDraft.loanTerms} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, loanTerms: event.target.value }))} sx={{ gridColumn: '1 / -1' }} /><Alert severity="info" sx={{ gridColumn: '1 / -1' }}>ระบบจะสร้างภาระหนี้สถานะ “ยังไม่คืน” ผูกกับสลิปและกองเงินนี้ ค่าใช้จ่ายจะเกิดเมื่อมีหลักฐานการใช้เงินจริงเท่านั้น</Alert></>}
             {slipMoneyLineageDraft.allocations.some(allocation => allocation.purposeType === 'advance_transfer') && slipMoneyLineageDraft.fundingSourceType === 'reserve_fund' && <Alert severity="warning" sx={{ gridColumn: '1 / -1' }}><strong>ตัวเลือกนี้ไม่ใช่เงินตั้งต้นใหม่:</strong> ใช้เฉพาะเมื่อผู้โอนเป็นผู้ถือกองเดิมและกำลังโอนต่อ หากผู้โอนนำเงินใหม่มาเติมให้ผู้รับ ให้เลือก “เงินส่วนตัวผู้โอน” หรือ “เงินจากบัญชีบริษัท” ตามข้อเท็จจริง</Alert>}
-            {(moneyFundingSourceNeedsHolder(slipMoneyLineageDraft.fundingSourceType) || (slipAnalysis && slipPurposeNeedsFundHolder(slipAnalysis.purpose))) && <><TextField label="รหัสกองเงิน / Advance ID" value={slipMoneyLineageDraft.fundingSourceReference} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, fundingSourceReference: event.target.value }))} />
+            {(moneyFundingSourceNeedsHolder(slipMoneyLineageDraft.fundingSourceType) || (slipAnalysis && slipPurposeNeedsFundHolder(slipAnalysis.purpose))) && <><TextField required={slipMoneyLineageDraft.fundingSourceType === 'borrowed_funds'} label={slipMoneyLineageDraft.fundingSourceType === 'borrowed_funds' ? 'เลขอ้างอิงรายการรับเงินยืม' : 'รหัสกองเงิน / Advance ID'} value={slipMoneyLineageDraft.fundingSourceReference} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, fundingSourceReference: event.target.value }))} helperText={slipMoneyLineageDraft.fundingSourceType === 'borrowed_funds' ? 'ต้องเป็นเลขอ้างอิงรายการรับเงินจริงหรือเอกสารเงินยืม ห้ามสร้างยอดรับเข้าโดยไม่มีหลักฐาน' : undefined} />
             <TextField label="ผู้ถือเงินจริงที่ยืนยัน" value={slipMoneyLineageDraft.fundHolderName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, fundHolderName: event.target.value }))} helperText="จำเป็นสำหรับเงินเบิกล่วงหน้า/เงินสำรอง/เงินคืน · ไม่เปลี่ยนชื่อบนสลิป" /></>}
             <TextField label="ผู้จ่ายจริงที่ยืนยัน" value={slipMoneyLineageDraft.payerName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, payerName: event.target.value }))} helperText="ใช้สำหรับกระทบยอดและรายงาน ไม่เขียนทับผู้โอนตามหลักฐาน" />
             <TextField label="ผู้รับจริงที่ยืนยัน" value={slipMoneyLineageDraft.finalBeneficiaryName} onChange={event => setSlipMoneyLineageDraft(current => current && ({ ...current, finalBeneficiaryName: event.target.value }))} helperText="แยกจากผู้รับที่ AI/OCR อ่านจากสลิป" />

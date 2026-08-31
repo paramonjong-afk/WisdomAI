@@ -118,14 +118,14 @@ export function AdvanceHoldersPage() {
   const scanSlips = useCallback(async (showResults = false, sourceHolders: Holder[] = []) => {
     if (!companyId || !sourceHolders.length) { if (showResults) setError('ต้องมีผู้ถือเงินที่พร้อมจับคู่ก่อนตรวจหาสลิป'); return }
     setScanning(true); setError('')
-    const { data, error: scanError } = await supabase.from('transfer_slip_operational_truth_v1')
+    const [{ data, error: scanError }, manualReceiptResult] = await Promise.all([supabase.from('transfer_slip_operational_truth_v1')
       .select('transaction_id,item_id,evidence_sender_name,evidence_recipient_name,evidence_amount,evidence_transfer_at,truth_status,duplicate_of,lineage_id,funding_source_type,purpose_type,project_id,site_id,route_status,next_destination,canonical_payer_name,canonical_fund_holder_name,canonical_beneficiary_name')
       .eq('company_id', companyId)
       .not('transaction_id', 'is', null)
       .order('evidence_transfer_at', { ascending: false, nullsFirst: false })
-      .limit(5000)
+      .limit(5000), supabase.from('manual_cash_receipts').select('id,receipt_number,received_at,amount,lender_name,borrower_holder_name,status').eq('company_id', companyId).neq('status', 'cancelled').order('received_at', { ascending: false })])
     setScanning(false)
-    if (scanError) { setError(userError(scanError)); return }
+    if (scanError || manualReceiptResult.error) { setError(userError(scanError ?? manualReceiptResult.error)); return }
     const evidence = (data ?? []).map((row) => ({
       transactionId: row.transaction_id as string,
       itemId: row.item_id,
@@ -146,6 +146,7 @@ export function AdvanceHoldersPage() {
       canonicalFundHolderName: row.canonical_fund_holder_name,
       canonicalBeneficiaryName: row.canonical_beneficiary_name,
     })) satisfies AdvanceHolderSlipEvidence[]
+    evidence.push(...(manualReceiptResult.data ?? []).map((row) => ({ transactionId: `manual:${row.id}`, itemId: row.id, senderName: row.lender_name, recipientName: row.borrower_holder_name, amount: Number(row.amount), transferAt: row.received_at, truthStatus: row.status === 'confirmed' ? 'confirmed' : 'needs_review', duplicateOf: null, lineageId: row.id, fundingSourceType: 'borrowed_funds', purposeType: 'advance_transfer', projectId: null, siteId: null, routeStatus: row.status, nextDestination: 'advance_finance', canonicalPayerName: row.lender_name, canonicalFundHolderName: row.borrower_holder_name, canonicalBeneficiaryName: row.borrower_holder_name } satisfies AdvanceHolderSlipEvidence)))
     const holderSources = sourceHolders.map((holder) => ({
       id: holder.id,
       displayName: holder.display_name,

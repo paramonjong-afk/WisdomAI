@@ -30,6 +30,12 @@ assert.equal(result.reviewCount, 1)
 assert.equal(result.reviewAmount, 200)
 assert.equal(result.lastActivityAt, '2026-08-31T09:00:00Z')
 assert.equal(result.movements.length, 5)
+const borrowedFunding = calculateHolderRealtimeBalance('holder-borrowed', 0, [
+  { ...base, id: 'tx-borrowed:incoming', transactionId: 'tx-borrowed', holderId: 'holder-borrowed', direction: 'incoming', amount: 208005.69, transferAt: '2026-08-31T10:00:00Z', truthStatus: 'confirmed', purposeType: 'materials', fundingSourceType: 'borrowed_funds' } as AdvanceHolderSlipMatch,
+  { ...base, id: 'tx-borrowed:outgoing', transactionId: 'tx-borrowed-out', holderId: 'holder-borrowed', direction: 'outgoing', amount: 208005.69, transferAt: '2026-08-31T11:00:00Z', truthStatus: 'confirmed', purposeType: 'materials' } as AdvanceHolderSlipMatch,
+])
+assert.equal(borrowedFunding.realtimeReceived, 208005.69)
+assert.equal(borrowedFunding.projectedBalance, 0)
 const productionLike = calculateHolderRealtimeBalance('holder-tawichai', 0, [
   { ...base, id: 'tx-5060:incoming', transactionId: 'tx-5060', holderId: 'holder-tawichai', direction: 'incoming', amount: 5060, transferAt: '2026-08-19T11:00:00Z', truthStatus: 'confirmed', purposeType: 'advance_transfer' } as AdvanceHolderSlipMatch,
   { ...base, id: 'tx-3000:incoming', transactionId: 'tx-3000', holderId: 'holder-tawichai', direction: 'incoming', amount: 3000, transferAt: '2026-07-23T22:22:00Z', truthStatus: 'confirmed', purposeType: 'advance_transfer' } as AdvanceHolderSlipMatch,
