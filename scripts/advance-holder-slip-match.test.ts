@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict'
-import { hasResolvedMoneyRoute, matchAdvanceHolderSlips, normalizeAdvanceHolderName } from '../src/services/advanceHolderSlipMatch.ts'
+import { advanceHolderSlipDestination, hasResolvedMoneyRoute, matchAdvanceHolderSlips, normalizeAdvanceHolderName } from '../src/services/advanceHolderSlipMatch.ts'
 
 assert.equal(normalizeAdvanceHolderName('นาย ทวีชัย ภรามร'), 'ทวีชัยภรามร')
 assert.equal(normalizeAdvanceHolderName('น.ส. จิรภรณ์ พริกสุวรรณ์'), 'จิรภรณ์พริกสุวรรณ์')
 assert.equal(hasResolvedMoneyRoute({ transactionId: 'route-1', itemId: 'item-route-1', senderName: 'บริษัท', recipientName: 'ผู้ถือเงิน', amount: 100, transferAt: null, truthStatus: 'confirmed', duplicateOf: null, lineageId: 'lineage-1', purposeType: 'advance_transfer', routeStatus: 'routed', nextDestination: 'advance_finance' }), true)
 assert.equal(hasResolvedMoneyRoute({ transactionId: 'route-2', itemId: 'item-route-2', senderName: 'บริษัท', recipientName: 'ผู้ถือเงิน', amount: 100, transferAt: null, truthStatus: 'needs_review', duplicateOf: null, lineageId: null, purposeType: 'unknown', routeStatus: 'draft', nextDestination: null }), false)
+assert.deepEqual(advanceHolderSlipDestination({ transactionId: 'payroll-1', routeResolved: true, nextDestination: 'payroll' }), { path: '/advance-settlements?transaction_id=payroll-1', label: 'HR/Payroll' })
+assert.deepEqual(advanceHolderSlipDestination({ transactionId: 'accounting-1', routeResolved: true, nextDestination: 'accounting_posting' }), { path: '/accounting-documents?transaction_id=accounting-1&detail=review', label: 'บัญชี · รายละเอียดเส้นทาง' })
+assert.deepEqual(advanceHolderSlipDestination({ transactionId: 'unknown-1', routeResolved: false, nextDestination: null }), { path: '/accounting-documents?transaction_id=unknown-1&detail=review', label: 'บัญชี · ตรวจและจัดประเภท' })
 
 const holders = [
   { id: 'holder-1', displayName: 'ทวีชัย ภรามร', aliases: ['นาย ทวีชัย ภรามร', 'ทวีศักดิ์ ภรามร'] },

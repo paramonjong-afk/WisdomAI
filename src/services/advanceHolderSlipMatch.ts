@@ -48,6 +48,22 @@ export type AdvanceHolderSlipMatch = {
   routeResolved: boolean
 }
 
+export function advanceHolderSlipDestination(
+  slip: Pick<AdvanceHolderSlipMatch, 'transactionId' | 'routeResolved' | 'nextDestination'>,
+) {
+  const transactionId = encodeURIComponent(slip.transactionId)
+  if (slip.routeResolved && ['payroll', 'advance_finance'].includes(slip.nextDestination ?? '')) {
+    return {
+      path: `/advance-settlements?transaction_id=${transactionId}`,
+      label: slip.nextDestination === 'payroll' ? 'HR/Payroll' : 'เงินทดรองและปิดยอด',
+    }
+  }
+  return {
+    path: `/accounting-documents?transaction_id=${transactionId}&detail=review`,
+    label: slip.routeResolved ? 'บัญชี · รายละเอียดเส้นทาง' : 'บัญชี · ตรวจและจัดประเภท',
+  }
+}
+
 export function hasResolvedMoneyRoute(slip: AdvanceHolderSlipEvidence) {
   return Boolean(
     slip.lineageId

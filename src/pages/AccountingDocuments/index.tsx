@@ -155,6 +155,7 @@ export function AccountingDocumentsPage() {
   usePageTitle('เอกสารบัญชีและสต๊อก')
   const [searchParams] = useSearchParams()
   const requestedTransactionId = searchParams.get('transaction_id')
+  const requestedSlipDetail = searchParams.get('detail')
   const { profile,currentCompany } = useAuth()
   const canManage = profile?.role === 'admin' || profile?.role === 'manager'
   const runAttempt = (action: string, request: Record<string, unknown>, operation: () => unknown) =>
@@ -1058,7 +1059,7 @@ export function AccountingDocumentsPage() {
     setSlipDetailTab(0); setSlipReviewDraft(null); setSlipMoneyLineageDraft(null); setSlipMoneyLineageStatus(null); setSlipCorrectionMode(false); setMoneyLineageOptions([]); setSlipAiGuidance(''); setSlipAdvancePartyMatch(null); setSlipActionLoading(false)
   }
 
-  const openSlipDetail = async (slip: AccountingPendingSlip) => {
+  const openSlipDetail = async (slip: AccountingPendingSlip, initialDetailTab = 0) => {
     const requestId = ++slipRequestRef.current
     const suggestion = inferSlipMoneyPurpose(slip)
     const suggestedPurpose = suggestion.purpose
@@ -1073,7 +1074,7 @@ export function AccountingDocumentsPage() {
       suggestedLineage.allocations = suggestedLineage.allocations.map(allocation => ({ ...allocation, purposeType: suggestedPurpose, confidence: String(suggestion.confidence) }))
     }
     setSelectedSlip(slip)
-    setSlipDetailTab(0); setSlipReviewDraft(slipDraftFromRow(slip)); setSlipMoneyLineageDraft(suggestedLineage); setSlipMoneyLineageStatus(null); setSlipCorrectionMode(false); setMoneyLineageOptions([]); setSlipAiGuidance(''); setSlipAdvancePartyMatch(null)
+    setSlipDetailTab(initialDetailTab); setSlipReviewDraft(slipDraftFromRow(slip)); setSlipMoneyLineageDraft(suggestedLineage); setSlipMoneyLineageStatus(null); setSlipCorrectionMode(false); setMoneyLineageOptions([]); setSlipAiGuidance(''); setSlipAdvancePartyMatch(null)
     setSlipPreviewFiles([])
     setSlipPreviewIndex(0)
     setSlipPreviewMessage('กำลังเปิดไฟล์ต้นฉบับ…')
@@ -1167,10 +1168,10 @@ export function AccountingDocumentsPage() {
     }
   }
 
-  const openDeepLinkedSlip = useEffectEvent((slip: AccountingPendingSlip) => {
+  const openDeepLinkedSlip = useEffectEvent((slip: AccountingPendingSlip, initialDetailTab: number) => {
     setAccountingQueueView('slips')
     setSlipFilter('transfer_slip')
-    void openSlipDetail(slip)
+    void openSlipDetail(slip, initialDetailTab)
   })
 
   useEffect(() => {
@@ -1178,9 +1179,9 @@ export function AccountingDocumentsPage() {
     const slip = pendingSlips.find((row) => row.transactionId === requestedTransactionId)
     if (!slip) return
     openedTransactionRef.current = requestedTransactionId
-    const timer = window.setTimeout(() => openDeepLinkedSlip(slip), 0)
+    const timer = window.setTimeout(() => openDeepLinkedSlip(slip, requestedSlipDetail === 'review' ? 1 : 0), 0)
     return () => window.clearTimeout(timer)
-  }, [pendingSlips, requestedTransactionId])
+  }, [pendingSlips, requestedSlipDetail, requestedTransactionId])
 
   const rereadSelectedSlip = async () => {
     if (!selectedSlip) return
