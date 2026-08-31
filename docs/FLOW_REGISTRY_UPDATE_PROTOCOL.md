@@ -1,5 +1,14 @@
 # Flow Registry Update Protocol
 
+## 2026-08-31 — Web Chat Native Mobile Picker v2.7
+
+- **เหตุผล:** Production Android เปิด `/chat` และอ่านห้องได้ แต่ attempt หลังเลือกไฟล์ไม่มีคำขอ `chat-attachments`; จุดขาดอยู่ก่อน membership/Storage ไม่ใช่ bucket/RLS
+- **Flow:** แตะปุ่มแนบแบบ native label → เปิด Android/iOS picker → reset input ก่อนเปิด → เลือกไฟล์โดยคง File handle → Preview → membership/session → Storage → `chat_messages`; telemetry ระบุแต่ละขั้นโดยไม่เก็บชื่อไฟล์
+- **สิทธิ์/ข้อมูล:** ไม่เปลี่ยน RLS/private bucket/allow-list/member permission หรือข้อมูลเดิม; telemetry เก็บ step, room id, MIME และขนาดเท่านั้น
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** contract tests, typecheck, lint, build, revision parity, authenticated Android upload และ read-back Storage/message/telemetry
+- **Rollback:** revert native-label/reset/telemetry patch; ไฟล์และข้อความที่ส่งสำเร็จแล้วคงอยู่
+
 ## 2026-08-31 — Web Chat Attachment One-Step Send v2.6
 
 - **เหตุผล:** Production ยืนยันว่า bucket, allow-list, RLS และ membership ของเจ้าของระบบพร้อม แต่ไม่มี Storage upload request หลังเลือกไฟล์ เพราะ UI เดิมรอการกด `ส่งไฟล์` รอบที่สอง

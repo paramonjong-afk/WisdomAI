@@ -241,7 +241,9 @@ flowchart LR
   D1 --> D2[ซิงก์ไอคอน PWA เมื่อ Badging API รองรับ]
   B --> E[กดไอคอนลงเวลา หรือ Web Chat]
   E --> F[เข้า module ภายใน Auth session เดิม]
-  G[เลือกไฟล์รูป/เอกสาร] --> H[แสดง Preview และเริ่มส่งอัตโนมัติ]
+  G[แตะปุ่มแนบแบบ native label] --> G1[Android/iOS เปิด file picker]
+  G1 --> G2[เลือกไฟล์และคง File handle ไว้จนอ่านเสร็จ]
+  G2 --> H[แสดง Preview และเริ่มส่งอัตโนมัติ]
   H --> M[ตรวจสมาชิกห้องจากฐานข้อมูล]
   M -->|ไม่เป็นสมาชิก| J[หยุดและแจ้งให้เพิ่มสมาชิก]
   M -->|เป็นสมาชิก| V[ตรวจขนาดและ normalize MIME]
@@ -254,13 +256,13 @@ flowchart LR
   K --> L[insert chat_messages แบบ file]
 ```
 
-- **Input:** `company_id`, `profile_id`, `chat_room_members.joined_at`, `chat_room_read_states`, `chat_messages.created_at/sender_profile_id/deleted_at`, ไฟล์จาก `<input type=file>` และ MIME/นามสกุลไฟล์
+- **Input:** `company_id`, `profile_id`, `chat_room_members.joined_at`, `chat_room_read_states`, `chat_messages.created_at/sender_profile_id/deleted_at`, ไฟล์จาก `<input type=file>` ที่เปิดผ่าน native label และ MIME/นามสกุลไฟล์
 - **Output:** launcher icon สองรายการ, badge+ข้อความจำนวนค้าง, PWA app badge เมื่อรองรับ หรือ `chat_messages` แบบ file พร้อม signed URL สำหรับสมาชิกห้อง
 - **States:** `loading → ready|unread_error`; ไฟล์ `selected → validated → session_checked → uploaded → message_recorded|failed`; ถ้า session หมดอายุและ refresh ไม่สำเร็จจะคงไฟล์ไว้เพื่อ retry หลัง login ใหม่; HEIC/HEIF/AVIF/TIFF ถูก normalize ก่อนตรวจ allow-list
 - **Roles / Permission:** launcher ใช้ Auth session; unread query จำกัดบริษัท/ห้องตาม RLS; upload ใช้ `storage.objects` policy โดยสมาชิกบริษัทต้องเป็นสมาชิกห้อง และ company manager ใช้สิทธิ์ผู้จัดการตาม policy ที่มีอยู่; bucket ยังคง private
 - **Integrations:** `/` Application Launcher, `src/services/chatUnread.ts`, `src/services/appBadge.ts`, Supabase PostgREST/Realtime, Web Badging API, Storage bucket `chat-attachments`, `chat_messages` และ signed URL
-- **Failure / Retry:** unread อ่านไม่ได้ให้ล้างเลขที่อาจเก่าและ retry ทุก 30 วินาที/เมื่อมี Realtime insert/read-state update; OS ไม่รองรับหรือปฏิเสธ App Badge ให้ใช้ badge ภายในต่อ; MIME/ขนาดไม่ผ่านหยุดก่อน upload; ตรวจ `expires_at` และ refresh session ก่อน upload; ถ้า Storage ตอบ 401/RLS จะ refresh แล้วลอง upload ซ้ำหนึ่งครั้ง หาก refresh ไม่สำเร็จให้คงไฟล์ไว้และให้ login ใหม่
-- **Audit events:** การเปลี่ยน route เป็น navigation event; การส่งไฟล์อยู่ใน `chat_messages` และ mutation attempt `send-file-message`; ไม่บันทึกไฟล์ซ้ำเมื่อ insert ล้มเหลว
+- **Failure / Retry:** unread อ่านไม่ได้ให้ล้างเลขที่อาจเก่าและ retry ทุก 30 วินาที/เมื่อมี Realtime insert/read-state update; OS ไม่รองรับหรือปฏิเสธ App Badge ให้ใช้ badgeภายในต่อ; file picker ล้างค่าก่อนเปิดเพื่อให้เลือกรูปเดิมซ้ำได้ แต่ไม่ล้างหลังเลือกจนกระทั่งส่งเสร็จ; MIME/ขนาดไม่ผ่านหยุดก่อน upload; ตรวจ `expires_at` และ refresh session ก่อน upload; ถ้า Storage ตอบ 401/RLS จะ refresh แล้วลอง upload ซ้ำหนึ่งครั้ง หาก refresh ไม่สำเร็จให้คงไฟล์ไว้และให้ login ใหม่
+- **Audit events:** การเปลี่ยน route เป็น navigation event; client telemetry บันทึก `picker_opened → file_selected → send_started → message_recorded|membership/upload_failed` โดยไม่เก็บชื่อไฟล์; การส่งไฟล์อยู่ใน `chat_messages` และ mutation attempt `send-file-message`; ไม่บันทึกไฟล์ซ้ำเมื่อ insert ล้มเหลว
 - **Owner:** ผู้ใช้เป็น owner ของการเลือก module/แนบไฟล์; ทีมระบบเป็น owner ของ unread service, Storage allow-list, RLS และ cleanup path
 
 ## Mobile file-send reliability (v1.10)
@@ -617,3 +619,24 @@ flowchart LR
 - Migration: ไม่มี; Production migration `20260822003747` และ `20260822194037` ยังเป็นฐานเดิม
 - Verification: query bucket/policies/membership, Storage log, attachment contract, typecheck, lint, build และ authenticated runtime smoke โดยใช้รูปทดสอบที่ไม่ใช่ข้อมูลจริง
 - Rollback: revert auto-send/preview/preflight ใน `src/pages/Chat/index.tsx`; ไฟล์และข้อความที่ส่งสำเร็จแล้วคงอยู่และไม่ต้อง rollback ข้อมูล
+
+### v2.7 — 31/8/2569
+
+```mermaid
+flowchart LR
+  A[แตะปุ่มแนบ] --> B[Native label เปิด Android/iOS picker]
+  B --> C[ล้างค่า input ก่อนเปิดเพื่อเลือกรูปเดิมซ้ำได้]
+  C --> D[ผู้ใช้เลือกรูป]
+  D --> E[คง File handle ไม่ล้างก่อนอ่าน]
+  E --> F[Preview + Membership + Session]
+  F --> G[Storage upload]
+  G --> H[chat_messages + รูปในห้อง]
+  D --> I[Telemetry ระบุขั้นที่หยุด]
+```
+
+- เหตุผล: Production log จาก Android พบว่าเปิด `/chat` และอ่านห้องได้ แต่ไม่มี `chat-attachments` request หลังเลือกไฟล์ จึงต้องแก้จุดเปิด native picker/อายุของ File handle และเพิ่มหลักฐานแต่ละขั้น
+- ผลกระทบ: ปุ่มแนบเปลี่ยนเป็น `IconButton component="label"` ที่มี file input อยู่ภายใน, reset ค่าเฉพาะก่อนเปิด picker, ไม่ reset ทันทีหลัง `change`, และเก็บ telemetry โดยไม่บันทึกชื่อไฟล์; auto-send/preview/retry เดิมคงอยู่
+- สิทธิ์/ข้อมูล: RLS, private bucket, membership, company/room path, allow-list และ cleanup เดิมไม่เปลี่ยน; telemetry เก็บเฉพาะขั้น, room id, MIME และขนาด
+- Migration: ไม่มี
+- Verification: mobile picker contract, attachment/Chat tests, typecheck, lint, build, Production revision และ authenticated Android upload smoke พร้อมตรวจ Storage/message/telemetry
+- Rollback: revert native-label/reset/telemetry patch; ข้อความและไฟล์ที่ส่งสำเร็จแล้วคงอยู่
