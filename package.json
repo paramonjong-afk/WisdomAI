@@ -41,6 +41,7 @@
     "test:system-error-intake": "node --experimental-strip-types scripts/system-error-intake.test.ts",
     "test:accounting-dimensions": "node --experimental-strip-types scripts/accounting-document-dimensions.test.ts",
     "test:project-cost-accounting": "node --experimental-strip-types scripts/project-cost-accounting.test.ts",
+    "test:sales-expense-accounting": "node --experimental-strip-types scripts/sales-expense-accounting.test.ts",
     "test:accounting-type-learning": "node --experimental-strip-types scripts/accounting-document-type-learning.test.ts",
     "test:accounting-preview-types": "node --experimental-strip-types scripts/accounting-document-preview-types.test.ts",
     "test:confirmed-type-correction": "node --experimental-strip-types scripts/confirmed-document-type-correction.test.ts",

@@ -15,6 +15,10 @@ flowchart LR
 
 # มาตรฐานทำงานให้จบกระบวนการ (End-to-End Completion Gate)
 
+## Flow Registry Change Log
+
+- `31/8/2569 · Sales Expense Accounting v1.0`: ค่าใช้จ่ายขายเปลี่ยนจาก direct table mutation เป็น Draft → Maker-Checker → Accounting Draft ผ่าน company-scoped RPC, idempotency และ append-only Audit; รายการเดิมคงอยู่เป็น `legacy_unverified` จนกว่าจะตรวจฐานยอดใหม่ รายละเอียดที่ `docs/SALES_EXPENSE_ACCOUNTING_FLOW.md`
+
 ## วัตถุประสงค์
 
 มาตรฐานนี้ป้องกันงานที่ดูเหมือนเสร็จเฉพาะจุด เช่น กดปุ่มได้หรือสถานะเปลี่ยน แต่ข้อมูลไม่ไปถึงคิวหรือผู้รับผิดชอบปลายทาง, คนไม่มีสิทธิ์เห็นงาน, จำนวนไม่ตรงกัน, หรือข้อมูลเดิมค้างอยู่ในสถานะเก่า
