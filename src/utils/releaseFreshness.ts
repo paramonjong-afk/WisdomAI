@@ -4,12 +4,14 @@ type ReleaseManifest = {
   revision?: unknown
 }
 
-type ReleaseFreshnessResult = 'current' | 'reloading' | 'unavailable' | 'guarded'
+type ReleaseFreshnessResult = 'current' | 'update_available' | 'reloading' | 'unavailable' | 'guarded'
 
 const refreshGuardPrefix = 'wisdomai:release-refresh:'
+const pendingReleaseKey = 'wisdomai:pending-release'
 const refreshGuardWindowMs = 2 * 60_000
 const backgroundCheckIntervalMs = 5 * 60_000
 const minimumCheckIntervalMs = 60_000
+export const releaseUpdateAvailableEvent = 'wisdomai:release-update-available'
 
 let lastCheckedAt = 0
 let checkInFlight: Promise<ReleaseFreshnessResult> | null = null
@@ -18,6 +20,21 @@ const normalizedRevision = (revision: unknown) =>
   typeof revision === 'string' ? revision.trim().toLowerCase().slice(0, 7) : ''
 
 const refreshGuardKey = (revision: string) => `${refreshGuardPrefix}${revision}`
+
+export const getPendingReleaseRevision = () => {
+  try { return normalizedRevision(sessionStorage.getItem(pendingReleaseKey)) }
+  catch { return '' }
+}
+
+const clearPendingRelease = () => {
+  try { sessionStorage.removeItem(pendingReleaseKey) } catch { /* Keep the active workflow usable in restricted browsers. */ }
+}
+
+const announceReleaseUpdate = (revision: string): ReleaseFreshnessResult => {
+  try { sessionStorage.setItem(pendingReleaseKey, revision) } catch { /* The event still updates the current runtime. */ }
+  window.dispatchEvent(new CustomEvent(releaseUpdateAvailableEvent, { detail: { revision } }))
+  return 'update_available'
+}
 
 const buildReleaseUrl = () => {
   const manifestUrl = new URL('/release.json', window.location.origin)
@@ -38,6 +55,14 @@ const replaceWithCurrentRelease = (revision: string) => {
   return true
 }
 
+export const applyPendingReleaseUpdate = (revision = getPendingReleaseRevision()) => {
+  const nextRevision = normalizedRevision(revision)
+  if (!nextRevision) return false
+  return replaceWithCurrentRelease(nextRevision)
+}
+
+const canRefreshWithoutInterruptingWork = () => ['/login', '/reset-password'].includes(window.location.pathname)
+
 export const checkReleaseFreshness = async (): Promise<ReleaseFreshnessResult> => {
   const localRevision = normalizedRevision(releaseInfo.revision)
   if (!localRevision || localRevision === 'local') return 'current'
@@ -52,9 +77,13 @@ export const checkReleaseFreshness = async (): Promise<ReleaseFreshnessResult> =
 
     const manifest = await response.json() as ReleaseManifest
     const remoteRevision = normalizedRevision(manifest.revision)
-    if (!remoteRevision || remoteRevision === localRevision) return 'current'
+    if (!remoteRevision || remoteRevision === localRevision) {
+      clearPendingRelease()
+      return 'current'
+    }
 
-    return replaceWithCurrentRelease(remoteRevision) ? 'reloading' : 'guarded'
+    if (canRefreshWithoutInterruptingWork()) return replaceWithCurrentRelease(remoteRevision) ? 'reloading' : 'guarded'
+    return announceReleaseUpdate(remoteRevision)
   } catch {
     // A manifest/network failure must never block Login or the current workflow.
     return 'unavailable'
