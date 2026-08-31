@@ -47,6 +47,7 @@ const FlowRegistryPage = lazyWithReload(() => import('../pages/FlowRegistry').th
 const SystemInventoryPage = lazyWithReload(() => import('../pages/SystemInventory').then((module) => ({ default: module.SystemInventoryPage })))
 const MasterDataCenterPage = lazyWithReload(() => import('../pages/MasterDataCenter').then((module) => ({ default: module.MasterDataCenterPage })))
 const AppLauncherPage = lazyWithReload(() => import('../pages/AppLauncher').then((module) => ({ default: module.AppLauncherPage })))
+const AdminAccountRecoveryPage = lazyWithReload(() => import('../pages/AdminAccountRecovery').then((module) => ({ default: module.AdminAccountRecoveryPage })))
 
 const loading = (
   <Box sx={{ minHeight: '50vh', display: 'grid', placeItems: 'center' }}>
@@ -112,6 +113,7 @@ export const router = createBrowserRouter([
               { path: 'system-inventory', element: adminOnly(<SystemInventoryPage />) },
               { path: 'work-command-center', element: adminOnly(<WorkCommandCenterPage />) },
               { path: 'platform-control-center', element: platformOnly(<PlatformControlCenterPage />) },
+              { path: 'admin-account-recovery', element: adminOnly(<AdminAccountRecoveryPage />) },
               { path: 'my-profile', element: deferred(<MyProfilePage />) },
               { path: 'line-link', element: deferred(<LineAccountLinkPage />) },
               { path: 'mutation-attempt-center', element: adminOnly(<MutationAttemptCenterPage />) },
