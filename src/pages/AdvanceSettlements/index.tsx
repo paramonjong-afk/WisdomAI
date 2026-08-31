@@ -447,11 +447,20 @@ export function AdvanceSettlementsPage() {
   const filteredActionableRows = actionableRows.filter((row) => matchesDepartment(row, departmentFilter))
   const interimAdvanceRows = canonicalEmployeeMoneyEntries(employeeMoneyEntries).filter((entry) => entry.entry_type === 'advance_issued')
   const pendingInterimAdvanceRows = interimAdvanceRows.filter((entry) => entry.entry_status === 'matched_pending_review')
+  const hrPayrollAdvanceRows = interimAdvanceRows.filter((entry) => entry.entry_status === 'approved' && Boolean(entry.pay_period_id) && (entry.target_department === 'hr' || entry.current_room === 'hr_payroll_advance_queue'))
   const pendingEmployeeMoneyEntries = canonicalEmployeeMoneyEntries(employeeMoneyEntries)
     .filter((entry) => entry.entry_status === 'matched_pending_review')
     .sort((left, right) => new Date(right.transfer_at ?? right.created_at).getTime() - new Date(left.transfer_at ?? left.created_at).getTime())
-  const visibleInterimAdvanceRows = ['all', 'accounting', 'hr', 'needs_information'].includes(departmentFilter) ? pendingInterimAdvanceRows : []
-  const actionableCount = actionableRows.length + pendingInterimAdvanceRows.length
+  const visibleInterimAdvanceRows = departmentFilter === 'accounting'
+    ? pendingInterimAdvanceRows
+    : departmentFilter === 'hr'
+      ? hrPayrollAdvanceRows
+      : departmentFilter === 'needs_information'
+        ? pendingInterimAdvanceRows.filter((entry) => !entry.pay_period_id)
+        : departmentFilter === 'all'
+          ? [...pendingInterimAdvanceRows, ...hrPayrollAdvanceRows]
+          : []
+  const actionableCount = actionableRows.length + pendingInterimAdvanceRows.length + hrPayrollAdvanceRows.length
   const periodTotals = [...employeeMoneyPeriodRows.reduce((groups, row) => {
     const current = groups.get(row.pay_period_id) ?? { id: row.pay_period_id, name: row.pay_period_name, startsOn: row.pay_period_starts_on, endsOn: row.pay_period_ends_on, entryCount: 0, pendingCount: 0, total: 0 }
     current.entryCount += Number(row.advance_entry_count)
@@ -636,7 +645,7 @@ export function AdvanceSettlementsPage() {
           {([
             ['all', `ทั้งหมด ${actionableCount}`],
             ['accounting', `รอบัญชี ${actionableRows.filter((row) => matchesDepartment(row, 'accounting')).length + pendingInterimAdvanceRows.length}`],
-            ['hr', `รอ HR ${actionableRows.filter((row) => matchesDepartment(row, 'hr')).length + pendingInterimAdvanceRows.length}`],
+            ['hr', `รอ HR ${actionableRows.filter((row) => matchesDepartment(row, 'hr')).length + hrPayrollAdvanceRows.length}`],
             ['project_inventory', `รอโครงการ/คลัง ${actionableRows.filter((row) => matchesDepartment(row, 'project_inventory')).length}`],
             ['needs_information', `รอข้อมูล ${actionableRows.filter((row) => matchesDepartment(row, 'needs_information')).length + pendingInterimAdvanceRows.filter((entry) => !entry.pay_period_id).length}`],
           ] as [DepartmentFilter, string][]).map(([value, label]) => <Chip key={value} clickable color={departmentFilter === value ? 'primary' : 'default'} variant={departmentFilter === value ? 'filled' : 'outlined'} label={label} onClick={() => setDepartmentFilter(value)} />)}
@@ -644,8 +653,8 @@ export function AdvanceSettlementsPage() {
       </Paper>
       {visibleInterimAdvanceRows.length > 0 && <Paper variant="outlined" sx={{ p: 1.5 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' }, gap: 1, mb: 1 }}>
-          <Box><Typography sx={{ fontWeight: 800 }}>เงินเบิกล่วงหน้าระหว่างงวด</Typography><Typography variant="body2" color="text.secondary">ผูกพนักงานและงวดจากวันเวลาโอนจริง · หักเมื่อปิดงวด · ยอดผิดหลังยืนยันให้แก้ด้วย Adjustment โดยไม่ลบสลิปเดิม</Typography></Box>
-          <Chip color="info" label={`${visibleInterimAdvanceRows.length} รายการรอตรวจ · ${money(visibleInterimAdvanceRows.reduce((sum, entry) => sum + Number(entry.amount), 0))}`} />
+          <Box><Typography sx={{ fontWeight: 800 }}>เงินเบิกล่วงหน้าระหว่างงวด · บัญชี → HR/Payroll</Typography><Typography variant="body2" color="text.secondary">บัญชียืนยันยอดก่อน · เมื่อผูกงวดแล้วส่งห้อง HR/Payroll อัตโนมัติ · ใช้ Ledger และสลิปต้นฉบับชุดเดียว</Typography></Box>
+          <Chip color="info" label={`${visibleInterimAdvanceRows.length} รายการ · ${money(visibleInterimAdvanceRows.reduce((sum, entry) => sum + Number(entry.amount), 0))}`} />
         </Stack>
         {periodTotals.length > 0 && <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 1.5 }}>
           {periodTotals.map((period) => <Paper key={period.id} variant="outlined" sx={{ p: 1.25, flex: 1, minWidth: 240 }}><Typography variant="caption" color="text.secondary">{period.name}</Typography><Typography sx={{ fontWeight: 800 }}>{money(period.total)}</Typography><Typography variant="caption">{period.entryCount} รายการ · รอตรวจ {period.pendingCount}</Typography></Paper>)}
@@ -656,9 +665,9 @@ export function AdvanceSettlementsPage() {
           { id: 'recipient', label: 'ผู้รับเงินจริง', minWidth: 190, render: (entry) => entry.received_by_name ?? entry.recipient_name ?? '-' },
           { id: 'amount', label: 'ยอด', minWidth: 120, align: 'right', render: (entry) => money(Number(entry.amount)) },
           { id: 'period', label: 'งวดที่จะหัก', minWidth: 190, render: (entry) => entry.pay_period_name ? <Stack spacing={0.25}><Typography variant="body2">{entry.pay_period_name}</Typography><Typography variant="caption" color="success.main">{entry.pay_period_assignment_method === 'transfer_date_auto' ? 'ผูกอัตโนมัติจากวันที่โอน' : 'Admin เลือกรอบ'}</Typography></Stack> : <Chip size="small" color="warning" label="ยังไม่ผูกงวด" /> },
-          { id: 'department', label: 'แผนกปัจจุบัน', minWidth: 150, render: () => 'บัญชี + HR' },
-          { id: 'next', label: 'ขั้นตอนถัดไป', minWidth: 220, render: (entry) => entry.pay_period_id ? 'บัญชียืนยันยอด แล้ว HR นำไปหักเมื่อปิดงวด' : 'ผูกงวดก่อนส่งตรวจ' },
-          { id: 'status', label: 'สถานะ', minWidth: 150, render: (entry) => <Chip size="small" color="warning" label={entry.pay_period_id ? 'รอยืนยันยอดเบิก' : 'รอผูกงวด'} /> },
+          { id: 'department', label: 'ห้องปัจจุบัน', minWidth: 200, render: (entry) => entry.current_room === 'hr_payroll_advance_queue' || entry.target_department === 'hr' ? 'HR/Payroll · รอปิดงวด' : 'บัญชี · รอยืนยันยอด' },
+          { id: 'next', label: 'ขั้นตอนถัดไป', minWidth: 240, render: (entry) => entry.current_room === 'hr_payroll_advance_queue' || entry.target_department === 'hr' ? 'HR ตรวจงวดและหักเมื่อปิดงวด' : entry.pay_period_id ? 'บัญชียืนยันยอดเพื่อส่ง HR/Payroll' : 'ผูกงวดก่อนส่งตรวจ' },
+          { id: 'status', label: 'สถานะ', minWidth: 160, render: (entry) => <Chip size="small" color={entry.current_room === 'hr_payroll_advance_queue' || entry.target_department === 'hr' ? 'info' : 'warning'} label={entry.current_room === 'hr_payroll_advance_queue' || entry.target_department === 'hr' ? 'รอ HR ปิดงวด' : entry.pay_period_id ? 'รอบัญชียืนยัน' : 'รอผูกงวด'} /> },
         ]} />
       </Paper>}
       <AdvanceTreeTable rows={filteredActionableRows} onOpenQueue={openReviewQueue} />
