@@ -7,6 +7,9 @@ const panel = readFileSync('src/pages/ProjectControls/SalesExpensePanel.tsx', 'u
 const projectControls = readFileSync('src/pages/ProjectControls/index.tsx', 'utf8')
 const registry = readFileSync('src/pages/FlowRegistry/index.tsx', 'utf8')
 const flow = readFileSync('docs/SALES_EXPENSE_ACCOUNTING_FLOW.md', 'utf8')
+const runtimeSql = readFileSync('scripts/sql/sales-expense-accounting-runtime.test.sql', 'utf8')
+const runtimeWorkflow = readFileSync('.github/workflows/verify-sales-expense-accounting.yml', 'utf8')
+const runtimeRunner = readFileSync('scripts/sales-expense-postgres-runtime.test.mjs', 'utf8')
 
 assert.deepEqual(calculateSalesExpenseAmounts(10_000, 7, 2), {
   base: 10_000,
@@ -57,5 +60,13 @@ assert.match(projectControls, /<SalesExpensePanel/)
 assert.match(registry, /Sales Expense Accounting v1\.0/)
 assert.equal(flow.trimStart().startsWith('```mermaid'), true)
 assert.match(flow, /ไม่ Posting หรือจ่ายเงินอัตโนมัติ/)
+assert.match(runtimeSql, /runtime_maker_checker_failed/)
+assert.match(runtimeSql, /runtime_draft_not_balanced/)
+assert.match(runtimeSql, /runtime_direct_insert_privilege_not_revoked/)
+assert.match(runtimeSql, /rollback;/)
+assert.match(runtimeWorkflow, /postgres:17-alpine/)
+assert.match(runtimeWorkflow, /sales-expense-accounting-runtime\.test\.sql/)
+assert.match(runtimeWorkflow, /npm run test:sales-expense-postgres/)
+assert.match(runtimeRunner, /new PGlite\(\)/)
 
 console.log('sales expense accounting workflow tests passed')

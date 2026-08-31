@@ -42,6 +42,7 @@
     "test:accounting-dimensions": "node --experimental-strip-types scripts/accounting-document-dimensions.test.ts",
     "test:project-cost-accounting": "node --experimental-strip-types scripts/project-cost-accounting.test.ts",
     "test:sales-expense-accounting": "node --experimental-strip-types scripts/sales-expense-accounting.test.ts",
+    "test:sales-expense-postgres": "node scripts/sales-expense-postgres-runtime.test.mjs",
     "test:accounting-type-learning": "node --experimental-strip-types scripts/accounting-document-type-learning.test.ts",
     "test:accounting-preview-types": "node --experimental-strip-types scripts/accounting-document-preview-types.test.ts",
     "test:confirmed-type-correction": "node --experimental-strip-types scripts/confirmed-document-type-correction.test.ts",
@@ -186,6 +187,7 @@
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.13.2",
     "@types/react": "^19.2.17",

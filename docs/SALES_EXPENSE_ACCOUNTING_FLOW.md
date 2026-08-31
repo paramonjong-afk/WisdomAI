@@ -80,6 +80,8 @@ flowchart LR
 
 งานรุ่นนี้เป็น Local-first: ทดสอบ service/contract, typecheck, lint และ build ใน branch งานก่อน Migration ใด ๆ ห้าม Apply Production จากเครื่องพัฒนา การ Release ต้องผ่าน Git integration, migration review, backup/readiness gate และ authenticated runtime smoke ตาม `docs/RELEASE_INCIDENT_PLAYBOOK.md`
 
+เมื่อเครื่องพัฒนาไม่มี Docker ให้รัน `npm run test:sales-expense-postgres` เพื่อทดสอบ migration บน PostgreSQL WASM แบบชั่วคราว และใช้ `.github/workflows/verify-sales-expense-accounting.yml` ยืนยันซ้ำบน PostgreSQL 17 ชั่วคราวใน GitHub runner โดย workflow จะ apply เฉพาะ baseline contract และ migration นี้, รัน maker-checker/idempotency/accounting balance/Audit smoke แล้วทิ้งฐานข้อมูลพร้อม runner ห้ามเปลี่ยน workflow นี้ให้เชื่อม Supabase Production
+
 ## Rollback
 
 หยุดใช้หน้าใหม่ได้ด้วยการ rollback application revision โดยข้อมูลเดิมยังอยู่ หาก migration ถูกใช้ใน environment ทดสอบ ห้าม drop ตารางหรือคอลัมน์เพื่อ rollback; ให้ revoke execute ของ RPC ใหม่และซ่อน entry point ก่อน แล้วทำ forward migration หลังตรวจผลกระทบข้อมูลบัญชีร่าง
