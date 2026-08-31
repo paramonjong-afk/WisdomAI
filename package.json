@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "test:workforce": "node --experimental-strip-types scripts/workforce-calculation.test.ts",
     "test:auth-routing": "node --experimental-strip-types scripts/auth-routing.test.ts",
+    "test:admin-account-recovery": "node --experimental-strip-types scripts/admin-account-recovery.test.ts",
     "test:smart-entry": "node --experimental-strip-types scripts/smart-entry-routing.test.ts",
     "test:boq-import": "node --experimental-strip-types scripts/boq-import.test.ts",
     "test:line-quota": "node --experimental-strip-types scripts/line-quota.test.ts",

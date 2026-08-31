@@ -1,3 +1,20 @@
+```mermaid
+flowchart LR
+  A[ผู้ใช้ขอลิงก์จาก Login] --> B[Supabase Auth ส่งอีเมล]
+  B --> C[เปิด /reset-password]
+  C --> D{Recovery session ใช้ได้?}
+  D -->|ใช่| E[ตั้งรหัสใหม่และ Sign out]
+  D -->|ไม่| F[แจ้งขอลิงก์ใหม่]
+  G[Admin เปิดหน้ากู้คืนบัญชี] --> H[ค้นอีเมลและตรวจสถานะ]
+  H --> I{บัญชีถูกระงับ?}
+  I -->|ใช่| J[ระบุเหตุผลและยกเลิกการระงับ]
+  I -->|ไม่| K[ส่งอีเมล Reset]
+  J --> H
+  H --> K
+  J --> L[Audit กลาง]
+  K --> L
+```
+
 # AUTH PASSWORD RESET FLOW — Login / Reset Password
 
 ## วัตถุประสงค์
@@ -36,7 +53,8 @@ Flow นี้กำหนดเส้นทาง “ลืมรหัสผ�
 
 - ผู้ใช้ทั่วไปสามารถขอลิงก์ reset ได้จากหน้า Login
 - การเปลี่ยน password ต้องมี Supabase recovery session เท่านั้น
-- Admin reset password ให้พนักงานใช้ Flow แยกผ่าน `manage-employee-account` และ Audit กลาง
+- Admin เปิด `/admin-account-recovery` จากเมนู “บัญชีและตั้งค่า” เพื่อตรวจสถานะก่อน โดยยกเลิกการระงับและส่งลิงก์ใหม่เป็นคนละ Action
+- การยกเลิกการระงับและส่งลิงก์ใหม่ต้องมีเหตุผลและ Audit กลาง; ผู้ที่ไม่ใช่ Platform Admin ถูกปฏิเสธทั้งหน้าและ Edge Function
 
 ## Integrations
 
@@ -45,6 +63,7 @@ Flow นี้กำหนดเส้นทาง “ลืมรหัสผ�
   - `onAuthStateChange(PASSWORD_RECOVERY)`
   - `exchangeCodeForSession(code)` สำหรับ PKCE
   - `updateUser({ password })`
+  - Edge Function `admin-account-recovery`: `updateUserById(..., { ban_duration: 'none' })` และ `resetPasswordForEmail(...)` ฝั่ง Server; Service Role ไม่ออกไป Browser
 - Central Auth Security:
   - หน้า Login/Reset บันทึกเหตุการณ์สำคัญผ่าน `register_login_attempt(...)` โดยเก็บเฉพาะ email hash
   - `health-monitor` ตรวจ `auth_login_attempts` รอบ 15 นาทีล่าสุด และส่ง Telegram Admin alert ผ่านกติกา incident เดิม
@@ -57,6 +76,7 @@ Flow นี้กำหนดเส้นทาง “ลืมรหัสผ�
 - `access_denied`: แจ้งลิงก์ใช้ไม่ได้ ให้ขอลิงก์ใหม่
 - `over_email_send_rate_limit` / HTTP 429: แจ้งว่าขอลิงก์ถี่เกินไป ให้รอประมาณ 5-15 นาทีแล้วขอใหม่ ห้ามให้ผู้ใช้กดซ้ำต่อเนื่อง
 - `User is banned`: แจ้งว่าบัญชีถูกปิดใช้งาน ต้องให้ Admin เปิดใช้งานบัญชีก่อน reset password
+- Admin ต้องตรวจสถานะใหม่หลังยกเลิกการระงับ ก่อนส่งอีเมล; ปุ่มส่งถูกปิดระหว่างถูกระงับและทุกคำสั่งปิดซ้ำระหว่างประมวลผล
 - ไม่มี session หลังเปิดหน้า Reset: ปิดปุ่มบันทึกและให้กลับ Login เพื่อขอลิงก์ใหม่
 - Password ไม่ครบ 10 ตัวหรือยืนยันไม่ตรง: หยุดก่อนส่ง Supabase
 - ปัญหาสำคัญต้องถูกบันทึก `auth_login_attempts` เป็น failure reason ที่ขึ้นต้น `auth_warning:` หรือ `auth_critical:` แล้วให้ Health Monitor ส่ง Telegram ให้ Admin รับทราบ
@@ -72,3 +92,9 @@ Flow นี้กำหนดเส้นทาง “ลืมรหัสผ�
 
 - System/Auth owner
 - HR/Admin owner เฉพาะกรณี reset password ให้พนักงานผ่าน Admin account management
+
+## Change record
+
+| Version | Date | Rationale | Impact | Migration | Verification | Rollback |
+| --- | --- | --- | --- | --- | --- | --- |
+| v1.2 | 31/8/2569 | หน้า Admin มี route แต่ไม่มีเมนู และ Action เดิมสร้าง recovery link โดยไม่ได้ส่งอีเมลจริง | เพิ่มเมนู Admin, status gate, ส่งอีเมลจริง, redirect ไป Production app และ Audit | ไม่มี | contract test, typecheck, lint, build, Edge Function smoke และ authenticated page smoke | revert frontend/function เป็น v1.1; Audit เดิมคงอยู่และไม่มีการแก้ข้อมูลผู้ใช้ย้อนหลัง |

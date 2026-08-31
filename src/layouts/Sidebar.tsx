@@ -17,6 +17,7 @@ import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
 import RateReviewOutlinedIcon from '@mui/icons-material/RateReviewOutlined'
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded'
 import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined'
+import LockResetOutlinedIcon from '@mui/icons-material/LockResetOutlined'
 import { Avatar, Box, Divider, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography } from '@mui/material'
 import { NavLink } from 'react-router-dom'
 import { navigationGroups } from '../utils/navigation'
@@ -43,6 +44,7 @@ const navigationIcons:Record<string,React.ReactNode>={
   '/chat':<ChatBubbleOutlineOutlinedIcon/>,
   '/solar':<SolarPowerOutlinedIcon/>,'/my-profile':<AccountCircleOutlinedIcon/>,
   '/settings':<SettingsOutlinedIcon/>,
+  '/admin-account-recovery':<LockResetOutlinedIcon/>,
   '/platform-control-center':<HubOutlinedIcon/>,
   '/mutation-attempt-center':<HistoryOutlinedIcon/>,
   '/flow-registry':<HubOutlinedIcon/>,
