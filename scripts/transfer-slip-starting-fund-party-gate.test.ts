@@ -14,5 +14,8 @@ assert.match(migration, /on conflict\(event_key\) do nothing/)
 assert.match(migration, /revoke all on function public\.resolve_transfer_slip_starting_fund_parties_v1\(uuid,text,boolean\) from public,anon/)
 assert.match(page, /isStartingFund \? 'resolve_transfer_slip_starting_fund_parties_v1' : 'resolve_transfer_slip_advance_parties'/)
 assert.match(page, /payerName: isStartingFund \? effectiveLineageDraft\.payerName : holderName/)
+assert.match(page, /เงินส่วนตัวผู้โอน → ตั้งต้น\/เติมกองผู้รับ/)
+assert.match(page, /ตัวเลือกนี้ไม่ใช่เงินตั้งต้นใหม่/)
+assert.match(page, /setSlipAdvancePartyMatch\(null\)/)
 
 console.log('transfer slip starting-fund recipient-holder gate: PASS')
