@@ -58,7 +58,13 @@ export function calculateHolderRealtimeBalance(
     }))
     .sort((left, right) => (right.transferAt ?? '').localeCompare(left.transferAt ?? ''))
 
-  const incoming = movements.filter((movement) => movement.direction === 'incoming' && !movement.alreadyPosted && ['advance_transfer', 'onward_transfer'].includes(movement.purposeType ?? ''))
+  // Borrowed money is funding for the holder even when the allocation is a
+  // normal expense (for example materials), so it must remain visible as an
+  // incoming movement instead of making the holder look artificially negative.
+  const incoming = movements.filter((movement) => movement.direction === 'incoming' && !movement.alreadyPosted && (
+    ['advance_transfer', 'onward_transfer'].includes(movement.purposeType ?? '')
+    || movement.fundingSourceType === 'borrowed_funds'
+  ))
   const outgoing = movements.filter((movement) => movement.direction === 'outgoing' && !movement.alreadyPosted)
   const realtimeReceived = incoming.reduce((total, movement) => total + amount(movement.amount), 0)
   const realtimePaid = outgoing.reduce((total, movement) => total + amount(movement.amount), 0)

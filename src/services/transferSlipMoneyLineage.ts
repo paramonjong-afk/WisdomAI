@@ -144,6 +144,7 @@ export const validateMoneyLineage = (draft: MoneyLineageDraft, transferAmount: n
   if (draft.fundingSourceType === 'unknown') missing.push('แหล่งเงิน')
   if (draft.fundingSourceType === 'borrowed_funds' && !draft.loanLenderName.trim()) missing.push('ผู้ให้ยืม')
   if (draft.fundingSourceType === 'borrowed_funds' && !draft.loanDueDate) missing.push('กำหนดคืนเงินยืม')
+  if (draft.fundingSourceType === 'borrowed_funds' && !draft.fundingSourceReference.trim()) missing.push('เลขอ้างอิงรายการรับเงินยืม')
   if (moneyFundingSourceNeedsHolder(draft.fundingSourceType) && !draft.fundHolderName.trim()) missing.push('ผู้ถือเงิน')
   if (!draft.payerName.trim()) missing.push('ผู้จ่ายจริง')
   if (!draft.finalBeneficiaryName.trim()) missing.push('ผู้รับปลายทาง')
