@@ -1254,21 +1254,8 @@ export function AccountingDocumentsPage() {
       }
       const hasAdvanceAllocation = effectiveLineageDraft.allocations.some(allocation => allocation.purposeType === 'advance_transfer')
       const eventKey = `transfer-slip-money-lineage:${selectedSlip.itemId}:${crypto.randomUUID()}`
-      if (decision === 'confirm' && hasAdvanceAllocation) {
-        const partyResult = await supabase.rpc('resolve_transfer_slip_advance_parties', { target_item_id: selectedSlip.itemId, target_event_key: `${eventKey}:parties`, target_apply: true })
-        if (partyResult.error) throw partyResult.error
-        const raw = partyResult.data as Record<string, unknown>
-        const blockers = Array.isArray(raw.blockers) ? raw.blockers.map(String) : []
-        if (raw.ready !== true || blockers.length) throw new Error(blockers.join(' · ') || 'ยังเชื่อมผู้ถือเงินและพนักงานไม่ครบ')
-        const holderName = typeof raw.holder_name === 'string' ? raw.holder_name : effectiveLineageDraft.fundHolderName
-        const recipientName = typeof raw.recipient_name === 'string' ? raw.recipient_name : effectiveLineageDraft.finalBeneficiaryName
-        effectiveLineageDraft = { ...effectiveLineageDraft, fundingSourceType: 'reserve_fund', fundHolderName: holderName, payerName: holderName, finalBeneficiaryName: recipientName, responsibleName: recipientName, allocations: effectiveLineageDraft.allocations.map(allocation => ({ ...allocation, payeeName: recipientName, responsibleName: recipientName })) }
-        setSlipMoneyLineageDraft(effectiveLineageDraft)
-        setSlipAdvancePartyMatch({ applicable: true, ready: true, applied: true, blockers: [], holderName, recipientName, senderBankLinked: true, recipientBankLinked: true })
-      }
-      if (decision === 'confirm') { const validation = validateMoneyLineage(effectiveLineageDraft, amount); if (validation.missing.length || validation.errors.length) throw new Error([...validation.missing.map(value => `ขาด ${value}`), ...validation.errors].join(' · ')) }
+      if (decision === 'confirm' && !hasAdvanceAllocation) { const validation = validateMoneyLineage(effectiveLineageDraft, amount); if (validation.missing.length || validation.errors.length) throw new Error([...validation.missing.map(value => `ขาด ${value}`), ...validation.errors].join(' · ')) }
       const numericOrNull = (value: string) => value.trim() ? Number(value) : null
-      const legacyScope = legacyMoneyLineageScope(effectiveLineageDraft.allocations)
       const transferPayload = {
         sender_name: slipReviewDraft.senderName || null, sender_bank_name: slipReviewDraft.senderBankName || null,
         sender_account_last4: slipReviewDraft.senderAccountLast4 || null, recipient_name: slipReviewDraft.recipientName || null,
@@ -1276,19 +1263,22 @@ export function AccountingDocumentsPage() {
         amount_total: amount, transfer_at: slipReviewDraft.transferAt ? new Date(slipReviewDraft.transferAt).toISOString() : null,
         bank_reference: slipReviewDraft.bankReference || null,
       }
-      const lineagePayload = {
-        parent_lineage_id: effectiveLineageDraft.parentLineageId || null,
-        funding_source_type: effectiveLineageDraft.fundingSourceType, funding_source_reference: effectiveLineageDraft.fundingSourceReference || null,
-        fund_holder_name: effectiveLineageDraft.fundHolderName || null, payer_name: effectiveLineageDraft.payerName || null,
-        final_beneficiary_name: effectiveLineageDraft.finalBeneficiaryName || null,
-        project_id: legacyScope.projectId || null, site_id: legacyScope.siteId || null, responsible_name: effectiveLineageDraft.responsibleName || null,
-        starting_amount: numericOrNull(effectiveLineageDraft.startingAmount), paid_amount: amount,
-        returned_amount: numericOrNull(effectiveLineageDraft.returnedAmount) ?? 0,
-        remaining_amount: numericOrNull(effectiveLineageDraft.remainingAmount),
-        hops: effectiveLineageDraft.hops.map((hop, index) => ({ sequence: index + 1, from_party: hop.fromParty.trim(), to_party: hop.toParty.trim(), amount: numericOrNull(hop.amount), transferred_at: hop.transferredAt ? new Date(hop.transferredAt).toISOString() : null, note: hop.note.trim() || null })),
-        note: effectiveLineageDraft.note || slipReviewDraft.note || null,
+      const buildLineagePayload = () => {
+        const legacyScope = legacyMoneyLineageScope(effectiveLineageDraft.allocations)
+        return {
+          parent_lineage_id: effectiveLineageDraft.parentLineageId || null,
+          funding_source_type: effectiveLineageDraft.fundingSourceType, funding_source_reference: effectiveLineageDraft.fundingSourceReference || null,
+          fund_holder_name: effectiveLineageDraft.fundHolderName || null, payer_name: effectiveLineageDraft.payerName || null,
+          final_beneficiary_name: effectiveLineageDraft.finalBeneficiaryName || null,
+          project_id: legacyScope.projectId || null, site_id: legacyScope.siteId || null, responsible_name: effectiveLineageDraft.responsibleName || null,
+          starting_amount: numericOrNull(effectiveLineageDraft.startingAmount), paid_amount: amount,
+          returned_amount: numericOrNull(effectiveLineageDraft.returnedAmount) ?? 0,
+          remaining_amount: numericOrNull(effectiveLineageDraft.remainingAmount),
+          hops: effectiveLineageDraft.hops.map((hop, index) => ({ sequence: index + 1, from_party: hop.fromParty.trim(), to_party: hop.toParty.trim(), amount: numericOrNull(hop.amount), transferred_at: hop.transferredAt ? new Date(hop.transferredAt).toISOString() : null, note: hop.note.trim() || null })),
+          note: effectiveLineageDraft.note || slipReviewDraft.note || null,
+        }
       }
-      const allocationPayload = effectiveLineageDraft.allocations.map((allocation, index) => ({
+      const buildAllocationPayload = () => effectiveLineageDraft.allocations.map((allocation, index) => ({
         allocation_key: allocation.key, sequence: index + 1, purpose_type: allocation.purposeType,
         amount: numericOrNull(allocation.amount), project_id: allocation.projectId || null, site_id: allocation.siteId || null,
         payee_name: allocation.payeeName || null, responsible_name: allocation.responsibleName || null,
@@ -1308,7 +1298,7 @@ export function AccountingDocumentsPage() {
       const saveBase = async (baseDecision: 'draft' | 'confirm' | 'request_information', baseEventKey: string) => {
         const result = await supabase.rpc('review_transfer_slip_money_lineage_v2', {
           target_item_id: selectedSlip.itemId, target_event_key: baseEventKey, target_decision: baseDecision,
-          target_transfer: transferPayload, target_lineage: lineagePayload, target_allocations: allocationPayload,
+          target_transfer: transferPayload, target_lineage: buildLineagePayload(), target_allocations: buildAllocationPayload(),
         })
         if (result.error) throw result.error
         return result.data as { lineage_id?: string; route_status?: string; next_destination?: string; advance_case_id?: string | null } | null
@@ -1337,7 +1327,26 @@ export function AccountingDocumentsPage() {
       // record the verified vendor evidence, then confirm. The DB trigger blocks
       // a confirmed vendor allocation without that evidence row.
       let routeResult: { lineage_id?: string; route_status?: string; next_destination?: string; advance_case_id?: string | null } | null
-      if (hasVendorAllocations && decision === 'confirm') {
+      if (hasAdvanceAllocation && decision === 'confirm') {
+        // Persist the Admin's advance classification before resolving parties.
+        // The resolver intentionally rejects a transaction that is still classified as labor.
+        routeResult = await saveBase('draft', `${eventKey}:advance-classification-draft`)
+        if (!routeResult?.lineage_id) throw new Error('ไม่พบเส้นทางเงินหลังบันทึกประเภทเงินเบิกล่วงหน้า')
+        const partyResult = await supabase.rpc('resolve_transfer_slip_advance_parties', { target_item_id: selectedSlip.itemId, target_event_key: `${eventKey}:parties`, target_apply: true })
+        if (partyResult.error) throw partyResult.error
+        const raw = partyResult.data as Record<string, unknown>
+        const blockers = Array.isArray(raw.blockers) ? raw.blockers.map(String) : []
+        if (raw.ready !== true || blockers.length) throw new Error(blockers.join(' · ') || 'ยังเชื่อมผู้ถือเงินและพนักงานไม่ครบ')
+        const holderName = typeof raw.holder_name === 'string' ? raw.holder_name : effectiveLineageDraft.fundHolderName
+        const recipientName = typeof raw.recipient_name === 'string' ? raw.recipient_name : effectiveLineageDraft.finalBeneficiaryName
+        effectiveLineageDraft = { ...effectiveLineageDraft, fundingSourceType: 'reserve_fund', fundHolderName: holderName, payerName: holderName, finalBeneficiaryName: recipientName, responsibleName: recipientName, allocations: effectiveLineageDraft.allocations.map(allocation => ({ ...allocation, payeeName: recipientName, responsibleName: recipientName })) }
+        setSlipMoneyLineageDraft(effectiveLineageDraft)
+        setSlipAdvancePartyMatch({ applicable: true, ready: true, applied: true, blockers: [], holderName, recipientName, senderBankLinked: true, recipientBankLinked: true })
+        const validation = validateMoneyLineage(effectiveLineageDraft, amount)
+        if (validation.missing.length || validation.errors.length) throw new Error([...validation.missing.map(value => `ขาด ${value}`), ...validation.errors].join(' · '))
+        await savePaymentParties()
+        routeResult = await saveBase('confirm', eventKey)
+      } else if (hasVendorAllocations && decision === 'confirm') {
         routeResult = await saveBase('draft', `${eventKey}:draft`)
         if (!routeResult?.lineage_id) throw new Error('ไม่พบเส้นทางเงินหลังบันทึกฉบับร่าง')
         await savePaymentParties()

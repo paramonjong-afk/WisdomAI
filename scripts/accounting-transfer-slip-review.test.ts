@@ -12,6 +12,7 @@ for (const label of ['1. หลักฐานเดิมจากสลิป 
 assert.match(page, /transfer_slip_operational_truth_v1/)
 assert.match(page, /ห้ามนำไปลงบัญชีก่อนยืนยัน/)
 assert.match(page, /review_transfer_slip_money_lineage_v2/)
+assert.match(page, /saveBase\('draft', `\$\{eventKey\}:advance-classification-draft`\)[\s\S]*resolve_transfer_slip_advance_parties/)
 assert.match(page, /ให้ AI อ่านสลิปใหม่/)
 assert.match(page, /AI อ่านวันที่ผิด\/ว่างใหม่/)
 assert.match(page, /repair_invalid_dates: true/)
