@@ -168,6 +168,7 @@
     "verify:cloudflare-production": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-cloudflare-production.ps1",
     "test:cloudflare-deploy": "node --experimental-strip-types scripts/cloudflare-production-deploy.test.ts",
     "test:chunk-reload-recovery": "node --experimental-strip-types scripts/chunk-reload-recovery.test.ts",
+    "test:release-freshness": "node --experimental-strip-types scripts/release-freshness.test.ts",
     "test:runtime-data-source-guard": "node --experimental-strip-types scripts/runtime-data-source-guard.test.ts"
   },
   "dependencies": {

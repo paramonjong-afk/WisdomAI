@@ -6,12 +6,14 @@ import { AuthProvider } from './contexts/AuthContext'
 import { router } from './router'
 import { appTheme } from './theme'
 import { installChunkReloadRecovery } from './utils/lazyWithReload'
+import { installReleaseFreshnessGuard } from './utils/releaseFreshness'
 import { installRequestErrorCenterBridge } from './utils/request-center-bridge'
 
 import './index.css'
 
 installRequestErrorCenterBridge()
 installChunkReloadRecovery()
+installReleaseFreshnessGuard()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

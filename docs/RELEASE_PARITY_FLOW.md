@@ -15,6 +15,12 @@ flowchart TD
   H --> J[Use Vercel only or show retry]
   I --> K[User enters authenticated application]
   J --> K
+  K --> L[Release Freshness Guard reads release.json with no-store]
+  L --> M{Runtime revision equals manifest?}
+  M -->|Yes| N[Continue current workflow]
+  M -->|No| O[Add __release and replace current URL once]
+  O --> P2[Load current HTML and JavaScript bundle]
+  P2 --> L
 ```
 
 # Release Parity Flow
@@ -25,9 +31,9 @@ flowchart TD
 
 ## Inputs, outputs and states
 
-- **Inputs:** Git revision, Vite release metadata, `health-check.svg`, `release.js`, deployment result ของ Vercel และ Cloudflare
-- **Outputs:** การเลือก host ที่ปลอดภัย, revision ที่ตรวจแล้วใน Smart Entry, ป้าย `Vercel`/`Cloudflare` พร้อม revision บน Top Bar
-- **States:** `building`, `deployed`, `probing`, `current`, `stale`, `unknown`, `selected`, `blocked`
+- **Inputs:** Git revision, Vite release metadata, `health-check.svg`, `release.json`, `release.js`, deployment result ของ Vercel และ Cloudflare
+- **Outputs:** การเลือก host ที่ปลอดภัย, revision ที่ตรวจแล้วใน Smart Entry, ป้าย `Vercel`/`Cloudflare` พร้อม revision บน Top Bar และ JavaScript runtime ที่ตรง manifest
+- **States:** `building`, `deployed`, `probing`, `current`, `stale`, `unknown`, `selected`, `reloading`, `guarded`, `blocked`
 
 ## Roles and permissions
 
@@ -40,6 +46,7 @@ flowchart TD
 - Vite สร้าง `release.json` และ `release.js` พร้อม bundle ทุกครั้ง
 - Vercel รับ deployment จาก `main`; Cloudflare Pages ต้อง deploy artifact/revision เดียวกัน
 - `public/_headers` ป้องกัน Cloudflare cache ของ manifest เพื่อให้ Smart Entry เห็น revision ล่าสุด
+- Release Freshness Guard อ่าน `release.json` แบบ `no-store` เมื่อเริ่มแอป, กลับจาก bfcache, กลับมาออนไลน์ และเมื่อกลับเข้าหน้าหลังช่วงตรวจขั้นต่ำ
 
 ## Failure, retry and recovery
 
@@ -47,6 +54,8 @@ flowchart TD
 - ถ้า Cloudflare ไม่มี Release ID หรือ revision ไม่ตรง Vercel: สถานะ `stale`/`unknown`, ไม่ถูกเลือกอัตโนมัติและปิดลิงก์เลือกเอง
 - ถ้า Vercel ตอบได้แต่ Cloudflare stale: ใช้ Vercel เท่านั้น
 - ถ้าไม่มี host ที่ผ่านเงื่อนไข: แสดงปุ่มลองใหม่ ไม่ redirect วน และต้องแก้ deployment ก่อนเปิด fallback
+- ถ้า runtime revision ไม่ตรง manifest: ใส่ `__release=<revision>` แล้วใช้ `location.replace` เพื่อโหลด HTML/JavaScript ล่าสุด; `sessionStorage` จำกัดการ refresh ซ้ำของ revision เดียวภายใน 2 นาที
+- ถ้าอ่าน manifest ไม่ได้หรือ offline: ไม่บล็อก Login/งานที่กำลังทำ และตรวจใหม่เมื่อ online/visibility เปลี่ยนหรือถึงรอบถัดไป
 - การกู้คืนคือ deploy Cloudflare จาก commit เดียวกับ Vercel แล้วตรวจ `release.json` อีกครั้ง; ไม่ต้องเปลี่ยน database หรือข้อมูลธุรกิจ
 
 ## Cloudflare Production release path
@@ -61,7 +70,8 @@ flowchart TD
 
 ## Audit and owner
 
-- Smart Entry เก็บผลตรวจเฉพาะใน `sessionStorage`: เวลา, host, latency, revision, parity state และปลายทางที่เลือก
+- Smart Entry และ Freshness Guard เก็บผลตรวจ/refresh guard เฉพาะใน `sessionStorage`: เวลา, host, latency, revision, parity state และปลายทางที่เลือก
+- `session_start` และ `page_view` บันทึก `release_revision`/`release_host` เพื่อแยกปัญหา runtime เก่าโดยไม่เก็บชื่อไฟล์หรือข้อมูลธุรกิจ
 - ไม่มีการส่งข้อมูลส่วนบุคคลหรือ secret ออกไปในการตรวจ
 - **Owner:** Platform / Release Management Owner
 
@@ -73,3 +83,4 @@ flowchart TD
 | v1.1 | 23/8/2569 | ป้องกัน User Token ผ่าน verify แต่ deploy Pages ไม่ได้ และป้องกัน clean worktree build โดยไม่มี `.env` จนหน้าขาว | เพิ่มคำสั่ง deploy กลาง, Account Token/Pages preflight, environment/release/runtime gates | ไม่มี | contract test, lint, typecheck, build และ Cloudflare revision smoke | ใช้ revision ก่อนหน้าที่ผ่าน smoke test หรือ deploy commit เดิมผ่านคำสั่งกลาง; ไม่กระทบฐานข้อมูล |
 | v1.2 | 24/8/2569 | ยุติความสับสนจากการพยายามใช้ local credential ซ้ำ ทั้งที่ Production ใช้ Git Integration | กำหนด GitHub main/Git verification/Cloudflare Git Integration เป็นเส้นทางมาตรฐาน | ไม่มี | release playbook contract, GitHub workflow, Cloudflare revision และ authenticated runtime smoke | revert เอกสาร/contract และใช้ release revision ก่อนหน้า; ไม่กระทบข้อมูลธุรกิจ |
 | v1.3 | 26/8/2569 | ป้องกัน local artifact ข้ามค่ากลางของ Cloudflare | บังคับ Git Integration เป็นเส้นทางเดียวและเปลี่ยน deploy command เป็น revision verifier | ไม่มี | deployment contract, typecheck, lint, release revision smoke | rollback ไป Git-built deployment ก่อนหน้า; ไม่กระทบข้อมูลธุรกิจ |
+| v1.4 | 31/8/2569 | มือถือคง SPA runtime เก่าแม้ Production revision ใหม่ ทำให้ Attachment UI รุ่นใหม่ไม่ทำงาน | เพิ่ม Release Freshness Guard, cache-busted one-time replace และ revision telemetry | ไม่มี schema/data migration | release freshness/chunk recovery/attachment tests, typecheck, lint, build, revision parity และ authenticated mobile retry | revert guard/telemetry; ผู้ใช้ยังเปิด URL พร้อม `__release=<revision>` เพื่อกู้คืนได้และข้อมูลธุรกิจไม่ถูกเปลี่ยน |

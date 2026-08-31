@@ -86,10 +86,10 @@ const systemFlows = [
   },
   {
     title: 'Smart Entry / Auto Route',
-    version: 'Routing v1.1 · 23/8/2569',
+    version: 'Routing / Freshness v1.4 · 31/8/2569',
     icon: <AppsOutlinedIcon color="primary" />,
     summary: 'ลิงก์กลางสำหรับมือถือและคอม ตรวจ health และ revision ของ Vercel/Cloudflare ก่อนเลือกปลายทางที่เร็วที่สุดโดยไม่พาไปหน้าเก่า',
-    bullets: ['อ่านจาก docs/SMART_ENTRY_ROUTING_FLOW.md และ docs/RELEASE_PARITY_FLOW.md', 'Cloudflare ใช้ได้เฉพาะเมื่อ revision ตรง Vercel; ถ้าไม่ตรงจะปิด fallback ให้ชัดเจน', 'ถ้าไม่มีปลายทางที่ผ่านเงื่อนไข จะแสดงปุ่มลองใหม่โดยไม่ส่งข้อมูลบัญชี'],
+    bullets: ['อ่านจาก docs/SMART_ENTRY_ROUTING_FLOW.md และ docs/RELEASE_PARITY_FLOW.md', 'Cloudflare ใช้ได้เฉพาะเมื่อ revision ตรง Vercel; ถ้าไม่ตรงจะปิด fallback ให้ชัดเจน', 'ตัวแอปเทียบ runtime กับ release.json แบบ no-store และโหลด JavaScript ล่าสุดหนึ่งครั้งเมื่อ revision ไม่ตรง', 'ถ้า offline หรือ manifest ใช้ไม่ได้ จะไม่บล็อก Login/งานปัจจุบันและตรวจใหม่เมื่อกลับมาออนไลน์'],
     path: '/start.html',
     action: 'ทดสอบ Smart Entry',
   },
