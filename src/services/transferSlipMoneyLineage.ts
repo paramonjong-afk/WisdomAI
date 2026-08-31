@@ -113,7 +113,8 @@ export const moneyPurposeRoute = (purpose: MoneyPurpose, payrollKind: PayrollKin
     if (payrollKind === 'contract_labor') return { label: 'ค่าจ้างเหมาแรงงาน', route: 'บัญชี → HR/ค่าจ้างเหมา', departments: ['hr'] }
     return { label: 'เงินเดือน/ค่าแรง', route: 'บัญชี → HR/Payroll', departments: ['hr'] }
   }
-  if (purpose === 'advance_transfer' || purpose === 'onward_transfer') return { label: 'เงินสำรองจ่าย', route: 'บัญชี → เงินสำรองจ่าย', departments: [] }
+  if (purpose === 'advance_transfer') return { label: 'ตั้งต้น/เติมกองเงินผู้ถือเงิน', route: 'บัญชี → กองเงินผู้ถือเงิน', departments: [] }
+  if (purpose === 'onward_transfer') return { label: 'ส่งต่อเงินสำรองจ่าย', route: 'ผู้ถือเงิน → ผู้ถือเงิน', departments: [] }
   if (purpose === 'materials') return { label: 'ค่าวัสดุ', route: 'บัญชี → ต้นทุนโครงการ', departments: ['project'] }
   if (purpose === 'project_expense') return { label: 'ค่าใช้จ่ายโครงการ', route: 'บัญชี → โครงการ', departments: ['project'] }
   if (purpose === 'subcontractor') return { label: 'ผู้รับเหมา/ผู้รับเหมาช่วง', route: 'บัญชี → โครงการ', departments: ['project'] }

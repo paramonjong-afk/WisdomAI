@@ -34,9 +34,13 @@ const response = (body: unknown, status = 200) => Response.json(body, {
 const asNullableText = (value: unknown, maxLength: number) =>
   typeof value === 'string' && value.trim() ? value.trim().slice(0, maxLength) : null
 
-const lastFourDigits = (value: unknown) => {
-  const digits = typeof value === 'string' ? value.replace(/\D/g, '') : ''
-  return digits.length >= 4 ? digits.slice(-4) : null
+export const visibleAccountTail = (value: unknown) => {
+  const raw = typeof value === 'string' ? value.trim() : ''
+  const maskedTail = /[xX*•]+\D*(\d{3,4})\s*$/.exec(raw)?.[1]
+  if (maskedTail) return maskedTail
+  const digits = raw.replace(/\D/g, '')
+  if (digits.length >= 4) return digits.slice(-4)
+  return digits.length === 3 ? digits : null
 }
 
 const arrayBufferToBase64 = (bytes: ArrayBuffer) => {
@@ -52,6 +56,14 @@ const arrayBufferToBase64 = (bytes: ArrayBuffer) => {
 const normalizeTransferDate = (value: unknown) => {
   const text = asNullableText(value, 64)
   if (!text) return null
+  const thaiMonths: Record<string, number> = { 'ม.ค.': 1, 'ก.พ.': 2, 'มี.ค.': 3, 'เม.ย.': 4, 'พ.ค.': 5, 'มิ.ย.': 6, 'ก.ค.': 7, 'ส.ค.': 8, 'ก.ย.': 9, 'ต.ค.': 10, 'พ.ย.': 11, 'ธ.ค.': 12 }
+  const thaiDate = /^(\d{1,2})\s+(ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.)\s+(\d{2,4})\D+(\d{1,2}):(\d{2})/.exec(text)
+  if (thaiDate) {
+    const buddhistYear = Number(thaiDate[3]) < 100 ? 2500 + Number(thaiDate[3]) : Number(thaiDate[3])
+    const local = `${buddhistYear - 543}-${String(thaiMonths[thaiDate[2]]).padStart(2, '0')}-${String(Number(thaiDate[1])).padStart(2, '0')}T${String(Number(thaiDate[4])).padStart(2, '0')}:${thaiDate[5]}:00+07:00`
+    const parsedThai = Date.parse(local)
+    if (!Number.isNaN(parsedThai)) return new Date(parsedThai).toISOString()
+  }
   const buddhistYear = text.match(/\b(2[4-6]\d{2})\b/)
   const normalized = buddhistYear
     ? text.replace(buddhistYear[1], String(Number(buddhistYear[1]) - 543))
@@ -67,10 +79,10 @@ const normalizeTransferDate = (value: unknown) => {
 const normalizeParties = (raw: Record<string, unknown>): PaymentParties => ({
   sender_name: asNullableText(raw.sender_name, 240),
   sender_bank_name: asNullableText(raw.sender_bank_name, 120),
-  sender_account_last4: lastFourDigits(raw.sender_account_last4),
+  sender_account_last4: visibleAccountTail(raw.sender_account_last4),
   recipient_name: asNullableText(raw.recipient_name, 240),
   recipient_bank_name: asNullableText(raw.recipient_bank_name, 120),
-  recipient_account_last4: lastFourDigits(raw.recipient_account_last4),
+  recipient_account_last4: visibleAccountTail(raw.recipient_account_last4),
   transfer_at: normalizeTransferDate(raw.transfer_at),
   bank_reference: asNullableText(raw.bank_reference, 240),
   amount_total: Number.isFinite(Number(raw.amount_total)) && Number(raw.amount_total) >= 0 ? Number(raw.amount_total) : null,
