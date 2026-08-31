@@ -1,5 +1,31 @@
 # Flow Registry Update Protocol
 
+## 2026-08-31 — Web Chat Confirm-Before-Send Attachment v3.1
+
+```mermaid
+flowchart LR
+  A[กล้องในแอป / File System Picker / Drag Drop] --> B[Validation]
+  B --> C[Preview + ป้ายรอส่ง]
+  C -->|กดส่งรูป/ส่งไฟล์| D[Membership + Session]
+  C -->|ยกเลิก| X[ล้าง File โดยไม่เขียนข้อมูล]
+  C -->|เปลี่ยนห้อง| Y[ล้าง File ป้องกันส่งผิดห้อง]
+  D --> E[Private Storage]
+  E --> F[chat_messages]
+  F --> G[Preview ในห้อง + ส่งสำเร็จ]
+  D -->|ล้มเหลว| H[ป้ายส่งไม่สำเร็จ + ลองส่งอีกครั้ง]
+  E -->|ล้มเหลว| H
+```
+
+- **เหตุผล/หลักฐาน:** Android Production revision `b0d5a81` รับกล้องและ File System Picker สำเร็จจริง 3 รายการ (`camera` 1, `file_system` 2) ตั้งแต่ File → Storage → `chat_messages`; แต่ auto-send ทำให้ผู้ใช้ไม่เห็นจังหวะยืนยันและเข้าใจว่าไฟล์หาย จึงเปลี่ยนเป็น Preview ค้างรอผู้ใช้กดส่ง
+- **Input/Output/States:** selected → `ready`/รอส่ง → `uploading` → message recorded หรือ `failed`/ลองส่งอีกครั้ง; cancel และ room change ไม่เขียนข้อมูล
+- **Roles/Permissions:** คง login/company/room/membership และ owner-only เดิม; ปุ่มส่งเป็นจุดเริ่ม mutation ที่ชัดเจน และไฟล์ที่เลือกผูกกับ room id เพื่อกันส่งผิดห้อง
+- **Integrations:** กล้องในแอป, File System Picker, native fallback และ drag/drop ใช้ Preview เดียวกัน ก่อนต่อ Supabase Auth/private Storage/chat_messages/Realtime
+- **Failure/Retry:** validation ไม่ผ่านล้างไฟล์พร้อมเหตุผล; membership/session/Storage/message ล้มเหลวคง Preview พร้อมสถานะ failed; เปลี่ยนห้องล้างไฟล์ pending; message insert ล้มเหลวยัง cleanup object เดิม
+- **Audit/Owner:** เพิ่ม `chat_attachment_waiting_confirmation`; `send_started` เกิดเฉพาะเมื่อผู้ใช้กดส่ง; telemetry ไม่เก็บชื่อไฟล์ เจ้าของ Web Chat/Application Platform
+- **Impact/Migration/Legacy:** เปลี่ยนเฉพาะ UI/state; ไม่มี migration; รูป 3 รายการที่ auto-send สำเร็จก่อน v3.1 คงอยู่และไม่สร้างซ้ำ
+- **Verification:** attachment contract, Web Chat test, typecheck, lint, build, Production parity และ Android E2E selected → waiting_confirmation → send_started → message_recorded → image preview
+- **Rollback:** revert v3.1 เพื่อคืน auto-send; ไฟล์/ข้อความที่บันทึกสำเร็จแล้วไม่ถูกลบ
+
 ## 2026-08-31 — Web Chat In-App Camera + File System Picker v3.0
 
 ```mermaid

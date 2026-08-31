@@ -720,3 +720,28 @@ flowchart LR
 - Migration: ไม่มี; RLS, bucket, allow-list, company/room path และข้อมูลเดิมไม่เปลี่ยน
 - Verification: camera/file picker contract, typecheck, lint, build, Production revision parity และ Android E2E แยกทั้งถ่ายรูปกับเลือกรูป/ไฟล์
 - Rollback: revert v3.0 และ deploy ผ่าน Git integration; ไฟล์/ข้อความ/Audit ที่มีอยู่ไม่ถูกลบ
+
+### v3.1 — 31/8/2569
+
+```mermaid
+flowchart LR
+  A[เลือกหรือถ่ายรูป] --> B[Validation]
+  B --> C[Preview + รอส่ง]
+  C -->|กดส่ง| D[ตรวจ Membership + Session]
+  C -->|ยกเลิก/เปลี่ยนห้อง| X[ล้างไฟล์ ไม่สร้างข้อความ]
+  D --> E[Private Storage]
+  E --> F[chat_messages]
+  F --> G[รูปในห้อง]
+  D -->|ไม่ผ่าน| H[ส่งไม่สำเร็จ + Retry]
+  E -->|ไม่ผ่าน| H
+```
+
+- เหตุผล: Production `b0d5a81` พิสูจน์ว่ากล้องในแอปและ File System Picker ส่งสำเร็จครบ 3 รูป แต่ auto-send ไม่มีจุดยืนยันที่มองเห็นชัด ผู้ใช้จึงเข้าใจว่าไฟล์ไม่ค้างหรือไม่ถูกส่ง
+- Input/Output/States: เลือกไฟล์ → `ready` พร้อม Preview/ป้ายรอส่ง → ผู้ใช้กดส่ง → `uploading` → ส่งสำเร็จ หรือ `failed` พร้อมปุ่มลองส่งอีกครั้ง
+- ผลกระทบ UI: รูป/ไฟล์ทุกแหล่งไม่ auto-send; การ์ดรอส่งแสดง Preview, ขนาด, สถานะ, ปุ่ม `ส่งรูป/ส่งไฟล์`, ยกเลิก และ retry; ปุ่มกล้องเปลี่ยนจาก `ถ่ายและส่งรูป` เป็น `ใช้รูปนี้`
+- สิทธิ์/Integration: คง membership, session, RLS, private Storage และ message flow เดิม; pending File ผูก room id และถูกล้างเมื่อเปลี่ยนห้องเพื่อป้องกันส่งผิดปลายทาง
+- Failure/Retry: validation error ไม่สร้าง pending; membership/session/upload/message error คง Preview เป็น failed; message error cleanup Storage object เดิม
+- Audit/Owner: `chat_attachment_waiting_confirmation` หลัง Preview พร้อม และ `send_started` หลังผู้ใช้กดส่ง; owner คือ Web Chat/Application Platform
+- Migration/Legacy: ไม่มี migration; รูป auto-send ที่บันทึกก่อน v3.1 คงอยู่ ไม่ลบและไม่สร้างซ้ำ
+- Verification: contract, typecheck, lint, build, revision parity และ Android E2E ตั้งแต่ Preview รอส่งจนเห็นรูปในห้อง
+- Rollback: revert v3.1 กลับ auto-send; ข้อมูลที่ส่งแล้วไม่เปลี่ยน
