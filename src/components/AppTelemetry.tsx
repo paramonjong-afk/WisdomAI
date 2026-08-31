@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { releaseInfo } from '../lib/releaseInfo'
 import { logAppEvent, logPerformanceMetric, registerClientError, updateAppStatus } from '../lib/telemetry'
 
 export function AppTelemetry() {
@@ -12,11 +13,12 @@ export function AppTelemetry() {
     if (!user) return
     const profileId = user.id
     const path = location.pathname
+    const releaseMetadata = { release_revision: releaseInfo.revision, release_host: releaseInfo.host }
     if (startedFor.current !== profileId) {
       startedFor.current = profileId
-      void logAppEvent(profileId, { eventType: 'session_start', pagePath: path })
+      void logAppEvent(profileId, { eventType: 'session_start', pagePath: path, metadata: releaseMetadata })
     }
-    void logAppEvent(profileId, { eventType: 'page_view', pagePath: path })
+    void logAppEvent(profileId, { eventType: 'page_view', pagePath: path, metadata: releaseMetadata })
     void updateAppStatus(profileId, document.hidden ? 'away' : 'online', path)
   }, [location.pathname, user])
 

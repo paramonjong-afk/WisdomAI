@@ -17,6 +17,7 @@ import { supabase } from '../../lib/supabase'
 import { userError } from '../../utils/userError'
 import { getPasswordResetRedirectUrl } from '../../utils/authRedirect'
 import { registerAuthSecurityEvent } from '../../utils/authSecurityEvent'
+import { getLoginNavigationTarget } from '../../utils/authRouting'
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -57,11 +58,9 @@ export function LoginPage() {
       target_user_agent: navigator.userAgent,
     })
     const requested=(location.state as {from?:string}|null)?.from
-    // Let ProtectedRoute/AppLauncher resolve the effective company role after
-    // AuthContext finishes loading. The profile role read here is platform-level
-    // and may not match the active company role.
-    const safeDestination=requested?.startsWith('/')&&!requested.startsWith('//')?requested:'/'
-    navigate(safeDestination, { replace: true })
+    // A logout/session transition may remember the previous deep route. Mobile
+    // must still reopen the two-button launcher; desktop may restore that route.
+    navigate(getLoginNavigationTarget(requested), { replace: true })
   }
 
   const handleForgotPassword = async () => {

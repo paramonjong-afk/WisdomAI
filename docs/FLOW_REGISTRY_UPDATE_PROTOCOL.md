@@ -1,5 +1,24 @@
 # Flow Registry Update Protocol
 
+## 2026-08-31 — Mobile Fresh Login Launcher v1.10
+
+- **เหตุผล:** Logout จาก `/chat` อาจทำให้ ProtectedRoute จำ `from=/chat`; Login เดิมคืน path นี้ทันที จึงข้าม Launcher สองไอคอนบน Android
+- **Flow:** Logout/Session expiry → Login → ตรวจ device → มือถือบังคับ `/` Launcher → ผู้ใช้เลือก Web Chat หรือ ลงเวลา; Desktop ยังคืน safe internal requested path หรือให้ Launcher ส่งตาม role
+- **สิทธิ์/ข้อมูล:** ไม่เปลี่ยน Auth, role, route guard, company scope, unread หรือข้อมูลธุรกิจ; ปฏิเสธ external/protocol-relative redirect ตามเดิม
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** auth-routing contract สำหรับ remembered `/chat`/`time-tracking`, invalid redirect, typecheck, lint, build, revision parity และ authenticated Android logout/login
+- **Rollback:** revert `getLoginNavigationTarget` แล้วคืน safe requested route ทุก device; route/สิทธิ์/ข้อมูลเดิมคงอยู่
+
+## 2026-08-31 — Runtime Release Freshness Guard v1.4
+
+- **เหตุผล:** Android Login และเข้า `/chat` สำเร็จ แต่ไม่มี Attachment picker telemetry ของ Production revision ล่าสุด แสดงว่า browser/PWA ยังคง JavaScript SPA รุ่นเก่าในหน่วยความจำแม้ deploy สำเร็จ
+- **Flow:** เริ่ม/กลับเข้าแอป → อ่าน `release.json` แบบ no-store → เทียบ runtime revision → ตรงแล้วทำงานต่อ; ไม่ตรงให้เพิ่ม `__release` และ replace URL หนึ่งครั้ง → โหลด HTML/JavaScript ล่าสุด → ทำงาน/Attachment ต่อ
+- **สิทธิ์/ข้อมูล:** manifest เป็นข้อมูล public และไม่มี token/ข้อมูลบริษัท; telemetry เพิ่มเฉพาะ `release_revision`/`release_host`; ไม่แก้ Auth, RLS, Storage หรือข้อมูลธุรกิจ
+- **Failure/Retry:** offline/manifest error ไม่บล็อก Login หรือ workflow; retry เมื่อ online/visible/รอบถัดไป และใช้ session guard 2 นาทีป้องกัน reload วน
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** release freshness, chunk recovery และ attachment contract, typecheck, lint, build, Production revision parity และ authenticated Android telemetry/upload
+- **Rollback:** revert guard/telemetry; เปิด URL แบบ `?__release=<revision>` เพื่อบังคับ navigation ได้ และข้อมูลเดิมไม่ถูกกระทบ
+
 ## 2026-08-31 — Web Chat Native Mobile Picker v2.7
 
 - **เหตุผล:** Production Android เปิด `/chat` และอ่านห้องได้ แต่ attempt หลังเลือกไฟล์ไม่มีคำขอ `chat-attachments`; จุดขาดอยู่ก่อน membership/Storage ไม่ใช่ bucket/RLS
