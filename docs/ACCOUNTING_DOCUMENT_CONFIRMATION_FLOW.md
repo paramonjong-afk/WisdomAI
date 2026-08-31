@@ -35,7 +35,12 @@ flowchart TD
   M02 --> M1[ปิด Accounting task และสร้าง HR/Payroll task]
   C -->|วัสดุหนึ่งหรือหลาย Allocation| M2[ปิด Accounting task และสร้าง Inventory + Project task]
   C -->|โครงการ/ผู้รับเหมา/เดินทาง| M3[ปิด Accounting task และสร้าง Project task]
-  C -->|เงินเบิกล่วงหน้า/เงินสำรอง| M4{จับคู่ข้อมูล 2 ฝั่งได้หรือไม่}
+  C -->|เงินเบิกล่วงหน้า/เงินสำรอง| AF{แหล่งเงินเป็นกองเดิมหรือเงินตั้งต้น}
+  AF -->|บัญชีบริษัท/เงินส่วนตัวสำรองก่อน| SF{ผู้รับตรงทะเบียนผู้ถือเงิน 1 คน?}
+  SF -->|ตรงและบัญชีรับไม่ขัดแย้ง| SF1[เก็บผู้โอนเป็น Source Fact<br/>เชื่อมผู้รับกับ Holder + Bank + Audit]
+  SF1 --> M5
+  SF -->|ไม่พบ/หลายคน/บัญชีขัดแย้ง| QI
+  AF -->|กองเดิม/เงินเบิกล่วงหน้าเดิม| M4{จับคู่ข้อมูล 2 ฝั่งได้หรือไม่}
   M4 -->|ผู้โอนตรงผู้ถือเงิน 1 คน<br/>ผู้รับตรงพนักงาน 1 คน| M40[บันทึก Draft Classification<br/>expense type = advance + Audit]
   M40 --> M41[เชื่อมบัญชีทั้งสองฝั่ง<br/>บันทึก Alias + Party Link + Audit]
   M41 --> M5[สร้างบัญชีพักพนักงานและส่ง Advance Finance]
@@ -80,6 +85,7 @@ flowchart TD
 - Drawer แบ่ง 2 แท็บ: รูปต้นฉบับ/AI และตรวจแก้ข้อมูล; AI อ่านซ้ำด้วย `item_id` เดียวเท่านั้นและรักษา Flow บัญชีเดิม ส่วน Admin บันทึกผ่าน `review_transfer_slip_details` ซึ่งตรวจสิทธิ์/ข้อมูลบังคับและเขียน before/after Audit แบบ idempotent
 - เลขบัญชีที่สลิปปกปิดเก็บเฉพาะเลขท้ายที่มองเห็นจริง 3–4 หลัก พร้อมชื่อและธนาคาร ห้ามเติมเลขที่สี่เอง; การจับคู่ที่กำกวมยังค้าง Accounting Review และข้อมูล OCR เดิมไม่ถูกเขียนทับ
 - `ตั้งต้นกองเงิน/เติมกองให้ผู้ถือเงิน` คือวัตถุประสงค์ `advance_transfer` ส่วนแหล่งเงินยังต้องเลือกตามข้อเท็จจริง (`company_account`, กองเดิม หรือเงินส่วนตัวสำรองก่อน)
+- เมื่อแหล่งเงินเป็น `company_account` หรือ `personal_reimbursement` ระบบถือเป็นเงินตั้งต้น/เติมกอง: ผู้โอนเป็น Source Fact ไม่ต้องอยู่ทะเบียนผู้ถือเงิน ผู้รับต้องตรงผู้ถือเงินที่เปิดใช้งานหนึ่งรายและบัญชีรับต้องไม่ผูกกับบุคคลอื่น; Flow กองเดิมยังคงตรวจผู้โอนเป็นผู้ถือเงินและผู้รับเป็นพนักงานรายวัน
 - ก่อนเชื่อมคู่ผู้โอน/ผู้รับ ระบบบันทึก Draft Classification ผ่าน `classify_transfer_slip_advance_draft_v1`; RPC ตรวจ Allocation, กันซ้ำด้วย event key และบันทึก Audit แล้วจึงเรียก Party Resolver
 - Failure/retry: AI ล้มเหลวไม่แก้ routing และกดลองใหม่รายการเดิมได้; draft/ขอข้อมูลเพิ่มทำให้ Accounting task เป็น `recheck_required`; ยืนยันไม่ได้หากชื่อผู้โอน ผู้รับ ยอด หรือวันเวลาไม่ครบ
 - ปลายทางแรกของสลิปยังเป็นบัญชีเสมอ ส่วนป้าย `เบิกล่วงหน้า`/`ค่าแรง` แสดงเส้นทางต่อเมื่อมี evidence ใน candidate department หรือข้อมูลธุรกรรมเท่านั้น
@@ -100,6 +106,7 @@ flowchart TD
 
 | Version | Date | Rationale | Impact | Migration | Verification | Rollback |
 | --- | --- | --- | --- | --- | --- | --- |
+| v2.5 | 31/8/2569 | Starting-fund slip was incorrectly validated as holder-to-daily-worker transfer | Route company/personal starting funds through recipient-holder gate; preserve payer as source fact and link only the receiving holder account | `20260831064514_starting_fund_recipient_holder_gate.sql` | starting-fund/legacy/idempotency/security contracts, migration dry-run, typecheck/lint/build and authenticated Drawer smoke | Revoke v1 RPC and restore manual review; preserve source, party link, bank fact and Audit |
 | v2.4 | 31/8/2569 | Admin had to search again after selecting an unresolved holder movement | Accept exact Transaction review deep links, provide a safe return to the same holder context, and reject suspicious transfer dates from the auto-route gate | No migration or financial write | analysis/realtime contracts, typecheck, lint, build and authenticated round-trip smoke | Revert UI/helper commit; source Transaction, Allocation, destination and Audit remain unchanged |
 | v2.1 | 28/8/2569 | ป้องกันสลิปวัสดุที่เลือกโครงการแล้วถูก RPC รุ่นเก่ารายงานว่าขาด `project_id` | ซิงก์ project/site จาก Allocation แรกที่มีขอบเขตโครงการไปยัง legacy lineage payload โดย Allocation v2 ยังเป็น source of truth | ไม่มี | transfer lineage regression, typecheck, lint, build และ Accounting Drawer smoke | revert helper/payload mapping; Allocation และ Audit เดิมไม่เปลี่ยน |
 | v2.3 | 27/8/2569 | Transaction projection เดิมและ Allocation projection ที่ยืนยันแล้วทำให้ยอด 400 บาทถูกนับซ้ำ | Trigger Reverse projection เดิมแบบไม่ลบข้อมูล พร้อม replacement metadata/Ledger Audit; ซ่อมรายการเก่าเฉพาะ ID หลังตรวจเงื่อนไขครบ | `20260827004227_reconcile_employee_money_projection_scope.sql`, `20260827004553_fix_projection_reversal_contract.sql` | active count=1, Ledger/Flow Audit, trigger/constraint contract, test/typecheck/lint/build และ authenticated Advance smoke | ปิด Trigger; ใช้ Audit before_data คืนสถานะแถวเดิมเฉพาะเมื่อ Allocation ใหม่ถูก Reverse ก่อน ห้ามลบ Ledger/Audit |

@@ -52,7 +52,7 @@ type AccountingPendingSlip = TransferSlipQueueRow
 type SlipPreviewFile = { url: string; contentType: string | null; label: string }
 type SlipFlowEvent = { id: string; event_type: string; from_flow: string | null; to_flow: string | null; from_state: string | null; to_state: string | null; note: string | null; created_at: string }
 type SlipReviewDraft = { senderName: string; senderBankName: string; senderAccountLast4: string; senderPaymentMethod: PaymentMethod; senderAliasType: PaymentAliasType; senderAliasValue: string; recipientName: string; recipientBankName: string; recipientAccountLast4: string; recipientPaymentMethod: PaymentMethod; recipientAliasType: PaymentAliasType; recipientAliasValue: string; amount: string; transferAt: string; bankReference: string; note: string }
-type AdvancePartyMatch = { applicable: boolean; ready: boolean; applied: boolean; blockers: string[]; holderId?: string | null; holderName?: string | null; recipientProfileId?: string | null; recipientName?: string | null; senderBankLinked?: boolean; recipientBankLinked?: boolean }
+type AdvancePartyMatch = { applicable: boolean; ready: boolean; applied: boolean; blockers: string[]; holderId?: string | null; holderName?: string | null; recipientProfileId?: string | null; recipientName?: string | null; senderBankLinked?: boolean; recipientBankLinked?: boolean; startingFund?: boolean }
 const slipDraftFromRow = (row: AccountingPendingSlip): SlipReviewDraft => {
   const sender = emptyPaymentPartyDraft(row.senderBankName, row.senderAccountLast4)
   const recipient = emptyPaymentPartyDraft(row.recipientBankName, row.recipientAccountLast4)
@@ -1085,12 +1085,11 @@ export function AccountingDocumentsPage() {
     setSlipEvents([])
     setSlipDetailLoading(true)
     try {
-      const [previewResult, timelineResult, lineageResult, lineageOptionsResult, advancePartyResult, paymentPartyResult] = await Promise.all([
+      const [previewResult, timelineResult, lineageResult, lineageOptionsResult, paymentPartyResult] = await Promise.all([
         documentFlowGateway.preview(slip.itemId),
         documentFlowGateway.loadTimeline(slip.itemId),
         supabase.from('transfer_slip_money_lineages').select('id,root_lineage_id,parent_lineage_id,funding_source_type,funding_source_reference,fund_holder_name,payer_name,final_beneficiary_name,purpose_type,project_id,site_id,responsible_name,starting_amount,paid_amount,returned_amount,remaining_amount,hops,route_status,next_destination,route_note').eq('item_id', slip.itemId).maybeSingle(),
         supabase.from('transfer_slip_money_lineages').select('id,root_lineage_id,payer_name,final_beneficiary_name,paid_amount,updated_at,route_status').order('updated_at', { ascending: false }).limit(100),
-        suggestedPurpose === 'advance_transfer' ? supabase.rpc('resolve_transfer_slip_advance_parties', { target_item_id: slip.itemId, target_event_key: `transfer-slip-advance-party-preview:${slip.itemId}`, target_apply: false }) : Promise.resolve({ data: null, error: null }),
         slip.transactionId ? supabase.from('financial_transaction_party_links').select('party_role,payment_method,canonical_party_type,canonical_party_name,match_status,match_reason,master_payment_aliases(alias_type,masked_value,verification_status)').eq('financial_transaction_id', slip.transactionId) : Promise.resolve({ data: [], error: null }),
       ])
       if (requestId !== slipRequestRef.current) return
@@ -1113,7 +1112,20 @@ export function AccountingDocumentsPage() {
         const storedDraft = moneyLineageDraftFromStored(stored, allocations, matches)
         setSlipMoneyLineageDraft(applyMoneyFundingSource(storedDraft, storedDraft.fundingSourceType))
         setSlipMoneyLineageStatus({ routeStatus: stored.route_status, nextDestination: stored.next_destination })
-      } else if (!advancePartyResult.error && advancePartyResult.data) {
+        const hasAdvanceAllocation = allocations.some(allocation => allocation.purpose_type === 'advance_transfer')
+        if (hasAdvanceAllocation) {
+          const startingFund = ['company_account', 'personal_reimbursement'].includes(stored.funding_source_type)
+          const partyResult = await supabase.rpc(startingFund ? 'resolve_transfer_slip_starting_fund_parties_v1' : 'resolve_transfer_slip_advance_parties', { target_item_id: slip.itemId, target_event_key: `transfer-slip-advance-party-preview:${slip.itemId}`, target_apply: false })
+          if (partyResult.error) setError(current => current ?? `ตรวจการเชื่อมผู้ถือเงิน/พนักงานไม่สำเร็จ: ${userError(partyResult.error)}`)
+          else if (partyResult.data) {
+            const raw = partyResult.data as Record<string, unknown>
+            setSlipAdvancePartyMatch({ applicable: raw.applicable === true, ready: raw.ready === true, applied: raw.applied === true, blockers: Array.isArray(raw.blockers) ? raw.blockers.map(String) : [], holderId: typeof raw.holder_id === 'string' ? raw.holder_id : null, holderName: typeof raw.holder_name === 'string' ? raw.holder_name : null, recipientProfileId: typeof raw.recipient_profile_id === 'string' ? raw.recipient_profile_id : null, recipientName: typeof raw.recipient_name === 'string' ? raw.recipient_name : null, senderBankLinked: raw.sender_bank_linked === true, recipientBankLinked: raw.recipient_bank_linked === true, startingFund })
+          }
+        }
+      } else if (suggestedPurpose === 'advance_transfer') {
+        const advancePartyResult = await supabase.rpc('resolve_transfer_slip_advance_parties', { target_item_id: slip.itemId, target_event_key: `transfer-slip-advance-party-preview:${slip.itemId}`, target_apply: false })
+        if (advancePartyResult.error) setError(current => current ?? `ตรวจการเชื่อมผู้ถือเงิน/พนักงานไม่สำเร็จ: ${userError(advancePartyResult.error)}`)
+        else if (advancePartyResult.data) {
         const raw = advancePartyResult.data as Record<string, unknown>
         const match: AdvancePartyMatch = {
           applicable: raw.applicable === true, ready: raw.ready === true, applied: raw.applied === true,
@@ -1128,8 +1140,8 @@ export function AccountingDocumentsPage() {
         if (match.ready && match.holderName && match.recipientName) {
           setSlipMoneyLineageDraft(current => current && ({ ...current, fundingSourceType: 'reserve_fund', fundHolderName: match.holderName ?? '', payerName: match.holderName ?? current.payerName, finalBeneficiaryName: match.recipientName ?? current.finalBeneficiaryName, responsibleName: match.recipientName ?? current.responsibleName, allocations: current.allocations.map(allocation => ({ ...allocation, payeeName: match.recipientName ?? allocation.payeeName, responsibleName: match.recipientName ?? allocation.responsibleName })) }))
         }
+        }
       }
-      if (advancePartyResult.error) setError(current => current ?? `ตรวจการเชื่อมผู้ถือเงิน/พนักงานไม่สำเร็จ: ${userError(advancePartyResult.error)}`)
       if (paymentPartyResult.error && !/relation .* does not exist/i.test(paymentPartyResult.error.message)) setError(current => current ?? `โหลดช่องทางรับจ่ายไม่สำเร็จ: ${userError(paymentPartyResult.error)}`)
       else if (paymentPartyResult.data?.length) {
         const links = paymentPartyResult.data as unknown as StoredPaymentPartyLink[]
@@ -1258,6 +1270,7 @@ export function AccountingDocumentsPage() {
           : { ...allocation, costCategoryId: '', accountCode: '', accountName: '' }),
       }
       const hasAdvanceAllocation = effectiveLineageDraft.allocations.some(allocation => allocation.purposeType === 'advance_transfer')
+      const isStartingFund = hasAdvanceAllocation && ['company_account', 'personal_reimbursement'].includes(effectiveLineageDraft.fundingSourceType)
       const eventKey = `transfer-slip-money-lineage:${selectedSlip.itemId}:${crypto.randomUUID()}`
       if (decision === 'confirm' && !hasAdvanceAllocation) { const validation = validateMoneyLineage(effectiveLineageDraft, amount); if (validation.missing.length || validation.errors.length) throw new Error([...validation.missing.map(value => `ขาด ${value}`), ...validation.errors].join(' · ')) }
       const numericOrNull = (value: string) => value.trim() ? Number(value) : null
@@ -1342,14 +1355,14 @@ export function AccountingDocumentsPage() {
           target_event_key: `${eventKey}:advance-classification`,
         })
         if (classificationResult.error) throw classificationResult.error
-        const partyResult = await supabase.rpc('resolve_transfer_slip_advance_parties', { target_item_id: selectedSlip.itemId, target_event_key: `${eventKey}:parties`, target_apply: true })
+        const partyResult = await supabase.rpc(isStartingFund ? 'resolve_transfer_slip_starting_fund_parties_v1' : 'resolve_transfer_slip_advance_parties', { target_item_id: selectedSlip.itemId, target_event_key: `${eventKey}:parties`, target_apply: true })
         if (partyResult.error) throw partyResult.error
         const raw = partyResult.data as Record<string, unknown>
         const blockers = Array.isArray(raw.blockers) ? raw.blockers.map(String) : []
         if (raw.ready !== true || blockers.length) throw new Error(blockers.join(' · ') || 'ยังเชื่อมผู้ถือเงินและพนักงานไม่ครบ')
         const holderName = typeof raw.holder_name === 'string' ? raw.holder_name : effectiveLineageDraft.fundHolderName
         const recipientName = typeof raw.recipient_name === 'string' ? raw.recipient_name : effectiveLineageDraft.finalBeneficiaryName
-        effectiveLineageDraft = { ...effectiveLineageDraft, fundingSourceType: 'reserve_fund', fundHolderName: holderName, payerName: holderName, finalBeneficiaryName: recipientName, responsibleName: recipientName, allocations: effectiveLineageDraft.allocations.map(allocation => ({ ...allocation, payeeName: recipientName, responsibleName: recipientName })) }
+        effectiveLineageDraft = { ...effectiveLineageDraft, fundingSourceType: isStartingFund ? effectiveLineageDraft.fundingSourceType : 'reserve_fund', fundHolderName: holderName, payerName: isStartingFund ? effectiveLineageDraft.payerName : holderName, finalBeneficiaryName: recipientName, responsibleName: recipientName, allocations: effectiveLineageDraft.allocations.map(allocation => ({ ...allocation, payeeName: recipientName, responsibleName: recipientName })) }
         setSlipMoneyLineageDraft(effectiveLineageDraft)
         setSlipAdvancePartyMatch({ applicable: true, ready: true, applied: true, blockers: [], holderName, recipientName, senderBankLinked: true, recipientBankLinked: true })
         const validation = validateMoneyLineage(effectiveLineageDraft, amount)
@@ -1681,10 +1694,10 @@ export function AccountingDocumentsPage() {
           <Alert severity="info">ข้อมูลใช้งานจริงมีชุดเดียวจาก Canonical projection เท่านั้น รูปสลิปและค่าที่ AI อ่านเป็นหลักฐานอ้างอิง ไม่ใช่ข้อมูลธุรกิจและห้ามนำไปลงบัญชีก่อนยืนยัน ระบบเก็บ Source และ Audit เดิมเพื่อย้อนตรวจได้</Alert>
           {slipAnalysis && <TransferSlipAnalysisGateCard analysis={slipAnalysis} />}
           {slipAdvancePartyMatch?.applicable && <Paper variant="outlined" sx={{ p: 1.5, borderLeft: 4, borderLeftColor: slipAdvancePartyMatch.ready ? 'success.main' : 'warning.main' }}><Stack spacing={1}>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'center' } }}><Typography sx={{ fontWeight: 800, flex: 1 }}>ตรวจข้อมูล 2 ฝั่ง · เงินเบิกล่วงหน้า</Typography><Chip size="small" color={slipAdvancePartyMatch.ready ? 'success' : 'warning'} label={slipAdvancePartyMatch.applied ? 'เชื่อมและบันทึกแล้ว' : slipAdvancePartyMatch.ready ? 'พร้อมเชื่อมอัตโนมัติเมื่อยืนยัน' : 'ต้องแก้เฉพาะข้อมูลที่ขาด'} /></Stack>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'center' } }}><Typography sx={{ fontWeight: 800, flex: 1 }}>{slipAdvancePartyMatch.startingFund ? 'ตรวจผู้รับกองเงิน · ตั้งต้น/เติมกองผู้ถือเงิน' : 'ตรวจข้อมูล 2 ฝั่ง · เงินเบิกล่วงหน้า'}</Typography><Chip size="small" color={slipAdvancePartyMatch.ready ? 'success' : 'warning'} label={slipAdvancePartyMatch.applied ? 'เชื่อมและบันทึกแล้ว' : slipAdvancePartyMatch.ready ? 'พร้อมเชื่อมอัตโนมัติเมื่อยืนยัน' : 'ต้องแก้เฉพาะข้อมูลที่ขาด'} /></Stack>
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1 }}>
-              <Box><Typography variant="body2"><strong>ฝั่งผู้จ่าย/ผู้ถือเงิน:</strong> {slipAdvancePartyMatch.holderName ?? 'ยังจับคู่ไม่ได้'}</Typography><Typography variant="caption" color={slipAdvancePartyMatch.senderBankLinked ? 'success.main' : 'text.secondary'}>{slipAdvancePartyMatch.senderBankLinked ? 'บัญชีผู้โอนเชื่อมแล้ว' : 'จะเชื่อมบัญชีผู้โอนเมื่อยืนยัน'}</Typography></Box>
-              <Box><Typography variant="body2"><strong>ฝั่งผู้รับ/พนักงาน:</strong> {slipAdvancePartyMatch.recipientName ?? 'ยังจับคู่ไม่ได้'}</Typography><Typography variant="caption" color={slipAdvancePartyMatch.recipientBankLinked ? 'success.main' : 'text.secondary'}>{slipAdvancePartyMatch.recipientBankLinked ? 'บัญชีผู้รับเชื่อมแล้ว' : 'จะสร้างและเชื่อมบัญชีผู้รับเมื่อยืนยัน'}</Typography></Box>
+              <Box><Typography variant="body2"><strong>{slipAdvancePartyMatch.startingFund ? 'ผู้รับ/ผู้ถือกองเงิน:' : 'ฝั่งผู้จ่าย/ผู้ถือเงิน:'}</strong> {slipAdvancePartyMatch.holderName ?? 'ยังจับคู่ไม่ได้'}</Typography><Typography variant="caption" color={slipAdvancePartyMatch.startingFund ? 'text.secondary' : slipAdvancePartyMatch.senderBankLinked ? 'success.main' : 'text.secondary'}>{slipAdvancePartyMatch.startingFund ? 'ผู้โอนคงเป็นแหล่งเงินตามหลักฐาน ไม่บังคับเป็นผู้ถือเงิน' : slipAdvancePartyMatch.senderBankLinked ? 'บัญชีผู้โอนเชื่อมแล้ว' : 'จะเชื่อมบัญชีผู้โอนเมื่อยืนยัน'}</Typography></Box>
+              <Box><Typography variant="body2"><strong>{slipAdvancePartyMatch.startingFund ? 'บัญชีรับเงินของผู้ถือกอง:' : 'ฝั่งผู้รับ/พนักงาน:'}</strong> {slipAdvancePartyMatch.recipientName ?? 'ยังจับคู่ไม่ได้'}</Typography><Typography variant="caption" color={slipAdvancePartyMatch.recipientBankLinked ? 'success.main' : 'text.secondary'}>{slipAdvancePartyMatch.recipientBankLinked ? 'บัญชีผู้รับเชื่อมแล้ว' : 'จะสร้างและเชื่อมบัญชีผู้รับเมื่อยืนยัน'}</Typography></Box>
             </Box>
             {slipAdvancePartyMatch.blockers.length > 0 && <Alert severity="warning">{slipAdvancePartyMatch.blockers.join(' · ')}</Alert>}
             {slipAdvancePartyMatch.ready && !slipAdvancePartyMatch.applied && <Typography variant="caption" color="text.secondary">เมื่อกด “ยืนยันการจัดสรรและส่งปลายทาง” ระบบจะบันทึกการเชื่อมทั้งสองฝั่ง, Alias, บัญชีธนาคาร และ Audit ด้วย Transaction เดิมโดยไม่สร้างรายการซ้ำ</Typography>}
