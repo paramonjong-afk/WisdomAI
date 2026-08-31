@@ -241,7 +241,8 @@ flowchart LR
   D1 --> D2[ซิงก์ไอคอน PWA เมื่อ Badging API รองรับ]
   B --> E[กดไอคอนลงเวลา หรือ Web Chat]
   E --> F[เข้า module ภายใน Auth session เดิม]
-  G[แตะปุ่มแนบแบบ native label] --> G1[Android/iOS เปิด file picker]
+  G[แตะปุ่มแนบแบบ native label] --> G0[Pointer down ล้างค่าเดิมก่อน picker]
+  G0 --> G1[Android/iOS เปิด file picker โดย input click ไม่ล้างไฟล์]
   G1 --> G2[เลือกไฟล์และคง File handle ไว้จนอ่านเสร็จ]
   G2 --> H[แสดง Preview และเริ่มส่งอัตโนมัติ]
   H --> M[ตรวจสมาชิกห้องจากฐานข้อมูล]
@@ -256,12 +257,12 @@ flowchart LR
   K --> L[insert chat_messages แบบ file]
 ```
 
-- **Input:** `company_id`, `profile_id`, `chat_room_members.joined_at`, `chat_room_read_states`, `chat_messages.created_at/sender_profile_id/deleted_at`, ไฟล์จาก `<input type=file>` ที่เปิดผ่าน native label และ MIME/นามสกุลไฟล์
+- **Input:** `company_id`, `profile_id`, `chat_room_members.joined_at`, `chat_room_read_states`, `chat_messages.created_at/sender_profile_id/deleted_at`, ไฟล์จาก `<input type=file>` ที่เปิดผ่าน native label โดยล้างค่าเดิมใน pointer-down ก่อนเปิด picker และ MIME/นามสกุลไฟล์
 - **Output:** launcher icon สองรายการ, badge+ข้อความจำนวนค้าง, PWA app badge เมื่อรองรับ หรือ `chat_messages` แบบ file พร้อม signed URL สำหรับสมาชิกห้อง
 - **States:** `loading → ready|unread_error`; ไฟล์ `selected → validated → session_checked → uploaded → message_recorded|failed`; ถ้า session หมดอายุและ refresh ไม่สำเร็จจะคงไฟล์ไว้เพื่อ retry หลัง login ใหม่; HEIC/HEIF/AVIF/TIFF ถูก normalize ก่อนตรวจ allow-list
 - **Roles / Permission:** launcher ใช้ Auth session; unread query จำกัดบริษัท/ห้องตาม RLS; upload ใช้ `storage.objects` policy โดยสมาชิกบริษัทต้องเป็นสมาชิกห้อง และ company manager ใช้สิทธิ์ผู้จัดการตาม policy ที่มีอยู่; bucket ยังคง private
 - **Integrations:** `/` Application Launcher, `src/services/chatUnread.ts`, `src/services/appBadge.ts`, Supabase PostgREST/Realtime, Web Badging API, Storage bucket `chat-attachments`, `chat_messages` และ signed URL
-- **Failure / Retry:** unread อ่านไม่ได้ให้ล้างเลขที่อาจเก่าและ retry ทุก 30 วินาที/เมื่อมี Realtime insert/read-state update; OS ไม่รองรับหรือปฏิเสธ App Badge ให้ใช้ badgeภายในต่อ; file picker ล้างค่าก่อนเปิดเพื่อให้เลือกรูปเดิมซ้ำได้ แต่ไม่ล้างหลังเลือกจนกระทั่งส่งเสร็จ; MIME/ขนาดไม่ผ่านหยุดก่อน upload; ตรวจ `expires_at` และ refresh session ก่อน upload; ถ้า Storage ตอบ 401/RLS จะ refresh แล้วลอง upload ซ้ำหนึ่งครั้ง หาก refresh ไม่สำเร็จให้คงไฟล์ไว้และให้ login ใหม่
+- **Failure / Retry:** unread อ่านไม่ได้ให้ล้างเลขที่อาจเก่าและ retry ทุก 30 วินาที/เมื่อมี Realtime insert/read-state update; OS ไม่รองรับหรือปฏิเสธ App Badge ให้ใช้ badgeภายในต่อ; file picker ล้างค่าเดิมใน `pointerdown` ก่อน native picker เปิด และห้ามล้างใน input `click` หลัง picker กลับมา จึงเลือกรูปเดิมซ้ำได้โดยไม่ทำ File หายก่อน `change`; MIME/ขนาดไม่ผ่านหยุดก่อน upload; ตรวจ `expires_at` และ refresh session ก่อน upload; ถ้า Storage ตอบ 401/RLS จะ refresh แล้วลอง upload ซ้ำหนึ่งครั้ง หาก refresh ไม่สำเร็จให้คงไฟล์ไว้และให้ login ใหม่
 - **Audit events:** การเปลี่ยน route เป็น navigation event; client telemetry บันทึก `picker_opened → file_selected → send_started → message_recorded|membership/upload_failed` โดยไม่เก็บชื่อไฟล์; การส่งไฟล์อยู่ใน `chat_messages` และ mutation attempt `send-file-message`; ไม่บันทึกไฟล์ซ้ำเมื่อ insert ล้มเหลว
 - **Owner:** ผู้ใช้เป็น owner ของการเลือก module/แนบไฟล์; ทีมระบบเป็น owner ของ unread service, Storage allow-list, RLS และ cleanup path
 
@@ -640,3 +641,24 @@ flowchart LR
 - Migration: ไม่มี
 - Verification: mobile picker contract, attachment/Chat tests, typecheck, lint, build, Production revision และ authenticated Android upload smoke พร้อมตรวจ Storage/message/telemetry
 - Rollback: revert native-label/reset/telemetry patch; ข้อความและไฟล์ที่ส่งสำเร็จแล้วคงอยู่
+
+### v2.8 — 31/8/2569
+
+```mermaid
+flowchart LR
+  A[แตะไอคอนแนบไฟล์] --> B[Pointer down ล้าง selection เดิม]
+  B --> C[Native picker เปิด]
+  C --> D[ผู้ใช้เลือกรูป]
+  D --> E[Input change ได้ File]
+  E --> F[Preview + Membership + Session]
+  F --> G[Storage + chat_messages]
+  G --> H[แสดงรูปในห้อง]
+  C -->|ยกเลิก| I[ไม่สร้างไฟล์หรือข้อความ]
+```
+
+- เหตุผล: Android Production บันทึก `chat_attachment_picker_opened` ในห้องจริง แต่ไม่มี `chat_attachment_file_selected`, Storage object หรือ `chat_messages` แสดงว่า input `click` ล้างค่าหลัง native picker กลับมาก่อน `change` ได้รับ File
+- ผลกระทบ: ย้ายการล้าง selection เดิมไปที่ `pointerdown` ของ native label และถอด reset ออกจาก input `click`; auto-send, Preview, membership, session, private Storage, message insert และ retry เดิมไม่เปลี่ยน
+- สิทธิ์/ข้อมูล: ไม่เปลี่ยน RLS, สมาชิก, private bucket, allow-list, company/room path หรือข้อมูลเดิม; ยังคง telemetry โดยไม่เก็บชื่อไฟล์
+- Migration: ไม่มี
+- Verification: attachment contract, targeted ESLint, typecheck, lint, build, Production revision parity และ Android smoke ตั้งแต่ `picker_opened → file_selected → send_started → Storage → message_recorded → image preview`
+- Rollback: revert v2.8 เพื่อคืน reset ที่ input click; ไฟล์/ข้อความที่ส่งสำเร็จแล้วไม่ถูกลบ

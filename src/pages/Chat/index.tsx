@@ -2297,6 +2297,22 @@ export function ChatPage() {
     void sendFileMessage(file)
   }
 
+  const handleAttachmentPickerPointerDown = () => {
+    if (!canSend) return
+    // Android Chrome can dispatch the input click again after the native picker
+    // closes. Clear the old selection on pointer-down, before the picker opens,
+    // so that the returned File is still present when the change event runs.
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    if (activeProfileId) {
+      void logAppEvent(activeProfileId, {
+        eventType: 'page_view',
+        pagePath: '/chat',
+        message: 'chat_attachment_picker_opened',
+        metadata: { room_id: selectedRoom?.id ?? null },
+      }).catch(() => undefined)
+    }
+  }
+
   const resetDragState = () => {
     dragDepthRef.current = 0
     setIsDragActive(false)
@@ -3336,7 +3352,14 @@ export function ChatPage() {
                   </IconButton>
                   <Tooltip title="เลือกไฟล์ หรือ ลากไฟล์มาวางในพื้นที่แชต">
                     <span>
-                      <IconButton component="label" color="primary" disabled={!canSend} aria-label="เลือกไฟล์ หรือ ลากไฟล์มาวางในพื้นที่แชต" sx={{ minWidth: 44, minHeight: 44 }}>
+                      <IconButton
+                        component="label"
+                        color="primary"
+                        disabled={!canSend}
+                        aria-label="เลือกไฟล์ หรือ ลากไฟล์มาวางในพื้นที่แชต"
+                        onPointerDown={handleAttachmentPickerPointerDown}
+                        sx={{ minWidth: 44, minHeight: 44 }}
+                      >
                         <AttachFileOutlinedIcon />
                         <input
                           type="file"
@@ -3345,19 +3368,6 @@ export function ChatPage() {
                           aria-label="เลือกไฟล์แนบ"
                           style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', border: 0 }}
                           accept="image/*,.heic,.heif,.avif,.tif,.tiff,application/pdf,text/plain,.doc,.docx,.xls,.xlsx"
-                          onClick={(event) => {
-                            // Reset before opening the native picker so selecting the same
-                            // photo twice still emits change without detaching the chosen File.
-                            event.currentTarget.value = ''
-                            if (activeProfileId) {
-                              void logAppEvent(activeProfileId, {
-                                eventType: 'page_view',
-                                pagePath: '/chat',
-                                message: 'chat_attachment_picker_opened',
-                                metadata: { room_id: selectedRoom?.id ?? null },
-                              }).catch(() => undefined)
-                            }
-                          }}
                           onChange={(event) => {
                             const file = event.currentTarget.files?.[0] ?? null
                             handleAttachmentSelected(file)
