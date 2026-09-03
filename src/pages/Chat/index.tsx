@@ -45,6 +45,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
+import useMediaQuery from '@mui/material/useMediaQuery'
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
@@ -55,6 +56,11 @@ import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 import { userError } from '../../utils/userError'
 import { ensureProgramDevelopmentRoom } from '../../services/programDevelopmentGateway'
 import { ensureGeneralWorkRoom } from '../../services/generalWorkRoomGateway'
+import {
+  loadChatAttachmentDraft,
+  removeChatAttachmentDraft,
+  saveChatAttachmentDraft,
+} from '../../services/chatAttachmentDraft'
 import {
   applyOperationalAction as applyOperationalCoreAction,
   buildOperationalTaskCards,
@@ -118,6 +124,12 @@ type ChatMessage = {
 type MessageAttachmentUrlMap = Record<string, string>
 type UnreadCountMap = Record<string, number>
 type OnlineProfileMap = Record<string, boolean>
+type AttachmentSelectionSource = 'input' | 'change' | 'drop' | 'camera' | 'file_system'
+type PendingAttachmentStatus = 'ready' | 'uploading' | 'failed'
+type FileSystemFileHandleLike = { getFile: () => Promise<File> }
+type FilePickerWindow = Window & {
+  showOpenFilePicker?: (options?: { multiple?: boolean }) => Promise<FileSystemFileHandleLike[]>
+}
 type PresenceConnectionState = 'offline' | 'connecting' | 'online'
 type CallSignalType = 'call_invite' | 'call_accept' | 'call_reject' | 'call_busy' | 'offer' | 'answer' | 'ice_candidate' | 'hangup'
 type CallStatus = 'calling' | 'connecting' | 'connected'
@@ -458,6 +470,7 @@ const labelFromProfile = (profile: RoomMemberProfile | null | undefined, fallbac
 
 export function ChatPage() {
   usePageTitle('ห้องแชต')
+  const isMobile = useMediaQuery('(max-width:600px)')
   const navigate = useNavigate()
   const { user, profile, currentCompany } = useAuth()
   const companyId = currentCompany?.company_id
@@ -526,10 +539,18 @@ export function ChatPage() {
   const [voiceListening, setVoiceListening] = useState(false)
   const [pendingAttachment, setPendingAttachment] = useState<File | null>(null)
   const [pendingAttachmentPreviewUrl, setPendingAttachmentPreviewUrl] = useState('')
+  const [pendingAttachmentStatus, setPendingAttachmentStatus] = useState<PendingAttachmentStatus>('ready')
+  const [pendingAttachmentRoomId, setPendingAttachmentRoomId] = useState('')
   const [isDragActive, setIsDragActive] = useState(false)
+  const [attachmentSourceOpen, setAttachmentSourceOpen] = useState(false)
+  const [attachmentCameraOpen, setAttachmentCameraOpen] = useState(false)
+  const [attachmentCameraReady, setAttachmentCameraReady] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const lastHandledAttachmentSelectionRef = useRef('')
   const dragDepthRef = useRef(0)
   const messageBottomRef = useRef<HTMLDivElement | null>(null)
+  const attachmentCameraVideoRef = useRef<HTMLVideoElement | null>(null)
+  const attachmentCameraStreamRef = useRef<MediaStream | null>(null)
   const attendanceVideoRef = useRef<HTMLVideoElement | null>(null)
   const attendanceStreamRef = useRef<MediaStream | null>(null)
   const speechRecognitionRef = useRef<SpeechRecognitionLike | null>(null)
@@ -583,6 +604,24 @@ export function ChatPage() {
     ? `wisdomai-chat-room:${companyId}:${activeProfileId}`
     : ''
   const selectRoom = useCallback((roomId: string) => {
+    if (pendingAttachmentRoomId && pendingAttachmentRoomId !== roomId) {
+      if (companyId && activeProfileId) {
+        void removeChatAttachmentDraft({
+          companyId,
+          profileId: activeProfileId,
+          roomId: pendingAttachmentRoomId,
+        }).catch(() => undefined)
+      }
+      if (pendingAttachmentPreviewUrlRef.current && typeof URL !== 'undefined') {
+        URL.revokeObjectURL(pendingAttachmentPreviewUrlRef.current)
+      }
+      pendingAttachmentPreviewUrlRef.current = ''
+      setPendingAttachment(null)
+      setPendingAttachmentPreviewUrl('')
+      setPendingAttachmentStatus('ready')
+      setPendingAttachmentRoomId('')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
     selectedRoomIdRef.current = roomId
     setSelectedRoomId(roomId)
     if (!roomSelectionStorageKey || typeof window === 'undefined') return
@@ -591,7 +630,7 @@ export function ChatPage() {
     } catch {
       // Some private/mobile browser modes block sessionStorage; in-memory selection still works.
     }
-  }, [roomSelectionStorageKey])
+  }, [activeProfileId, companyId, pendingAttachmentRoomId, roomSelectionStorageKey])
   const canSend = !!selectedRoomId && !!selectedRoom && !!companyId && !!activeProfileId && !busy
     && (!isProgramDevelopmentRoom || isProgramDevelopmentOwner)
   const updatePendingAttachment = useCallback((file: File | null) => {
@@ -609,11 +648,27 @@ export function ChatPage() {
     setPendingAttachmentPreviewUrl(nextPreviewUrl)
   }, [])
 
+  const clearPendingAttachment = useCallback(() => {
+    if (companyId && activeProfileId && pendingAttachmentRoomId) {
+      void removeChatAttachmentDraft({
+        companyId,
+        profileId: activeProfileId,
+        roomId: pendingAttachmentRoomId,
+      }).catch(() => undefined)
+    }
+    updatePendingAttachment(null)
+    setPendingAttachmentStatus('ready')
+    setPendingAttachmentRoomId('')
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }, [activeProfileId, companyId, pendingAttachmentRoomId, updatePendingAttachment])
+
   useEffect(() => () => {
     if (pendingAttachmentPreviewUrlRef.current && typeof URL !== 'undefined') {
       URL.revokeObjectURL(pendingAttachmentPreviewUrlRef.current)
       pendingAttachmentPreviewUrlRef.current = ''
     }
+    attachmentCameraStreamRef.current?.getTracks().forEach((track) => track.stop())
+    attachmentCameraStreamRef.current = null
   }, [])
   const presenceLabel = presenceConnection === 'online'
     ? 'คุณออนไลน์'
@@ -735,6 +790,34 @@ export function ChatPage() {
     setNote(message)
     if (reset) setTimeout(() => setNote(''), 2400)
   }, [])
+
+  useEffect(() => {
+    if (!companyId || !activeProfileId || !selectedRoomId || pendingAttachment) return undefined
+    let cancelled = false
+    const roomId = selectedRoomId
+    void loadChatAttachmentDraft({ companyId, profileId: activeProfileId, roomId })
+      .then((file) => {
+        if (cancelled || !file || selectedRoomIdRef.current !== roomId) return
+        updatePendingAttachment(file)
+        setPendingAttachmentRoomId(roomId)
+        setPendingAttachmentStatus('ready')
+        setToast('กู้คืนรูปหรือไฟล์ที่รอส่งแล้ว กรุณาตรวจ Preview และกดส่ง')
+        void logAppEvent(activeProfileId, {
+          eventType: 'page_view',
+          pagePath: '/chat',
+          message: 'chat_attachment_draft_restored',
+          metadata: {
+            room_id: roomId,
+            file_size: file.size || 0,
+            content_type: getChatAttachmentContentType(file),
+          },
+        }).catch(() => undefined)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [activeProfileId, companyId, pendingAttachment, selectedRoomId, setToast, updatePendingAttachment])
 
   const actOperationalTask = useCallback((card: OperationalTaskCard, action: OperationalAction) => {
     if (!operationalLocalMode) {
@@ -2076,23 +2159,30 @@ export function ChatPage() {
     if (!selectedRoom || !currentCompany?.company_id || !activeProfileId) {
       setToast('ยังไม่พร้อมส่งไฟล์ กรุณาเลือกห้องและเข้าสู่ระบบใหม่อีกครั้ง')
       updatePendingAttachment(file)
+      setPendingAttachmentStatus('failed')
       if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+    if (pendingAttachmentRoomId && pendingAttachmentRoomId !== selectedRoom.id) {
+      setToast('ห้องสนทนาเปลี่ยนไปแล้ว กรุณาเลือกไฟล์ใหม่เพื่อป้องกันการส่งผิดห้อง')
+      clearPendingAttachment()
       return
     }
     if (file.size > maxChatAttachmentBytes) {
       setToast('ไฟล์ใหญ่เกิน 50 MB กรุณาเลือกรูปหรือไฟล์ที่เล็กลง')
-      updatePendingAttachment(null)
+      clearPendingAttachment()
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
     const contentType = getChatAttachmentContentType(file)
     if (!supportedChatAttachmentTypes.has(contentType)) {
       setToast('ไฟล์ชนิดนี้ยังไม่รองรับ กรุณาใช้รูป JPG, PNG, WebP, HEIC หรือ PDF')
-      updatePendingAttachment(null)
+      clearPendingAttachment()
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
     updatePendingAttachment(file)
+    setPendingAttachmentStatus('uploading')
     setBusy(true)
     setToast('กำลังตรวจสิทธิ์ห้องและเตรียมส่งไฟล์…')
     void logAppEvent(activeProfileId, {
@@ -2120,6 +2210,7 @@ export function ChatPage() {
         metadata: { room_id: selectedRoom.id },
       }).catch(() => undefined)
       setToast(userError(membershipError, 'ตรวจสิทธิ์สมาชิกห้องไม่สำเร็จ กรุณาลองใหม่'))
+      setPendingAttachmentStatus('failed')
       setBusy(false)
       return
     }
@@ -2132,6 +2223,7 @@ export function ChatPage() {
         metadata: { room_id: selectedRoom.id },
       }).catch(() => undefined)
       setToast('บัญชีนี้ยังไม่ได้เป็นสมาชิกห้อง กรุณาให้เจ้าของห้องเพิ่มสมาชิกก่อนส่งไฟล์')
+      setPendingAttachmentStatus('failed')
       setBusy(false)
       return
     }
@@ -2148,6 +2240,7 @@ export function ChatPage() {
     if (refreshError || !session?.access_token) {
       setToast('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ก่อนแนบไฟล์')
       updatePendingAttachment(file)
+      setPendingAttachmentStatus('failed')
       setBusy(false)
       return
     }
@@ -2174,6 +2267,7 @@ export function ChatPage() {
         if (uploadRefreshError || !refreshedSession.session?.access_token) {
           setToast('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ก่อนแนบไฟล์')
           updatePendingAttachment(file)
+          setPendingAttachmentStatus('failed')
           setBusy(false)
           return
         }
@@ -2204,12 +2298,14 @@ export function ChatPage() {
               : userError(uploadError, 'อัปโหลดไฟล์ไม่สำเร็จ กรุณาตรวจอินเทอร์เน็ตแล้วลองใหม่')
         setToast(message)
         updatePendingAttachment(file)
+        setPendingAttachmentStatus('failed')
         setBusy(false)
         return
       }
     } catch (error) {
       setToast(userError(error))
       updatePendingAttachment(file)
+      setPendingAttachmentStatus('failed')
       setBusy(false)
       return
     }
@@ -2240,7 +2336,7 @@ export function ChatPage() {
       })
       setBusy(false)
       setMessageText('')
-      updatePendingAttachment(null)
+      clearPendingAttachment()
       await loadMessages(selectedRoom.id)
       void logAppEvent(activeProfileId, {
         eventType: 'page_view',
@@ -2257,31 +2353,98 @@ export function ChatPage() {
     } catch (error) {
       await supabase.storage.from('chat-attachments').remove([objectPath])
       setToast(userError(error))
+      setPendingAttachmentStatus('failed')
       setBusy(false)
       return
     }
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  const handleAttachmentSelected = (file: File | null) => {
+  const handleAttachmentSelected = async (file: File | null, source: AttachmentSelectionSource) => {
+    const contentType = file ? getChatAttachmentContentType(file) : ''
+    if (activeProfileId) {
+      void logAppEvent(activeProfileId, {
+        eventType: 'page_view',
+        pagePath: '/chat',
+        message: 'chat_attachment_file_received',
+        metadata: {
+          room_id: selectedRoom?.id ?? null,
+          source,
+          file_present: Boolean(file),
+          file_size: file?.size ?? 0,
+          raw_content_type: file?.type.trim().toLowerCase() || null,
+          normalized_content_type: contentType || null,
+        },
+      }).catch(() => undefined)
+    }
     if (!file) return
     if (!canSend) {
+      if (activeProfileId) {
+        void logAppEvent(activeProfileId, {
+          eventType: 'client_error',
+          severity: 'warning',
+          pagePath: '/chat',
+          message: 'chat_attachment_selection_blocked',
+          metadata: { room_id: selectedRoom?.id ?? null, source, reason: 'not_ready' },
+        }).catch(() => undefined)
+      }
       setToast('กรุณาเลือกห้องและรอการเชื่อมต่อก่อนแนบไฟล์')
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
     if (file.size > maxChatAttachmentBytes) {
+      if (activeProfileId) {
+        void logAppEvent(activeProfileId, {
+          eventType: 'client_error',
+          severity: 'warning',
+          pagePath: '/chat',
+          message: 'chat_attachment_selection_blocked',
+          metadata: { room_id: selectedRoom?.id ?? null, source, reason: 'file_too_large', file_size: file.size },
+        }).catch(() => undefined)
+      }
       setToast('ไฟล์ใหญ่เกิน 50 MB กรุณาเลือกรูปหรือไฟล์ที่เล็กลง')
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
-    const contentType = getChatAttachmentContentType(file)
     if (!supportedChatAttachmentTypes.has(contentType)) {
+      if (activeProfileId) {
+        void logAppEvent(activeProfileId, {
+          eventType: 'client_error',
+          severity: 'warning',
+          pagePath: '/chat',
+          message: 'chat_attachment_selection_blocked',
+          metadata: {
+            room_id: selectedRoom?.id ?? null,
+            source,
+            reason: 'unsupported_type',
+            raw_content_type: file.type.trim().toLowerCase() || null,
+            normalized_content_type: contentType || null,
+          },
+        }).catch(() => undefined)
+      }
       setToast('ไฟล์ชนิดนี้ยังไม่รองรับ กรุณาใช้รูป JPG, PNG, WebP, HEIC หรือ PDF')
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
-    setToast(`กำลังส่ง ${file.name} อัตโนมัติ…`)
+    updatePendingAttachment(file)
+    const draftRoomId = selectedRoom?.id ?? ''
+    setPendingAttachmentRoomId(draftRoomId)
+    setPendingAttachmentStatus('ready')
+    let draftPersisted = false
+    if (companyId && activeProfileId && draftRoomId) {
+      try {
+        draftPersisted = await saveChatAttachmentDraft({
+          companyId,
+          profileId: activeProfileId,
+          roomId: draftRoomId,
+        }, file)
+      } catch {
+        draftPersisted = false
+      }
+    }
+    setToast(draftPersisted
+      ? 'เลือกรูปหรือไฟล์แล้ว กรุณาตรวจ Preview และกดส่ง'
+      : 'เลือกรูปแล้ว แต่เบราว์เซอร์พักไฟล์ไม่ได้ กรุณากดส่งก่อนออกจากหน้านี้')
     if (activeProfileId) {
       void logAppEvent(activeProfileId, {
         eventType: 'page_view',
@@ -2293,8 +2456,173 @@ export function ChatPage() {
           content_type: contentType,
         },
       }).catch(() => undefined)
+      void logAppEvent(activeProfileId, {
+        eventType: 'page_view',
+        pagePath: '/chat',
+        message: 'chat_attachment_waiting_confirmation',
+        metadata: {
+          room_id: selectedRoom?.id ?? null,
+          file_size: file.size || 0,
+          content_type: contentType,
+          draft_persisted: draftPersisted,
+        },
+      }).catch(() => undefined)
+      if (draftPersisted) {
+        void logAppEvent(activeProfileId, {
+          eventType: 'page_view',
+          pagePath: '/chat',
+          message: 'chat_attachment_draft_persisted',
+          metadata: {
+            room_id: selectedRoom?.id ?? null,
+            file_size: file.size || 0,
+            content_type: contentType,
+          },
+        }).catch(() => undefined)
+      }
     }
-    void sendFileMessage(file)
+  }
+
+  const handleAttachmentInputEvent = (input: HTMLInputElement, source: 'input' | 'change') => {
+    const file = input.files?.[0] ?? null
+    if (file) {
+      // Android Chrome can emit both input and change for one native picker
+      // result. Keep the first File and ignore only the duplicate DOM event.
+      const selectionKey = `${file.size}:${file.type}:${file.lastModified}`
+      if (lastHandledAttachmentSelectionRef.current === selectionKey) return
+      lastHandledAttachmentSelectionRef.current = selectionKey
+    }
+    void handleAttachmentSelected(file, source)
+  }
+
+  const handleAttachmentPickerPointerDown = () => {
+    if (!canSend) return
+    // Clear before the direct native input opens so choosing the same file again
+    // still emits an event. Never clear when the picker returns the File.
+    lastHandledAttachmentSelectionRef.current = ''
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    if (activeProfileId) {
+      void logAppEvent(activeProfileId, {
+        eventType: 'page_view',
+        pagePath: '/chat',
+        message: 'chat_attachment_picker_opened',
+        metadata: { room_id: selectedRoom?.id ?? null },
+      }).catch(() => undefined)
+    }
+  }
+
+  const openNativeAttachmentPicker = () => {
+    setAttachmentSourceOpen(false)
+    handleAttachmentPickerPointerDown()
+    fileInputRef.current?.click()
+  }
+
+  const openFileSystemAttachmentPicker = async () => {
+    if (!canSend) return
+    setAttachmentSourceOpen(false)
+    const picker = (window as FilePickerWindow).showOpenFilePicker
+    if (!picker) {
+      openNativeAttachmentPicker()
+      return
+    }
+    if (activeProfileId) {
+      void logAppEvent(activeProfileId, {
+        eventType: 'page_view',
+        pagePath: '/chat',
+        message: 'chat_attachment_picker_opened',
+        metadata: { room_id: selectedRoom?.id ?? null, picker_mode: 'file_system' },
+      }).catch(() => undefined)
+    }
+    try {
+      const handles = await picker.call(window, { multiple: false })
+      const file = handles[0] ? await handles[0].getFile() : null
+      await handleAttachmentSelected(file, 'file_system')
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return
+      if (activeProfileId) {
+        void logAppEvent(activeProfileId, {
+          eventType: 'client_error',
+          severity: 'warning',
+          pagePath: '/chat',
+          message: 'chat_attachment_selection_blocked',
+          metadata: { room_id: selectedRoom?.id ?? null, source: 'file_system', reason: 'picker_failed' },
+        }).catch(() => undefined)
+      }
+      setAttachmentSourceOpen(true)
+      setToast('ตัวเลือกไฟล์ของ Chrome ใช้งานไม่ได้ กรุณากด “เลือกไฟล์แบบสำรอง”', true)
+    }
+  }
+
+  const stopAttachmentCamera = () => {
+    attachmentCameraStreamRef.current?.getTracks().forEach((track) => track.stop())
+    attachmentCameraStreamRef.current = null
+    if (attachmentCameraVideoRef.current) attachmentCameraVideoRef.current.srcObject = null
+    setAttachmentCameraReady(false)
+    setAttachmentCameraOpen(false)
+  }
+
+  const startAttachmentCamera = async () => {
+    if (!canSend) return
+    setAttachmentSourceOpen(false)
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('อุปกรณ์หรือเบราว์เซอร์นี้ไม่รองรับกล้องในแอป')
+      setAttachmentCameraOpen(true)
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1600 }, height: { ideal: 1200 } },
+        audio: false,
+      })
+      attachmentCameraStreamRef.current = stream
+      if (!attachmentCameraVideoRef.current) throw new Error('ไม่พบหน้าต่างแสดงภาพจากกล้อง')
+      attachmentCameraVideoRef.current.srcObject = stream
+      await attachmentCameraVideoRef.current.play()
+      setAttachmentCameraReady(true)
+      if (activeProfileId) {
+        void logAppEvent(activeProfileId, {
+          eventType: 'page_view',
+          pagePath: '/chat',
+          message: 'chat_attachment_camera_ready',
+          metadata: { room_id: selectedRoom?.id ?? null },
+        }).catch(() => undefined)
+      }
+    } catch (error) {
+      stopAttachmentCamera()
+      if (activeProfileId) {
+        void logAppEvent(activeProfileId, {
+          eventType: 'client_error',
+          severity: 'warning',
+          pagePath: '/chat',
+          message: 'chat_attachment_selection_blocked',
+          metadata: { room_id: selectedRoom?.id ?? null, source: 'camera', reason: 'camera_unavailable' },
+        }).catch(() => undefined)
+      }
+      setToast(error instanceof Error ? `เปิดกล้องในแอปไม่ได้: ${userError(error)}` : 'เปิดกล้องในแอปไม่ได้', true)
+    }
+  }
+
+  const captureAttachmentPhoto = async () => {
+    const video = attachmentCameraVideoRef.current
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setToast('กล้องยังไม่พร้อม กรุณารอสักครู่', true)
+      return
+    }
+    const canvas = document.createElement('canvas')
+    const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight))
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale))
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale))
+    const context = canvas.getContext('2d')
+    if (!context) {
+      setToast('ไม่สามารถบันทึกภาพจากกล้องได้', true)
+      return
+    }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.82))
+    if (!blob) {
+      setToast('ไม่สามารถบันทึกภาพจากกล้องได้', true)
+      return
+    }
+    const file = new File([blob], `chat-photo-${Date.now()}.jpg`, { type: 'image/jpeg' })
+    stopAttachmentCamera()
+    await handleAttachmentSelected(file, 'camera')
   }
 
   const resetDragState = () => {
@@ -2337,7 +2665,7 @@ export function ChatPage() {
     const file = event.dataTransfer.files?.[0] ?? null
     if (!file) return
     if ((event.dataTransfer.files?.length ?? 0) > 1) setToast('แนบได้ครั้งละ 1 ไฟล์ ระบบจะใช้ไฟล์แรกที่เลือก')
-    handleAttachmentSelected(file)
+    void handleAttachmentSelected(file, 'drop')
   }
 
   const sendCurrentMessage = () => {
@@ -3266,42 +3594,71 @@ export function ChatPage() {
               <Divider />
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1, alignItems: { xs: 'stretch', sm: 'center' }, minWidth: 0 }}>
                 {pendingAttachment && (
-                  <Card variant="outlined" sx={{ mb: 0.75, bgcolor: 'action.hover' }}>
+                  <Card
+                    variant="outlined"
+                    sx={{
+                      mb: 0.75,
+                      width: { xs: '100%', sm: 360 },
+                      bgcolor: 'action.hover',
+                      borderColor: pendingAttachmentStatus === 'failed' ? 'error.main' : 'warning.main',
+                    }}
+                  >
                     <CardContent sx={{ py: 0.75, px: 1, '&:last-child': { pb: 0.75 } }}>
-                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
-                        {pendingAttachmentPreviewUrl ? (
-                          <Box
-                            component="img"
-                            src={pendingAttachmentPreviewUrl}
-                            alt={`รูปที่กำลังส่ง ${pendingAttachment.name}`}
-                            sx={{ width: 64, height: 64, borderRadius: 1.25, objectFit: 'cover', flexShrink: 0, border: '1px solid', borderColor: 'divider' }}
-                          />
-                        ) : (
-                          <AttachFileOutlinedIcon color="primary" fontSize="small" />
-                        )}
-                        <Box sx={{ minWidth: 0, flex: 1 }}>
-                          <Typography variant="body2" noWrap sx={{ fontWeight: 700 }}>
-                            {pendingAttachment.name}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {busy ? 'กำลังตรวจสิทธิ์และอัปโหลด' : 'ส่งไม่สำเร็จ · กดลองส่งอีกครั้ง'} · {Math.ceil(pendingAttachment.size / 1024).toLocaleString('th-TH')} KB
-                          </Typography>
-                        </Box>
-                        {busy ? (
-                          <CircularProgress size={22} aria-label="กำลังอัปโหลดไฟล์" />
-                        ) : (
-                          <Button size="small" variant="outlined" onClick={() => void sendFileMessage(pendingAttachment)}>
-                            ลองส่งอีกครั้ง
-                          </Button>
-                        )}
-                        <IconButton
-                          size="small"
-                          onClick={() => updatePendingAttachment(null)}
-                          disabled={busy}
-                          aria-label="ยกเลิกไฟล์ที่เลือก"
-                        >
-                          <CloseOutlinedIcon fontSize="small" />
-                        </IconButton>
+                      <Stack spacing={1} sx={{ minWidth: 0 }}>
+                        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
+                          {pendingAttachmentPreviewUrl ? (
+                            <Box
+                              component="img"
+                              src={pendingAttachmentPreviewUrl}
+                              alt={`รูปที่รอส่ง ${pendingAttachment.name}`}
+                              sx={{ width: 76, height: 76, borderRadius: 1.25, objectFit: 'cover', flexShrink: 0, border: '1px solid', borderColor: 'divider' }}
+                            />
+                          ) : (
+                            <AttachFileOutlinedIcon color="primary" fontSize="small" />
+                          )}
+                          <Box sx={{ minWidth: 0, flex: 1 }}>
+                            <Chip
+                              size="small"
+                              color={pendingAttachmentStatus === 'failed' ? 'error' : pendingAttachmentStatus === 'uploading' ? 'info' : 'warning'}
+                              label={pendingAttachmentStatus === 'failed' ? 'ส่งไม่สำเร็จ' : pendingAttachmentStatus === 'uploading' ? 'กำลังส่ง' : 'รอส่ง'}
+                              sx={{ mb: 0.5 }}
+                            />
+                            <Typography variant="body2" noWrap sx={{ fontWeight: 700 }}>
+                              {pendingAttachment.name}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {pendingAttachmentStatus === 'failed'
+                                ? 'ตรวจสอบแล้วกดลองส่งอีกครั้ง'
+                                : pendingAttachmentStatus === 'uploading'
+                                  ? 'กำลังตรวจสิทธิ์และอัปโหลด'
+                                  : 'ตรวจ Preview แล้วกดส่ง'} · {Math.ceil(pendingAttachment.size / 1024).toLocaleString('th-TH')} KB
+                            </Typography>
+                          </Box>
+                        </Stack>
+                        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end', alignItems: 'center' }}>
+                          {pendingAttachmentStatus === 'uploading' ? (
+                            <CircularProgress size={22} aria-label="กำลังอัปโหลดไฟล์" />
+                          ) : (
+                            <Button
+                              size="small"
+                              variant="contained"
+                              onClick={() => void sendFileMessage(pendingAttachment)}
+                              disabled={busy}
+                            >
+                              {pendingAttachmentStatus === 'failed'
+                                ? 'ลองส่งอีกครั้ง'
+                                : pendingAttachmentPreviewUrl ? 'ส่งรูป' : 'ส่งไฟล์'}
+                            </Button>
+                          )}
+                          <IconButton
+                            size="small"
+                            onClick={clearPendingAttachment}
+                            disabled={pendingAttachmentStatus === 'uploading'}
+                            aria-label="ยกเลิกไฟล์ที่เลือก"
+                          >
+                            <CloseOutlinedIcon fontSize="small" />
+                          </IconButton>
+                        </Stack>
                       </Stack>
                     </CardContent>
                   </Card>
@@ -3335,37 +3692,26 @@ export function ChatPage() {
                     <KeyboardVoiceOutlinedIcon />
                   </IconButton>
                   <Tooltip title="เลือกไฟล์ หรือ ลากไฟล์มาวางในพื้นที่แชต">
-                    <span>
-                      <IconButton component="label" color="primary" disabled={!canSend} aria-label="เลือกไฟล์ หรือ ลากไฟล์มาวางในพื้นที่แชต" sx={{ minWidth: 44, minHeight: 44 }}>
-                        <AttachFileOutlinedIcon />
-                        <input
-                          type="file"
-                          ref={fileInputRef}
-                          disabled={!canSend}
-                          aria-label="เลือกไฟล์แนบ"
-                          style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', border: 0 }}
-                          accept="image/*,.heic,.heif,.avif,.tif,.tiff,application/pdf,text/plain,.doc,.docx,.xls,.xlsx"
-                          onClick={(event) => {
-                            // Reset before opening the native picker so selecting the same
-                            // photo twice still emits change without detaching the chosen File.
-                            event.currentTarget.value = ''
-                            if (activeProfileId) {
-                              void logAppEvent(activeProfileId, {
-                                eventType: 'page_view',
-                                pagePath: '/chat',
-                                message: 'chat_attachment_picker_opened',
-                                metadata: { room_id: selectedRoom?.id ?? null },
-                              }).catch(() => undefined)
-                            }
-                          }}
-                          onChange={(event) => {
-                            const file = event.currentTarget.files?.[0] ?? null
-                            handleAttachmentSelected(file)
-                          }}
-                        />
-                      </IconButton>
-                    </span>
+                    <IconButton
+                      color="primary"
+                      disabled={!canSend}
+                      aria-label="แนบรูปหรือไฟล์"
+                      onClick={() => setAttachmentSourceOpen(true)}
+                      sx={{ minWidth: 44, minHeight: 44 }}
+                    >
+                      <AttachFileOutlinedIcon />
+                    </IconButton>
                   </Tooltip>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    disabled={!canSend}
+                    aria-label="เลือกไฟล์แบบสำรอง"
+                    style={{ display: 'none' }}
+                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/avif,image/tiff,application/pdf,text/plain,.doc,.docx,.xls,.xlsx"
+                    onInput={(event) => handleAttachmentInputEvent(event.currentTarget, 'input')}
+                    onChange={(event) => handleAttachmentInputEvent(event.currentTarget, 'change')}
+                  />
                   <Button
                     size="medium"
                     variant="contained"
@@ -3382,6 +3728,85 @@ export function ChatPage() {
           )}
         </Paper>
       </Box>
+
+      <Dialog
+        open={attachmentSourceOpen}
+        onClose={() => setAttachmentSourceOpen(false)}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>แนบรูปหรือไฟล์</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+            <Alert severity="info">บนมือถือแนะนำให้ถ่ายรูปในแอป เพื่อไม่ให้ Chrome โหลดหน้า Chat ใหม่</Alert>
+            <Button
+              variant="contained"
+              startIcon={<CameraAltOutlinedIcon />}
+              onClick={() => void startAttachmentCamera()}
+              disabled={!canSend}
+              sx={{ minHeight: 48 }}
+            >
+              ถ่ายรูปในแอป
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<AttachFileOutlinedIcon />}
+              onClick={() => void openFileSystemAttachmentPicker()}
+              disabled={!canSend}
+              sx={{ minHeight: 48 }}
+            >
+              เลือกรูปหรือไฟล์
+            </Button>
+            <Button
+              variant="text"
+              onClick={openNativeAttachmentPicker}
+              disabled={!canSend}
+              sx={{ minHeight: 44 }}
+            >
+              เลือกไฟล์แบบสำรอง
+            </Button>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAttachmentSourceOpen(false)}>ยกเลิก</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={attachmentCameraOpen}
+        onClose={stopAttachmentCamera}
+        fullWidth
+        maxWidth="sm"
+        fullScreen={isMobile}
+      >
+        <DialogTitle>ถ่ายรูปแนบใน Web Chat</DialogTitle>
+        <DialogContent sx={{ px: { xs: 1.5, sm: 3 } }}>
+          <Stack spacing={1.25}>
+            <Box sx={{ borderRadius: 2, overflow: 'hidden', bgcolor: 'common.black', minHeight: { xs: 280, sm: 360 } }}>
+              <video
+                ref={attachmentCameraVideoRef}
+                autoPlay
+                muted
+                playsInline
+                style={{ display: 'block', width: '100%', height: '100%', minHeight: 280, objectFit: 'cover' }}
+              />
+            </Box>
+            {!attachmentCameraReady && <Alert severity="info">กำลังเปิดกล้อง… กรุณาอนุญาตการใช้กล้อง</Alert>}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: { xs: 1.5, sm: 3 }, pb: 2, gap: 1 }}>
+          <Button onClick={stopAttachmentCamera} sx={{ minHeight: 44 }}>ยกเลิก</Button>
+          <Button
+            variant="contained"
+            startIcon={<CameraAltOutlinedIcon />}
+            onClick={() => void captureAttachmentPhoto()}
+            disabled={!attachmentCameraReady || !canSend}
+            sx={{ minHeight: 48 }}
+          >
+            ใช้รูปนี้
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={Boolean(developmentResultTask)} onClose={() => setDevelopmentResultTask(null)} fullWidth maxWidth="sm">
         <DialogTitle>ผลลัพธ์งานพัฒนา {developmentResultTask?.task_code ?? ''}</DialogTitle>

@@ -1,12 +1,15 @@
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined'
-import { AppBar, Avatar, Box, Chip, Divider, IconButton, ListSubheader, MenuItem, Paper, TextField, Toolbar, Tooltip, Typography } from '@mui/material'
-import { useState } from 'react'
+import { AppBar, Avatar, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, IconButton, ListSubheader, MenuItem, Paper, TextField, Toolbar, Tooltip, Typography } from '@mui/material'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { logAppEvent, updateAppStatus } from '../lib/telemetry'
 import { releaseHostLabel, releaseInfo, releaseLabel } from '../lib/releaseInfo'
+import { brandAssets } from '../lib/brandAssets'
+import { buildFreshLoginUrl } from '../utils/authRouting'
 import { navigationItems } from '../utils/navigation'
 import { isPlatformAdmin as resolvePlatformAdmin } from '../utils/permissions'
+import { applyPendingReleaseUpdate, getPendingReleaseRevision, releaseUpdateAvailableEvent } from '../utils/releaseFreshness'
 import { NotificationBell } from '../components/NotificationBell'
 
 const mobileNavigationItems = navigationItems.filter(
@@ -17,10 +20,21 @@ export function TopBar() {
   const navigate = useNavigate()
   const { profile, user, companies, currentCompany, switchCompany, signOut } = useAuth()
   const [signingOut, setSigningOut] = useState(false)
+  const [pendingRelease, setPendingRelease] = useState(getPendingReleaseRevision)
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
   const displayName = profile?.full_name || user?.email || 'Wisdom user'
   const role = profile?.role ?? 'employee'
   const isPlatformAdmin = resolvePlatformAdmin(profile)
   const initials = displayName.slice(0, 2).toUpperCase()
+
+  useEffect(() => {
+    const handleReleaseUpdate = (event: Event) => {
+      const revision = (event as CustomEvent<{ revision?: string }>).detail?.revision?.trim() ?? ''
+      if (revision) setPendingRelease(revision)
+    }
+    window.addEventListener(releaseUpdateAvailableEvent, handleReleaseUpdate)
+    return () => window.removeEventListener(releaseUpdateAvailableEvent, handleReleaseUpdate)
+  }, [])
 
   const handleSignOut = async () => {
     setSigningOut(true)
@@ -30,7 +44,7 @@ export function TopBar() {
         await updateAppStatus(user.id, 'offline')
       }
       await signOut()
-      navigate('/login', { replace: true })
+      window.location.replace(buildFreshLoginUrl(window.location.origin, releaseInfo.revision))
     } finally {
       setSigningOut(false)
     }
@@ -68,14 +82,12 @@ export function TopBar() {
           >
             <Box
               component="img"
-              src="/branding/wisdom-ai-app-icon-192.png"
+              src={brandAssets.transparentMark}
               alt=""
               sx={{
-                width: 40,
-                height: 40,
+                width: 44,
+                height: 'auto',
                 display: 'block',
-                borderRadius: 2,
-                boxShadow: '0 5px 14px rgba(22, 37, 68, .18)',
               }}
             />
           </Box>
@@ -143,6 +155,15 @@ export function TopBar() {
             sx={{ mr: 1, cursor: 'pointer', display: { xs: 'none', md: 'inline-flex' }, fontVariantNumeric: 'tabular-nums' }}
           />
         </Tooltip>
+        {pendingRelease && <Tooltip title="มีระบบรุ่นใหม่พร้อมใช้งาน งานปัจจุบันจะไม่ถูกรีเฟรชอัตโนมัติ">
+          <Chip
+            size="small"
+            color="warning"
+            label={<><Box component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>{`มีรุ่นใหม่ ${pendingRelease} · อัปเดตเมื่อพร้อม`}</Box><Box component="span" sx={{ display: { xs: 'inline', md: 'none' } }}>มีรุ่นใหม่</Box></>}
+            onClick={() => setUpdateDialogOpen(true)}
+            sx={{ mr: 1, cursor: 'pointer', fontVariantNumeric: 'tabular-nums' }}
+          />
+        </Tooltip>}
         <NotificationBell />
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
           <Tooltip title="ข้อมูลส่วนตัว">
@@ -163,6 +184,16 @@ export function TopBar() {
           </Tooltip>
         </Box>
       </Toolbar>
+      <Dialog open={updateDialogOpen} onClose={() => setUpdateDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>มีระบบรุ่นใหม่พร้อมใช้งาน</DialogTitle>
+        <DialogContent>
+          <Typography>ระบบจะรีเฟรชหน้านี้เพื่ออัปเดตเป็นรุ่น {pendingRelease} กรุณาบันทึกแบบร่างหรืองานที่กำลังตรวจให้เรียบร้อยก่อน</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setUpdateDialogOpen(false)}>ทำงานต่อ</Button>
+          <Button variant="contained" color="warning" onClick={() => applyPendingReleaseUpdate(pendingRelease)}>บันทึกแล้ว อัปเดตตอนนี้</Button>
+        </DialogActions>
+      </Dialog>
     </AppBar>
   )
 }

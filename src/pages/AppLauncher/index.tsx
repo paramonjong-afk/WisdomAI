@@ -10,6 +10,7 @@ import { supabase } from '../../lib/supabase'
 import { syncAppBadge } from '../../services/appBadge'
 import { fetchChatUnreadCount } from '../../services/chatUnread'
 import { getPostLoginDestination } from '../../utils/authRouting'
+import { brandAssets } from '../../lib/brandAssets'
 
 export function AppLauncherPage() {
   usePageTitle('เลือกเมนู')
@@ -88,14 +89,14 @@ export function AppLauncherPage() {
       <Paper variant="outlined" sx={{ p: { xs: 2, sm: 3 }, borderRadius: 3 }}>
         <Stack spacing={0.5} sx={{ textAlign: 'center' }}>
           <Avatar
-            src="/branding/wisdom-ai-app-icon-192.png"
+            src={brandAssets.appIcon192}
             alt="WISDOM POWER SYSTEM"
             variant="rounded"
             sx={{ width: 64, height: 64, mx: 'auto', mb: 0.5, borderRadius: 2, boxShadow: '0 8px 24px rgba(22, 37, 68, .18)' }}
           />
           <Typography variant="h5" sx={{ fontWeight: 850 }}>เลือกเมนู</Typography>
           <Typography variant="body2" color="text.secondary">
-            {currentCompany?.company_name ?? 'WisdomAI'}
+            {currentCompany?.company_name ?? 'Wisdom Power'}
           </Typography>
         </Stack>
 

@@ -4,11 +4,15 @@ flowchart TD
   A0[Master Data ยืนยันคู่โอน\nCompany/Internal → Employee/Technician\nเติมเงินทดลองจ่าย] --> Q
   B -->|สลิปโอนเงิน| S0[Slip Analysis Gate<br/>ประเภทเงิน · คู่บัญชี · ยอด · เวลา · ซ้ำ]
   S0 -->|มีข้อมูลขาดหรือขัดแย้ง| Q[Accounting Pending Queue<br/>แสดงเฉพาะจุดที่ต้องยืนยัน/แก้]
-  S0 -->|ข้อมูลยืนยันครบ| SA[เตรียม Auto Route ตามประเภทเงิน]
+  S0 -->|ข้อมูลยืนยันครบ| SA[เตรียม Auto Route ตามประเภทเงิน<br/>เลขท้ายบัญชีตามที่สลิปแสดง 3–4 หลัก]
   SA --> Q
   Q --> Q0[Tab สลิปโอนเงินและตัวกรองสถานะ]
   Q0 --> B1[Drawer แท็บ 1 รูปต้นฉบับและ AI อ่านใหม่เฉพาะรายการ]
   B1 --> B2[Drawer แท็บ 2 ตรวจและแก้ค่ารายช่อง]
+  B1 --> BX{ปิด Drawer}
+  B2 --> BX
+  BX -->|มี safe return_to| BO[กลับหน้าต้นทางพร้อม Holder/Transaction context]
+  BX -->|ไม่มี return_to| Q0
   B2 --> B3{Admin ตัดสินใจ}
   B3 -->|Draft| QD[ค้างบัญชีพร้อม before after และ Audit]
   B3 -->|ขอข้อมูลเพิ่ม| QI[Accounting task recheck required]
@@ -29,14 +33,27 @@ flowchart TD
   VM --> C2[ยืนยัน Allocation ผู้ขาย]
   C2 --> C
   QV -->|แก้หลักฐาน/เลือก Vendor| VP
-  C -->|ค่าแรงหนึ่งหรือหลาย Allocation| M01{ชื่อผู้รับตรงทะเบียนช่างรายวัน?}
+  C -->|ค่าแรงหนึ่งหรือหลาย Allocation| ME{เลือกเจ้าของค่าแรง/ผู้รับเงินจริง}
+  ME -->|กำลังทำงาน| M01{ชื่อผู้รับตรงทะเบียนช่างรายวัน?}
+  ME -->|ออกจากงานแล้ว| MH[ใช้ Profile และประวัติเดิม\nติดป้ายอดีตพนักงาน · ไม่ Reactivate]
+  MH --> M01
   M01 -->|ตรงชื่อ/alias ที่ยืนยัน| M02[สร้างบัญชีพักช่าง\nmatched pending review]
   M01 -->|ไม่ตรง/กำกวม| M03[คิวตรวจชื่อ ห้ามเดา]
   M02 --> M1[ปิด Accounting task และสร้าง HR/Payroll task]
   C -->|วัสดุหนึ่งหรือหลาย Allocation| M2[ปิด Accounting task และสร้าง Inventory + Project task]
   C -->|โครงการ/ผู้รับเหมา/เดินทาง| M3[ปิด Accounting task และสร้าง Project task]
-  C -->|เงินเบิกล่วงหน้า/เงินสำรอง| M4{จับคู่ข้อมูล 2 ฝั่งได้หรือไม่}
-  M4 -->|ผู้โอนตรงผู้ถือเงิน 1 คน<br/>ผู้รับตรงพนักงาน 1 คน| M41[เชื่อมบัญชีทั้งสองฝั่ง<br/>บันทึก Alias + Party Link + Audit]
+  C -->|เงินเบิกล่วงหน้า/เงินสำรอง| AF{แหล่งเงินเป็นกองเดิมหรือเงินตั้งต้น}
+  AF -->|บัญชีบริษัท/เงินส่วนตัวสำรองก่อน| SF{ผู้รับตรงทะเบียนผู้ถือเงิน 1 คน?}
+  AF -->|เงินยืมจากบุคคล/กรรมการ| BF{ผู้ให้ยืมและกำหนดคืนครบ?}
+  BF -->|ไม่ครบ| QI
+  BF -->|ครบ| BF1[สร้างภาระหนี้ยังไม่คืน<br/>ผูกสลิป Lineage กองเงิน และ Audit]
+  BF1 --> SF
+  SF -->|ตรงและบัญชีรับไม่ขัดแย้ง| SF1[เก็บผู้โอนเป็น Source Fact<br/>เชื่อมผู้รับกับ Holder + Bank + Audit]
+  SF1 --> M5
+  SF -->|ไม่พบ/หลายคน/บัญชีขัดแย้ง| QI
+  AF -->|กองเดิม/เงินเบิกล่วงหน้าเดิม| M4{จับคู่ข้อมูล 2 ฝั่งได้หรือไม่}
+  M4 -->|ผู้โอนตรงผู้ถือเงิน 1 คน<br/>ผู้รับตรงพนักงาน 1 คน| M40[บันทึก Draft Classification<br/>expense type = advance + Audit]
+  M40 --> M41[เชื่อมบัญชีทั้งสองฝั่ง<br/>บันทึก Alias + Party Link + Audit]
   M41 --> M5[สร้างบัญชีพักพนักงานและส่ง Advance Finance]
   M5 --> M51{มี Transaction projection เดิมหรือไม่}
   M51 -->|มี| M52[Reverse แถวเดิม เก็บ replacement + Audit]
@@ -71,12 +88,20 @@ flowchart TD
 - Failure/retry: ต้องบอกขั้นตอนที่ล้มเหลวชัดเจนใกล้ปุ่มดำเนินการ; retry ใช้ document เดิมและ RPC idempotency/constraint ป้องกันรายการซ้ำ
 - Audit: ทุก mutation ผ่าน `runWithMutationAttempt`; correction/confirmation เก็บผู้ทำ เวลา เหตุผล และ document id
 - Owner: Accounting Admin/Manager; ทีมระบบเป็นเจ้าของ RPC, validation และ error contract
+- รายการค่าแรงย้อนหลังเลือกได้ทั้งพนักงานปัจจุบันและอดีตพนักงานจาก `employee_employment_records`; ระบบรวม Profile ซ้ำเป็นตัวเลือกเดียว เรียงพนักงานปัจจุบันก่อน และติดป้าย `อดีตพนักงาน` โดยไม่เปิดสถานะการจ้างหรือสร้าง Profile ใหม่
 - Accounting Pending Queue แยก `สลิปโอนเงิน` ออกจาก `เอกสารบัญชีทั่วไป`; ยอดสลิปหลักไม่นับ duplicate, system/context หรือ non-slip และตัวกรองทุกตัวใช้รายการ projection ชุดเดียวกัน
 - ทุกสลิปผ่าน `Slip Analysis Gate` เพื่อเสนอประเภทเงิน เหตุผล ความมั่นใจ คู่บัญชี ยอด เวลา รายการซ้ำ และปลายทางก่อนแสดงฟอร์ม Drawer; Drawer แสดงเฉพาะฟิลด์ที่ประเภทนั้นต้องใช้ พร้อมรายการ blocker แบบแก้เฉพาะจุด. เมื่อ Canonical truth ยืนยัน, postable และไม่มี blocker ระบบใช้ RPC/idempotency เดิมส่งต่ออัตโนมัติ; รายการที่ยังค้างจึงต้องมีเหตุผลให้คนยืนยันหรือแก้จริง
 - Master Data mode `เติมเงินทดลองจ่าย` ยืนยันเฉพาะบุคคล/บัญชีและสร้างหรือเปิด Accounting destination task เดิมแบบ idempotent; Project ยังเป็น `awaiting allocation`. บัญชีต้องตรวจ Money Lineage ก่อนส่ง Advance Finance และไม่มีการ posting/ตัดยอด/ปิด Job จาก Master Data action นี้
 - Master Data ต้องยืนยันคู่ผู้โอน–ผู้รับของสลิปเดียวกันก่อน: ผู้โอนเป็น `Company/Internal`, ผู้รับเป็น `Employee/Technician`, มี Master Bank Account แยกสองรายการและผูกกลับ Transaction/Message/Document เดิมผ่าน `master_data_transfer_party_reviews`. ถ้าฝั่งใดขาดชื่อหรือเลขท้ายบัญชีจะยังไม่สร้างผลสำเร็จครึ่งเดียวและไม่ส่งต่อบัญชี.
 - Drawer ของสลิปอ่านไฟล์จาก Source Contract กลางและ Timeline จาก `document_flow_events`; ไม่คัดลอกไฟล์ ไม่สร้าง destination task ใหม่ และไม่แก้ raw source
+- เมื่อเปิด Drawer ผ่าน deep link ที่มี `return_to`, ปุ่มกลับ ปุ่มปิด การกด backdrop และ Escape ต้องล้าง state ของรายการปัจจุบันแล้วกลับหน้าต้นทางด้วย `replace` โดยคง query context เดิม; รับเฉพาะ internal path และเมื่อไม่มี `return_to` ให้ปิดอยู่ใน Accounting Queue ตามเดิม
 - Drawer แบ่ง 2 แท็บ: รูปต้นฉบับ/AI และตรวจแก้ข้อมูล; AI อ่านซ้ำด้วย `item_id` เดียวเท่านั้นและรักษา Flow บัญชีเดิม ส่วน Admin บันทึกผ่าน `review_transfer_slip_details` ซึ่งตรวจสิทธิ์/ข้อมูลบังคับและเขียน before/after Audit แบบ idempotent
+- เลขบัญชีที่สลิปปกปิดเก็บเฉพาะเลขท้ายที่มองเห็นจริง 3–4 หลัก พร้อมชื่อและธนาคาร ห้ามเติมเลขที่สี่เอง; การจับคู่ที่กำกวมยังค้าง Accounting Review และข้อมูล OCR เดิมไม่ถูกเขียนทับ
+- `ตั้งต้นกองเงิน/เติมกองให้ผู้ถือเงิน` คือวัตถุประสงค์ `advance_transfer` ส่วนแหล่งเงินต้องเลือกตามข้อเท็จจริง (`company_account`, กองเดิม, เงินส่วนตัวสำรองก่อน หรือ `borrowed_funds` เงินยืมจากบุคคล/กรรมการ)
+- `borrowed_funds` บังคับชื่อผู้ให้ยืมและกำหนดคืน แล้วสร้าง `borrowed_fund_obligations` สถานะ `outstanding` เชื่อมสลิป, Money Lineage, Transaction และกองผู้ถือเงินในคำสั่งยืนยันเดียวกันแบบ idempotent; เงินก้อนนี้ไม่ใช่รายได้หรือค่าใช้จ่าย ค่าใช้จ่ายเกิดภายหลังเมื่อมีหลักฐานการใช้เงินจริง
+- เมื่อแหล่งเงินเป็น `company_account` หรือ `personal_reimbursement` ระบบถือเป็นเงินตั้งต้น/เติมกอง: ผู้โอนเป็น Source Fact ไม่ต้องอยู่ทะเบียนผู้ถือเงิน ผู้รับต้องตรงผู้ถือเงินที่เปิดใช้งานหนึ่งรายและบัญชีรับต้องไม่ผูกกับบุคคลอื่น; Flow กองเดิมยังคงตรวจผู้โอนเป็นผู้ถือเงินและผู้รับเป็นพนักงานรายวัน
+- Drawer ต้องเรียกแหล่งเงินตามทิศทางจริง: `company_account`/`personal_reimbursement` คือเงินใหม่ที่เข้ากองผู้รับ ส่วน `reserve_fund` คือการโอนต่อจากกองเดิมและผู้โอนต้องเป็นผู้ถือเงิน เมื่อ Admin เปลี่ยนแหล่งเงิน ระบบล้าง Error จาก Gate ก่อนหน้าทันทีเพื่อไม่แสดงข้อความค้าง
+- ก่อนเชื่อมคู่ผู้โอน/ผู้รับ ระบบบันทึก Draft Classification ผ่าน `classify_transfer_slip_advance_draft_v1`; RPC ตรวจ Allocation, กันซ้ำด้วย event key และบันทึก Audit แล้วจึงเรียก Party Resolver
 - Failure/retry: AI ล้มเหลวไม่แก้ routing และกดลองใหม่รายการเดิมได้; draft/ขอข้อมูลเพิ่มทำให้ Accounting task เป็น `recheck_required`; ยืนยันไม่ได้หากชื่อผู้โอน ผู้รับ ยอด หรือวันเวลาไม่ครบ
 - ปลายทางแรกของสลิปยังเป็นบัญชีเสมอ ส่วนป้าย `เบิกล่วงหน้า`/`ค่าแรง` แสดงเส้นทางต่อเมื่อมี evidence ใน candidate department หรือข้อมูลธุรกรรมเท่านั้น
 - `transfer_slip_money_lineages` เก็บเส้นทางเงินที่ Admin ตรวจแล้วแยกจาก Raw/OCR: แหล่งเงิน, รหัสกองเงิน, ผู้ถือเงิน, ผู้จ่ายจริง, ผู้รับสุดท้าย, โครงการ/ไซต์, ยอดตั้งต้น/จ่าย/คืน/คงเหลือ และทอดการส่งทั้งหมด โดยมีหนึ่ง projection ต่อ Document Flow Item
@@ -96,6 +121,12 @@ flowchart TD
 
 | Version | Date | Rationale | Impact | Migration | Verification | Rollback |
 | --- | --- | --- | --- | --- | --- | --- |
+| v3.0 | 31/8/2569 | รายการค่าแรงย้อนหลังเลือกผู้ที่ออกจากงานแล้วไม่ได้ เพราะ Drawer กรองเฉพาะสถานะจ้างปัจจุบัน | ตัวเลือกเจ้าของค่าแรงและผู้รับเงินจริงรวมประวัติพนักงานทั้งหมด พร้อมป้ายอดีตพนักงานและ dedupe ตาม Profile; ไม่เปลี่ยนสถานะการจ้าง | ไม่มี | former-employee contract, typecheck, lint, build และ authenticated Accounting Drawer smoke | revert query/label; Allocation, Payroll Ledger, Profile และ Audit เดิมไม่เปลี่ยน |
+| v2.8 | 31/8/2569 | ปุ่มปิด Drawer จาก Advance Holder ล้างรายละเอียดแต่ค้างหน้า Accounting ทำให้ผู้ใช้เสียบริบทต้นทาง | ใช้ safe internal `return_to` ร่วมกันสำหรับปุ่มกลับ ปุ่มปิด backdrop และ Escape; คง Holder/Transaction query และ fallback อยู่ Accounting Queue | ไม่มี migration และไม่เขียนข้อมูลธุรกิจ | navigation/security contract, Accounting transfer-slip tests, typecheck, lint, build และ authenticated round-trip smoke | revert utility/close navigation; Source, Lineage, Allocation และ Audit ไม่เปลี่ยน |
+| v2.7 | 31/8/2569 | รองรับเงินยืมจากบุคคล/กรรมการเป็นต้นทางกองเงิน | เพิ่ม Source Gate, เจ้าหนี้, วันครบกำหนด, ยอดคงค้าง, RLS และ Audit ก่อนส่ง Advance Finance | `20260831072537_borrowed_fund_obligations.sql` | contract, typecheck, lint, build, migration dry-run/apply และ authenticated Drawer smoke | ปิดตัวเลือกและ revoke RPC; คง Lineage/ภาระหนี้/Audit เพื่อ recovery |
+| v2.6 | 31/8/2569 | Admin could select the old-holder fund source for a new starting-fund slip and keep seeing a stale gate error | Rename source choices by money direction, warn on the old-holder path and clear stale gate feedback when the source changes | None | starting-fund UI contract, typecheck/lint/build and authenticated Drawer smoke | Revert UI commit; no confirmed data or Audit is changed |
+| v2.5 | 31/8/2569 | Starting-fund slip was incorrectly validated as holder-to-daily-worker transfer | Route company/personal starting funds through recipient-holder gate; preserve payer as source fact and link only the receiving holder account | `20260831064514_starting_fund_recipient_holder_gate.sql` | starting-fund/legacy/idempotency/security contracts, migration dry-run, typecheck/lint/build and authenticated Drawer smoke | Revoke v1 RPC and restore manual review; preserve source, party link, bank fact and Audit |
+| v2.4 | 31/8/2569 | Admin had to search again after selecting an unresolved holder movement | Accept exact Transaction review deep links, provide a safe return to the same holder context, and reject suspicious transfer dates from the auto-route gate | No migration or financial write | analysis/realtime contracts, typecheck, lint, build and authenticated round-trip smoke | Revert UI/helper commit; source Transaction, Allocation, destination and Audit remain unchanged |
 | v2.1 | 28/8/2569 | ป้องกันสลิปวัสดุที่เลือกโครงการแล้วถูก RPC รุ่นเก่ารายงานว่าขาด `project_id` | ซิงก์ project/site จาก Allocation แรกที่มีขอบเขตโครงการไปยัง legacy lineage payload โดย Allocation v2 ยังเป็น source of truth | ไม่มี | transfer lineage regression, typecheck, lint, build และ Accounting Drawer smoke | revert helper/payload mapping; Allocation และ Audit เดิมไม่เปลี่ยน |
 | v2.3 | 27/8/2569 | Transaction projection เดิมและ Allocation projection ที่ยืนยันแล้วทำให้ยอด 400 บาทถูกนับซ้ำ | Trigger Reverse projection เดิมแบบไม่ลบข้อมูล พร้อม replacement metadata/Ledger Audit; ซ่อมรายการเก่าเฉพาะ ID หลังตรวจเงื่อนไขครบ | `20260827004227_reconcile_employee_money_projection_scope.sql`, `20260827004553_fix_projection_reversal_contract.sql` | active count=1, Ledger/Flow Audit, trigger/constraint contract, test/typecheck/lint/build และ authenticated Advance smoke | ปิด Trigger; ใช้ Audit before_data คืนสถานะแถวเดิมเฉพาะเมื่อ Allocation ใหม่ถูก Reverse ก่อน ห้ามลบ Ledger/Audit |
 | v2.1 | 27/8/2569 | สลิปเงินเบิกล่วงหน้ามีข้อมูลผู้โอนและผู้รับครบ แต่ Drawer ยังบังคับกรอกผู้ถือเงินและไม่เชื่อมบัญชีพนักงาน | ตรวจสองฝั่ง, เติมผู้ถือเงินอัตโนมัติ, เชื่อมบัญชีทั้งสองฝั่งเมื่อ Admin ยืนยัน และเดิน Flow เดิมต่อแบบ idempotent พร้อม conflict gate/Audit | `20260827003009_transfer_slip_advance_party_auto_link.sql` | preview/apply/conflict/idempotency contract, migration/RLS, typecheck/lint/build และ authenticated Accounting/Advance smoke | revoke RPC/ซ่อน panel; คง Party Link, Bank Fact, Alias, Source และ Audit เพื่อ recovery |

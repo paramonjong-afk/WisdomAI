@@ -1,4 +1,4 @@
-export type MoneyFundingSource = 'company_account' | 'reserve_fund' | 'employee_advance' | 'personal_reimbursement' | 'unknown'
+export type MoneyFundingSource = 'company_account' | 'reserve_fund' | 'employee_advance' | 'personal_reimbursement' | 'borrowed_funds' | 'unknown'
 export type PayrollKind = '' | 'salary' | 'daily_wage' | 'contract_labor' | 'other'
 export type MoneyPurpose =
   | 'payroll'
@@ -57,6 +57,9 @@ export type MoneyLineageDraft = {
   parentLineageId: string
   fundingSourceType: MoneyFundingSource
   fundingSourceReference: string
+  loanLenderName: string
+  loanDueDate: string
+  loanTerms: string
   fundHolderName: string
   payerName: string
   finalBeneficiaryName: string
@@ -85,7 +88,7 @@ export const emptyMoneyAllocation = (amount: number | null = null, payeeName = '
 
 export const emptyMoneyLineage = (senderName = '', recipientName = '', amount: number | null = null, transferredAt = ''): MoneyLineageDraft => ({
   parentLineageId: '',
-  fundingSourceType: 'unknown', fundingSourceReference: '', fundHolderName: '', payerName: senderName,
+  fundingSourceType: 'unknown', fundingSourceReference: '', loanLenderName: '', loanDueDate: '', loanTerms: '', fundHolderName: '', payerName: senderName,
   finalBeneficiaryName: recipientName, purposeType: 'unknown', projectId: '', siteId: '', responsibleName: '',
   startingAmount: '', paidAmount: amount == null ? '' : String(amount), returnedAmount: '0', remainingAmount: amount == null ? '' : '0', note: '',
   hops: [{ fromParty: senderName, toParty: recipientName, amount: amount == null ? '' : String(amount), transferredAt, note: '' }],
@@ -113,7 +116,8 @@ export const moneyPurposeRoute = (purpose: MoneyPurpose, payrollKind: PayrollKin
     if (payrollKind === 'contract_labor') return { label: 'ค่าจ้างเหมาแรงงาน', route: 'บัญชี → HR/ค่าจ้างเหมา', departments: ['hr'] }
     return { label: 'เงินเดือน/ค่าแรง', route: 'บัญชี → HR/Payroll', departments: ['hr'] }
   }
-  if (purpose === 'advance_transfer' || purpose === 'onward_transfer') return { label: 'เงินสำรองจ่าย', route: 'บัญชี → เงินสำรองจ่าย', departments: [] }
+  if (purpose === 'advance_transfer') return { label: 'ตั้งต้น/เติมกองเงินผู้ถือเงิน', route: 'บัญชี → กองเงินผู้ถือเงิน', departments: [] }
+  if (purpose === 'onward_transfer') return { label: 'ส่งต่อเงินสำรองจ่าย', route: 'ผู้ถือเงิน → ผู้ถือเงิน', departments: [] }
   if (purpose === 'materials') return { label: 'ค่าวัสดุ', route: 'บัญชี → ต้นทุนโครงการ', departments: ['project'] }
   if (purpose === 'project_expense') return { label: 'ค่าใช้จ่ายโครงการ', route: 'บัญชี → โครงการ', departments: ['project'] }
   if (purpose === 'subcontractor') return { label: 'ผู้รับเหมา/ผู้รับเหมาช่วง', route: 'บัญชี → โครงการ', departments: ['project'] }
@@ -138,6 +142,9 @@ export const validateMoneyLineage = (draft: MoneyLineageDraft, transferAmount: n
   const returned = numberOrNull(draft.returnedAmount) ?? 0
   const remaining = numberOrNull(draft.remainingAmount)
   if (draft.fundingSourceType === 'unknown') missing.push('แหล่งเงิน')
+  if (draft.fundingSourceType === 'borrowed_funds' && !draft.loanLenderName.trim()) missing.push('ผู้ให้ยืม')
+  if (draft.fundingSourceType === 'borrowed_funds' && !draft.loanDueDate) missing.push('กำหนดคืนเงินยืม')
+  if (draft.fundingSourceType === 'borrowed_funds' && !draft.fundingSourceReference.trim()) missing.push('เลขอ้างอิงรายการรับเงินยืม')
   if (moneyFundingSourceNeedsHolder(draft.fundingSourceType) && !draft.fundHolderName.trim()) missing.push('ผู้ถือเงิน')
   if (!draft.payerName.trim()) missing.push('ผู้จ่ายจริง')
   if (!draft.finalBeneficiaryName.trim()) missing.push('ผู้รับปลายทาง')

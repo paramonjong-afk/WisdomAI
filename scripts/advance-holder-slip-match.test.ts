@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { advanceHolderSlipDestination, hasResolvedMoneyRoute, matchAdvanceHolderSlips, normalizeAdvanceHolderName } from '../src/services/advanceHolderSlipMatch.ts'
+import { advanceHolderMoneyRouteParties, advanceHolderSlipDestination, hasResolvedMoneyRoute, matchAdvanceHolderSlips, normalizeAdvanceHolderName } from '../src/services/advanceHolderSlipMatch.ts'
 
 assert.equal(normalizeAdvanceHolderName('นาย ทวีชัย ภรามร'), 'ทวีชัยภรามร')
 assert.equal(normalizeAdvanceHolderName('น.ส. จิรภรณ์ พริกสุวรรณ์'), 'จิรภรณ์พริกสุวรรณ์')
@@ -8,6 +8,8 @@ assert.equal(hasResolvedMoneyRoute({ transactionId: 'route-2', itemId: 'item-rou
 assert.deepEqual(advanceHolderSlipDestination({ transactionId: 'payroll-1', routeResolved: true, nextDestination: 'payroll' }), { path: '/advance-settlements?transaction_id=payroll-1', label: 'HR/Payroll' })
 assert.deepEqual(advanceHolderSlipDestination({ transactionId: 'accounting-1', routeResolved: true, nextDestination: 'accounting_posting' }), { path: '/accounting-documents?transaction_id=accounting-1&detail=review', label: 'บัญชี · รายละเอียดเส้นทาง' })
 assert.deepEqual(advanceHolderSlipDestination({ transactionId: 'unknown-1', routeResolved: false, nextDestination: null }), { path: '/accounting-documents?transaction_id=unknown-1&detail=review', label: 'บัญชี · ตรวจและจัดประเภท' })
+assert.deepEqual(advanceHolderMoneyRouteParties({ senderName: 'น.ส. จรีภรณ์ พริกสุวรรณ์', recipientName: 'นาย สมนึก สุรประดิษฐ์กุล', canonicalPayerName: null, canonicalFundHolderName: 'จรีภรณ์ พริกสุวรรณ์', canonicalBeneficiaryName: null }), ['จรีภรณ์ พริกสุวรรณ์', 'นาย สมนึก สุรประดิษฐ์กุล'])
+assert.deepEqual(advanceHolderMoneyRouteParties({ senderName: 'บริษัท ก', recipientName: 'นาย ทวีศักดิ์ ภรามร', canonicalPayerName: null, canonicalFundHolderName: 'ทวีชัย ภรามร', canonicalBeneficiaryName: 'ทวีศักดิ์ ภรามร' }), ['บริษัท ก', 'ทวีชัย ภรามร', 'ทวีศักดิ์ ภรามร'])
 
 const holders = [
   { id: 'holder-1', displayName: 'ทวีชัย ภรามร', aliases: ['นาย ทวีชัย ภรามร', 'ทวีศักดิ์ ภรามร'] },

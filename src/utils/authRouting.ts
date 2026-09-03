@@ -59,3 +59,15 @@ export function getLoginNavigationTarget(
   if (device === 'mobile') return '/'
   return requested?.startsWith('/') && !requested.startsWith('//') ? requested : '/'
 }
+
+/** Build a same-origin, cache-busted Login URL for a full document navigation. */
+export function buildFreshLoginUrl(
+  origin: string,
+  revision: string,
+  signedOutAt = Date.now(),
+) {
+  const url = new URL('/login', origin)
+  url.searchParams.set('__release', revision.trim().slice(0, 7) || 'unknown')
+  url.searchParams.set('signed_out_at', String(signedOutAt))
+  return url.toString()
+}

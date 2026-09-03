@@ -4,3 +4,9 @@
 
 /release.js
   Cache-Control: no-store, no-cache, must-revalidate
+
+/manifest.webmanifest
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/branding/*
+  Cache-Control: no-cache, must-revalidate

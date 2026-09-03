@@ -1,5 +1,153 @@
 # Flow Registry Update Protocol
 
+## 2026-08-31 — Accounting Drawer Return-to-Origin v2.8
+
+```mermaid
+flowchart LR
+  A[Advance Holder / Module ต้นทาง] -->|transaction_id + return_to| B[Accounting Slip Drawer]
+  B -->|ปิด / Backdrop / Escape| C{safe internal return_to?}
+  C -->|มี| D[ล้าง Drawer state]
+  D --> E[replace กลับหน้าต้นทางพร้อม query context]
+  C -->|ไม่มี| F[ปิด Drawerและอยู่ Accounting Queue]
+  C -->|external/ผิดรูปแบบ| F
+```
+
+- **เหตุผล:** Drawer รับ `return_to` จาก Advance Holder อยู่แล้ว แต่ปุ่มปิดเรียกเพียง state cleanup จึงค้างหน้า Accounting และทำให้ผู้ใช้ต้องค้นหา Holder/Transaction ซ้ำ
+- **Input/Output/State:** รับ internal `return_to` พร้อม `holder_id/transaction_id`; ทุกวิธีปิดล้าง preview/request/form state แล้ว `replace` กลับต้นทาง หรือ fallback อยู่คิวเดิมเมื่อไม่มีเส้นทางปลอดภัย
+- **สิทธิ์/ข้อมูล/Audit:** ไม่เปลี่ยน Auth, RLS, RPC, financial state หรือ Audit; ปฏิเสธ absolute URL, protocol-relative URL, backslash และ encoded protocol-relative path
+- **Migration/Legacy:** ไม่มี migration และไม่แก้รายการเดิม; deep link เดิมทำงานต่อได้
+- **Verification:** navigation/security contract, Accounting transfer-slip contracts, typecheck, lint, build และ authenticated Advance Holder → Accounting → Close round-trip
+- **Rollback:** revert utility และ close handler; ข้อมูล Source/Lineage/Allocation/Audit เดิมไม่เปลี่ยน
+
+## 2026-08-31 — Web Chat Reload-Safe Attachment Draft v3.2
+
+```mermaid
+flowchart LR
+  A[Picker คืน File] --> B[Validation]
+  B --> C[พัก Blob ใน IndexedDB ตาม Company/Profile/Room]
+  C --> D[Preview + รอส่ง]
+  D -->|Android โหลดหน้าใหม่| E[โหลด Draft อายุไม่เกิน 30 นาที]
+  E --> D
+  D -->|กดส่ง| F[Membership + Session]
+  F --> G[Private Storage + chat_messages]
+  G --> H[ลบ Local Draft + แสดงรูปในห้อง]
+  D -->|ยกเลิก/เปลี่ยนห้อง| I[ลบ Local Draft]
+  C -->|พักไม่ได้| J[แจ้งให้กดส่งก่อนออกจากหน้า]
+```
+
+- **เหตุผล/หลักฐาน:** Android revision `870e033` บันทึก `file_received` และ `waiting_confirmation` แต่รุ่นนั้นยังไม่มี persistent draft จากนั้นเกิด `session_start` ใหม่ในประมาณ 0.35 วินาที จึงล้าง React memory ก่อนผู้ใช้เห็น Preview; Storage/RLS ยังไม่ถูกเรียก
+- **Input/Output/States:** File ที่ผ่าน validation ถูกเก็บแบบ origin-local Blob → ready/รอส่ง; reload กู้ File/Preview; ส่งสำเร็จหรือยกเลิก/เปลี่ยนห้องลบ draft; expired เกิน 30 นาทีลบอัตโนมัติ
+- **Roles/Permissions:** draft key แยก company + profile + room และอยู่ใน IndexedDB ของ origin/device เท่านั้น; server mutation ยังเริ่มเมื่อกดส่งและตรวจ membership/session เดิม
+- **Integrations:** camera/File System Picker/native input/drag-drop → IndexedDB draft → Preview → Supabase Auth/private Storage/chat_messages/Realtime
+- **Failure/Retry:** IndexedDB ไม่พร้อมยังแสดง Preview ใน memory พร้อมเตือน; draft restore error ไม่ส่งข้อมูล; upload/message failure คง draft/Preview; message success cleanup local draft
+- **Audit/Owner:** `chat_attachment_draft_persisted`, `chat_attachment_draft_restored` และ `waiting_confirmation.metadata.draft_persisted`; telemetry ไม่เก็บชื่อหรือ bytes เจ้าของ Web Chat/Application Platform
+- **Impact/Migration/Legacy:** ไม่มี database migration; เพิ่ม IndexedDB v1 ฝั่ง browser; ข้อความ/ไฟล์เดิมไม่เปลี่ยน และ draft local ไม่มีสิทธิ์ข้ามผู้ใช้/ห้อง
+- **Verification:** draft contract, attachment/Web Chat tests, typecheck, lint, build, revision parity และ Android read-back `file_received → draft_persisted → session_start → draft_restored → send_started → message_recorded`
+- **Rollback/Recovery:** revert v3.2 กลับ memory-only v3.1; IndexedDB record ที่ไม่ได้ใช้หมดอายุเองใน 30 นาที และไม่มีผลต่อข้อมูล server
+
+## 2026-08-31 — Web Chat Confirm-Before-Send Attachment v3.1
+
+```mermaid
+flowchart LR
+  A[กล้องในแอป / File System Picker / Drag Drop] --> B[Validation]
+  B --> C[Preview + ป้ายรอส่ง]
+  C -->|กดส่งรูป/ส่งไฟล์| D[Membership + Session]
+  C -->|ยกเลิก| X[ล้าง File โดยไม่เขียนข้อมูล]
+  C -->|เปลี่ยนห้อง| Y[ล้าง File ป้องกันส่งผิดห้อง]
+  D --> E[Private Storage]
+  E --> F[chat_messages]
+  F --> G[Preview ในห้อง + ส่งสำเร็จ]
+  D -->|ล้มเหลว| H[ป้ายส่งไม่สำเร็จ + ลองส่งอีกครั้ง]
+  E -->|ล้มเหลว| H
+```
+
+- **เหตุผล/หลักฐาน:** Android Production revision `b0d5a81` รับกล้องและ File System Picker สำเร็จจริง 3 รายการ (`camera` 1, `file_system` 2) ตั้งแต่ File → Storage → `chat_messages`; แต่ auto-send ทำให้ผู้ใช้ไม่เห็นจังหวะยืนยันและเข้าใจว่าไฟล์หาย จึงเปลี่ยนเป็น Preview ค้างรอผู้ใช้กดส่ง
+- **Input/Output/States:** selected → `ready`/รอส่ง → `uploading` → message recorded หรือ `failed`/ลองส่งอีกครั้ง; cancel และ room change ไม่เขียนข้อมูล
+- **Roles/Permissions:** คง login/company/room/membership และ owner-only เดิม; ปุ่มส่งเป็นจุดเริ่ม mutation ที่ชัดเจน และไฟล์ที่เลือกผูกกับ room id เพื่อกันส่งผิดห้อง
+- **Integrations:** กล้องในแอป, File System Picker, native fallback และ drag/drop ใช้ Preview เดียวกัน ก่อนต่อ Supabase Auth/private Storage/chat_messages/Realtime
+- **Failure/Retry:** validation ไม่ผ่านล้างไฟล์พร้อมเหตุผล; membership/session/Storage/message ล้มเหลวคง Preview พร้อมสถานะ failed; เปลี่ยนห้องล้างไฟล์ pending; message insert ล้มเหลวยัง cleanup object เดิม
+- **Audit/Owner:** เพิ่ม `chat_attachment_waiting_confirmation`; `send_started` เกิดเฉพาะเมื่อผู้ใช้กดส่ง; telemetry ไม่เก็บชื่อไฟล์ เจ้าของ Web Chat/Application Platform
+- **Impact/Migration/Legacy:** เปลี่ยนเฉพาะ UI/state; ไม่มี migration; รูป 3 รายการที่ auto-send สำเร็จก่อน v3.1 คงอยู่และไม่สร้างซ้ำ
+- **Verification:** attachment contract, Web Chat test, typecheck, lint, build, Production parity และ Android E2E selected → waiting_confirmation → send_started → message_recorded → image preview
+- **Rollback:** revert v3.1 เพื่อคืน auto-send; ไฟล์/ข้อความที่บันทึกสำเร็จแล้วไม่ถูกลบ
+
+## 2026-08-31 — Web Chat In-App Camera + File System Picker v3.0
+
+```mermaid
+flowchart LR
+  A[แตะไอคอนแนบ] --> B{เลือกแหล่งไฟล์}
+  B -->|ถ่ายรูปในแอป| C[getUserMedia กล้องหลัง]
+  C --> D[Canvas → JPEG File]
+  B -->|เลือกรูปหรือไฟล์| E[showOpenFilePicker]
+  B -->|สำรอง| F[Native hidden input]
+  D --> G[Validation]
+  E --> G
+  F --> G
+  G --> H[Membership + Session]
+  H --> I[Private Storage]
+  I --> J[chat_messages + Preview]
+  C -->|ไม่พร้อม/ไม่อนุญาต| K[แจ้งเหตุผล + Audit]
+  E -->|ไม่รองรับ/ล้มเหลว| F
+```
+
+- **เหตุผล/หลักฐาน:** Android revision `217c798` เปิด picker ได้สองครั้ง แต่ทุกครั้งหน้า `/chat` เริ่ม session ใหม่ทันทีหลังกลับจากกล้อง/แกลเลอรี และไม่มี `file_received`; Chromium มีปัญหา Media Picker/การคืนหน้า mobile ที่อาจทำให้ File handle สูญหาย จึงต้องมีเส้นทางที่ไม่สลับไปแอปกล้องภายนอก
+- **Input/Output/States:** ผู้ใช้เลือก camera/file-system/native fallback → `File` → received/validated/uploading/message_recorded → image/file card; cancel เป็น no-op, camera permission/picker/validation error แสดงเหตุผลและไม่สร้างข้อความ
+- **Roles/Permissions:** ต้อง login, มี company/room, เป็นสมาชิกห้อง และ Program Development ยังคง owner-only; ไม่เปลี่ยน RLS, private bucket หรือ allow-list
+- **Integrations:** `getUserMedia` + Canvas สำหรับกล้องในแอป, `showOpenFilePicker` สำหรับไฟล์, native input เป็น fallback, จากนั้นใช้ Supabase Auth/Storage/chat_messages/Realtime/preview เดิม
+- **Failure/Retry:** กล้องไม่พร้อมหรือ permission ถูกปฏิเสธหยุด stream และแจ้งผู้ใช้; File System Picker ไม่รองรับใช้ native fallback; upload/message failure คง Preview และ cleanup object ตาม flow เดิม
+- **Audit/Owner:** เพิ่ม `chat_attachment_camera_ready`, source `camera|file_system`, reason `camera_unavailable|picker_failed`; telemetry ไม่เก็บชื่อไฟล์ เจ้าของคือ Web Chat/Application Platform
+- **Impact/Migration:** เปลี่ยน UI แนบเป็นตัวเลือกสามทางและเพิ่มกล้องในแอป; ไม่มี schema migrationและไม่แก้ข้อมูลเดิม
+- **Verification:** attachment contract, camera/file picker mocks, typecheck, lint, build, release parity และ authenticated Android E2E ทั้ง camera กับ gallery/file
+- **Rollback:** revert v3.0 เป็น v2.9 ผ่าน Git integration; ไฟล์/ข้อความ/Audit เดิมคงอยู่ และ native fallback ยังเป็น recovery path
+
+## 2026-08-31 — Web Chat Direct Native Input Overlay v2.9
+
+```mermaid
+flowchart LR
+  A[ผู้ใช้แตะไอคอนแนบ] --> B[Native file input โปร่งใสรับ Pointer โดยตรง]
+  B --> C[Android/iOS picker]
+  C -->|เลือกไฟล์| D[input/change รับ File]
+  C -->|ยกเลิก| X[ไม่เขียนข้อมูล]
+  D --> E[Deduplicate DOM event]
+  E --> F{Validation พร้อมหรือไม่}
+  F -->|ผ่าน| G[Membership + Session]
+  G --> H[Private Storage]
+  H --> I[chat_messages]
+  I --> J[Preview ในห้อง]
+  F -->|ไม่ผ่าน| K[แจ้งเหตุผล + Telemetry]
+  G -->|ล้มเหลว| L[คงไฟล์เพื่อ Retry]
+  H -->|ล้มเหลว| L
+```
+
+- **เหตุผล:** Android Production หลัง v2.8 ยังมีเพียง `chat_attachment_picker_opened` โดยไม่พบ Storage/message; การ forward click จาก MUI label ยังเป็นจุดเสี่ยง และ telemetry เดิมเกิดหลัง validation จึงแยกไม่ได้ว่าไม่ได้รับ File หรือถูกปฏิเสธก่อนส่ง
+- **Input/Output/States:** รับ `File` จาก native input หรือ drag/drop → `received` → `validated` → `uploading` → `message_recorded`; ยกเลิกเป็น no-op และ validation/auth/Storage ล้มเหลวคง flow แจ้งเตือน/Retry เดิม
+- **Roles/Permissions:** ผู้ส่งต้อง login, อยู่ใน company/room และเป็นสมาชิกห้อง; ห้อง Program Development ยัง owner-only; ไม่ขยาย RLS, Storage policy หรือ allow-list
+- **Integration:** native browser picker → Supabase Auth/session → private bucket `chat-attachments` → `chat_messages` → signed preview/Realtime ตาม flow เดิม
+- **Failure/Retry:** input/change ที่ browser ยิงซ้ำถูก deduplicate ใน memory; ไฟล์เกิน 50 MB, MIME ไม่รองรับ และสถานะห้องไม่พร้อมบันทึก reason แยก; upload/message failure คงไฟล์ให้ลองใหม่และ cleanup object เมื่อ message insert ล้มเหลว
+- **Audit/Owner:** telemetry `picker_opened`, `file_received`, `selection_blocked`, `file_selected`, `send_started`, `message_recorded` ไม่เก็บชื่อไฟล์; owner คือ Web Chat/Application Platform
+- **Impact/Migration:** แก้เฉพาะตัวรับไฟล์และ telemetry หน้า Chat; ไม่มี schema migration และไม่เปลี่ยนข้อมูลเดิม
+- **Verification:** attachment contract, targeted/full lint, typecheck, build, Git/release parity และ authenticated Android read-back ครบ File → Storage → message → preview
+- **Rollback:** revert v2.9 เป็น v2.8 ผ่าน Git integration; ไฟล์/ข้อความ/Audit ที่สำเร็จแล้วคงอยู่ และใช้ telemetry แยกสาเหตุเพื่อ recovery
+
+## 2026-08-31 — Web Chat Android Picker Change Recovery v2.8
+
+- **เหตุผล:** Production Android มี `chat_attachment_picker_opened` แต่ไม่มี `file_selected`, Storage object หรือ message หลังผู้ใช้เลือกรูป จึงยืนยันว่าจุดขาดอยู่ระหว่าง native picker กลับมาและ input `change`
+- **Flow:** แตะไอคอน → pointer-down ล้าง selection เดิม → native picker → เลือกรูป → input change คง File → Preview/membership/session → Storage → `chat_messages` → รูปในห้อง
+- **สิทธิ์/ข้อมูล:** ไม่เปลี่ยน RLS, membership, private bucket, allow-list หรือข้อมูลเดิม; telemetry ไม่เก็บชื่อไฟล์
+- **Failure/Retry:** ยกเลิก picker ไม่สร้างข้อมูล; validation/session/Storage ล้มเหลวยังคงไฟล์และ retry ตาม flow เดิม; ถอด reset จาก input click เพื่อไม่ล้าง File หลัง Android picker กลับมา
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** attachment contract, targeted ESLint, typecheck, lint, build, release parity และ authenticated Android read-back ของ telemetry/Storage/message/preview
+- **Rollback:** revert v2.8 แล้ว deploy ผ่าน Git integration; ไฟล์และข้อความเดิมไม่ถูกลบ
+
+## 2026-08-31 — Cache-busted Logout Navigation v1.11
+
+- **เหตุผล:** Production Android Logout/Login รอบ 11:37 กลับ `/chat` และ session telemetry ไม่มี `release_revision` ยืนยันว่าเครื่องยังอยู่ใน SPA รุ่นเก่าซึ่งไม่ได้โหลด routing fix
+- **Flow:** กด Logout → บันทึก offline/session end → Supabase sign out → full document replace ไป `/login` พร้อม release/timestamp → โหลด bundle ปัจจุบัน → Login → มือถือ `/` Launcher
+- **สิทธิ์/ข้อมูล:** URL อยู่ same-origin, ไม่มี token/email/company data; ไม่เปลี่ยน Auth/RLS/role และยัง revoke local session ผ่าน Supabase signOut ก่อน navigation
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** auth-routing/cache-bust contract, typecheck, lint, build, Production revision/bundle และ Android session telemetry ต้องมี release metadata พร้อม page `/`
+- **Rollback:** revert hard navigation เป็น client navigation; session/logout records และข้อมูลเดิมไม่ถูกแก้
+
 ## 2026-08-31 — Mobile Fresh Login Launcher v1.10
 
 - **เหตุผล:** Logout จาก `/chat` อาจทำให้ ProtectedRoute จำ `from=/chat`; Login เดิมคืน path นี้ทันที จึงข้าม Launcher สองไอคอนบน Android
@@ -52,6 +200,15 @@
 - **Migration:** ไม่มี; ไม่มีการแก้ข้อมูลหรือ Audit ธุรกิจ
 - **การตรวจสอบ:** auth-routing contract, typecheck, lint, build และ mobile browser smoke
 - **Rollback:** คืนสัญลักษณ์สามขีดและปุ่มนาฬิกาใน `TopBar`; route `/time-tracking`, `/chat` และข้อมูลเดิมไม่เปลี่ยน
+
+## 2026-08-31 — Wisdom Power Branding + PWA Icon Refresh v1.2
+
+- **เหตุผล:** Company Selector เปลี่ยนเป็น Wisdom Power แล้ว แต่ Production frontend และไอคอนติดตั้งบนมือถือยังใช้ไฟล์ WisdomAI รุ่นเดิมจาก cache
+- **Flow:** commit ใหม่ → Vite เติม release revision ใน manifest/favicon/Apple touch icon/App Icon/Web mark → Cloudflare revalidate `/manifest.webmanifest` และ `/branding/*` → browser/PWA ดึงแบรนด์รุ่นใหม่
+- **ผลกระทบ:** ชื่อหน้า, Login, Sidebar, Smart Entry, Launcher, mobile menu mark และ PWA App Icon เป็น Wisdom Power; unread badge, mobile launcher, route, permission และข้อมูลธุรกิจเดิมไม่เปลี่ยน
+- **Migration:** `20260831074502_rename_default_company_to_wisdom_power.sql` ถูก Apply ที่ Supabase project `xkieyqixlufjqructjkr`; Company ID/slug เดิมและ Audit event เดียว
+- **การตรวจสอบ:** company-branding/auth-routing tests, typecheck, lint, build artifact manifest/index, Cloudflare cache headers, release revision และ authenticated runtime smoke
+- **Rollback:** revert frontend commit และเปลี่ยนชื่อ canonical tenant กลับพร้อม Audit ใหม่; ห้ามเปลี่ยน Company ID/slug หรือข้อมูลธุรกิจ
 
 ## 2026-08-31 — Admin Account Recovery Audit Hotfix v1.2.1
 
@@ -1364,6 +1521,11 @@
 - **Program Loop boundary:** ปลายทางภายในระบบใช้ห้องต้นทาง/ห้องงาน, HR หลัก และห้องเงินสำรองจ่ายตาม config กลาง โดยใช้ `request_code/event_key` เดิมทุกจุด; ห้อง 00 ของ Codex ไม่ใช่ Web Chat destination และต้องไม่มี duplicate notification ไปที่นั่น
 # Latest changes (23/08/2569)
 
+- Starting Fund Recipient Holder Gate v2.5 (31/8/2569): `ตั้งต้นกองเงิน/เติมกองให้ผู้ถือเงิน` จากบัญชีบริษัทหรือเงินส่วนตัวสำรองก่อน ตรวจผู้รับกับทะเบียนผู้ถือเงินและบัญชีรับ ขณะที่ผู้โอนคงเป็น Source Fact ไม่ต้องเป็นผู้ถือเงิน; Flow กองเดิม → พนักงานรายวันไม่เปลี่ยน ใช้ RPC แยก, event key, RLS/role guard และ append-only Audit
+- Starting Fund Source Choice v2.6 (31/8/2569): ชื่อแหล่งเงินใน Accounting Drawer ระบุทิศทางเงินใหม่เข้ากองกับการโอนต่อจากกองเดิมให้ชัด เพิ่มคำเตือนเมื่อเลือก Gate ขัดกับวัตถุประสงค์ และล้าง Error เก่าทันทีเมื่อเปลี่ยนแหล่งเงิน
+
+- Advance Holder Guided Resolution v2.4 (31/8/2569): unresolved money movements now state the exact missing reasons and deep-link the original Transaction directly into Accounting review. A safe `/advance-holders` return context reopens the holder and highlights the transaction; suspicious dates cannot auto-route. No migration or financial write; rollback removes only the UI/helper changes.
+
 - Advance Holder Source Registry v2.2 (31/8/2569): `/advance-holders` derives received, approved paid/offset, returned, balance, pending and last-update values from existing company-scoped Advance Case/Settlement records while retaining its slip discovery tab. Negative balances are red and filterable, with a read-only transaction Drawer. No summary cards, migration or financial write are introduced; rollback removes the projection UI only.
 - Advance Holder Real-time Money Route v2.3 (31/8/2569): `/advance-holders` remains one main table and overlays non-duplicate Operational Truth slips to show outgoing Real-time, money in transit, projected versus confirmed balance, variance/review count, last movement and clickable source→holder→beneficiary→destination routes. Unconfirmed evidence is dashed/orange and never posts to the confirmed ledger; no migration or financial mutation is introduced. Rollback removes only the v2.3 helper/UI and retains every source, ledger and Audit record.
 
@@ -1507,3 +1669,83 @@
 - **Migration:** `20260826102135_transfer_slip_canonical_operational_truth.sql` (ตรงกับ Production migration history)
 - **Verification:** Production task 100 = view rows 100 = distinct task 100; confirmed/postable 5, duplicate/non-postable 7, needs-review/non-postable 88, invalid canonical rows 0
 - **Rollback:** ถอน View และคืน consumer query ก่อนหน้าได้โดยไม่ลบ Raw/OCR/Lineage/Audit หรือข้อมูลธุรกิจ
+
+### Masked Bank Tail + Holder Starting Fund v2.1 (31/8/2569)
+
+- **เหตุผล:** สลิปธนาคารกรุงเทพแสดงเลขท้ายบัญชีเพียง 3 หลัก แต่ระบบเดิมบังคับ 4 หลัก และ Draft เงินเบิกล่วงหน้ายังไม่เปลี่ยน `expense_type` ก่อน Party Resolver
+- **Flow:** สลิป → อ่านเลขท้ายที่เห็นจริง 3–4 หลัก → เลือกแหล่งเงินจริง + `ตั้งต้น/เติมกองให้ผู้ถือเงิน` → Draft Classification/Audit → เชื่อมสองฝั่ง → สร้าง/เชื่อม Advance ID → Advance Finance
+- **Data/Audit:** คงชื่อคอลัมน์ `*_account_last4` เพื่อ compatibility แต่ contract คือ visible tail 3–4 หลัก; ห้ามเดาเลขที่ถูกปกปิด. RPC ตรวจ Allocation ก่อน update และ idempotent ด้วย event key
+- **Migration:** `20260831054814_support_masked_bank_digits_and_starting_fund.sql`; แก้ constraint/validation/trigger แบบ fail-closed และเพิ่ม `classify_transfer_slip_advance_draft_v1`
+- **Verification:** visible-tail contract, money-lineage contract, migration dry-run/local schema, typecheck, lint, build และ authenticated Accounting Drawer → Advance Finance/Audit smoke
+- **Rollback:** ซ่อน label/preset และ revoke classification RPC; ก่อนคืน constraint 4 หลักต้อง reconcile หลักฐาน 3 หลัก ห้ามลบ Raw/OCR, Lineage, Advance ID หรือ Audit
+
+### Advance Holder Live Refresh v2.8 (31/8/2569)
+
+```mermaid
+flowchart LR
+  S[Case / Settlement / Transaction / Lineage / Task เปลี่ยน] --> R[Realtime event]
+  R --> D[Debounce 600ms]
+  D --> P[โหลดทะเบียน + Operational Truth projection ใหม่]
+  X[Realtime ขาดช่วง] --> F[Polling 30 วินาที / Focus / กลับแท็บ]
+  F --> P
+  P --> U[ตาราง Drawer สถานะ Live และเวลาอัปเดต]
+```
+
+- **Flow/State:** `/advance-holders` อัปเดตทั้งบัญชียืนยันและสลิปที่จับคู่เมื่อข้อมูลต้นทางเปลี่ยน; สถานะ UI คือ `connecting → live|polling` และ fallback ไม่หยุดการทำงาน
+- **Permission/Data:** ใช้ session/RLS เดิมและโหลดเฉพาะบริษัทปัจจุบัน; migration `20260831084415_enable_advance_holder_realtime.sql` เพิ่มเฉพาะตาราง Flow นี้ใน `supabase_realtime` publication ไม่แก้ข้อมูลธุรกิจ
+- **Failure/Retry/Audit:** Realtime event รวมภายใน 600ms; polling ทุก 30 วินาทีและ focus/visibility refresh ชดเชย event ที่พลาด ส่วน Source/Lineage/Audit เดิมไม่เปลี่ยน
+- **Owner/Verification/Rollback:** Accounting/Platform; realtime contract, typecheck, lint, build และ authenticated Production smoke; rollback ปิด subscription/polling แล้วคงปุ่ม Refresh
+
+### Advance Holder Balance Projection v2.9 (31/8/2569)
+
+```mermaid
+flowchart LR
+  C[Advance Cases] --> G{cancelled / rejected?}
+  G -->|ใช่| X[ไม่นับยอด · แสดงยอดที่ตัดออก]
+  G -->|ไม่| B[ยอดรับ/ใช้/คืนที่บันทึกแล้ว]
+  S[Operational Truth] --> D{Transaction หรือ Evidence<br/>ลง Case/Settlement แล้ว?}
+  D -->|ใช่| N[แสดงเส้นทาง แต่ไม่คิดซ้ำ]
+  D -->|ยัง| R[รับเข้า/จ่ายออก Real-time]
+  B --> P[คงเหลือคาดการณ์]
+  R --> P
+  P --> U[/advance-holders + Drawer + Deep link/Audit]
+```
+
+- **Flow/Data:** ยอดบันทึกใช้เฉพาะ Case ที่ไม่ใช่ `cancelled/rejected`; รับเข้า Real-time นับเฉพาะ `advance_transfer/onward_transfer`; จ่ายออก Real-time หักจากยอดคาดการณ์ และใช้ Transaction ID/Evidence Item ID กันรายการที่ลงบัญชีแล้วไม่ให้คิดซ้ำ
+- **State/Permission/Audit:** เป็น company-scoped read projection ภายใต้ RLS เดิม ไม่แก้สถานะหรือข้อมูลเงินจริง; รายการยกเลิก/Reject และ Source/Audit ยังคงตรวจย้อนหลังได้
+- **Failure/Retry:** รายการขาดประเภทเงินหรือเส้นทางไม่เปลี่ยนยอดรับเข้าและคงอยู่ในรอตรวจ; Realtime/polling v2.8 โหลด projection ใหม่เมื่อแก้ข้อมูลต้นทาง
+- **Owner/Verification/Rollback:** Accounting/Platform; balance/realtime contract, legacy reconciliation, typecheck/lint/build และ authenticated Production smoke; rollback revert projection v2.9 โดยไม่ย้อนข้อมูลธุรกิจ
+
+### Borrowed Starting Fund v2.7 (31/8/2569)
+
+```mermaid
+flowchart LR
+  S[สลิปเงินเข้า] --> G{Source = เงินยืม?}
+  G -->|ใช่| V[ตรวจผู้ให้ยืม กำหนดคืน ผู้รับ และยอด]
+  V -->|ครบ| O[สร้างภาระหนี้ outstanding + Audit]
+  O --> H[เชื่อมกองผู้ถือเงินและส่ง Advance Finance]
+  V -->|ขาด| R[คง Accounting Review พร้อมเหตุผล]
+```
+
+- **Flow/Data:** `borrowed_funds` เชื่อม Source → Slip → Money Lineage → `borrowed_fund_obligations` → Holder Fund → Advance Finance โดยไม่ลงรายได้/ค่าใช้จ่ายทันที
+- **Permission/Audit/Retry:** company manager/platform เป็นผู้บันทึก; accounting/HR อ่านได้ภายใต้ RLS; event key กันคำสั่งซ้ำและ append `borrowed_fund_obligation_recorded`
+- **Migration/Verification:** `20260831072537_borrowed_fund_obligations.sql`; contract, typecheck, lint, build, dry-run/apply และ authenticated Drawer smoke
+- **Owner/Rollback:** Accounting owner; ปิด Source และ revoke RPC ได้โดยคง Obligation, Slip, Lineage และ Audit เพื่อ recovery
+
+### Historical Payroll Employee Selection v3.0 (31/8/2569)
+
+```mermaid
+flowchart LR
+  E[Employment history ของบริษัท] --> D[รวมซ้ำด้วย Profile ID]
+  D --> A[พนักงานปัจจุบัน]
+  D --> F[อดีตพนักงาน · มีป้ายกำกับ]
+  A --> P[เลือกเจ้าของค่าแรง / ผู้รับเงินจริง]
+  F --> P
+  P --> W[บันทึก Allocation + Audit ตาม Flow เดิม]
+  F -. ไม่ทำ .-> R[Reactivate หรือสร้าง Profile ใหม่]
+```
+
+- **Input/Output/State:** อ่านประวัติ `employee_employment_records` ทุกสถานะภายในบริษัท แล้วสร้างตัวเลือก Profile เดียวต่อคนสำหรับรายการค่าแรงย้อนหลัง; ไม่แก้ employment state
+- **Roles/Permissions/Integration:** ใช้สิทธิ์ Accounting Admin/Manager และ RLS เดิม; Allocation, Payroll destination และ Audit ใช้คำสั่งยืนยันเดิม
+- **Failure/Retry:** ถ้ามีหลายประวัติของ Profile เดียว ระบบเลือกสถานะปัจจุบันก่อน; ชื่อยังไม่ชัดคงค้าง Review โดยไม่สร้างบุคคลซ้ำ
+- **Owner/Migration/Verification/Rollback:** Accounting/HR; ไม่มี migration; former-employee contract + typecheck/lint/build + authenticated Drawer; rollback เฉพาะ query/label โดยข้อมูลเดิมไม่เปลี่ยน

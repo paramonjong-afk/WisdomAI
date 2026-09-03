@@ -16,6 +16,11 @@ export type AdvanceHolderSlipEvidence = {
   lineageId?: string | null
   fundingSourceType?: string | null
   purposeType?: string | null
+  projectId?: string | null
+  siteId?: string | null
+  projectName?: string | null
+  siteName?: string | null
+  projectTaskStatus?: string | null
   routeStatus?: string | null
   nextDestination?: string | null
   canonicalPayerName?: string | null
@@ -40,6 +45,11 @@ export type AdvanceHolderSlipMatch = {
   lineageId: string | null
   fundingSourceType: string | null
   purposeType: string | null
+  projectId: string | null
+  siteId: string | null
+  projectName: string | null
+  siteName: string | null
+  projectTaskStatus: string | null
   routeStatus: string | null
   nextDestination: string | null
   canonicalPayerName: string | null
@@ -82,6 +92,27 @@ export function normalizeAdvanceHolderName(value: string | null | undefined) {
     .toLocaleLowerCase('th-TH')
 }
 
+export function advanceHolderMoneyRouteParties(
+  slip: Pick<AdvanceHolderSlipMatch, 'senderName' | 'recipientName' | 'canonicalPayerName' | 'canonicalFundHolderName' | 'canonicalBeneficiaryName'>,
+  holderDisplayName?: string | null,
+) {
+  const parties: string[] = []
+  const append = (name: string | null | undefined, preferThisLabel = false) => {
+    if (!name?.trim()) return
+    const previous = parties.at(-1)
+    if (previous && normalizeAdvanceHolderName(previous) === normalizeAdvanceHolderName(name)) {
+      if (preferThisLabel) parties[parties.length - 1] = name
+      return
+    }
+    parties.push(name)
+  }
+
+  append(slip.canonicalPayerName ?? slip.senderName)
+  append(slip.canonicalFundHolderName ?? holderDisplayName, true)
+  append(slip.canonicalBeneficiaryName ?? slip.recipientName)
+  return parties
+}
+
 export function matchAdvanceHolderSlips(holders: AdvanceHolderMatchSource[], slips: AdvanceHolderSlipEvidence[]) {
   const nameIndex = new Map<string, AdvanceHolderMatchSource[]>()
   holders.forEach((holder) => {
@@ -119,6 +150,11 @@ export function matchAdvanceHolderSlips(holders: AdvanceHolderMatchSource[], sli
         lineageId: slip.lineageId ?? null,
         fundingSourceType: slip.fundingSourceType ?? null,
         purposeType: slip.purposeType ?? null,
+        projectId: slip.projectId ?? null,
+        siteId: slip.siteId ?? null,
+        projectName: slip.projectName ?? null,
+        siteName: slip.siteName ?? null,
+        projectTaskStatus: slip.projectTaskStatus ?? null,
         routeStatus: slip.routeStatus ?? null,
         nextDestination: slip.nextDestination ?? null,
         canonicalPayerName: slip.canonicalPayerName ?? null,
