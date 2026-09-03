@@ -22,6 +22,7 @@ const movements: AdvanceHolderSlipMatch[] = [
 const result = calculateHolderRealtimeBalance('holder-1', 1_500, movements, ['tx-posted'], ['item-posted-out'])
 assert.equal(result.realtimeReceived, 1000)
 assert.equal(result.realtimePaid, 600)
+assert.equal(result.realtimeReceived, 1000)
 assert.equal(result.inTransit, 200)
 assert.equal(result.projectedBalance, 1900)
 assert.equal(result.confirmedBalance, 1_500)
