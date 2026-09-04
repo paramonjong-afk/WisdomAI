@@ -13,6 +13,7 @@ const checks: Array<[string, boolean]> = [
   ['MainLayout mounts a mobile sidebar without changing desktop Sidebar', mainLayout.includes('<MobileSidebar') && mainLayout.includes('<Sidebar />')],
   ['TopBar exposes a touch-sized mobile navigation action', topBar.includes('aria-label="เปิดเมนูนำทาง"') && topBar.includes('width: 44')],
   ['Mobile navigation reuses permission-filtered navigation content', sidebar.includes('NavigationContent onNavigate={onClose}')],
+  ['Mobile navigation provides a visible touch-sized close action', sidebar.includes('aria-label="ปิดเมนูนำทาง"') && sidebar.includes('onClick={onClose}') && sidebar.includes('width: 44')],
   ['Dialogs and Drawers become viewport-sized on small screens', theme.includes("width:'100vw'") && theme.includes("height:'100dvh'")],
   ['Tables preserve horizontal access on touch screens', theme.includes('WebkitOverflowScrolling') && table.includes('ปัดซ้ายหรือขวา')],
 ]

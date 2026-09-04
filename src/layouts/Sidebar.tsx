@@ -18,7 +18,8 @@ import RateReviewOutlinedIcon from '@mui/icons-material/RateReviewOutlined'
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded'
 import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined'
 import LockResetOutlinedIcon from '@mui/icons-material/LockResetOutlined'
-import { Avatar, Box, Divider, Drawer, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography } from '@mui/material'
+import CloseOutlinedIcon from '@mui/icons-material/CloseOutlined'
+import { Avatar, Box, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography } from '@mui/material'
 import { NavLink } from 'react-router-dom'
 import { navigationGroups } from '../utils/navigation'
 import { useAuth } from '../hooks/useAuth'
@@ -147,6 +148,13 @@ export function Sidebar() {
 
 export function MobileSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   return <Drawer anchor="left" open={open} onClose={onClose} ModalProps={{ keepMounted: true }} sx={{ display: { xs: 'block', md: 'none' } }} slotProps={{ paper: { sx: { width: 'min(88vw, 320px)', bgcolor: '#333333', color: 'common.white' } } }}>
+    <IconButton
+      aria-label="ปิดเมนูนำทาง"
+      onClick={onClose}
+      sx={{ position: 'absolute', top: 10, right: 10, zIndex: 1, width: 44, height: 44, color: 'common.white' }}
+    >
+      <CloseOutlinedIcon />
+    </IconButton>
     <NavigationContent onNavigate={onClose} />
   </Drawer>
 }
