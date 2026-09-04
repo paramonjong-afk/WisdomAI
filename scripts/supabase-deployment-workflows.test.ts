@@ -6,6 +6,7 @@ const root = resolve(import.meta.dirname, '..')
 const functionsWorkflow = readFileSync(resolve(root, '.github/workflows/deploy-supabase-functions.yml'), 'utf8')
 const migrationsWorkflow = readFileSync(resolve(root, '.github/workflows/deploy-supabase-migrations.yml'), 'utf8')
 const agents = readFileSync(resolve(root, 'AGENTS.md'), 'utf8')
+const profilesFoundation = readFileSync(resolve(root, 'supabase/migrations/202607210000_profiles_foundation.sql'), 'utf8')
 const recoveryMigration = readFileSync(resolve(root, 'supabase/migrations/20260904120000_recover_orphaned_system_work_item_claims.sql'), 'utf8')
 const boundedRetryMigration = readFileSync(resolve(root, 'supabase/migrations/20260904130000_bounded_retry_and_escalation_alerts.sql'), 'utf8')
 const healthMonitor = readFileSync(resolve(root, 'supabase/functions/health-monitor/index.ts'), 'utf8')
@@ -46,6 +47,8 @@ assert.doesNotMatch(pullRequestTrigger, /\n\s+paths:/, 'required verification mu
 assert.equal((migrationsWorkflow.match(/supabase db push --linked$/gm) ?? []).length, 1, 'real push must exist only in apply job')
 assert.ok(migrationsWorkflow.indexOf('verify-migrations:') < migrationsWorkflow.indexOf('apply-migrations:'), 'verify job must precede apply job')
 assert.doesNotMatch(functionsWorkflow + migrationsWorkflow, /xkieyqixlufjqructjkr\.(?:supabase|postgres)|eyJ[A-Za-z0-9_-]+\./, 'workflow must not hard-code credentials')
+assert.match(profilesFoundation, /create table if not exists public\.profiles/)
+assert.match(profilesFoundation, /references auth\.users\(id\) on delete cascade/)
 
 for (const contract of ['Multi-Agent Work Claim Protocol', 'Automated Supabase Deployment Standard', 'max_attempts', 'reset_system_work_item_retry']) {
   assert.ok(agents.includes(contract), `missing AGENTS contract: ${contract}`)
