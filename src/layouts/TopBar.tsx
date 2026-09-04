@@ -1,5 +1,6 @@
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined'
-import { AppBar, Avatar, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, IconButton, ListSubheader, MenuItem, Paper, TextField, Toolbar, Tooltip, Typography } from '@mui/material'
+import TimerOutlinedIcon from '@mui/icons-material/TimerOutlined'
+import { AppBar, Avatar, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, IconButton, ListSubheader, MenuItem, TextField, Toolbar, Tooltip, Typography } from '@mui/material'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
@@ -7,16 +8,11 @@ import { logAppEvent, updateAppStatus } from '../lib/telemetry'
 import { releaseHostLabel, releaseInfo, releaseLabel } from '../lib/releaseInfo'
 import { brandAssets } from '../lib/brandAssets'
 import { buildFreshLoginUrl } from '../utils/authRouting'
-import { navigationItems } from '../utils/navigation'
 import { isPlatformAdmin as resolvePlatformAdmin } from '../utils/permissions'
 import { applyPendingReleaseUpdate, getPendingReleaseRevision, releaseUpdateAvailableEvent } from '../utils/releaseFreshness'
 import { NotificationBell } from '../components/NotificationBell'
 
-const mobileNavigationItems = navigationItems.filter(
-  (item) => item.path === '/time-tracking' || item.path === '/my-profile',
-)
-
-export function TopBar() {
+export function TopBar({ onMenuOpen }: { onMenuOpen?: () => void }) {
   const navigate = useNavigate()
   const { profile, user, companies, currentCompany, switchCompany, signOut } = useAuth()
   const [signingOut, setSigningOut] = useState(false)
@@ -53,31 +49,18 @@ export function TopBar() {
   return (
     <AppBar position="sticky" elevation={0} color="inherit" sx={{ borderBottom: 1, borderColor: 'divider' }}>
       <Toolbar>
-        <Box
-          component="details"
-          sx={{
-            display: { xs: 'block', md: 'none' },
-            '@media (pointer: coarse)': { display: 'block' },
-            mr: 1,
-            position: 'relative',
-            flexShrink: 0,
-          }}
-        >
-          <Box
-            component="summary"
+        <Tooltip title="เปิดเมนูนำทาง">
+          <IconButton
             aria-label="เปิดเมนูนำทาง"
+            onClick={onMenuOpen}
             sx={{
-              width: 48,
-              height: 48,
-              display: 'grid',
-              placeItems: 'center',
-              fontSize: 30,
-              lineHeight: 1,
-              cursor: 'pointer',
-              listStyle: 'none',
-              touchAction: 'manipulation',
-              userSelect: 'none',
-              '&::-webkit-details-marker': { display: 'none' },
+              display: { xs: 'block', md: 'none' },
+              '@media (pointer: coarse)': { display: 'block' },
+              mr: 1,
+              position: 'relative',
+              flexShrink: 0,
+              width: 44,
+              height: 44,
             }}
           >
             <Box
@@ -90,52 +73,34 @@ export function TopBar() {
                 display: 'block',
               }}
             />
-          </Box>
-          <Paper elevation={12} sx={{
-            position: 'absolute', zIndex: 2147483647, top: 52, left: 0,
-            width: 'min(86vw, 320px)', maxHeight: '75vh', overflowY: 'auto', p: 1,
-          }}>
-            {mobileNavigationItems.map((item) => <Box
-              component="a" key={item.path} href={item.path}
-              sx={{
-                display: 'block', minHeight: 48, px: 2, py: 1.5,
-                color: 'text.primary', textDecoration: 'none', borderRadius: 1,
-                fontWeight: item.path === '/time-tracking' ? 800 : 600,
-                bgcolor: item.path === '/time-tracking' ? 'action.selected' : 'transparent',
-              }}
-            >
-              {item.path === '/time-tracking' ? '⏱ ลงเวลาของฉัน' : '👤 ข้อมูลส่วนตัว'}
-            </Box>)}
-            <Box
-              component="button"
-              type="button"
-              disabled={signingOut}
-              onClick={() => void handleSignOut()}
-              sx={{
-                width: '100%',
-                minHeight: 48,
-                px: 2,
-                py: 1.5,
-                border: 0,
-                borderTop: 1,
-                borderColor: 'divider',
-                bgcolor: 'transparent',
-                color: 'text.primary',
-                textAlign: 'left',
-                font: 'inherit',
-                fontWeight: 600,
-                cursor: 'pointer',
-                '&:active': { bgcolor: 'action.selected' },
-              }}
-            >
-              👥 ลงเวลาให้ผู้อื่น (เปลี่ยนบัญชี)
-            </Box>
-          </Paper>
-        </Box>
+          </IconButton>
+        </Tooltip>
         <Typography variant="body2" color="text.secondary" sx={{ flexGrow: 1, display: { xs: 'none', sm: 'block' } }}>
           {currentCompany?.company_name ?? 'Construction Management Platform'}
         </Typography>
-        <Box sx={{ flexGrow: 1, display: { xs: 'block', sm: 'none' } }} />
+        <Box sx={{ flexGrow: 1, minWidth: 0, display: { xs: 'block', sm: 'none' } }}>
+          <Typography variant="body2" noWrap sx={{ fontWeight: 800 }}>{currentCompany?.company_name ?? 'WisdomAI'}</Typography>
+          <Typography variant="caption" noWrap color="text.secondary">{displayName} · {role}</Typography>
+        </Box>
+        <Tooltip title="ลงเวลา">
+          <IconButton
+            component="a"
+            href="/time-tracking"
+            color="primary"
+            aria-label="ลงเวลา"
+            sx={{
+              display: { xs: 'inline-flex', md: 'none' },
+              '@media (pointer: coarse)': { display: 'inline-flex' },
+              mr: 1,
+              width: 44,
+              height: 44,
+              border: '1px solid',
+              borderColor: 'primary.main',
+            }}
+          >
+            <TimerOutlinedIcon />
+          </IconButton>
+        </Tooltip>
         {(companies.length>1||isPlatformAdmin)&&<TextField
           select size="small" aria-label="เลือกบริษัท" value={currentCompany?.company_id??''}
           onChange={(event)=>event.target.value==='__platform__'?navigate('/platform-control-center'):void switchCompany(event.target.value)}

@@ -45,6 +45,10 @@ In DEV only, `local_test_data=1` keeps `ProtectedRoute` and the role gate open f
 - **Failure/retry:** full Logout navigation มี timestamp กัน document cache และ Release Freshness Guard ตรวจ manifest ซ้ำ; manifest, favicon, Apple touch icon และรูปแบรนด์ในแอปเติม release revision ใน URL พร้อม cache revalidation เพื่อดึงไอคอนใหม่หลัง deploy. If device detection is uncertain, the system uses the desktop branch; external/protocol-relative requested paths are rejected to `/`; if profile data is unavailable, it stays at `/` and retries through the existing AuthContext refresh. Unread load failure clears a potentially stale count and retries through Realtime/30-second polling. Unsupported/denied OS badging silently falls back to the in-app badge. An unavailable or denied desktop destination follows its Router guard.
 - **Audit/owner:** navigation has no business mutation or audit event. Platform UI owns device routing/labels/icons; each destination module owns its data and audit.
 
+## Mobile interaction contract
+
+On 320–768px screens, the top bar opens a full-height mobile Drawer that reuses the same role/platform-filtered navigation registry as Desktop. Selecting a destination closes the Drawer and uses the existing Router guard; it does not grant new access or load another company's data. The top bar keeps the active company, user, and role visible while page-specific Project context remains owned by the destination page.
+
 ## Change record
 
 | Version | Date | Change | Verification | Rollback |
@@ -62,3 +66,4 @@ In DEV only, `local_test_data=1` keeps `ProtectedRoute` and the role gate open f
 | v1.10 | 31/8/2569 | ป้องกัน Logout/Login บนมือถือคืน deep route `/chat` จาก ProtectedRoute state จนข้ามหน้ารวม 2 ไอคอน | auth-routing contract ครอบคลุม mobile remembered route, typecheck, lint, build และ authenticated Android logout/login smoke | revert login target resolver เพื่อคืน remembered route; route/สิทธิ์/ข้อมูลผู้ใช้เดิมไม่เปลี่ยน |
 | v1.11 | 31/8/2569 | Production telemetry ยืนยัน Android Logout/Login ยังอยู่ใน SPA รุ่นเก่าที่ไม่มี release metadata จึงไม่รับ routing fix | Logout ใช้ full document navigation พร้อม release/timestamp; ตรวจ bundle ใหม่ก่อน Login ทุกครั้ง | auth-routing/cache-bust contract, typecheck, lint, build, revision parity และ Android session ต้องมี release metadata | revert hard navigation เป็น React navigation; Auth/session/data เดิมไม่เปลี่ยน |
 | v1.12 | 31/8/2569 | เปลี่ยนชื่อและ App Icon เป็น Wisdom Power พร้อม version URL ตาม release เพื่อไม่ติด cache เดิมบนมือถือ | company-branding/auth-routing tests, build artifact, cache headers และ Production PWA/runtime smoke | คืน icon/label เดิมและถอด version plugin; route, session และข้อมูลเดิมไม่เปลี่ยน |
+| v1.13 | 4/9/2569 | Replace the small-screen inline details menu with a full-screen mobile Drawer using the same permission-filtered navigation content as Desktop; keep company/user/role context visible in the TopBar | mobile responsive contract, targeted lint, typecheck and desktop/mobile navigation smoke | revert MainLayout/TopBar/Sidebar mobile navigation wiring; route permissions and data remain unchanged |

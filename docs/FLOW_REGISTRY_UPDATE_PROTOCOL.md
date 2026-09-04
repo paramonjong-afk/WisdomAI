@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## 2026-09-04 — Cross-system Mobile Responsive Contract v1.0
+
+- **เหตุผล:** ทำให้การใช้งานบนมือถือ 320–768px เข้าถึง navigation, table, Drawer/Dialog และ action สำคัญได้ด้วย layout ที่ออกแบบเฉพาะ ไม่ลดความสามารถหรือขยาย scope ข้อมูล
+- **ผลกระทบ:** `MainLayout`, `TopBar`, `Sidebar`, `theme`, `StandardDataTable`, Navigation/UI Action/Data Table flow documents และ mobile contract test; query, RLS, company/project scope, audit และ business mutation เดิมไม่เปลี่ยน
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** `test:mobile-responsive`, targeted lint/typecheck, build, authenticated Android/iPhone portrait/landscape smoke และ Desktop regression; ตรวจเปิดหน้า → ค้นหา → แก้ไข → บันทึก → สถานะ → ส่งต่อ → Audit ในแต่ละโมดูลที่แก้
+- **Rollback:** revert shared layout/theme/table UI และเอกสาร/test ได้โดยไม่ลบข้อมูล, audit หรือเปลี่ยน permission; หากหน้ารายใดมีปัญหาให้ปิดเฉพาะ mobile presentation override แล้วคง Desktop flow เดิม
+
 ## 2026-08-31 — Accounting Drawer Return-to-Origin v2.8
 
 ```mermaid
