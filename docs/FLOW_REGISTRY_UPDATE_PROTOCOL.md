@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## 2026-09-05 - SYS-CICD-001 ledger view compatibility
+
+- Flow: `docs/SUPABASE_REPLAY_FLOW.md`.
+- Evidence: CI run 33917055323 found dropped columns in the replacement view.
+- Change: retain assignment metadata and reviewed pay-period precedence from the prior view.
+- Verification: PostgreSQL replacement/repeat, column order/types, period routing and grants.
+- No table/view drop or Production apply; rollback by task-branch revert.
+
 ## 2026-09-05 - SYS-CICD-001 historical salary replay
 
 - Flow: `docs/SUPABASE_REPLAY_FLOW.md`.

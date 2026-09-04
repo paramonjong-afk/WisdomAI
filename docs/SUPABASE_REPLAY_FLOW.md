@@ -17,7 +17,8 @@ flowchart TD
   N --> O{Historical salary correction}
   O -->|No identities, documents or allocations| I
   O -->|Any existing data| P[Original target, amount and source checks]
-  P -->|Valid| I
+  P -->|Valid| Q[Preserve ledger view columns and reviewed pay period]
+  Q --> I
   P -->|Invalid| G
   I --> J[Human PR review]
 ```
@@ -89,3 +90,11 @@ five isolated PostgreSQL scenarios: pristine repeated replay and each of the
 four guarded tables populated independently. It asserts original rejection
 when the historical target is absent and verifies no rows/evidence are created
 or deleted. Full CI replay and linked dry-run remain required before merge.
+
+CI run 33917055323 passed the salary correction and failed at 20260830101500:
+the replacement ledger view omitted existing assignment method/reason columns
+and the canonical reviewed-period join. Restore the prior column order, join
+and coalesce expression; preserve security_invoker and grants without dropping
+the view. `node scripts/ledger-view-replay.test.mjs` executes the previous view
+then the replacement twice and verifies schema compatibility, reviewed-period
+precedence, allocation fallback, version metadata and access properties.
