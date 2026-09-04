@@ -38,6 +38,11 @@ for (const contract of [
   'DELETE[[:space:]]+FROM',
 ]) assert.ok(migrationsWorkflow.includes(contract), `missing migration workflow contract: ${contract}`)
 
+const pullRequestTrigger = migrationsWorkflow.slice(
+  migrationsWorkflow.indexOf('  pull_request:'),
+  migrationsWorkflow.indexOf('  push:'),
+)
+assert.doesNotMatch(pullRequestTrigger, /\n\s+paths:/, 'required verification must run on every pull request to main')
 assert.equal((migrationsWorkflow.match(/supabase db push --linked$/gm) ?? []).length, 1, 'real push must exist only in apply job')
 assert.ok(migrationsWorkflow.indexOf('verify-migrations:') < migrationsWorkflow.indexOf('apply-migrations:'), 'verify job must precede apply job')
 assert.doesNotMatch(functionsWorkflow + migrationsWorkflow, /xkieyqixlufjqructjkr\.(?:supabase|postgres)|eyJ[A-Za-z0-9_-]+\./, 'workflow must not hard-code credentials')
