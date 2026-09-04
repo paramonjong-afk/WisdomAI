@@ -154,6 +154,59 @@ Deno.serve(async (request) => {
     if (error) return json({ error: error.message }, 500)
     return json({ status: 'vault_secret_configured' })
   }
+
+  // Platform-level escalation must not depend on one company's monitor settings.
+  if (monitorAuthorized && body.action === 'send_work_escalations') {
+    const maxAttempts = 5
+    const blockedHours = 2
+    const rateLimitMinutes = 60
+    const cutoffIso = new Date(Date.now() - blockedHours * 3_600_000).toISOString()
+    const selectCols = 'work_key,title,category,risk,detail,production_status,attempt_count,blocked_since,company_id'
+    const [{ data: byAttempts, error: attemptsError }, { data: byDuration, error: durationError }] = await Promise.all([
+      admin.from('system_work_items').select(selectCols).eq('status', 'blocked').gte('attempt_count', maxAttempts),
+      admin.from('system_work_items').select(selectCols).eq('status', 'blocked').lt('blocked_since', cutoffIso),
+    ])
+    if (attemptsError || durationError) return json({ error: (attemptsError ?? durationError)?.message }, 500)
+    const seen = new Set<string>()
+    const escalations = [...(byAttempts ?? []), ...(byDuration ?? [])].filter(item => {
+      if (seen.has(item.work_key)) return false
+      seen.add(item.work_key)
+      return true
+    })
+    if (!escalations.length) return json({ status: 'none', checked_at: new Date().toISOString() })
+
+    let sent = 0
+    let failed = 0
+    let skipped = 0
+    for (const item of escalations) {
+      const { data: recent } = await admin.from('health_monitor_notifications').select('id')
+        .eq('notification_type', 'work_escalation_alert').like('destination', 'telegram:%')
+        .gte('created_at', since(rateLimitMinutes)).ilike('message', `%${item.work_key}%`).limit(1).maybeSingle()
+      if (recent) { skipped += 1; continue }
+      const capped = item.attempt_count >= maxAttempts
+      const reason = capped
+        ? `ลองซ้ำครบ ${item.attempt_count} ครั้งแล้วยังไม่ผ่าน (เกินขีดจำกัด ${maxAttempts} ครั้ง)`
+        : `ค้างสถานะ "ติดปัญหา" นานเกิน ${blockedHours} ชม.`
+      const blockedForHours = item.blocked_since ? Math.round((Date.now() - new Date(item.blocked_since).getTime()) / 3_600_000) : null
+      const text = [
+        `🆘 <b>งานค้าง ต้องการคนตัดสินใจ: ${escapeHtml(item.work_key)}</b>`,
+        escapeHtml(item.title),
+        `เหตุผล: ${escapeHtml(reason)}`,
+        `พยายามแล้ว: ${item.attempt_count} ครั้ง`,
+        blockedForHours !== null ? `ค้างมา: ~${blockedForHours} ชม.` : null,
+        `Production: ${escapeHtml(item.production_status)}`,
+        escapeHtml(item.detail || '-'),
+        '',
+        capped
+          ? 'ระบบ Auto จะไม่ลองงานนี้ซ้ำอีกจนกว่าจะมีคนแก้ต้นเหตุแล้วสั่ง reset_system_work_item_retry'
+          : 'กรุณาตรวจสอบและตัดสินใจว่าจะแก้ไข หรือรีเซ็ตให้ลองใหม่',
+      ].filter(Boolean).join('\n')
+      const delivery = await recordAdminNotification('work_escalation_alert', null, text, item.company_id ?? null)
+      sent += delivery.sent
+      failed += delivery.failed
+    }
+    return json({ status: 'checked', escalations: escalations.length, sent, failed, skipped, checked_at: new Date().toISOString() })
+  }
   if (!monitorAuthorized) {
     const authorization = request.headers.get('x-user-authorization') ?? request.headers.get('authorization')
     if (!authorization) return json({ error: healthMonitorSecret ? 'Unauthorized' : 'Monitor secret is not configured' }, healthMonitorSecret ? 401 : 503)
