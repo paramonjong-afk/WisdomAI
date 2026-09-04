@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## 2026-09-05 - SYS-CICD-001 historical salary replay
+
+- Flow: `docs/SUPABASE_REPLAY_FLOW.md`.
+- Evidence: CI run 33916675589 passed vendor migration and found absent historical salary target.
+- Change: return only for empty identity, document and allocation tables; retain existing-data validations.
+- Verification: five isolated PostgreSQL scenarios, with no fabricated salary or audit rows.
+- No Production apply; rollback by reverting this task-branch patch.
+
 ## 2026-09-05 - SYS-CICD-001 vendor trigger dependency
 
 - Flow: `docs/SUPABASE_REPLAY_FLOW.md`.

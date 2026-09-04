@@ -7,6 +7,16 @@ declare
   allocation_row public.transfer_slip_money_allocations;
   item_row public.document_flow_items;
 begin
+  -- This historical correction is inapplicable only to a pristine database.
+  -- Any identity, source document or allocation retains the original checks.
+  if not exists (select 1 from auth.users)
+     and not exists (select 1 from public.profiles)
+     and not exists (select 1 from public.document_flow_items)
+     and not exists (select 1 from public.transfer_slip_money_allocations) then
+    raise notice 'Salary correction not applicable: no identities, documents or allocations exist';
+    return;
+  end if;
+
   select * into allocation_row
   from public.transfer_slip_money_allocations
   where id = target_allocation_id

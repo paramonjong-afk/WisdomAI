@@ -14,7 +14,11 @@ flowchart TD
   M -->|Invalid state| G
   M -->|Validated| I[Linked dry-run]
   L --> N[Create allocations then attach vendor-match trigger]
-  N --> I
+  N --> O{Historical salary correction}
+  O -->|No identities, documents or allocations| I
+  O -->|Any existing data| P[Original target, amount and source checks]
+  P -->|Valid| I
+  P -->|Invalid| G
   I --> J[Human PR review]
 ```
 
@@ -73,3 +77,15 @@ and table-creation SQL in isolated PostgreSQL for fresh and existing tables.
 It checks repeated installation, rejected unmatched vendor insert/update,
 accepted matched confirmation and unchanged non-vendor behavior. This scoped
 test does not replace full migration replay or linked dry-run.
+
+CI run 33916675589 passed vendor table attachment and found a missing fixed
+salary-correction target at 20260829103500. This historical correction now
+returns only when auth users, profiles, document items and allocations are all
+empty. Its target, amount and source checks remain unchanged for populated
+databases. No payroll record, confirmation or audit evidence is fabricated.
+
+`node scripts/salary-correction-replay.test.mjs` executes the complete SQL in
+five isolated PostgreSQL scenarios: pristine repeated replay and each of the
+four guarded tables populated independently. It asserts original rejection
+when the historical target is absent and verifies no rows/evidence are created
+or deleted. Full CI replay and linked dry-run remain required before merge.
