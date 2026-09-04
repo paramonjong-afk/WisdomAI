@@ -1,8 +1,23 @@
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, readdirSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
 // This diagnostic never runs SQL or retries a write via another transport.
-export async function checkConnection(env, request = fetch) {
+export function reconcileVersions(local, remote) {
+  for (const versions of [local, remote]) {
+    if (!Array.isArray(versions) || versions.some(v => typeof v !== 'string' || !/^\d+$/.test(v))
+      || new Set(versions).size !== versions.length) throw new Error('Invalid or duplicate migration versions')
+  }
+  const localOnly = local.filter(v => !remote.includes(v))
+  const remoteOnly = remote.filter(v => !local.includes(v))
+  return {
+    history_status: localOnly.length || remoteOnly.length ? 'version_mismatch_review_required' : 'version_ids_match_sql_unverified',
+    local_count: local.length, remote_count: remote.length,
+    shared_count: local.length - localOnly.length,
+    local_only_versions: localOnly, remote_only_versions: remoteOnly,
+  }
+}
+
+export async function checkConnection(env, request = fetch, localVersions = null) {
   const ref = env.SUPABASE_PROJECT_REF
   const token = env.SUPABASE_ACCESS_TOKEN
   const report = {
@@ -33,6 +48,13 @@ export async function checkConnection(env, request = fetch) {
           return { ...report, management: 'unexpected_history_response' }
         }
         report.remote_migration_count = body.length
+        if (localVersions !== null) {
+          try {
+            Object.assign(report, reconcileVersions(localVersions, body.map(row => String(row.version))))
+          } catch {
+            return { ...report, management: 'invalid_or_duplicate_history' }
+          }
+        }
       } else if (body.id !== ref) {
         return { ...report, management: 'project_mismatch' }
       }
@@ -45,11 +67,22 @@ export async function checkConnection(env, request = fetch) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const report = await checkConnection(process.env)
+  let versions
+  try {
+    versions = readdirSync(new URL('../supabase/migrations/', import.meta.url))
+      .filter(file => file.endsWith('.sql')).map(file => file.split('_')[0])
+    if (!versions.length) throw new Error('Missing migrations')
+    reconcileVersions(versions, [])
+  } catch {
+    console.error('Local migration inventory invalid; no connection attempted.')
+    process.exit(1)
+  }
+  const report = await checkConnection(process.env, fetch, versions)
   const safe = JSON.stringify(report, null, 2)
   console.log(safe)
   if (process.env.GITHUB_STEP_SUMMARY) {
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n## Supabase connection recovery\n\n\`\`\`json\n${safe}\n\`\`\`\nRead access is not migration approval. No SQL executed.\n`)
   }
-  if (report.management !== 'read_verified_history_not_reconciled') process.exitCode = 1
+  if (report.management !== 'read_verified_history_not_reconciled'
+    || report.history_status !== 'version_ids_match_sql_unverified') process.exitCode = 1
 }

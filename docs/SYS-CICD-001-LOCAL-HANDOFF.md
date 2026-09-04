@@ -1,7 +1,34 @@
 # SYS-CICD-001 local handoff
 
 Date: 2026-09-05
-Status: BLOCKED - GitHub Actions Supabase credentials unavailable to dry-run.
+Status: BLOCKED - migration history reconciliation and GitHub runtime verification pending.
+
+Authoritative latest update (2026-09-05): user requested alternate access rather
+than another password attempt. Existing Supabase connector read history
+successfully: 379 remote migrations, 380 local SQL files, 354 shared version IDs,
+26 local-only IDs and 25 remote-only IDs. Fingerprint screening suggests 17
+possible cross-version pairs, NOT approved SQL equivalence. See
+SUPABASE_HISTORY_RECONCILIATION_2026-09-05.md for complete evidence and limits.
+Do not auto-repair history or apply through another route to bypass this issue.
+GitHub SUPABASE_ACCESS_TOKEN name was confirmed saved (earlier pending notes
+below are historical). Its CI validity is not yet verified. DB password test
+outcome remains unknown; no repeated password attempt was made by the agent.
+Recovery implementation d8c0b7d remains local; PR 28 remote head fc384f0 is draft.
+Local password-tool/docs changes are preserved in the checkpoint with no password
+or attempt timestamp included; dependencies are isolated from the web app.
+
+Latest local verification: connection/history fixtures, workflow contracts,
+password-client fixtures, typecheck, full lint and build passed. Production
+schema checks were read-only. New workflow CI and release remain unverified.
+
+Follow-up: all 7 realtime publication entries and all 6 owner SELECT policies
+were observed live, with RLS enabled. This does not establish session-level UAT.
+Retry-cap rollout remains absent (old two-argument claim RPC, missing reset RPC
+and escalation cron). Recovery cron exists. Stricter text fingerprint screening
+reduces cross-version candidates to 16; no history mapping has been applied.
+Connection diagnostic now checks version sets and fails on drift/duplicates;
+even matching IDs never authorize apply. Fixture/contract tests pass. No raw
+SQL history containing business values has been copied into documents.
 
 Latest setup update (2026-09-05): SUPABASE_PROJECT_REF was added through the
 signed-in GitHub UI and the success message plus secret-name row were verified.

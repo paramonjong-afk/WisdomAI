@@ -2,6 +2,9 @@
 flowchart TD
   A[Connection incident] --> B[Token API GET project and history]
   B --> C[Sanitized timestamp and status in CI summary]
+  B --> R{Local and remote version IDs match?}
+  R -->|No| S[Fail diagnostic - review mapping without SQL writes]
+  R -->|Yes| T[SQL still unverified - keep replay and dry-run gates]
   C --> D{Database password available?}
   D -->|No| E[Read-only diagnosis only - apply blocked]
   D -->|Yes| F{Explicit transport selection}
@@ -13,6 +16,9 @@ flowchart TD
   J --> K[Apply once using same verified transport]
   K -->|Uncertain result| L[Stop and reconcile history - no fallback write]
   K -->|Success| M[Deploy functions and verify runtime]
+  E --> N[Optional local masked password prompt]
+  N --> O[Single TLS connection and SELECT 1]
+  O --> P[Sanitized result - 30 minute local cooldown]
 ```
 
 # Supabase connection recovery
@@ -42,8 +48,10 @@ not prevent obtaining API evidence, but it never substitutes for linked dry-run.
 
 ## When access succeeds
 
-Read the CI job summary: timestamp, sanitized failure category and remote history
-count. Record commit, workflow URL, checked route, credential owner/expiry (not
+Read the CI job summary: timestamp, sanitized failure category, remote history
+count and local-only/remote-only version IDs. Drift or duplicate IDs fail the
+diagnostic. Matching version IDs do not prove matching SQL or authorize apply.
+Record commit, workflow URL, checked route, credential owner/expiry (not
 value), last successful verification and next action in the handoff. Do not
 confuse secret-name presence with validated credentials. Fix only the diagnosed
 problem. On 401 verify expiry; on 403 review only required scopes; on 429 wait
@@ -60,6 +68,32 @@ web application's existing Supabase URL/API key. No frontend routes, RLS, raw
 business data or financial transactions change in this implementation.
 
 ## Verification and rollback
+
+### Local one-attempt password window
+
+`tools/db-password-test/Open-Password-Test.ps1` opens a native Windows form.
+Install its isolated dependencies with `npm ci --ignore-scripts` in that folder.
+No app dependency changes. The password is masked and sent only over the local
+child process stdin, then through certificate-verified TLS to the fixed WisdomAI
+direct Postgres host. No HTTP listener, password log, clipboard access or
+credential persistence. Plaintext necessarily exists briefly in process memory;
+this is not a memory-hardening or forensic-erasure guarantee.
+
+One Client, one connect, SELECT 1 in a default-read-only session, no retries.
+The form disables its button and uses an exclusively locked timestamp file to
+enforce a 30-minute local cooldown across windows. Never delete this marker to
+guess more passwords. It does not know about attempts from other tools/IPs.
+Network/IPv6, TLS verification, authentication rejection and unknown failures
+are distinct outcomes; never disable TLS verification to make a test pass.
+No claim that a failed network test proves the password incorrect. A successful
+test does not save GitHub secrets, approve migrations or deploy anything.
+
+Tests: `npm test` in that folder uses a fake Client, never a real password.
+`-ValidateOnly` constructs/disposes the form without connecting. Production
+authentication remains untested until the user enters a known candidate and
+presses Test ONCE. Close the window to stop; no database rollback is needed.
+PowerShell execution policy may require process-scoped execution permission;
+do not change machine-wide policy. The local helper is not a production website.
 
 Run `npm run test:supabase-connection`, deployment workflow contracts, typecheck,
 lint and build. Fixture tests are isolated and never contact Production. GitHub

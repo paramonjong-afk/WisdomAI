@@ -1791,6 +1791,18 @@ flowchart LR
 
 ### Supabase Connection Recovery (2026-09-05)
 
+- Read-only reconciliation follow-up: compare local/remote version IDs, reject
+  duplicate IDs and fail diagnostic on drift. A matching version list does not
+  authorize SQL apply. Actual catalog evidence: all 7 realtime tables and 6
+  holder SELECT policies present, but retry-cap rollout not complete. See
+  `SUPABASE_HISTORY_RECONCILIATION_2026-09-05.md`; no history repair performed.
+
+- Local password window follow-up: masked Windows form, fixed WisdomAI direct
+  host, TLS verification, SELECT 1 only, no retries, 30-minute local timestamp
+  lock. No password storage or database changes. Source:
+  `tools/db-password-test`; fixture test and form-construction smoke only until
+  the owner explicitly enters a password. No auto-secret update or deploy.
+
 - Flow: `docs/SUPABASE_CONNECTION_RECOVERY.md`; owner Platform, SYS-CICD-001.
 - API GET diagnostics run without a database password; pooler/direct are explicit
   transport choices, not automatic write fallbacks. Same verified route for apply.

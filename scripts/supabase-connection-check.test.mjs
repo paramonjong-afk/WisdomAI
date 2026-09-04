@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { checkConnection } from './supabase-connection-check.mjs'
+import { checkConnection, reconcileVersions } from './supabase-connection-check.mjs'
 
 const env = { SUPABASE_PROJECT_REF: 'abcdefghijklmnopqrst', SUPABASE_ACCESS_TOKEN: 'private-fixture-token' }
 let calls = 0
@@ -44,3 +44,17 @@ assert.equal(empty.remote_migration_count, 0)
 assert.equal(empty.apply_authorized, false)
 assert.equal((await checkConnection(env, good)).remote_migration_count, 1, 'each run gets fresh evidence')
 console.log('Connection recovery tests passed: read-only, scope, missing secrets, redaction, bounded attempts')
+const drift = reconcileVersions(['001', '002'], ['001', '003'])
+assert.equal(drift.shared_count, 1)
+assert.deepEqual(drift.local_only_versions, ['002'])
+assert.deepEqual(drift.remote_only_versions, ['003'])
+assert.equal(drift.history_status, 'version_mismatch_review_required')
+assert.equal(reconcileVersions(['001'], ['001']).history_status, 'version_ids_match_sql_unverified')
+assert.throws(() => reconcileVersions(['001', '001'], []))
+assert.throws(() => reconcileVersions([], ['001', '001']))
+assert.throws(() => reconcileVersions(['wrong'], []))
+const checked = await checkConnection(env, good, ['001'])
+assert.equal(checked.history_status, 'version_mismatch_review_required')
+assert.equal(checked.apply_authorized, false)
+assert.equal((await checkConnection(env, good, ['202609050001'])).apply_authorized, false)
+console.log('History comparison passed: drift, duplicates, same IDs never authorize apply')
