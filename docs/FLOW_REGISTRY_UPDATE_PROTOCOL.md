@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## 2026-09-05 - SYS-CICD-001 historical completion replay
+
+- Flow: `docs/SUPABASE_REPLAY_FLOW.md`.
+- Evidence: CI run 33915679999 reached 202608150016 after passing identity repairs.
+- Change: no-target completion guard only when auth users and profiles are also absent; existing state assertions remain.
+- Verification: isolated PostgreSQL reconciliation scenarios; full CI replay remains required.
+- Rollback: revert the task-branch patch; no Production migration applied.
+
 ## 2026-09-04 - SYS-CICD-001 fresh identity replay
 
 - Flow: `docs/SUPABASE_REPLAY_FLOW.md`.

@@ -8,7 +8,12 @@ flowchart TD
   F -->|Ambiguous or missing target| G[Fail and block merge]
   E --> H[Continue replay]
   F -->|Validated| H
-  H --> I[Linked dry-run]
+  H --> K{Historical completion reconciliation}
+  K -->|No users, profiles or target work item| L[No historical UAT evidence to reconcile]
+  K -->|Existing identities or target row| M[Original completion assertion]
+  M -->|Invalid state| G
+  M -->|Validated| I[Linked dry-run]
+  L --> I
   I --> J[Human PR review]
 ```
 
@@ -41,3 +46,16 @@ specific failure is diagnosed. Rollback before merge is a new revert commit
 on the task branch; no Production rollback is needed because nothing is applied.
 
 Source reference: https://supabase.com/docs/guides/deployment/database-migrations
+
+## 2026-09-05 replay follow-up
+
+CI run 33915679999 passed the identity guards and failed at 202608150016:
+the historical LINE completion assertion expected a work item absent from a
+fresh installation. It now returns only if auth users, profiles and the target
+work item are all absent. Existing identities or a target in any scope retain
+the assertion. No completed work item or UAT evidence is synthesized.
+
+The same test command now runs 14 PostgreSQL scenarios. The six reconciliation
+cases cover pristine repeated replay, auth-only, profile-only, invalid target,
+wrong-scope target and a valid review target. They verify preserved prior
+evidence, idempotency and unchanged unrelated rows. Full replay is still required.
