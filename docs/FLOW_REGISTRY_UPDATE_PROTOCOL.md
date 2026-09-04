@@ -1,5 +1,14 @@
 # Flow Registry Update Protocol
 
+## 2026-09-05 - SYS-CICD-001 sanitized public release
+
+- Flow: `docs/PUBLIC_RELEASE_HANDOFF.md`; owner Platform.
+- Separate public branch from already-public base; retain recovered SQL locally.
+- Guard all outgoing commit trees, deleted snapshot history and known blob renames.
+- Synthetic fixtures only; no recovered source in public tests or reports.
+- This check never replaces migration verification or authorizes Production.
+- Rollback: revert safe task commit; no database change.
+
 ## 2026-09-05 - SYS-CICD-001 CLI token input correction
 
 - Flow: `docs/SUPABASE_REPLAY_FLOW.md`; owner Platform.

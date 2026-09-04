@@ -1,5 +1,15 @@
 # SYS-CICD-001 local handoff
 
+## Current public-safe handoff, 2026-09-05
+
+See `docs/PUBLIC_RELEASE_HANDOFF.md` first. The user chose to keep recovered
+Production SQL local. Only `codex/supabase-sanitized-review` is a publishable
+continuation from public base 855f6d4. The old local recovery branch must not be
+pushed. Do not merge its history into this branch or push all refs/tags.
+Prior notes below are historical and do not authorize exporting recovered SQL.
+GitHub source 855f6d4 passed CLI setup, application verification and full replay;
+linked dry-run/history reconciliation remain blocked. No Production deployment.
+
 ## Current checkpoint: CLI input correction, 2026-09-05
 
 This section supersedes credential and remote-head statements below.
