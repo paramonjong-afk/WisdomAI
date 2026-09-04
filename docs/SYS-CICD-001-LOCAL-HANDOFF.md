@@ -3,6 +3,14 @@
 Date: 2026-09-05
 Status: BLOCKED - GitHub Actions Supabase credentials unavailable to dry-run.
 
+Latest setup update (2026-09-05): SUPABASE_PROJECT_REF was added through the
+signed-in GitHub UI and the success message plus secret-name row were verified.
+SUPABASE_ACCESS_TOKEN and SUPABASE_DB_PASSWORD are still pending. The Supabase
+Access Tokens page and a GitHub New Secret form named SUPABASE_ACCESS_TOKEN
+were prepared for the account owner. No token was generated, no database
+password was reset, and no confidential value was captured. Source safeguard
+commit 02914f1 is local and still needs push/CI verification.
+
 - Branch: `codex/supabase-migration-safety-gate`
 - Local patch commit: `fc384f0`
 - Last confirmed remote head: `fc384f049dc1f192510e9ffc3cbd9f16cca8625a`
