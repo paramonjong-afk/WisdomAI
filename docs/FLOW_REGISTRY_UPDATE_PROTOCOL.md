@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## 2026-09-04 - SYS-CICD-001 fresh identity replay
+
+- Flow: `docs/SUPABASE_REPLAY_FLOW.md`.
+- Scope: two historical Telegram identity repairs return only when both auth users and profiles are empty; populated databases retain original assertions.
+- Evidence: 8 isolated PostgreSQL scenarios; full CI replay and linked dry-run remain separate gates.
+- No Production apply, identity creation, permission expansion or migration history repair.
+- Rollback: revert the task-branch patch without changing Production data.
+
 ## 2026-09-04 — Cross-system Mobile Responsive Contract v1.0
 
 - **เหตุผล:** ทำให้การใช้งานบนมือถือ 320–768px เข้าถึง navigation, table, Drawer/Dialog และ action สำคัญได้ด้วย layout ที่ออกแบบเฉพาะ ไม่ลดความสามารถหรือขยาย scope ข้อมูล
