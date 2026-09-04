@@ -149,3 +149,21 @@ The user must supply the Supabase personal access token and database password
 at the CLI prompts. Do not substitute frontend anon/service keys or reset a
 database password merely to make this setup pass. Then inspect the new PR head,
 fresh CI replay and dry-run. Production completion remains blocked until verified.
+# Connection recovery update - 2026-09-05
+
+Local verification: connection diagnostic fixtures PASS, workflow contracts
+PASS, typecheck PASS, full lint PASS, build PASS (12104 modules), diff check PASS.
+New route code has not yet been verified in GitHub runtime. Pooler/direct still
+require DB credentials and are not a password-independent migration solution.
+
+User requested safe alternate connection routes, not a password reset. New
+implementation: API GET diagnostic plus explicit CLI pooler/direct selection.
+See SUPABASE_CONNECTION_RECOVERY.md. API diagnostic does not replace dry-run.
+
+Live evidence obtained through the existing authenticated Supabase connector:
+read-only count of supabase_migrations.schema_migrations = 379;
+latest recorded version = 20260831134117. This proves the connector can read
+history, NOT that the GitHub PAT works or that remote/local history matches.
+No historical versions were repaired, no migration applied, no business data
+changed. GitHub PAT secret-name presence was verified earlier; DB password
+remains unavailable. New API diagnostic still needs branch push and CI execution.

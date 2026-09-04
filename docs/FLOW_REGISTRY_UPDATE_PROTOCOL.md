@@ -1789,6 +1789,16 @@ flowchart LR
 - **Migration/Verification:** `20260831072537_borrowed_fund_obligations.sql`; contract, typecheck, lint, build, dry-run/apply และ authenticated Drawer smoke
 - **Owner/Rollback:** Accounting owner; ปิด Source และ revoke RPC ได้โดยคง Obligation, Slip, Lineage และ Audit เพื่อ recovery
 
+### Supabase Connection Recovery (2026-09-05)
+
+- Flow: `docs/SUPABASE_CONNECTION_RECOVERY.md`; owner Platform, SYS-CICD-001.
+- API GET diagnostics run without a database password; pooler/direct are explicit
+  transport choices, not automatic write fallbacks. Same verified route for apply.
+- No migration, role, business data or frontend connection changes. Existing
+  replay, destructive SQL guard and linked dry-run remain required.
+- Tests: connection fixtures and workflow contracts; runtime verification pending.
+- Rollback: revert task change and restore pooler variable; never reset DB/history.
+
 ### Historical Payroll Employee Selection v3.0 (31/8/2569)
 
 ```mermaid

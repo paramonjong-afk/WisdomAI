@@ -41,6 +41,13 @@ for (const contract of [
 ]) assert.ok(migrationsWorkflow.includes(contract), `missing migration workflow contract: ${contract}`)
 
 assert.doesNotMatch(functionsWorkflow, /\n {2}(push|workflow_dispatch):/, 'functions must not bypass migration verification')
+assert.match(migrationsWorkflow, /connection-diagnostics:/)
+assert.match(migrationsWorkflow, /node scripts\/supabase-connection-check.test.mjs/)
+assert.match(migrationsWorkflow, /needs.verify-migrations.outputs.db_transport/)
+assert.match(migrationsWorkflow, /vars.SUPABASE_DB_TRANSPORT \|\| 'pooler'/)
+assert.equal((migrationsWorkflow.match(/LINK_ARGS\+=\(--skip-pooler\)/g) ?? []).length, 2)
+assert.doesNotMatch(migrationsWorkflow, /--password/, 'password must stay in environment, not process arguments')
+assert.doesNotMatch(migrationsWorkflow, /continue-on-error|db push[^\n]*\|\|/, 'never silently fall back after an uncertain write')
 assert.match(functionsWorkflow, /if: github.event_name == 'push' && github.ref == 'refs\/heads\/main'/)
 
 const pullRequestTrigger = migrationsWorkflow.slice(

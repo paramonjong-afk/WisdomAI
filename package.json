@@ -34,6 +34,8 @@
     "test:telegram-stale-chat": "node --experimental-strip-types scripts/telegram-stale-chat.test.ts",
     "test:automation-claim": "node --experimental-strip-types scripts/automation-claim.test.ts",
     "test:supabase-deployment-workflows": "node --experimental-strip-types scripts/supabase-deployment-workflows.test.ts",
+    "check:supabase-connection": "node scripts/supabase-connection-check.mjs",
+    "test:supabase-connection": "node scripts/supabase-connection-check.test.mjs",
     "test:legacy-identity-replay": "node scripts/legacy-identity-replay.test.mjs",
     "test:migration-safety": "node scripts/migration-safety-guard.test.mjs && node scripts/foundation-replay.test.mjs && node scripts/legacy-identity-replay.test.mjs && node scripts/vendor-trigger-replay.test.mjs && node scripts/salary-correction-replay.test.mjs && node scripts/ledger-view-replay.test.mjs",
     "test:employee-tenant": "node --experimental-strip-types scripts/employee-tenant-security.test.ts",

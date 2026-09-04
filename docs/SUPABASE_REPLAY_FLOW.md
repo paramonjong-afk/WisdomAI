@@ -24,9 +24,15 @@ flowchart TD
   J --> R[Main push repeats verification]
   R --> S[Apply migrations successfully]
   S --> T[Deploy functions for same commit]
+  A -. Independent read-only API diagnosis .-> U[Safe status and history count]
+  U -. Not a replacement for dry-run .-> I
 ```
 
 # Supabase Replay Flow - SYS-CICD-001
+
+Connection recovery v2026-09-05: see `SUPABASE_CONNECTION_RECOVERY.md` for the
+password-independent API diagnostic and explicit pooler/direct transports.
+All apply gates below remain mandatory; no fallback API write is enabled.
 
 Version: 2026-09-04. Owner: Platform / database maintainer.
 
