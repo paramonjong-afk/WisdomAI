@@ -42,6 +42,10 @@ In DEV only, `local_test_data=1` keeps `ProtectedRoute` and the role gate open f
 - **Failure/retry:** if device detection is uncertain, the system uses the desktop branch; if profile data is unavailable, it stays at `/` and retries through the existing AuthContext refresh. An unavailable or denied destination follows its Router guard. If an installed icon is stale, reinstalling the PWA/refreshing its cache picks up the versioned PNG without changing route access.
 - **Audit/owner:** navigation has no business mutation or audit event. Platform UI owns device routing/labels/icons; each destination module owns its data and audit.
 
+## Mobile interaction contract
+
+On 320–768px screens, the top bar opens a full-height mobile Drawer that reuses the same role/platform-filtered navigation registry as Desktop. Selecting a destination closes the Drawer and uses the existing Router guard; it does not grant new access or load another company's data. The top bar keeps the active company, user, and role visible while page-specific Project context remains owned by the destination page.
+
 ## Change record
 
 | Version | Date | Change | Verification | Rollback |
@@ -54,3 +58,4 @@ In DEV only, `local_test_data=1` keeps `ProtectedRoute` and the role gate open f
 | v1.5 | 23/8/2569 | Require Cloudflare fallback release revision to match Vercel before Smart Entry selects it | smart-entry/release tests, lint, build and both-host manifest check after deploy | Revert parity gate only after both hosts are rolled back to the same revision |
 | v1.6 | 23/8/2569 | Keep mobile post-login at the Application Launcher so ลงเวลา and Web Chat remain separate same-level entry buttons | auth-routing test, launcher contract test, lint, build and mobile route verification | Restore direct mobile `/time-tracking` routing; launcher and module routes remain available |
 | v1.7 | 23/8/2569 | Allow DEV-only `local_test_data=1` routes to open local fixture UAT through `ProtectedRoute` without changing Production login guards | flow-registry, document-flow and auth-routing tests, lint and build | Remove the local test query flag; production routes remain guarded |
+| v1.8 | 4/9/2569 | Replace the small-screen inline details menu with a full-screen mobile Drawer using the same permission-filtered navigation content as Desktop; keep company/user/role context visible in the TopBar | mobile responsive contract, targeted lint, typecheck and desktop/mobile navigation smoke | revert MainLayout/TopBar/Sidebar mobile navigation wiring; route permissions and data remain unchanged |

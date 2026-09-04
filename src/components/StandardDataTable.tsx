@@ -470,6 +470,7 @@ export function StandardDataTable<Row>({
           >
             <Box sx={{ width: tableScrollWidth, height: 1 }} />
           </Box>
+          {hasHorizontalOverflow ? <Box sx={{ display: { xs: 'block', md: 'none' }, px: 1.5, py: 0.75, color: 'text.secondary', fontSize: 12, bgcolor: 'background.paper' }}>ปัดซ้ายหรือขวาเพื่อดูคอลัมน์เพิ่มเติม</Box> : null}
           <TableContainer ref={tableScrollRef} sx={{ maxHeight: { xs: 'calc(100vh - 230px)', md: 'calc(100vh - 300px)' }, overflow: 'auto' }}>
           <Table size="small" stickyHeader sx={{ minWidth }}>
             <TableHead>

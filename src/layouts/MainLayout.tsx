@@ -1,19 +1,21 @@
 import { Box, Container } from '@mui/material'
+import { useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
-import { Sidebar } from './Sidebar'
+import { MobileSidebar, Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { AppTelemetry } from '../components/AppTelemetry'
 
 export function MainLayout() {
   const location = useLocation()
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const isLauncher = location.pathname === '/'
   return (
     <>
       <AppTelemetry />
       <Box sx={{ minHeight: '100vh', display: 'flex', bgcolor: 'background.default' }}>
-        {!isLauncher && <Sidebar />}
+        {!isLauncher && <><Sidebar /><MobileSidebar open={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} /></>}
         <Box component="main" sx={{ flexGrow: 1, minWidth: 0 }}>
-          <TopBar />
+          <TopBar onMenuOpen={() => setMobileMenuOpen(true)} />
           <Container
             maxWidth={false}
             sx={{

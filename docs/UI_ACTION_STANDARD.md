@@ -26,6 +26,14 @@ flowchart LR
 - ฟอร์มและตารางใช้ spacing, typography และสีจาก theme; มือถือจัด action เป็นแถวชิดขวาและไม่ให้ล้น viewport
 - การกดซ้ำต้องถูกป้องกันด้วย disabled/loading หรือ idempotency ที่ชั้นข้อมูล และต้องคง Audit เดิม
 
+## Responsive contract
+
+- ช่วงหน้าจอ 320–768px ใช้ mobile navigation แบบ Drawer ที่นำรายการเดียวกับ Sidebar Desktop และกรองด้วย role/platform permission เดิม ห้ามซ่อน action สำคัญเพียงเพราะเป็นมือถือ
+- Drawer และ Dialog บนมือถือใช้พื้นที่เต็ม viewport พร้อมปุ่มปิดที่เข้าถึงได้ และใช้ state ของหน้าเดิมเพื่อรักษาค่าฟอร์มระหว่างเปิดคีย์บอร์ดหรือหมุนจอ
+- ตารางใช้ `StandardDataTable` และคงคอลัมน์/สิทธิ์/การ export เดิม; เมื่อกว้างเกิน viewport ให้เลื่อนแนวนอนบน touch screen พร้อมข้อความแนะนำ ไม่ตัดข้อมูลสำคัญ
+- ปุ่มและ icon action มี touch target อย่างน้อย 44px บนมือถือ; loading/disabled และ error/success/empty/retry ต้องยังแสดงในเส้นทางเดิม
+- TopBar ต้องแสดงบริษัท ผู้ใช้ และ role บนมือถือ; Project ที่เป็น context ของหน้าให้แสดงใน PageHeader หรือ filter ของ module นั้น โดยไม่ขยาย query ข้าม company/project
+
 ## Roles, integrations, failure and owner
 
 - ผู้ใช้เห็นเฉพาะ action ตาม role ที่ระบบอนุญาต; Tooltip/aria-label เป็น accessibility layer ไม่ใช่ permission gate
@@ -38,3 +46,4 @@ flowchart LR
 |---|---|---|---|---|
 | 1.1 | 26/8/2569 | Employee page header and table actions use consistent top-right icon pattern; Filter and Search collapse into icon controls while Settings/CSV/PDF remain grouped in the same toolbar | typecheck, lint, build, authenticated page smoke | revert UI-only commit; no data migration |
 | 1.2 | 26/8/2569 | Employee page removes the duplicate toolbar row; Filter, Search, Column settings, CSV and PDF actions are exposed from the PageHeader, with the search field opening on demand | typecheck, build; local page preview | revert UI-only change; no data migration |
+| 1.3 | 4/9/2569 | Add shared mobile navigation Drawer, viewport-sized mobile Dialog/Drawer behavior, 44px touch targets, and explicit horizontal-table guidance without changing permissions or data scope | mobile responsive contract, targeted lint/typecheck, build, Android/iPhone and desktop smoke | revert shared layout/theme/table UI changes; no data migration |

@@ -1,27 +1,22 @@
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined'
 import TimerOutlinedIcon from '@mui/icons-material/TimerOutlined'
-import { AppBar, Avatar, Box, Chip, Divider, IconButton, ListSubheader, MenuItem, Paper, TextField, Toolbar, Tooltip, Typography } from '@mui/material'
+import { AppBar, Avatar, Box, Chip, Divider, IconButton, ListSubheader, MenuItem, TextField, Toolbar, Tooltip, Typography } from '@mui/material'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { logAppEvent, updateAppStatus } from '../lib/telemetry'
 import { releaseHostLabel, releaseInfo, releaseLabel } from '../lib/releaseInfo'
-import { navigationGroups } from '../utils/navigation'
 import { isPlatformAdmin as resolvePlatformAdmin } from '../utils/permissions'
 import { NotificationBell } from '../components/NotificationBell'
 
 
-export function TopBar() {
+export function TopBar({ onMenuOpen }: { onMenuOpen?: () => void }) {
   const navigate = useNavigate()
   const { profile, user, companies, currentCompany, switchCompany, signOut } = useAuth()
   const [signingOut, setSigningOut] = useState(false)
   const displayName = profile?.full_name || user?.email || 'Wisdom user'
   const role = profile?.role ?? 'employee'
   const isPlatformAdmin = resolvePlatformAdmin(profile)
-  const profileRole=(profile?.role??'employee') as 'admin'|'manager'|'employee'
-  const companyRole=currentCompany?.company_role
-  const mobileRole:typeof profileRole=profileRole==='admin'||companyRole==='company_admin'?'admin':profileRole==='manager'||['executive','manager','site_supervisor'].includes(companyRole??'')?'manager':'employee'
-  const mobileNavigationGroups=navigationGroups.map(group=>({...group,items:group.items.filter(item=>(!item.roles||item.roles.includes(mobileRole))&&(!item.platformOnly||isPlatformAdmin))})).filter(group=>group.items.length)
   const initials = displayName.slice(0, 2).toUpperCase()
 
   const handleSignOut = async () => {
@@ -41,70 +36,30 @@ export function TopBar() {
   return (
     <AppBar position="sticky" elevation={0} color="inherit" sx={{ borderBottom: 1, borderColor: 'divider' }}>
       <Toolbar>
-        <Box
-          component="details"
-          sx={{
-            display: { xs: 'block', md: 'none' },
-            '@media (pointer: coarse)': { display: 'block' },
-            mr: 1,
-            position: 'relative',
-            flexShrink: 0,
-          }}
-        >
-          <Box
-            component="summary"
+        <Tooltip title="เปิดเมนูนำทาง">
+          <IconButton
             aria-label="เปิดเมนูนำทาง"
+            onClick={onMenuOpen}
             sx={{
-              width: 48,
-              height: 48,
-              display: 'grid',
-              placeItems: 'center',
-              fontSize: 30,
-              lineHeight: 1,
-              cursor: 'pointer',
-              listStyle: 'none',
-              touchAction: 'manipulation',
-              userSelect: 'none',
-              '&::-webkit-details-marker': { display: 'none' },
+              display: { xs: 'block', md: 'none' },
+              '@media (pointer: coarse)': { display: 'block' },
+              mr: 1,
+              position: 'relative',
+              flexShrink: 0,
+              width: 44,
+              height: 44,
             }}
           >
-            ☰
-          </Box>
-          <Paper elevation={12} sx={{
-            position: 'absolute', zIndex: 2147483647, top: 52, left: 0,
-            width: 'min(86vw, 320px)', maxHeight: '75vh', overflowY: 'auto', p: 1,
-          }}>
-            {mobileNavigationGroups.map(group=><Box key={group.label} sx={{mb:1}}><Typography variant="overline" sx={{px:1.5,color:"text.secondary",fontWeight:800}}>{group.label}</Typography>{group.items.map(item=><Box component="a" key={item.path} href={item.path} sx={{display:"block",minHeight:44,px:2,py:1.25,color:"text.primary",textDecoration:"none",borderRadius:1,fontWeight:650,"&:hover":{bgcolor:"action.hover"}}}>{item.label}</Box>)}</Box>)}
-            <Box
-              component="button"
-              type="button"
-              disabled={signingOut}
-              onClick={() => void handleSignOut()}
-              sx={{
-                width: '100%',
-                minHeight: 48,
-                px: 2,
-                py: 1.5,
-                border: 0,
-                borderTop: 1,
-                borderColor: 'divider',
-                bgcolor: 'transparent',
-                color: 'text.primary',
-                textAlign: 'left',
-                font: 'inherit',
-                fontWeight: 600,
-                cursor: 'pointer',
-                '&:active': { bgcolor: 'action.selected' },
-              }}
-            >
-              👥 ลงเวลาให้ผู้อื่น (เปลี่ยนบัญชี)
-            </Box>
-          </Paper>
-        </Box>
+            <Box component="span" sx={{ fontSize: 26, lineHeight: 1 }}>☰</Box>
+          </IconButton>
+        </Tooltip>
         <Typography variant="body2" color="text.secondary" sx={{ flexGrow: 1, display: { xs: 'none', sm: 'block' } }}>
           {currentCompany?.company_name ?? 'Construction Management Platform'}
         </Typography>
-        <Box sx={{ flexGrow: 1, display: { xs: 'block', sm: 'none' } }} />
+        <Box sx={{ flexGrow: 1, minWidth: 0, display: { xs: 'block', sm: 'none' } }}>
+          <Typography variant="body2" noWrap sx={{ fontWeight: 800 }}>{currentCompany?.company_name ?? 'WisdomAI'}</Typography>
+          <Typography variant="caption" noWrap color="text.secondary">{displayName} · {role}</Typography>
+        </Box>
         <Tooltip title="ลงเวลา">
           <IconButton
             component="a"

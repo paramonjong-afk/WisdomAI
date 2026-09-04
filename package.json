@@ -94,6 +94,7 @@
     "test:workforce-duplicate-profile": "node --experimental-strip-types scripts/workforce-duplicate-profile.test.ts",
     "test:site-assignment-history": "node --experimental-strip-types scripts/site-assignment-history.test.ts",
     "test:standard-table-sorting": "node --experimental-strip-types scripts/standard-table-sorting.test.ts",
+    "test:mobile-responsive": "node --experimental-strip-types scripts/mobile-responsive-contract.test.ts",
     "test:attendance-channel": "node --experimental-strip-types scripts/attendance-channel.test.ts",
     "test:chat-attendance-command": "node --experimental-strip-types scripts/chat-attendance-command.test.ts",
     "test:web-chat-attendance-approval": "node --experimental-strip-types scripts/web-chat-attendance-approval.test.ts",
