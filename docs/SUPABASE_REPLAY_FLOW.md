@@ -13,7 +13,8 @@ flowchart TD
   K -->|Existing identities or target row| M[Original completion assertion]
   M -->|Invalid state| G
   M -->|Validated| I[Linked dry-run]
-  L --> I
+  L --> N[Create allocations then attach vendor-match trigger]
+  N --> I
   I --> J[Human PR review]
 ```
 
@@ -59,3 +60,16 @@ The same test command now runs 14 PostgreSQL scenarios. The six reconciliation
 cases cover pristine repeated replay, auth-only, profile-only, invalid target,
 wrong-scope target and a valid review target. They verify preserved prior
 evidence, idempotency and unchanged unrelated rows. Full replay is still required.
+
+CI run 33916274015 passed that guard and reached a dependency-order failure:
+20260826044252 attached a trigger to allocations created by 20260826220000.
+The earlier migration attaches immediately when the table already exists;
+the table-creation migration always attaches it after creation. The vendor
+validation function and its matching rules are unchanged. Migration filenames
+and remote history are unchanged; do not manually reapply them to Production.
+
+`node scripts/vendor-trigger-replay.test.mjs` executes the actual trigger SQL
+and table-creation SQL in isolated PostgreSQL for fresh and existing tables.
+It checks repeated installation, rejected unmatched vendor insert/update,
+accepted matched confirmation and unchanged non-vendor behavior. This scoped
+test does not replace full migration replay or linked dry-run.

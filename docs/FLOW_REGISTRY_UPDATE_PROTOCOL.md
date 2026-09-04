@@ -1,5 +1,13 @@
 # Flow Registry Update Protocol
 
+## 2026-09-05 - SYS-CICD-001 vendor trigger dependency
+
+- Flow: `docs/SUPABASE_REPLAY_FLOW.md`.
+- Evidence: CI run 33916274015 found a trigger preceding its table creation.
+- Change: attach on existing tables immediately and on fresh tables at creation.
+- Verification: actual trigger/table SQL in isolated PostgreSQL; full replay pending.
+- Matching rules, permissions and Production data unchanged; rollback by task-branch revert.
+
 ## 2026-09-05 - SYS-CICD-001 historical completion replay
 
 - Flow: `docs/SUPABASE_REPLAY_FLOW.md`.
