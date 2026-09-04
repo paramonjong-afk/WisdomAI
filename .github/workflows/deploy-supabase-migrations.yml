@@ -112,9 +112,8 @@ jobs:
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         with:
+          github-token: ${{ github.token }}
           version: latest
 
       - name: Replay all migrations against a throwaway local database
@@ -153,9 +152,8 @@ jobs:
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         with:
+          github-token: ${{ github.token }}
           version: latest
 
       - name: Link project and push migrations

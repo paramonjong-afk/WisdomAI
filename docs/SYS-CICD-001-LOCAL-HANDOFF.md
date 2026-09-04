@@ -1,5 +1,34 @@
 # SYS-CICD-001 local handoff
 
+## Current checkpoint: CLI input correction, 2026-09-05
+
+This section supersedes credential and remote-head statements below.
+User pushed 4701536 successfully; PR 28 is draft/open, not merged.
+GitHub run 33927609061 passed application verification.
+Run 33927609285 read Supabase history successfully using the saved API token,
+then failed on version mismatch. Do not request another API token for that error.
+The separate verify job failed at CLI setup: latest release rate limit exceeded;
+full replay, linked dry-run, apply and function deployment did not run.
+
+Fix: pass `with.github-token: ${{ github.token }}` at all three setup-cli steps.
+Upstream src/main.ts reads that input, not the previously supplied environment
+variable. Added missing/misnamed input regression and updated replay flow.
+No production schema, history or business mutation; work-item lease metadata only.
+Read-only recheck: 379 remote migrations, latest 20260831134117.
+History mapping remains unapproved; never repair it or skip dry-run to pass CI.
+
+Next: push this task-branch checkpoint, inspect CI replay, and reconcile remote
+SQL history against source before any merge. Database password availability and
+linked dry-run remain unverified. Source rollback is a reviewed task-branch
+revert, not a Production database reset. Never copy credentials into this file.
+
+Local verification for this correction: workflow contracts (red before fix,
+green after), connection/history tests, full migration-safety fixture suite,
+typecheck, full lint and build passed. Git diff --check passed. This is not
+full Supabase CLI replay or linked Production dry-run; those await GitHub CI.
+
+## Historical notes (superseded where noted above)
+
 Date: 2026-09-05
 Status: BLOCKED - migration history reconciliation and GitHub runtime verification pending.
 

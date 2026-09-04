@@ -1,5 +1,15 @@
 # Flow Registry Update Protocol
 
+## 2026-09-05 - SYS-CICD-001 CLI token input correction
+
+- Flow: `docs/SUPABASE_REPLAY_FLOW.md`; owner Platform.
+- CI 33927609285: authenticated history read succeeded with version mismatch;
+  CLI setup failed unauthenticated latest-release resolution with rate limit.
+- Pass `with.github-token` at all three setup-cli steps, not environment-only.
+- Regression covers missing/misnamed input; keep replay, SQL guard and dry-run.
+- No new credentials, permission expansion, migration or Production apply.
+- Rollback: task-branch revert, then rerun verification before any merge.
+
 ## 2026-09-05 - SYS-CICD-001 pre-merge safeguards
 
 - Flow: `docs/SUPABASE_REPLAY_FLOW.md`.

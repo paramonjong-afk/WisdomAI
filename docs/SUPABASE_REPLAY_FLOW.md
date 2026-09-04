@@ -1,7 +1,8 @@
 ```mermaid
 flowchart TD
   A[Reviewed migration history] --> B[Isolated empty database]
-  B --> C[Replay every migration in order]
+  B --> V[Setup CLI using authenticated github-token input]
+  V --> C[Replay every migration in order]
   C --> D{One-time identity repair}
   D -->|No auth users AND no profiles| E[No applicable identity - return notice]
   D -->|Either table populated| F[Original identity and role checks]
@@ -29,6 +30,21 @@ flowchart TD
 ```
 
 # Supabase Replay Flow - SYS-CICD-001
+
+## 2026-09-05 CLI authentication correction
+
+Run 33927609285 failed CLI release resolution with a rate limit. The setup-cli
+action reads `core.getInput('github-token')`, not the GITHUB_TOKEN environment
+variable previously supplied. All three setup steps now pass the standard
+read-only workflow token through `with.github-token`. No new secret or expanded
+permission is required. Regression contracts check each step and reject a
+missing/misnamed input. This fixes input wiring, not a guarantee against all
+rate limits. Full CI replay and linked dry-run remain required.
+
+The same run successfully read Production migration history through the API,
+but detected version mismatch. Do not repair history or apply to bypass that
+finding. Source: https://github.com/supabase/setup-cli/blob/v1/src/main.ts.
+Rollback: revert this task-branch change; no database mutation is involved.
 
 Connection recovery v2026-09-05: see `SUPABASE_CONNECTION_RECOVERY.md` for the
 password-independent API diagnostic and explicit pooler/direct transports.

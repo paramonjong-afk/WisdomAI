@@ -12,6 +12,21 @@ const boundedRetryMigration = readFileSync(resolve(root, 'supabase/migrations/20
 const healthMonitor = readFileSync(resolve(root, 'supabase/functions/health-monitor/index.ts'), 'utf8')
 const automationWorker = readFileSync(resolve(root, 'supabase/functions/automation-worker/index.ts'), 'utf8')
 
+function assertAuthenticatedCliSetup(workflow: string, expected: number) {
+  const setups = workflow.split(/\n {6}- /).filter(step => step.includes('uses: supabase/setup-cli@v1'))
+  assert.equal(setups.length, expected)
+  for (const setup of setups) {
+    assert.match(setup, /with:\s*\n(?:[^\n]*\n)*? {10}github-token: \$\{\{ github.token \}\}/,
+      'CLI release lookup must receive its declared github-token input')
+  }
+}
+
+assertAuthenticatedCliSetup(migrationsWorkflow, 2)
+assertAuthenticatedCliSetup(functionsWorkflow, 1)
+assert.throws(() => assertAuthenticatedCliSetup(functionsWorkflow.replace(
+  'github-token: ${{ github.token }}', 'unused-token: ${{ github.token }}',
+), 1), 'missing input must fail even if an environment token exists')
+
 for (const contract of [
   'workflow_call:',
   'supabase/setup-cli@v1',
