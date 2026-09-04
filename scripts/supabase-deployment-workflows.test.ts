@@ -49,6 +49,9 @@ assert.ok(migrationsWorkflow.indexOf('verify-migrations:') < migrationsWorkflow.
 assert.doesNotMatch(functionsWorkflow + migrationsWorkflow, /xkieyqixlufjqructjkr\.(?:supabase|postgres)|eyJ[A-Za-z0-9_-]+\./, 'workflow must not hard-code credentials')
 assert.match(profilesFoundation, /create table if not exists public\.profiles/)
 assert.match(profilesFoundation, /references auth\.users\(id\) on delete cascade/)
+assert.match(profilesFoundation, /create table if not exists public\.projects/)
+assert.match(profilesFoundation, /project_id uuid primary key/)
+assert.match(profilesFoundation, /id uuid not null unique/)
 
 for (const contract of ['Multi-Agent Work Claim Protocol', 'Automated Supabase Deployment Standard', 'max_attempts', 'reset_system_work_item_retry']) {
   assert.ok(agents.includes(contract), `missing AGENTS contract: ${contract}`)
