@@ -72,11 +72,11 @@ validation errors to make CI pass. No Production migration or deploy was run.
 ## Remaining review before merge
 
 - Inspect the linked dry-run's exact migration list and remote history parity.
-- The backdated profiles/projects foundation is provisional. Its existing-table
-  RLS/comment statements mean its header's no-op claim needs correction/review.
-- Review destructive-SQL detection: current regex does not cover unwhered UPDATE
-  and is line-based. Passing replay is not sufficient evidence of safe auto-apply.
-- Review sequencing between independent function deployment and migration jobs.
+- The backdated profiles/projects foundation is provisional; current local patch
+  preserves all existing-table settings. Remote history compatibility still needs review.
+- Current local patch replaces the line regex with tested conservative SQL token
+  checks and makes function deployment depend on successful migration apply.
+- The new local patch requires a fresh CI replay and dry-run before merge.
 - Keep PR draft until these issues and dry-run are resolved. No authorization
   to merge this PR or apply Production migrations is inferred from a CI pass.
 
@@ -111,3 +111,33 @@ Recovery: before merge, use a reviewed revert on the task branch if needed.
 No Production rollback is required for this task because nothing was applied.
 This handoff is tracked locally; verify it reaches the remote before relying on
 it from another machine/account. No unrelated files belong in its commit.
+
+## Latest local completion work (2026-09-05)
+
+- New SQL guard covers added/modified files, multiline DML, nested query WHERE,
+  dollar-quoted bodies and explicit review for dynamic SQL. It is conservative,
+  not a parser or proof of SQL safety.
+- Functions workflow is reusable, called after apply succeeds; function-only
+  pushes run verification too. Main releases are serialized without cancellation.
+- Foundation existing-table no-op is verified in PostgreSQL.
+- Added npm run test:migration-safety to aggregate all replay regressions; CI runs it.
+- Local tests, typecheck, full lint, build and git diff --check passed.
+- Workflow YAML contract checks pass. Standalone YAML parser packages were not
+  available locally; GitHub validation of the new workflow is still required.
+- GitHub Secrets were checked again: still only the three Cloudflare entries.
+- New scripts/complete-supabase-ci-setup.ps1 is for the user's authenticated
+  PowerShell. Syntax was verified; credential writes were not executed by Codex.
+  It checks branch/clean tree, preserves existing secret names, prompts through
+  GitHub CLI for missing confidential values, sets the known project reference,
+  and optionally pushes only the task branch. It never merges or deploys.
+
+One-command user handoff after this local patch is committed:
+
+```powershell
+& "C:\Users\jongp\Documents\Codex\2026-08-23\program-general\supabase-migration-safety-gate\scripts\complete-supabase-ci-setup.ps1" -Push
+```
+
+The user must supply the Supabase personal access token and database password
+at the CLI prompts. Do not substitute frontend anon/service keys or reset a
+database password merely to make this setup pass. Then inspect the new PR head,
+fresh CI replay and dry-run. Production completion remains blocked until verified.

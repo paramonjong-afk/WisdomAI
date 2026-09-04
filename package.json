@@ -35,6 +35,7 @@
     "test:automation-claim": "node --experimental-strip-types scripts/automation-claim.test.ts",
     "test:supabase-deployment-workflows": "node --experimental-strip-types scripts/supabase-deployment-workflows.test.ts",
     "test:legacy-identity-replay": "node scripts/legacy-identity-replay.test.mjs",
+    "test:migration-safety": "node scripts/migration-safety-guard.test.mjs && node scripts/foundation-replay.test.mjs && node scripts/legacy-identity-replay.test.mjs && node scripts/vendor-trigger-replay.test.mjs && node scripts/salary-correction-replay.test.mjs && node scripts/ledger-view-replay.test.mjs",
     "test:employee-tenant": "node --experimental-strip-types scripts/employee-tenant-security.test.ts",
     "test:hr-ui-action-standard": "node --experimental-strip-types scripts/hr-ui-action-standard.test.ts",
     "test:company-member-type": "node --experimental-strip-types scripts/company-member-type.test.ts",

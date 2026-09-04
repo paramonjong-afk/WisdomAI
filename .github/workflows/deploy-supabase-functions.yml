@@ -1,7 +1,7 @@
 name: Deploy Supabase Edge Functions
 
-# Auto-deploys every function under supabase/functions/ whenever one changes
-# on main. Set up 2026-09-04 so future Edge Function changes (from any
+# Called by the migration workflow only after the same commit's apply succeeds.
+# Auto-deploys every function under supabase/functions/. Set up so changes (from any
 # agent/AI working this repo) reach Production without anyone needing
 # Supabase CLI access on their own machine -- see AGENTS.md's Multi-Agent
 # Work Claim Protocol and docs/SUPABASE_CLI_ACCESS.md for context. Requires
@@ -11,18 +11,19 @@ name: Deploy Supabase Edge Functions
 #   SUPABASE_PROJECT_REF   - xkieyqixlufjqructjkr
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'supabase/functions/**'
-  workflow_dispatch:
+  workflow_call:
+    secrets:
+      SUPABASE_ACCESS_TOKEN:
+        required: true
+      SUPABASE_PROJECT_REF:
+        required: true
 
 permissions:
   contents: read
 
 jobs:
   deploy-functions:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -30,6 +31,8 @@ jobs:
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         with:
           version: latest
 

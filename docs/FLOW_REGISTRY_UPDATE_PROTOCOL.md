@@ -1,5 +1,14 @@
 # Flow Registry Update Protocol
 
+## 2026-09-05 - SYS-CICD-001 pre-merge safeguards
+
+- Flow: `docs/SUPABASE_REPLAY_FLOW.md`.
+- Replace line regex with conservative multiline SQL token checks over added/modified migrations.
+- Sequence reusable function deployment after successful migration apply for the same main commit.
+- Preserve all existing-table settings during foundation replay; keep full replay and dry-run gates.
+- Add local/Git/PostgreSQL tests and run replay regressions in CI; no Production apply in this task.
+- Rollback: reviewed task-branch revert; secret values are never stored in repository documentation.
+
 ## 2026-09-05 - SYS-CICD-001 ledger view compatibility
 
 - Flow: `docs/SUPABASE_REPLAY_FLOW.md`.

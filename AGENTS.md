@@ -55,6 +55,9 @@ Supabase Edge Functions and migrations deploy via GitHub Actions (`.github/workf
 4. **This project is on the Supabase Free plan -- there is no point-in-time recovery.** Treat every migration as effectively unrecoverable if it corrupts data; the pre-merge checks in point 2 are the only real safety net, not a database backup. Take a manual `pg_dump` before any migration you are not fully confident about, regardless of CI passing.
 5. **Never weaken or bypass these checks to unblock a task.** If a legitimate migration is destructive on purpose, use the explicit override marker in point 2(b) and say so plainly in the PR description -- do not delete or comment out the guard.
 
+6. **Check added and modified migrations using `scripts/migration-safety-guard.mjs`.** Its conservative lexical checks cover multiline statements and routine bodies; dynamic SQL requires explicit review. It is not a substitute for SQL review or runtime verification. `npm run test:migration-safety` must pass before the full replay.
+7. **Deploy functions after migrations.** The reusable functions workflow is called only after the same main commit's migration apply succeeds. Do not add an independent push/dispatch deployment path that bypasses this dependency. Keep in-flight migration applies non-cancellable through the release concurrency setting.
+
 ## Evidence Drawer Standard
 
 When a Drawer must show an image or PDF, read and follow `docs/EVIDENCE_SPLIT_REVIEW_STANDARD.md`. The default interaction must keep evidence and review controls on the same route through `EvidenceSplitReviewWorkspace`; opening a new browser tab is secondary fallback only. Preserve form state, scope preview state to the active record, discard stale async preview results, use the Module's existing secure signed-reference path, and verify Desktop/Tablet/Mobile behavior.

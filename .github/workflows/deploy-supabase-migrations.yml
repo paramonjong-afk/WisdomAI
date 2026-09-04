@@ -26,10 +26,16 @@ on:
       - main
     paths:
       - 'supabase/migrations/**'
+      - 'supabase/functions/**'
+      - '.github/workflows/deploy-supabase-*.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: supabase-release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   verify-migrations:
@@ -40,7 +46,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Determine newly added migration files
+      - name: Determine migration comparison base
         id: changed
         run: |
           set -e
@@ -53,41 +59,35 @@ jobs:
               BASE="HEAD~1"
             fi
           fi
-          FILES=$(git diff --name-only --diff-filter=A "$BASE" HEAD -- supabase/migrations || true)
-          echo "New migration files:"
-          echo "$FILES"
-          echo "files<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$FILES" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Test SQL guard
+        run: node scripts/migration-safety-guard.test.mjs
+
+      - name: Install test dependencies
+        run: npm ci
+
+      - name: Test replay regression contracts
+        run: |
+          npm run test:supabase-deployment-workflows
+          npm run test:migration-safety
 
       - name: Guard against destructive SQL without explicit override
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message || github.event.pull_request.title }}
+          MIGRATION_BASE: ${{ steps.changed.outputs.base }}
         run: |
-          set -e
-          FILES="${{ steps.changed.outputs.files }}"
-          if [ -z "$FILES" ]; then
-            echo "No new migration files in this diff -- nothing to guard."
-            exit 0
-          fi
-          PATTERN='DROP[[:space:]]+TABLE|DROP[[:space:]]+COLUMN|TRUNCATE|DELETE[[:space:]]+FROM[^;]*;[[:space:]]*$'
-          FLAGGED=""
-          for f in $FILES; do
-            if grep -Eiq "$PATTERN" "$f" 2>/dev/null; then
-              FLAGGED="$FLAGGED $f"
-            fi
-          done
-          if [ -n "$FLAGGED" ]; then
-            if echo "$COMMIT_MSG" | grep -q "ALLOW-DESTRUCTIVE-MIGRATION"; then
-              echo "Destructive statements found in:$FLAGGED -- allowed via ALLOW-DESTRUCTIVE-MIGRATION marker."
-            else
-              echo "::error::Destructive SQL (DROP TABLE / DROP COLUMN / TRUNCATE / unwhered DELETE) found in:$FLAGGED. Add ALLOW-DESTRUCTIVE-MIGRATION to the commit message/PR title if this is intentional."
-              exit 1
-            fi
-          fi
+          node scripts/migration-safety-guard.mjs "$MIGRATION_BASE"
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         with:
           version: latest
 
@@ -121,6 +121,8 @@ jobs:
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         with:
           version: latest
 
@@ -154,3 +156,11 @@ jobs:
             -d "chat_id=${TELEGRAM_ADMIN_CHAT_ID}" \
             -d "parse_mode=HTML" \
             -d "text=${TEXT}" > /dev/null || true
+
+  deploy-functions:
+    needs: apply-migrations
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/deploy-supabase-functions.yml
+    secrets:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}

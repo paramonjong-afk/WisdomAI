@@ -13,8 +13,7 @@ const healthMonitor = readFileSync(resolve(root, 'supabase/functions/health-moni
 const automationWorker = readFileSync(resolve(root, 'supabase/functions/automation-worker/index.ts'), 'utf8')
 
 for (const contract of [
-  'push:',
-  "- 'supabase/functions/**'",
+  'workflow_call:',
   'supabase/setup-cli@v1',
   'supabase functions deploy "$fn" --project-ref "$SUPABASE_PROJECT_REF"',
   'SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}',
@@ -33,11 +32,16 @@ for (const contract of [
   'supabase db push --linked --dry-run',
   'supabase db push --linked',
   'ALLOW-DESTRUCTIVE-MIGRATION',
-  'DROP[[:space:]]+TABLE',
-  'DROP[[:space:]]+COLUMN',
-  'TRUNCATE',
-  'DELETE[[:space:]]+FROM',
+  'node scripts/migration-safety-guard.mjs "$MIGRATION_BASE"',
+  'node scripts/migration-safety-guard.test.mjs',
+  'needs: apply-migrations',
+  'uses: ./.github/workflows/deploy-supabase-functions.yml',
+  "- 'supabase/functions/**'",
+  'cancel-in-progress: false',
 ]) assert.ok(migrationsWorkflow.includes(contract), `missing migration workflow contract: ${contract}`)
+
+assert.doesNotMatch(functionsWorkflow, /\n {2}(push|workflow_dispatch):/, 'functions must not bypass migration verification')
+assert.match(functionsWorkflow, /if: github.event_name == 'push' && github.ref == 'refs\/heads\/main'/)
 
 const pullRequestTrigger = migrationsWorkflow.slice(
   migrationsWorkflow.indexOf('  pull_request:'),

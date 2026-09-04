@@ -21,6 +21,9 @@ flowchart TD
   Q --> I
   P -->|Invalid| G
   I --> J[Human PR review]
+  J --> R[Main push repeats verification]
+  R --> S[Apply migrations successfully]
+  S --> T[Deploy functions for same commit]
 ```
 
 # Supabase Replay Flow - SYS-CICD-001
@@ -98,3 +101,40 @@ and coalesce expression; preserve security_invoker and grants without dropping
 the view. `node scripts/ledger-view-replay.test.mjs` executes the previous view
 then the replacement twice and verifies schema compatibility, reviewed-period
 precedence, allocation fallback, version metadata and access properties.
+
+## 2026-09-05 completion safeguards
+
+The SQL gate now checks added and modified SQL paths using Git's NUL-delimited
+output. It tokenizes multiline input, strips comments/quoted values and scans
+dollar-quoted routine bodies. It blocks DROP TABLE/COLUMN, TRUNCATE and DELETE
+or UPDATE lacking an outer WHERE. A WHERE inside a subquery does not qualify.
+Dynamic EXECUTE and single-quoted routine bodies require explicit review.
+ON CONFLICT DO UPDATE is scoped by its conflict key and is not an unrestricted
+UPDATE. Ambiguous/unterminated tokens fail closed. This conservative guard is
+not an SQL parser, authorization boundary or proof against destructive intent;
+human review and actual replay/dry-run remain mandatory. An intentional flagged
+change requires the existing ALLOW-DESTRUCTIVE-MIGRATION marker and review.
+
+The functions workflow is reusable only. The main migration workflow calls it
+after apply-migrations succeeds, with explicit secret forwarding. Function-only
+changes also trigger migration verification. Ref-level concurrency avoids
+overlapping main releases and never cancels an in-flight apply. Dispatch runs
+verification only; PRs cannot apply or deploy. CLI setup receives the standard
+GitHub token to avoid unauthenticated release lookup limits.
+
+The foundation now creates/sets RLS/comments only on absent tables. Existing
+tables retain their state. It remains a minimal replay baseline, not a verified
+export of Production schema; compare remote history and dry-run before merge.
+
+`npm run test:migration-safety` covers lexical rejection/allowance, temporary Git
+repositories with modified/added spaced filenames, overrides/no-op, baseline
+creation/existing-state preservation, and all historical replay regressions.
+CI runs these tests before the full Supabase replay.
+
+References:
+- https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows
+- https://github.com/supabase/setup-cli
+
+Recovery: keep changes on the task branch while credentials/history block the
+dry-run. Revert a reviewed task commit if needed; do not reset history, remove
+the required gate, or run Production SQL manually to make CI pass.
