@@ -8,15 +8,17 @@ future-version corrections prepared after the guarded Production dry-run.
 - Aligned 16 source filenames with the already-recorded Production version IDs
   only after the preserved SQL bodies passed the strict outer-trim comparison.
   File contents were not changed.
-- Added nine comment-only markers for already-recorded Production versions.
+- Added eight comment-only markers for already-recorded Production versions
+  and one executable replay bootstrap at the recorded pay-period version.
   Four originals contain historical room/message delivery backfills and are
   deliberately not replayed. Five have a later corrective source migration,
   which remains separately versioned and executable.
 - The five corrective migrations are re-versioned after the current Production
   history tip; their obsolete historical local-only filenames are removed.
-- migration-history-reconciliation.test.mjs locks the 16 renames, nine inert
-  markers, five corrections, and global version uniqueness. The marker test
-  rejects any executable SQL.
+- migration-history-reconciliation.test.mjs locks the 16 renames, eight inert
+  markers, one replay bootstrap, five corrections, and global version
+  uniqueness. The marker test rejects executable SQL while the bootstrap test
+  locks its required table and view.
 
 The source reconciliation itself did not edit Production. The controlled
 release adds one narrowly scoped history repair for the replay-only foundation

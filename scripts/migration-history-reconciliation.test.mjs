@@ -34,8 +34,11 @@ const markers = [
   '20260829115549_daily_wage_transfer_private_delivery.sql',
   '20260829120803_daily_wage_transfer_slip_attachment_delivery.sql',
   '20260829175308_employee_advance_reject_restore.sql',
-  '20260830055057_assign_wage_pay_period_workflow.sql',
   '20260830062009_classify_interim_employee_transfers_as_advances.sql',
+]
+
+const replayBaselines = [
+  '20260830055057_assign_wage_pay_period_workflow.sql',
 ]
 
 const corrections = [
@@ -69,10 +72,16 @@ for (const correction of corrections) {
   assert.equal(existsSync(join(migrationsDir, correction)), true, `corrective migration missing: ${correction}`)
 }
 
+for (const baseline of replayBaselines) {
+  const sql = readFileSync(join(migrationsDir, baseline), 'utf8')
+  assert.match(sql, /create table if not exists public\.employee_money_pay_period_assignments/)
+  assert.match(sql, /create or replace view public\.employee_money_ledger_detail_v1/)
+}
+
 for (const obsolete of obsoleteHistoricalCorrections) {
   assert.equal(existsSync(join(migrationsDir, obsolete)), false, `historical correction must be re-versioned: ${obsolete}`)
 }
 
 const versions = files.map(file => file.match(/^(\d+)_/)?.[1]).filter(Boolean)
 assert.equal(new Set(versions).size, versions.length, 'migration version IDs must be unique')
-console.log('Migration history reconciliation: 16 aligned versions, 9 inert markers, 5 corrections re-versioned')
+console.log('Migration history reconciliation: 16 aligned versions, 8 inert markers, 1 replay baseline, 5 corrections re-versioned')
