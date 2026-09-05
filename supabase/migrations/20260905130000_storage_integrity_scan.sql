@@ -11,12 +11,12 @@ create table if not exists public.storage_integrity_scan_runs (
 create table if not exists public.storage_integrity_issues (
   id uuid primary key default gen_random_uuid(),
   fingerprint text not null unique,
-  source_type text not null check (source_type in ('blob','attachment')),
+  source_type text not null check (source_type in ('blob','attachment','storage_object')),
   source_id uuid not null,
   company_id uuid,
   issue_code text not null check (issue_code in (
     'orphan_blob','missing_object','missing_thumbnail','dangling_blob_reference',
-    'bucket_path_mismatch','tenant_namespace_mismatch','size_mismatch'
+    'bucket_path_mismatch','tenant_namespace_mismatch','size_mismatch','orphan_storage_object'
   )),
   storage_bucket text,
   storage_path text,
@@ -41,7 +41,10 @@ create policy "Managers read storage integrity runs" on public.storage_integrity
   for select to authenticated using (public.is_work_manager());
 drop policy if exists "Managers read storage integrity issues" on public.storage_integrity_issues;
 create policy "Managers read storage integrity issues" on public.storage_integrity_issues
-  for select to authenticated using (public.is_work_manager());
+  for select to authenticated using (
+    (company_id is null and public.is_work_manager())
+    or (company_id = public.current_company_id() and public.is_company_manager(company_id))
+  );
 
 create or replace function public.run_storage_integrity_scan(target_limit integer default 5000)
 returns jsonb
@@ -79,9 +82,11 @@ begin
     select 'blob', blob.id, blob.company_id, blob.storage_bucket, blob.storage_path,
       'missing_object', jsonb_build_object('expected_bucket',blob.storage_bucket,'expected_path',blob.storage_path)
     from public.line_attachment_blobs blob
-    where blob.lifecycle_state <> 'purged'
+    where blob.lifecycle_state in ('active','trash')
+      and nullif(case when blob.lifecycle_state='trash' then blob.trash_storage_path else blob.storage_path end,'') is not null
       and not exists (select 1 from storage.objects object_row
-        where object_row.bucket_id = blob.storage_bucket and object_row.name = blob.storage_path)
+        where object_row.bucket_id = blob.storage_bucket
+          and object_row.name = case when blob.lifecycle_state='trash' then blob.trash_storage_path else blob.storage_path end)
     union all
     select 'blob', blob.id, blob.company_id, blob.storage_bucket, blob.storage_path,
       'size_mismatch', jsonb_build_object('declared_size',blob.size_bytes,'object_size',(object_row.metadata->>'size')::bigint)
@@ -120,6 +125,20 @@ begin
     from public.line_attachments attachment
     where split_part(attachment.storage_path,'/',1) ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
       and split_part(attachment.storage_path,'/',1)::uuid <> attachment.company_id
+    union all
+    select 'storage_object',
+      md5('storage:'||object_row.bucket_id||':'||object_row.name)::uuid,
+      case when split_part(object_row.name,'/',1) ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        then split_part(object_row.name,'/',1)::uuid end,
+      object_row.bucket_id, object_row.name,
+      'orphan_storage_object', jsonb_build_object('bucket_id',object_row.bucket_id,'object_name',object_row.name)
+    from storage.objects object_row
+    where object_row.bucket_id = 'line-attachments'
+      and not exists (select 1 from public.line_attachment_blobs blob
+        where blob.storage_bucket=object_row.bucket_id
+          and object_row.name in (blob.storage_path, blob.thumbnail_storage_path, blob.trash_storage_path))
+      and not exists (select 1 from public.line_attachments attachment
+        where attachment.storage_bucket=object_row.bucket_id and attachment.storage_path=object_row.name)
   )
   select md5(source_type||':'||source_id::text||':'||issue_code||':'||coalesce(storage_bucket,'')||':'||coalesce(storage_path,'')) as fingerprint,
     source_type, source_id, company_id, issue_code, storage_bucket, storage_path, details
