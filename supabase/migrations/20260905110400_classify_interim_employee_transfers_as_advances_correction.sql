@@ -1,4 +1,4 @@
--- Employee transfers made inside an open payroll period are advances, not final wages.
+-- Re-versioned after the Production history baseline; transfers inside an open payroll period are advances, not final wages.
 -- Keep source slips immutable, reverse duplicate projections, and append every decision to Audit.
 do $$
 declare

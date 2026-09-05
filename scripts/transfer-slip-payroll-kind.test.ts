@@ -23,7 +23,7 @@ assert.match(validateMoneyLineage(unknownPayroll, 500).missing.join(' '), /ช�
 assert.match(validateMoneyLineage(unknownPayroll, 500).missing.join(' '), /เจ้าของเงินเดือน\/ค่าแรง/)
 assert.match(validateMoneyLineage(unknownPayroll, 500).missing.join(' '), /งวดค่าแรง/)
 
-const migration = readFileSync('supabase/migrations/20260829103500_classify_salary_payroll_evidence.sql', 'utf8')
+const migration = readFileSync('supabase/migrations/20260905110100_confirm_salary_payroll_evidence.sql', 'utf8')
 assert.match(migration, /transfer_slip_payroll_kind_confirmed/)
 assert.match(migration, /'payroll_kind', 'salary'/)
 assert.match(migration, /source_preserved', true/)

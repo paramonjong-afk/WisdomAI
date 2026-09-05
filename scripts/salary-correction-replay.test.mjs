@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { PGlite } from '@electric-sql/pglite'
 
-const sql = readFileSync(new URL('../supabase/migrations/20260829103500_classify_salary_payroll_evidence.sql', import.meta.url), 'utf8')
+const sql = readFileSync(new URL('../supabase/migrations/20260905110100_confirm_salary_payroll_evidence.sql', import.meta.url), 'utf8')
 const tables = ['auth.users', 'public.profiles', 'public.document_flow_items', 'public.transfer_slip_money_allocations']
 for (const populated of [null, ...tables]) {
   const db = new PGlite()

@@ -46,6 +46,10 @@ for (const contract of [
   'supabase db reset',
   'node scripts/supabase-historical-dry-run-guard.mjs',
   'supabase db push --db-url "$DB_URL" --dry-run --include-all',
+  'supabase migration repair 202607210000 --status applied --db-url "$DB_URL" --yes',
+  "where version = '202607210000'",
+  "to_regclass('public.profiles') is not null",
+  "to_regclass('public.projects') is not null",
   'supabase db push --db-url "$DB_URL"',
   'ALLOW-DESTRUCTIVE-MIGRATION',
   'node scripts/migration-safety-guard.mjs "$MIGRATION_BASE"',
@@ -79,6 +83,10 @@ assert.doesNotMatch(pullRequestTrigger, /\n\s+paths:/, 'required verification mu
 assert.equal((migrationsWorkflow.match(/supabase db push --db-url "\$DB_URL"$/gm) ?? []).length, 1, 'real push must exist only in apply job')
 assert.equal((migrationsWorkflow.match(/--include-all/g) ?? []).length, 1, 'include-all must exist only in the guarded dry-run')
 assert.doesNotMatch(migrationsWorkflow, /supabase db push --db-url "\$DB_URL" --include-all(?![^\n]*--dry-run)/, 'real apply must never use include-all')
+assert.equal((migrationsWorkflow.match(/supabase migration repair 202607210000/g) ?? []).length, 1, 'only the reviewed foundation baseline may be repaired')
+assert.doesNotMatch(migrationsWorkflow, /migration repair (?!202607210000)/, 'no other migration history repair is authorized')
+assert.ok(migrationsWorkflow.indexOf("to_regclass('public.profiles') is not null") < migrationsWorkflow.indexOf('supabase migration repair 202607210000'), 'schema baseline must be verified before history repair')
+assert.ok(migrationsWorkflow.indexOf('supabase migration repair 202607210000') < migrationsWorkflow.lastIndexOf('supabase db push --db-url "$DB_URL"'), 'history repair must precede normal apply')
 assert.ok(migrationsWorkflow.indexOf('verify-migrations:') < migrationsWorkflow.indexOf('apply-migrations:'), 'verify job must precede apply job')
 assert.doesNotMatch(functionsWorkflow + migrationsWorkflow, /xkieyqixlufjqructjkr\.(?:supabase|postgres)|eyJ[A-Za-z0-9_-]+\./, 'workflow must not hard-code credentials')
 assert.match(profilesFoundation, /create table if not exists public\.profiles/)

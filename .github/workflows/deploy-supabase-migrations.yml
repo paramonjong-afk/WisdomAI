@@ -122,7 +122,7 @@ jobs:
           supabase start
           supabase db reset
 
-      - name: Authorize exact historical versions for dry-run only
+      - name: Authorize exact historical baseline for dry-run only
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
@@ -206,6 +206,47 @@ jobs:
             *) echo "::error::Unverified database transport"; exit 1 ;;
           esac
           DB_URL="postgresql://${DB_USER}@${DB_HOST}:5432/postgres?sslmode=verify-full&sslrootcert=${DB_CA}"
+          FOUNDATION_SCHEMA="$(psql "$DB_URL" -X -A -t -v ON_ERROR_STOP=1 -c "
+            select
+              to_regclass('public.profiles') is not null
+              and to_regclass('public.projects') is not null
+              and exists (
+                select 1 from information_schema.columns
+                where table_schema = 'public' and table_name = 'profiles'
+                  and column_name = 'id' and data_type = 'uuid'
+              )
+              and exists (
+                select 1 from information_schema.columns
+                where table_schema = 'public' and table_name = 'projects'
+                  and column_name = 'project_id' and data_type = 'uuid'
+              )
+              and exists (
+                select 1 from information_schema.columns
+                where table_schema = 'public' and table_name = 'projects'
+                  and column_name = 'id' and data_type = 'uuid'
+              );")"
+          if [ "$FOUNDATION_SCHEMA" != "t" ]; then
+            echo "::error::Production does not satisfy the reviewed profiles/projects baseline"
+            exit 1
+          fi
+          FOUNDATION_HISTORY_COUNT="$(psql "$DB_URL" -X -A -t -v ON_ERROR_STOP=1 -c "
+            select count(*) from supabase_migrations.schema_migrations
+            where version = '202607210000';")"
+          case "$FOUNDATION_HISTORY_COUNT" in
+            0)
+              supabase migration repair 202607210000 --status applied --db-url "$DB_URL" --yes
+              ;;
+            1)
+              echo "Foundation baseline history already reconciled."
+              ;;
+            *)
+              echo "::error::Foundation baseline history is ambiguous"
+              exit 1
+              ;;
+          esac
+          test "$(psql "$DB_URL" -X -A -t -v ON_ERROR_STOP=1 -c "
+            select count(*) from supabase_migrations.schema_migrations
+            where version = '202607210000';")" = "1"
           supabase db push --db-url "$DB_URL"
 
       - name: Notify Telegram (optional)

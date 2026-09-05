@@ -39,6 +39,14 @@ const markers = [
 ]
 
 const corrections = [
+  '20260905110000_reconcile_confirmed_salary_employee_advance.sql',
+  '20260905110100_confirm_salary_payroll_evidence.sql',
+  '20260905110200_employee_advance_reject_restore_correction.sql',
+  '20260905110300_assign_wage_pay_period_workflow_correction.sql',
+  '20260905110400_classify_interim_employee_transfers_as_advances_correction.sql',
+]
+
+const obsoleteHistoricalCorrections = [
   '20260829101053_reconcile_salary_from_employee_advances.sql',
   '20260829103500_classify_salary_payroll_evidence.sql',
   '20260829173946_employee_advance_reject_restore.sql',
@@ -61,6 +69,10 @@ for (const correction of corrections) {
   assert.equal(existsSync(join(migrationsDir, correction)), true, `corrective migration missing: ${correction}`)
 }
 
+for (const obsolete of obsoleteHistoricalCorrections) {
+  assert.equal(existsSync(join(migrationsDir, obsolete)), false, `historical correction must be re-versioned: ${obsolete}`)
+}
+
 const versions = files.map(file => file.match(/^(\d+)_/)?.[1]).filter(Boolean)
 assert.equal(new Set(versions).size, versions.length, 'migration version IDs must be unique')
-console.log('Migration history reconciliation: 16 aligned versions, 9 inert markers, 5 corrections preserved')
+console.log('Migration history reconciliation: 16 aligned versions, 9 inert markers, 5 corrections re-versioned')

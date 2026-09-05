@@ -1,7 +1,7 @@
 # Read-only migration reconciliation
 
-Date: 2026-09-05. Task: SYS-CICD-001. Status: source reconciliation in review;
-Production apply remains blocked until replay and linked dry-run pass.
+Date: 2026-09-05. Task: SYS-CICD-001. Status: controlled baseline repair and
+future-version corrections prepared after the guarded Production dry-run.
 
 ## Source reconciliation prepared
 
@@ -12,17 +12,17 @@ Production apply remains blocked until replay and linked dry-run pass.
   Four originals contain historical room/message delivery backfills and are
   deliberately not replayed. Five have a later corrective source migration,
   which remains separately versioned and executable.
-- The five corrective migrations remain at versions 20260829101053,
-  20260829103500, 20260829173946, 20260830054524, and 20260830061245.
+- The five corrective migrations are re-versioned after the current Production
+  history tip; their obsolete historical local-only filenames are removed.
 - migration-history-reconciliation.test.mjs locks the 16 renames, nine inert
   markers, five corrections, and global version uniqueness. The marker test
   rejects any executable SQL.
 
-This is a source-only reconciliation. It does not edit the remote migration
-history, execute a historical backfill, apply a new migration, or authorize a
-merge. A complete fresh replay and Production db push dry-run are still
-mandatory. If the dry-run proposes any historical marker or aligned version,
-stop rather than using migration repair or include-all.
+The source reconciliation itself did not edit Production. The controlled
+release adds one narrowly scoped history repair for the replay-only foundation
+after live schema verification, then applies only future-version migrations
+through the normal push command. Complete replay and Production dry-run remain
+mandatory, and real apply must never use `--include-all`.
 
 ## Evidence
 
@@ -79,7 +79,7 @@ No history repair, rename, replay, schema change or migration apply was performe
 | 20260831031554 | route_approved_employee_advances_to_hr_payroll | 20260831113000_route_approved_employee_advances_to_hr_payroll.sql |
 | 20260831040817 | sales_expense_accounting_workflow | 20260831023857_sales_expense_accounting_workflow.sql |
 
-## Local-only files
+## Initial local-only files before controlled release
 
 - 202607210000_profiles_foundation.sql
 - 20260828174300_master_data_canonical_auto_propagation.sql
@@ -135,25 +135,34 @@ replay and linked dry-run can continue. Every result keeps
 `apply_authorized=false`. It performs GET only; existing replay/linked dry-run
 gates remain mandatory.
 
-The six historical local-only versions are now protected by an exact allowlist
-guard before CI may run `db push --dry-run --include-all`. The guard reads
-remote history through GET only, rejects any remote-only version or allowlist
-change, and always leaves `apply_authorized=false`. The real apply command does
-not contain `--include-all`, so this exception cannot apply Production changes.
-Read-only schema verification confirmed that the foundation tables and the
-named corrective functions/table/view already exist on Production; this does
-not prove data-backfill equivalence and does not authorize migration repair.
+The historical guard now permits only the `202607210000` replay foundation to
+be absent from Production history. Before repairing that one history row, the
+apply job verifies the required `profiles` and `projects` tables and UUID key
+columns over the pinned TLS connection. Repair is idempotent and refuses an
+ambiguous history count. No other migration version may be repaired.
+
+The five executable corrections were moved after the Production history tip:
+
+- `20260905110000_reconcile_confirmed_salary_employee_advance.sql`
+- `20260905110100_confirm_salary_payroll_evidence.sql`
+- `20260905110200_employee_advance_reject_restore_correction.sql`
+- `20260905110300_assign_wage_pay_period_workflow_correction.sql`
+- `20260905110400_classify_interim_employee_transfers_as_advances_correction.sql`
+
+The real apply command remains plain `db push` without `--include-all`. The
+guarded flag remains dry-run-only. Read-only impact checks found the confirmed
+salary source record, no linked active advances to cancel, and no interim wage
+rows requiring bulk reclassification before this release.
 
 ## Remaining release steps
 
-1. Run the reconciliation contract and the complete migration replay locally.
-2. Push the source-only branch and require GitHub's replay plus linked dry-run.
-3. Review the exact pending list. Expected candidates are the five corrective
-   migrations plus the four post-Production local migrations; the provisional
-   foundation may require a separate baseline decision.
-4. Keep the PR draft and do not merge unless the dry-run is exact, the SQL guard
-   passes, and the owner explicitly approves the resulting Production changes.
+1. Run the reconciliation, workflow, safety and complete replay contracts.
+2. Require GitHub replay and the exact linked Production dry-run on the PR.
+3. Merge only after the owner approves the baseline repair and resulting
+   Production changes.
+4. Verify the repaired history row, all future migration versions, functions,
+   schema and authenticated runtime after the main workflow succeeds.
 
-Rollback: revert the source reconciliation commit before merge. No database
-rollback is required because this step does not change Production. No
+Rollback before merge: close the PR. After apply, use forward-only corrective
+migrations; never delete Production history or reset the remote database. No
 password/token is stored here.

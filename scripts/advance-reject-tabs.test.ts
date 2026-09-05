@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 const page = readFileSync('src/pages/AdvanceSettlements/index.tsx', 'utf8')
-const migration = readFileSync('supabase/migrations/20260829173946_employee_advance_reject_restore.sql', 'utf8')
+const migration = readFileSync('supabase/migrations/20260905110200_employee_advance_reject_restore_correction.sql', 'utf8')
 
 for (const required of [
   'ต้องจัดการ (${actionableCount})',
