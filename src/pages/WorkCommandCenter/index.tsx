@@ -42,8 +42,11 @@ type Item = {
   current_step: string | null;
   heartbeat_at: string | null;
   lease_expires_at: string | null;
+  worker_id: string | null;
   created_at: string;
   updated_at: string;
+  approval_status?: string | null;
+  company_id?: string | null;
 };
 type Event = {
   id: number;
@@ -107,10 +110,25 @@ const productionLabel = (value: string) => {
 };
 const formatDate = (value: string | null) =>
   value ? new Date(value).toLocaleString("th-TH") : "-";
-const hasExpiredLease = (item: Item) =>
+const CLAIM_HEARTBEAT_MAX_AGE_MS = 10 * 60 * 1000;
+const hasActiveClaim = (item: Item, now = Date.now()) =>
+  item.status === "doing" &&
+  Boolean(item.worker_id) &&
+  Boolean(item.lease_expires_at) &&
+  new Date(item.lease_expires_at as string).getTime() > now &&
+  Boolean(item.heartbeat_at) &&
+  new Date(item.heartbeat_at as string).getTime() >=
+    now - CLAIM_HEARTBEAT_MAX_AGE_MS;
+const hasExpiredLease = (item: Item, now = Date.now()) =>
   item.status === "doing" &&
   Boolean(item.lease_expires_at) &&
-  new Date(item.lease_expires_at as string).getTime() <= Date.now();
+  new Date(item.lease_expires_at as string).getTime() <= now;
+const claimStatusLabel = (item: Item) => {
+  if (hasActiveClaim(item)) return "กำลังทำจริง";
+  if (item.status !== "doing") return statusLabel[item.status];
+  if (hasExpiredLease(item) || item.worker_id) return "Worker ขาดการติดต่อ";
+  return "หยุดผิดปกติ — ไม่มี Active Claim";
+};
 
 export function WorkCommandCenterPage() {
   usePageTitle("ศูนย์สั่งงาน");
@@ -132,7 +150,7 @@ export function WorkCommandCenterPage() {
     const { data, error } = await supabase
       .from("system_work_items")
       .select(
-        "work_key,title,category,status,progress,risk,detail,production_status,owner,evidence,current_step,heartbeat_at,lease_expires_at,created_at,updated_at",
+        "work_key,title,category,status,progress,risk,detail,production_status,owner,evidence,current_step,worker_id,heartbeat_at,lease_expires_at,created_at,updated_at",
       )
       .order("updated_at", { ascending: false });
     if (data) {
@@ -268,51 +286,59 @@ export function WorkCommandCenterPage() {
     if (!reason) return;
     setBusy(true);
     setNotice("");
-    const changes = approved
-      ? {
-          status: "ready" as WorkStatus,
-          evidence: `อนุมัติให้ดำเนินการผ่านศูนย์สั่งงาน: ${reason}`,
-          current_step: "ได้รับอนุมัติ รอเริ่มดำเนินการ",
-          production_status: "approved_for_execution",
-        }
-      : {
-          status: "blocked" as WorkStatus,
-          evidence: `ไม่อนุมัติผ่านศูนย์สั่งงาน: ${reason}`,
-          current_step: "ไม่ผ่านการอนุมัติ",
-          production_status: "rejected_by_admin",
-        };
     try {
-      const data = await runWithMutationAttempt({
+      await runWithMutationAttempt({
         module: "WorkCommandCenter",
         action: `${approved ? "อนุมัติ" : "ไม่อนุมัติ"}งานจากศูนย์สั่งงาน`,
         actorProfileId: user?.id || profile?.id,
         companyId: currentCompany?.company_id ?? null,
         request: { work_key: selected.work_key, approved, reason },
-        operation: async () =>
-          await supabase
-            .from("system_work_items")
-            .update(changes)
-            .eq("work_key", selected.work_key)
-            .eq("status", "review")
-            .select(
-              "work_key,title,category,status,progress,risk,detail,production_status,owner,evidence,current_step,heartbeat_at,lease_expires_at,created_at,updated_at",
-            )
-            .single(),
-      }) as Item | null;
+        operation: async () => {
+          const { data, error } = await supabase.rpc("decide_system_work_item_approval", {
+            target_work_key: selected.work_key,
+            target_decision: approved ? "approve" : "reject",
+            target_reason: reason,
+            target_channel: "web",
+          });
+          if (error) throw error;
+          return { data: data?.[0] ?? null };
+        },
+      });
       setNotice(
         `${approved ? "อนุมัติ" : "ไม่อนุมัติ"} ${selected.work_key} และบันทึก Audit แล้ว`,
       );
       await load();
-      await openDetail(data as Item);
+      setSelected(null);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : userError(error));
     }
     setBusy(false);
   };
+  const sendApprovalNotice = async () => {
+    if (!selected) return;
+    setBusy(true);
+    setNotice("");
+    try {
+      const { data, error } = await supabase.functions.invoke("health-monitor", {
+        body: { action: "send_work_approval", work_key: selected.work_key },
+      });
+      if (error) throw error;
+      const result = data as { status?: string; message?: string } | null;
+      setNotice(
+        result?.status === "rate_limited"
+          ? "งานนี้เพิ่งส่งแจ้งเตือนไปแล้ว ระบบกันการส่งซ้ำไว้ 5 นาที"
+          : `ส่งแจ้งเตือนเฉพาะ ${selected.work_key} แล้ว`,
+      );
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : userError(error));
+    } finally {
+      setBusy(false);
+    }
+  };
   const counts = useMemo(
     () => ({
       ready: rows.filter((r) => r.status === "ready").length,
-      doing: rows.filter((r) => r.status === "doing").length,
+      doing: rows.filter((r) => hasActiveClaim(r)).length,
       review: rows.filter((r) => r.status === "review").length,
       blocked: rows.filter((r) => r.status === "blocked").length,
       done: rows.filter((r) => r.status === "done").length,
@@ -330,7 +356,7 @@ export function WorkCommandCenterPage() {
   );
   const cards: [WorkStatus, string][] = [
     ["ready", "ต้องดำเนินการ"],
-    ["doing", "กำลังทำ"],
+    ["doing", "กำลังทำจริง"],
     ["review", "รอตรวจ/อนุมัติ"],
     ["blocked", "ติดปัญหา"],
   ];
@@ -419,7 +445,7 @@ export function WorkCommandCenterPage() {
         getRowId={(r) => r.work_key}
         onRowClick={(r) => void openDetail(r)}
         getSearchText={(r) =>
-          `${r.work_key} ${r.title} ${r.detail ?? ""} ${r.owner ?? ""} ${r.status}`
+          `${r.work_key} ${r.title} ${r.detail ?? ""} ${r.owner ?? ""} ${r.worker_id ?? ""} ${r.status}`
         }
         searchLabel="ค้นหาเลขงาน งาน ผู้รับผิดชอบ หรือสถานะ"
         emptyText={busy ? "กำลังโหลด..." : "ไม่มีงานในสถานะนี้"}
@@ -461,7 +487,20 @@ export function WorkCommandCenterPage() {
           {
             id: "owner",
             label: "ผู้รับผิดชอบ",
-            render: (r) => r.owner || "ยังไม่มอบหมาย",
+            render: (r) => (
+              <Box>
+                <Typography variant="body2">
+                  {r.owner || "ยังไม่มอบหมาย"}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {hasActiveClaim(r)
+                    ? `กำลังทำจริง · ${r.worker_id}`
+                    : r.status === "doing"
+                      ? "Worker ไม่ได้ทำงานจริง/หมดสิทธิ์แล้ว"
+                      : "ยังไม่มี Active Claim"}
+                </Typography>
+              </Box>
+            ),
             exportValue: (r) => r.owner || "",
           },
           {
@@ -470,8 +509,14 @@ export function WorkCommandCenterPage() {
             render: (r) => (
               <Chip
                 size="small"
-                color={hasExpiredLease(r) ? "error" : statusColor[r.status]}
-                label={hasExpiredLease(r) ? "Worker ขาดการติดต่อ" : statusLabel[r.status]}
+                color={
+                  hasActiveClaim(r)
+                    ? "warning"
+                    : r.status === "doing"
+                      ? "error"
+                      : statusColor[r.status]
+                }
+                label={claimStatusLabel(r)}
               />
             ),
             exportValue: (r) => statusLabel[r.status],
@@ -608,8 +653,12 @@ export function WorkCommandCenterPage() {
             </Stack>
             <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
               <Chip
-                color={statusColor[selected.status]}
-                label={statusLabel[selected.status]}
+                color={
+                  selected.status === "doing" && !hasActiveClaim(selected)
+                    ? "error"
+                    : statusColor[selected.status]
+                }
+                label={claimStatusLabel(selected)}
               />
               <Chip
                 variant="outlined"
@@ -641,12 +690,13 @@ export function WorkCommandCenterPage() {
                 {productionLabel(selected.production_status)}
               </Typography>
             </Box>
-            {selected.heartbeat_at && (
-              <Alert severity={hasExpiredLease(selected) ? "error" : "info"}>
-                {hasExpiredLease(selected)
-                  ? "Worker ขาดการติดต่อ — lease หมดอายุแล้ว"
-                  : "Worker กำลังทำงาน"}
-                {` · heartbeat ล่าสุด ${formatDate(selected.heartbeat_at)}`}
+            {selected.status === "doing" && (
+              <Alert severity={hasActiveClaim(selected) ? "info" : "error"}>
+                {hasActiveClaim(selected)
+                  ? "Worker กำลังทำงานและมี Active Claim"
+                  : claimStatusLabel(selected)}
+                {selected.heartbeat_at &&
+                  ` · heartbeat ล่าสุด ${formatDate(selected.heartbeat_at)}`}
                 {selected.lease_expires_at &&
                   ` · lease ถึง ${formatDate(selected.lease_expires_at)}`}
               </Alert>
@@ -679,6 +729,13 @@ export function WorkCommandCenterPage() {
                   onClick={() => void decide(false)}
                 >
                   ไม่อนุมัติ
+                </Button>
+                <Button
+                  variant="outlined"
+                  disabled={busy}
+                  onClick={() => void sendApprovalNotice()}
+                >
+                  ส่งแจ้งเตือนเฉพาะงานนี้
                 </Button>
               </Stack>
             )}
@@ -726,4 +783,3 @@ export function WorkCommandCenterPage() {
     </Stack>
   );
 }
-
