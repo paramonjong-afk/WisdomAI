@@ -77,6 +77,8 @@ No app dependency changes. The password is masked and sent only over the local
 child process stdin, then through certificate-verified TLS to the fixed WisdomAI
 session pooler on port 5432. The session pooler is used because the direct
 database hostname has no usable DNS address on the current IPv4-only network.
+The helper pins the official `prod-ca-2021.crt` downloaded from the Project's
+Database Settings page and keeps certificate and hostname verification enabled.
 No HTTP listener, password log, clipboard access or
 credential persistence. Plaintext necessarily exists briefly in process memory;
 this is not a memory-hardening or forensic-erasure guarantee.

@@ -13,6 +13,14 @@ $form.Size = New-Object System.Drawing.Size(620, 370)
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
+$form.ShowInTaskbar = $true
+$form.TopMost = $true
+$form.Add_Shown({
+    $form.WindowState = 'Normal'
+    $form.Activate()
+    $form.BringToFront()
+    $passwordBox.Focus()
+})
 $label = New-Object System.Windows.Forms.Label
 $label.Location = New-Object System.Drawing.Point(20, 20)
 $label.Size = New-Object System.Drawing.Size(570, 85)

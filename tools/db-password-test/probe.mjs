@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { Client } from 'pg'
+
+const supabaseRootCa = readFileSync(new URL('./prod-ca-2021.crt', import.meta.url), 'utf8')
 
 export const connectionTarget = Object.freeze({
   host: 'aws-1-ap-south-1.pooler.supabase.com',
@@ -13,7 +16,7 @@ export async function probe(password, ClientClass = Client) {
   const client = new ClientClass({
     ...connectionTarget,
     password,
-    ssl: { rejectUnauthorized: true },
+    ssl: { ca: supabaseRootCa, rejectUnauthorized: true },
     connectionTimeoutMillis: 8000, query_timeout: 4000, statement_timeout: 4000,
     options: '-c default_transaction_read_only=on',
     application_name: 'wisdomai-one-attempt-password-probe',

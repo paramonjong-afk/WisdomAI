@@ -6,6 +6,8 @@ let ends = 0
 class FakeClient {
   constructor(config) {
     assert.equal(config.ssl.rejectUnauthorized, true)
+    assert.match(config.ssl.ca, /-----BEGIN CERTIFICATE-----/)
+    assert.match(config.ssl.ca, /-----END CERTIFICATE-----/)
     assert.equal(config.options, '-c default_transaction_read_only=on')
     assert.deepEqual(
       { host: config.host, port: config.port, user: config.user, database: config.database },
