@@ -1,4 +1,4 @@
--- Preserve payroll as the HR module while distinguishing salary from worker wages.
+-- Re-versioned after the Production history baseline; preserves payroll as HR while distinguishing salary from worker wages.
 -- This correction is scoped to the user-confirmed 30,000 THB source record.
 do $$
 declare

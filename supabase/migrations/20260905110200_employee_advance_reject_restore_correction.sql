@@ -1,4 +1,4 @@
--- Reversible exclusion for incorrectly classified advance cases.
+-- Re-versioned after the Production history baseline; reversible exclusion for incorrectly classified advance cases.
 -- The source slip, transaction, settlement lines and audit history are retained.
 
 alter table public.employee_advance_cases

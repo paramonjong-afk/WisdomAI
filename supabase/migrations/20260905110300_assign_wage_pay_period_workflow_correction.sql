@@ -1,3 +1,4 @@
+-- Re-versioned after the Production history baseline so standard db push can apply it safely.
 create table if not exists public.employee_money_pay_period_assignments (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references public.companies(id) on delete cascade,

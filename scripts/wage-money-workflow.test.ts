@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs'
 
 const page = readFileSync('src/pages/AdvanceSettlements/index.tsx', 'utf8')
 const migration = readFileSync('supabase/migrations/20260830040047_reconcile_wage_money_lines.sql', 'utf8')
-const periodMigration = readFileSync('supabase/migrations/20260830054524_assign_wage_pay_period_workflow.sql', 'utf8')
-const interimAdvanceMigration = readFileSync('supabase/migrations/20260830061245_classify_interim_employee_transfers_as_advances.sql', 'utf8')
+const periodMigration = readFileSync('supabase/migrations/20260905110300_assign_wage_pay_period_workflow_correction.sql', 'utf8')
+const interimAdvanceMigration = readFileSync('supabase/migrations/20260905110400_classify_interim_employee_transfers_as_advances_correction.sql', 'utf8')
 
 for (const required of [
   'canonicalEmployeeMoneyEntries',

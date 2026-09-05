@@ -1,3 +1,4 @@
+-- Re-versioned after the Production history baseline so standard db push can apply it safely.
 create or replace function public.reconcile_confirmed_salary_employee_advance()
 returns trigger
 language plpgsql

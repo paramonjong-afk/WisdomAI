@@ -105,7 +105,7 @@ accepted matched confirmation and unchanged non-vendor behavior. This scoped
 test does not replace full migration replay or linked dry-run.
 
 CI run 33916675589 passed vendor table attachment and found a missing fixed
-salary-correction target at 20260829103500. This historical correction now
+salary-correction target now re-versioned at 20260905110100. This correction
 returns only when auth users, profiles, document items and allocations are all
 empty. Its target, amount and source checks remain unchanged for populated
 databases. No payroll record, confirmation or audit evidence is fabricated.

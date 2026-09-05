@@ -2,18 +2,25 @@ import { readdirSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { checkConnection } from './supabase-connection-check.mjs'
 
-export const HISTORICAL_DRY_RUN_ALLOWLIST = [
+export const HISTORICAL_BASELINE_ALLOWLIST = [
   '202607210000',
-  '20260829101053',
-  '20260829103500',
-  '20260829173946',
-  '20260830054524',
-  '20260830061245',
+]
+
+export const REVERSIONED_CORRECTION_VERSIONS = [
+  '20260905110000',
+  '20260905110100',
+  '20260905110200',
+  '20260905110300',
+  '20260905110400',
 ]
 
 const sorted = values => [...values].sort()
 
-export function validateHistoricalDryRun(report, allowlist = HISTORICAL_DRY_RUN_ALLOWLIST) {
+export function validateHistoricalDryRun(
+  report,
+  allowlist = HISTORICAL_BASELINE_ALLOWLIST,
+  correctionVersions = REVERSIONED_CORRECTION_VERSIONS,
+) {
   if (report.management !== 'read_verified_history_not_reconciled') {
     throw new Error('Remote migration history was not read successfully')
   }
@@ -28,14 +35,21 @@ export function validateHistoricalDryRun(report, allowlist = HISTORICAL_DRY_RUN_
   }
   const actual = sorted(report.historical_local_only_versions)
   const expected = sorted(allowlist)
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+  const baselinePending = JSON.stringify(actual) === JSON.stringify(expected)
+  const baselineRecorded = actual.length === 0
+  if (!baselinePending && !baselineRecorded) {
     throw new Error('Historical migration allowlist mismatch')
+  }
+  const future = sorted(report.future_local_only_versions ?? [])
+  if (baselinePending && correctionVersions.some(version => !future.includes(version))) {
+    throw new Error('Re-versioned correction inventory is incomplete')
   }
   return {
     include_all_dry_run_authorized: true,
     apply_authorized: false,
+    baseline_history_repair_required: baselinePending,
     historical_versions: actual,
-    future_versions: sorted(report.future_local_only_versions ?? []),
+    future_versions: future,
   }
 }
 

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { PGlite } from '@electric-sql/pglite'
 
 const read = file => readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8')
-const prior = read('20260830054524_assign_wage_pay_period_workflow.sql')
+const prior = read('20260905110300_assign_wage_pay_period_workflow_correction.sql')
 const start = prior.indexOf('create or replace view public.employee_money_ledger_detail_v1')
 const end = prior.indexOf('revoke all on public.employee_money_ledger_detail_v1', start)
 assert.ok(start >= 0 && end > start)

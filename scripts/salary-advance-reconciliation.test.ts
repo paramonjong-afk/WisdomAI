@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 
-const migration = readFileSync('supabase/migrations/20260829101053_reconcile_salary_from_employee_advances.sql', 'utf8')
+const migration = readFileSync('supabase/migrations/20260905110000_reconcile_confirmed_salary_employee_advance.sql', 'utf8')
 const backfill = readFileSync('supabase/migrations/20260829101758_backfill_salary_advance_reconciliation.sql', 'utf8')
 const advancePage = readFileSync('src/pages/AdvanceSettlements/index.tsx', 'utf8')
 const advanceGateway = readFileSync('src/services/advanceReportGateway.ts', 'utf8')
