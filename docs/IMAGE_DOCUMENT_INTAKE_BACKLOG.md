@@ -76,6 +76,10 @@
 
 ### DOC-INGEST-009 — ตรวจความสอดคล้อง Storage/Database
 
+- Implementation 5/9/2569: เพิ่ม `storage_integrity_scan_runs`, `storage_integrity_issues` และ service-role RPC `run_storage_integrity_scan(target_limit)` แบบ read-only/idempotent. ตรวจ orphan active blob, dangling `line_attachments.blob_id`, missing object/thumbnail, tenant UUID namespace และ declared/object size mismatch; ใช้ fingerprint กัน issue ซ้ำ และไม่ปิด issue เก่าหากผล scan ถูกจำกัดจำนวน. ไม่มีการลบ ย้าย หรือซ่อมไฟล์อัตโนมัติ.
+- Verification: `test:storage-integrity-scan`, migration safety, migration replay, typecheck, lint และ build; runtime scan/fault-injection ยังต้องทำหลัง migration apply โดย service role และต้องตรวจผลก่อนเปิด auto-fix.
+- Rollback: revoke/disable `run_storage_integrity_scan`; คงตาราง issue/run ไว้เพื่อ audit และไม่แตะ business/storage objects.
+
 - ตรวจ orphan object, dangling DB row, missing thumbnail/page, hash mismatch และผิด tenant namespace
 - ซ่อมเฉพาะกรณีปลอดภัย; อื่น ๆ เปิด Incident พร้อม evidence/fingerprint และป้องกันเปิดซ้ำ
 
