@@ -32,6 +32,3 @@ using (
     else false
   end
 );
-
-comment on policy "Room members and company managers view chat files" on storage.objects is
-  'Private chat evidence: room members and company managers only. The object company/room path must match the persisted chat_rooms row; malformed paths fail closed.';
