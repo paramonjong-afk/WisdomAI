@@ -6,7 +6,7 @@ const route = moneyPurposeRoute('materials')
 assert.equal(route.route, 'บัญชี → ต้นทุนโครงการ')
 assert.deepEqual(route.departments, ['project'])
 
-const migration = readFileSync('supabase/migrations/20260829093000_keep_material_transfer_slips_out_of_inventory.sql', 'utf8')
+const migration = readFileSync('supabase/migrations/20260828184044_keep_material_transfer_slips_out_of_inventory.sql', 'utf8')
 assert.match(migration, /สลิปค่าวัสดุเป็นหลักฐานการเงิน ไม่ใช่ใบรับเข้า Stock/)
 assert.match(migration, /if not \('project' = any\(next_departments\)\)/)
 assert.match(migration, /replace\(function_sql, chr\(13\) \|\| chr\(10\), chr\(10\)\)/)

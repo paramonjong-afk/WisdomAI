@@ -211,9 +211,17 @@ begin
 end;
 $$;
 
-drop trigger if exists enforce_transfer_slip_vendor_match on public.transfer_slip_money_allocations;
-create trigger enforce_transfer_slip_vendor_match
-before insert or update on public.transfer_slip_money_allocations
-for each row execute function public.enforce_transfer_slip_vendor_match();
+-- Fresh replay creates allocations in 20260826220000, which also installs this
+-- trigger. Existing installations must keep enforcement immediately.
+do $$
+begin
+  if to_regclass('public.transfer_slip_money_allocations') is not null then
+    drop trigger if exists enforce_transfer_slip_vendor_match on public.transfer_slip_money_allocations;
+    create trigger enforce_transfer_slip_vendor_match
+    before insert or update on public.transfer_slip_money_allocations
+    for each row execute function public.enforce_transfer_slip_vendor_match();
+  end if;
+end;
+$$;
 
 notify pgrst, 'reload schema';

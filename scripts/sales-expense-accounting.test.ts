@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { calculateSalesExpenseAmounts, canApproveSalesExpense, canEditSalesExpense } from '../src/services/salesExpenseAccounting.ts'
 
-const migration = readFileSync('supabase/migrations/20260831023857_sales_expense_accounting_workflow.sql', 'utf8')
+const migration = readFileSync('supabase/migrations/20260831040817_sales_expense_accounting_workflow.sql', 'utf8')
 const panel = readFileSync('src/pages/ProjectControls/SalesExpensePanel.tsx', 'utf8')
 const projectControls = readFileSync('src/pages/ProjectControls/index.tsx', 'utf8')
 const registry = readFileSync('src/pages/FlowRegistry/index.tsx', 'utf8')

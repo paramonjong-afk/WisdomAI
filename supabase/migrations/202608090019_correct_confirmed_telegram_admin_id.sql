@@ -7,6 +7,14 @@ declare
   matched_profiles integer;
   latest_chat_id text;
 begin
+  -- This one-time identity repair has no target on a pristine installation.
+  -- Do not relax any identity/role assertion once either identity table has data.
+  if not exists (select 1 from auth.users)
+     and not exists (select 1 from public.profiles) then
+    raise notice 'Identity repair not applicable: no users or profiles exist';
+    return;
+  end if;
+
   select id
     into strict target_company_id
   from public.companies

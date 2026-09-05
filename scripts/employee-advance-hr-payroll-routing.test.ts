@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-const migration = readFileSync('supabase/migrations/20260831113000_route_approved_employee_advances_to_hr_payroll.sql', 'utf8')
+const migration = readFileSync('supabase/migrations/20260831031554_route_approved_employee_advances_to_hr_payroll.sql', 'utf8')
 const page = readFileSync('src/pages/AdvanceSettlements/index.tsx', 'utf8')
 
 for (const marker of [

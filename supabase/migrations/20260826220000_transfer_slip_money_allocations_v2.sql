@@ -86,6 +86,12 @@ create table if not exists public.transfer_slip_money_allocations (
   unique(lineage_id, allocation_key, version)
 );
 
+-- Install the earlier vendor-match guard as soon as its target table exists.
+drop trigger if exists enforce_transfer_slip_vendor_match on public.transfer_slip_money_allocations;
+create trigger enforce_transfer_slip_vendor_match
+before insert or update on public.transfer_slip_money_allocations
+for each row execute function public.enforce_transfer_slip_vendor_match();
+
 create index if not exists transfer_slip_money_allocations_queue_idx
   on public.transfer_slip_money_allocations(company_id, purpose_type, status, updated_at desc);
 create index if not exists transfer_slip_money_allocations_project_idx

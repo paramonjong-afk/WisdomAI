@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import { mapTransferSlipTruth, type TransferSlipOperationalTruthRow } from '../src/services/transferSlipOperationalTruth.ts'
 
 const migration = fs.readFileSync(new URL('../supabase/migrations/20260826102135_transfer_slip_canonical_operational_truth.sql', import.meta.url), 'utf8')
-const partyPairMigration = fs.readFileSync(new URL('../supabase/migrations/20260829120000_transfer_slip_confirmed_party_pair_projection.sql', import.meta.url), 'utf8')
+const partyPairMigration = fs.readFileSync(new URL('../supabase/migrations/20260828222133_transfer_slip_confirmed_party_pair_projection.sql', import.meta.url), 'utf8')
 assert.match(migration, /security_invoker\s*=\s*true/)
 assert.match(migration, /evidence_sender_name/)
 assert.match(migration, /canonical_payer_name/)

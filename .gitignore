@@ -42,3 +42,7 @@ WisdomAI-React-multi-project-v2.zip
 .tmp/
 audit.txt
 supabase/.temp/
+
+# Private recovered Production history must never be published.
+docs/recovery/
+*.review.json

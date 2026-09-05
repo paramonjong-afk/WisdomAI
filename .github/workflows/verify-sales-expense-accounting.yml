@@ -13,7 +13,7 @@ on:
       - 'scripts/sales-expense-accounting.test.ts'
       - 'src/pages/ProjectControls/**'
       - 'src/services/salesExpenseAccounting.ts'
-      - 'supabase/migrations/20260831023857_sales_expense_accounting_workflow.sql'
+      - 'supabase/migrations/20260831040817_sales_expense_accounting_workflow.sql'
   pull_request:
     paths:
       - '.github/workflows/verify-sales-expense-accounting.yml'
@@ -24,7 +24,7 @@ on:
       - 'scripts/sales-expense-accounting.test.ts'
       - 'src/pages/ProjectControls/**'
       - 'src/services/salesExpenseAccounting.ts'
-      - 'supabase/migrations/20260831023857_sales_expense_accounting_workflow.sql'
+      - 'supabase/migrations/20260831040817_sales_expense_accounting_workflow.sql'
   workflow_dispatch:
 
 permissions:
@@ -71,7 +71,7 @@ jobs:
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/sql/sales-expense-accounting-baseline.sql
 
       - name: Apply sales expense migration
-        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20260831023857_sales_expense_accounting_workflow.sql
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20260831040817_sales_expense_accounting_workflow.sql
 
       - name: Run PostgreSQL runtime smoke
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/sql/sales-expense-accounting-runtime.test.sql

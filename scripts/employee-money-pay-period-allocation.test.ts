@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-const migration = readFileSync('supabase/migrations/20260830024834_employee_money_pay_period_allocations.sql', 'utf8')
+const migration = readFileSync('supabase/migrations/20260830025544_employee_money_pay_period_allocations.sql', 'utf8')
 const allocationService = readFileSync('src/services/transferSlipMoneyLineage.ts', 'utf8')
 const accountingUi = readFileSync('src/pages/AccountingDocuments/index.tsx', 'utf8')
 const holdingUi = readFileSync('src/pages/AdvanceSettlements/index.tsx', 'utf8')

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-const migration = readFileSync('supabase/migrations/20260829153000_sync_confirmed_transfer_parties_to_canonical_master.sql', 'utf8')
-const reconciliation = readFileSync('supabase/migrations/20260829154500_reconcile_canonical_bank_account_duplicates.sql', 'utf8')
+const migration = readFileSync('supabase/migrations/20260828224845_sync_confirmed_transfer_parties_to_canonical_master.sql', 'utf8')
+const reconciliation = readFileSync('supabase/migrations/20260828225159_reconcile_canonical_bank_account_duplicates.sql', 'utf8')
 const page = readFileSync('src/pages/MasterDataCenter/index.tsx', 'utf8')
 
 for (const token of [

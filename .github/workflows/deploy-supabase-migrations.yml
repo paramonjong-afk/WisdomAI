@@ -1,0 +1,237 @@
+name: Apply Supabase Migrations
+
+# Two-stage: verify-migrations runs on every PR AND every push to main, and
+# must pass before apply-migrations (push-to-main only) is allowed to touch
+# Production. See AGENTS.md "Automated Supabase Deployment Standard" -- do
+# not weaken or remove these checks to unblock a task; use the explicit
+# ALLOW-DESTRUCTIVE-MIGRATION override in a commit message instead when a
+# destructive migration is genuinely intended.
+#
+# Requires three repository secrets (added once, by a human, in GitHub repo
+# Settings -> Secrets and variables -> Actions -- never by an agent):
+#   SUPABASE_ACCESS_TOKEN  - a Supabase personal access token
+#   SUPABASE_PROJECT_REF   - xkieyqixlufjqructjkr
+#   SUPABASE_DB_PASSWORD   - the Production database password (Project
+#                            Settings -> Database -> Connection string)
+# Optional, for Telegram notification on apply (skipped silently if unset):
+#   TELEGRAM_BOT_TOKEN
+#   TELEGRAM_ADMIN_CHAT_ID
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/functions/**'
+      - '.github/workflows/deploy-supabase-*.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  connection-diagnostics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test read-only recovery
+        run: node scripts/supabase-connection-check.test.mjs
+      - name: Read project and migration history without database password
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: node scripts/supabase-connection-check.mjs
+
+  verify-migrations:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Determine migration comparison base
+        id: changed
+        run: |
+          set -e
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="origin/${{ github.base_ref }}"
+            git fetch origin "${{ github.base_ref }}" --depth=1
+          else
+            BASE="${{ github.event.before }}"
+            if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+              BASE="HEAD~1"
+            fi
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+
+      - name: Select database transport for this verified release
+        id: transport
+        env:
+          REQUESTED: ${{ vars.SUPABASE_DB_TRANSPORT || 'pooler' }}
+        run: |
+          case "$REQUESTED" in
+            pooler|direct) echo "route=$REQUESTED" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::Unsupported database transport"; exit 1 ;;
+          esac
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Test SQL guard
+        run: node scripts/migration-safety-guard.test.mjs
+
+      - name: Install test dependencies
+        run: npm ci
+
+      - name: Test replay regression contracts
+        run: |
+          npm run test:supabase-deployment-workflows
+          npm run test:migration-safety
+
+      - name: Guard against destructive SQL without explicit override
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message || github.event.pull_request.title }}
+          MIGRATION_BASE: ${{ steps.changed.outputs.base }}
+        run: |
+          node scripts/migration-safety-guard.mjs "$MIGRATION_BASE"
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          github-token: ${{ github.token }}
+          version: latest
+
+      - name: Replay all migrations against a throwaway local database
+        run: |
+          set -e
+          supabase start
+          supabase db reset
+
+      - name: Authorize exact historical versions for dry-run only
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: node scripts/supabase-historical-dry-run-guard.mjs
+
+      - name: Dry-run against Production (no changes applied)
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          DB_TRANSPORT: ${{ steps.transport.outputs.route }}
+        run: |
+          set -e
+          if [ -z "$SUPABASE_PROJECT_REF" ] || [ -z "$PGPASSWORD" ]; then
+            echo "::error::SUPABASE_PROJECT_REF and/or SUPABASE_DB_PASSWORD repo secrets are not set. Add them in Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          if ! [[ "$SUPABASE_PROJECT_REF" =~ ^[a-z0-9]{20}$ ]]; then
+            echo "::error::SUPABASE_PROJECT_REF has an invalid format"
+            exit 1
+          fi
+          DB_CA="$GITHUB_WORKSPACE/tools/db-password-test/prod-ca-2021.crt"
+          test -s "$DB_CA" || { echo "::error::Pinned Supabase root CA is missing"; exit 1; }
+          case "$DB_TRANSPORT" in
+            pooler)
+              DB_HOST="aws-1-ap-south-1.pooler.supabase.com"
+              DB_USER="postgres.${SUPABASE_PROJECT_REF}"
+              ;;
+            direct)
+              DB_HOST="db.${SUPABASE_PROJECT_REF}.supabase.co"
+              DB_USER="postgres"
+              ;;
+            *) echo "::error::Unverified database transport"; exit 1 ;;
+          esac
+          DB_URL="postgresql://${DB_USER}@${DB_HOST}:5432/postgres?sslmode=verify-full&sslrootcert=${DB_CA}"
+          supabase db push --db-url "$DB_URL" --dry-run --include-all
+
+    outputs:
+      db_transport: ${{ steps.transport.outputs.route }}
+
+  apply-migrations:
+    needs: verify-migrations
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          github-token: ${{ github.token }}
+          version: latest
+
+      - name: Link project and push migrations
+        id: push
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          DB_TRANSPORT: ${{ needs.verify-migrations.outputs.db_transport }}
+        run: |
+          set -e
+          if [ -z "$SUPABASE_PROJECT_REF" ] || [ -z "$PGPASSWORD" ]; then
+            echo "::error::SUPABASE_PROJECT_REF and/or SUPABASE_DB_PASSWORD repo secrets are not set"
+            exit 1
+          fi
+          if ! [[ "$SUPABASE_PROJECT_REF" =~ ^[a-z0-9]{20}$ ]]; then
+            echo "::error::SUPABASE_PROJECT_REF has an invalid format"
+            exit 1
+          fi
+          DB_CA="$GITHUB_WORKSPACE/tools/db-password-test/prod-ca-2021.crt"
+          test -s "$DB_CA" || { echo "::error::Pinned Supabase root CA is missing"; exit 1; }
+          case "$DB_TRANSPORT" in
+            pooler)
+              DB_HOST="aws-1-ap-south-1.pooler.supabase.com"
+              DB_USER="postgres.${SUPABASE_PROJECT_REF}"
+              ;;
+            direct)
+              DB_HOST="db.${SUPABASE_PROJECT_REF}.supabase.co"
+              DB_USER="postgres"
+              ;;
+            *) echo "::error::Unverified database transport"; exit 1 ;;
+          esac
+          DB_URL="postgresql://${DB_USER}@${DB_HOST}:5432/postgres?sslmode=verify-full&sslrootcert=${DB_CA}"
+          supabase db push --db-url "$DB_URL"
+
+      - name: Notify Telegram (optional)
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
+          RESULT: ${{ steps.push.outcome }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_ADMIN_CHAT_ID" ]; then
+            echo "Telegram secrets not set, skipping notification."
+            exit 0
+          fi
+          ICON="✅"
+          if [ "$RESULT" != "success" ]; then ICON="🆘"; fi
+          TEXT="$ICON <b>Supabase migration auto-apply</b>%0Aresult: $RESULT%0Acommit: ${SHA:0:7}"
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_ADMIN_CHAT_ID}" \
+            -d "parse_mode=HTML" \
+            -d "text=${TEXT}" > /dev/null || true
+
+  deploy-functions:
+    needs: apply-migrations
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/deploy-supabase-functions.yml
+    secrets:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}

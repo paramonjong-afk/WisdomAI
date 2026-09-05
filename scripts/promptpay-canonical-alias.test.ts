@@ -12,8 +12,8 @@ assert.equal(paymentAliasValidation({ paymentMethod: 'promptpay', aliasType: 'mo
 assert.match(paymentAliasValidation({ paymentMethod: 'promptpay', aliasType: 'mobile', aliasValue: '12345' }) ?? '', /10 หลัก/)
 assert.equal(emptyPaymentPartyDraft('พร้อมเพย์', '2573').aliasValue, '2573')
 
-const migration = fs.readFileSync(new URL('../supabase/migrations/20260828232359_promptpay_canonical_payment_aliases.sql', import.meta.url), 'utf8')
-const backfill = fs.readFileSync(new URL('../supabase/migrations/20260828233606_backfill_promptpay_party_links.sql', import.meta.url), 'utf8')
+const migration = fs.readFileSync(new URL('../supabase/migrations/20260828233534_promptpay_canonical_payment_aliases.sql', import.meta.url), 'utf8')
+const backfill = fs.readFileSync(new URL('../supabase/migrations/20260828233638_backfill_promptpay_party_links.sql', import.meta.url), 'utf8')
 for (const token of [
   'master_payment_aliases', 'financial_transaction_party_links', 'payment_alias_audit',
   'review_transfer_slip_payment_parties_v1', 'alias_fingerprint', 'masked_value',

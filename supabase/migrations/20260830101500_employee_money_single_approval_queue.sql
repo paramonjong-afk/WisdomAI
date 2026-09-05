@@ -10,7 +10,7 @@ select
   allocation.received_by_profile_id,
   recipient_profile.full_name as received_by_name,
   allocation.recipient_relationship,
-  allocation.pay_period_id,
+  coalesce(period_assignment.pay_period_id, allocation.pay_period_id) as pay_period_id,
   period.name as pay_period_name,
   period.starts_on as pay_period_starts_on,
   period.ends_on as pay_period_ends_on,
@@ -43,12 +43,17 @@ select
   flow.assignment_status,
   entry.version,
   entry.reviewed_by,
-  entry.reviewed_at
+  entry.reviewed_at,
+  period_assignment.assignment_method as pay_period_assignment_method,
+  period_assignment.reason as pay_period_assignment_reason
 from public.employee_money_ledger_entries entry
 join public.profiles owner_profile on owner_profile.id = entry.employee_profile_id
 left join public.transfer_slip_money_allocations allocation on allocation.id = entry.allocation_id
+left join public.employee_money_pay_period_assignments period_assignment
+  on period_assignment.ledger_entry_id = entry.id
 left join public.profiles recipient_profile on recipient_profile.id = allocation.received_by_profile_id
-left join public.pay_periods period on period.id = allocation.pay_period_id
+left join public.pay_periods period
+  on period.id = coalesce(period_assignment.pay_period_id, allocation.pay_period_id)
 left join public.financial_transactions transaction on transaction.id = entry.financial_transaction_id
 left join public.document_flow_items flow on flow.id = entry.source_flow_item_id;
 

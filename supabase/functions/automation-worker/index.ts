@@ -8,7 +8,7 @@ const headers = { 'content-type': 'application/json; charset=utf-8' }
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers })
 
 type Body = {
-  action?: 'status'|'claim'|'heartbeat'|'finish'|'retry_runner_failure'|'inspect_line_voice_uat'|'complete_line_voice_uat'|'approve_review'|'start_specific'
+  action?: 'status'|'claim'|'heartbeat'|'finish'|'retry_runner_failure'|'inspect_line_voice_uat'|'complete_line_voice_uat'|'approve_review'|'start_specific'|'reset_retry'
   worker_id?: string
   work_key?: string
   run_id?: string
@@ -93,6 +93,22 @@ Deno.serve(async request => {
     }).eq('work_key', workKey).eq('status', 'blocked').eq('production_status', 'local_runner_failed').select('work_key').maybeSingle()
     if (error) return json({ error: error.message }, 500)
     return json({ updated: Boolean(data), work_key: data?.work_key ?? null })
+  }
+
+  if (body.action === 'reset_retry') {
+    // เส้นทาง 2 escape hatch: after a human confirms the real root cause of
+    // a capped-retry / long-blocked item is fixed, this clears
+    // attempt_count and blocked_since and requeues it to 'ready'. Never
+    // called automatically by any Auto process -- see
+    // reset_system_work_item_retry in
+    // 20260904130000_bounded_retry_and_escalation_alerts.sql.
+    const workKey = String(body.work_key || '').trim().slice(0, 80)
+    if (!workKey) return json({ error: 'work_key_required' }, 400)
+    const { data, error } = await admin.rpc('reset_system_work_item_retry', {
+      target_work_key: workKey, actor: workerId,
+    })
+    if (error) return json({ error: error.message }, 500)
+    return json({ updated: data === true, work_key: workKey })
   }
 
   if (body.action === 'approve_review') {

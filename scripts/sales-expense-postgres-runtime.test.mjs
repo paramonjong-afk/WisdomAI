@@ -3,7 +3,7 @@ import { PGlite } from '@electric-sql/pglite'
 
 const files = [
   'scripts/sql/sales-expense-accounting-baseline.sql',
-  'supabase/migrations/20260831023857_sales_expense_accounting_workflow.sql',
+  'supabase/migrations/20260831040817_sales_expense_accounting_workflow.sql',
   'scripts/sql/sales-expense-accounting-runtime.test.sql',
 ]
 

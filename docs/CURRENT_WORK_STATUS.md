@@ -1,5 +1,18 @@
 # WisdomAI — สถานะงานและรายการตรวจรับ
 
+## SYS-CICD-001 - 2026-09-04: BLOCKED before merge
+
+- Branch: `codex/supabase-migration-safety-gate`; PR: https://github.com/paramonjong-afk/WisdomAI/pull/28
+- Source revision tested in CI: `7276e9a`. No merge, Production migration apply, or Edge Function deployment performed for this PR.
+- Local workflow contracts, automation claim tests, health-monitor tenant tests, typecheck, lint and build passed; latest baseline changes passed workflow contracts and targeted lint only.
+- CI run `33880819046`: `verify-migrations` FAILED during fresh database replay; linked Production dry-run was not reached; `apply-migrations` SKIPPED. Separate `postgres-runtime` and preview builds passed, which does not prove full migration replay.
+- Confirmed blocker: legacy migration `202608090018_link_confirmed_telegram_admin.sql` requires an existing approved real-world identity. An empty database has no matching company member and the migration aborts. Do not insert real identities into CI, skip the migration, or disable the gate to make this green.
+- The new profiles/projects foundation is a provisional replay repair, NOT a verified Production baseline. It does not establish that the remaining history can replay; review its old timestamp and remote-history compatibility before any merge.
+- Next action: recover and review the authoritative initial schema and data-dependent historical migration strategy with the database owner, then verify the entire chain in an isolated database and run the linked dry-run. No blanket historical rewrites or migration repair commands.
+- Main protection was configured with strict required `verify-migrations`, PR requirement and admin enforcement. Do not weaken it. Until the workflow lands successfully, other PRs may also wait for this check.
+- Other pending safety review: the supplied SQL grep guard does not implement the documented unwhered UPDATE check; independent function deployment is not ordered after migration success. Do not treat the pipeline as ready for automatic Production rollout until reviewed.
+- Rollback before merge: keep this PR unmerged; no database rollback is required. Preserve the shared workspace and do not reset other rooms' changes.
+
 ## รอบปิดงาน 26/8/2569 — HR และ Intake
 
 ### ทำใน release นี้

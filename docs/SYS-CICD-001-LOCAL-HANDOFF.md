@@ -1,0 +1,235 @@
+# SYS-CICD-001 local handoff
+
+## Current public-safe handoff, 2026-09-05
+
+See `docs/PUBLIC_RELEASE_HANDOFF.md` first. The user chose to keep recovered
+Production SQL local. Only `codex/supabase-sanitized-review` is a publishable
+continuation from public base 855f6d4. The old local recovery branch must not be
+pushed. Do not merge its history into this branch or push all refs/tags.
+Prior notes below are historical and do not authorize exporting recovered SQL.
+GitHub source 855f6d4 passed CLI setup, application verification and full replay;
+linked dry-run/history reconciliation remain blocked. No Production deployment.
+
+## Current checkpoint: CLI input correction, 2026-09-05
+
+This section supersedes credential and remote-head statements below.
+User pushed 4701536 successfully; PR 28 is draft/open, not merged.
+GitHub run 33927609061 passed application verification.
+Run 33927609285 read Supabase history successfully using the saved API token,
+then failed on version mismatch. Do not request another API token for that error.
+The separate verify job failed at CLI setup: latest release rate limit exceeded;
+full replay, linked dry-run, apply and function deployment did not run.
+
+Fix: pass `with.github-token: ${{ github.token }}` at all three setup-cli steps.
+Upstream src/main.ts reads that input, not the previously supplied environment
+variable. Added missing/misnamed input regression and updated replay flow.
+No production schema, history or business mutation; work-item lease metadata only.
+Read-only recheck: 379 remote migrations, latest 20260831134117.
+History mapping remains unapproved; never repair it or skip dry-run to pass CI.
+
+Next: push this task-branch checkpoint, inspect CI replay, and reconcile remote
+SQL history against source before any merge. Database password availability and
+linked dry-run remain unverified. Source rollback is a reviewed task-branch
+revert, not a Production database reset. Never copy credentials into this file.
+
+Local verification for this correction: workflow contracts (red before fix,
+green after), connection/history tests, full migration-safety fixture suite,
+typecheck, full lint and build passed. Git diff --check passed. This is not
+full Supabase CLI replay or linked Production dry-run; those await GitHub CI.
+
+## Historical notes (superseded where noted above)
+
+Date: 2026-09-05
+Status: BLOCKED - migration history reconciliation and GitHub runtime verification pending.
+
+Authoritative latest update (2026-09-05): user requested alternate access rather
+than another password attempt. Existing Supabase connector read history
+successfully: 379 remote migrations, 380 local SQL files, 354 shared version IDs,
+26 local-only IDs and 25 remote-only IDs. Fingerprint screening suggests 17
+possible cross-version pairs, NOT approved SQL equivalence. See
+SUPABASE_HISTORY_RECONCILIATION_2026-09-05.md for complete evidence and limits.
+Do not auto-repair history or apply through another route to bypass this issue.
+GitHub SUPABASE_ACCESS_TOKEN name was confirmed saved (earlier pending notes
+below are historical). Its CI validity is not yet verified. DB password test
+outcome remains unknown; no repeated password attempt was made by the agent.
+Recovery implementation d8c0b7d remains local; PR 28 remote head fc384f0 is draft.
+Local password-tool/docs changes are preserved in the checkpoint with no password
+or attempt timestamp included; dependencies are isolated from the web app.
+
+Latest local verification: connection/history fixtures, workflow contracts,
+password-client fixtures, typecheck, full lint and build passed. Production
+schema checks were read-only. New workflow CI and release remain unverified.
+
+Follow-up: all 7 realtime publication entries and all 6 owner SELECT policies
+were observed live, with RLS enabled. This does not establish session-level UAT.
+Retry-cap rollout remains absent (old two-argument claim RPC, missing reset RPC
+and escalation cron). Recovery cron exists. Stricter text fingerprint screening
+reduces cross-version candidates to 16; no history mapping has been applied.
+Connection diagnostic now checks version sets and fails on drift/duplicates;
+even matching IDs never authorize apply. Fixture/contract tests pass. No raw
+SQL history containing business values has been copied into documents.
+
+Latest setup update (2026-09-05): SUPABASE_PROJECT_REF was added through the
+signed-in GitHub UI and the success message plus secret-name row were verified.
+SUPABASE_ACCESS_TOKEN and SUPABASE_DB_PASSWORD are still pending. The Supabase
+Access Tokens page and a GitHub New Secret form named SUPABASE_ACCESS_TOKEN
+were prepared for the account owner. No token was generated, no database
+password was reset, and no confidential value was captured. Source safeguard
+commit 02914f1 is local and still needs push/CI verification.
+
+- Branch: `codex/supabase-migration-safety-gate`
+- Local patch commit: `fc384f0`
+- Last confirmed remote head: `fc384f049dc1f192510e9ffc3cbd9f16cca8625a`
+- PR: https://github.com/paramonjong-afk/WisdomAI/pull/28 (draft)
+
+## Verified locally
+
+- Legacy identity and reconciliation replay: 14 isolated PostgreSQL scenarios passed.
+- Deployment workflow contract tests passed.
+- Typecheck, targeted ESLint, build and diff whitespace checks passed.
+- CI at e1cd910 passed PostgreSQL runtime, typecheck, lint and build.
+- Full replay at e1cd910 passed identity guards, then failed at 202608150016
+  because the historical work item was absent. 7b2d023 addresses this case.
+- Full replay of 7b2d023 passed reconciliation, failed at vendor trigger before
+  allocation table creation (run 33916274015). 4d11a6a fixes attachment order.
+- Vendor trigger/table SQL tests and targeted lint passed for 4d11a6a.
+- Full replay of 4d11a6a passed vendor attachment, then failed on an absent
+  historical salary correction target (run 33916675589). 65b791a guards only
+  pristine identity/document/allocation tables; five SQL scenarios and lint pass.
+- Runtime/typecheck/lint/build CI passed at 4d11a6a.
+- Replay of 65b791a passed salary repair, failed at 20260830101500 view column
+  removal (run 33917055323). fc384f0 preserves columns and reviewed-period join.
+- Ledger view PostgreSQL replay and targeted lint pass for fc384f0.
+- Runtime/typecheck/lint/build CI passed at 65b791a.
+- Full migration replay PASSED at fc384f0, run 33917433661.
+- Runtime/typecheck/lint/build PASSED at fc384f0, run 33917433674.
+- Linked dry-run could not start: SUPABASE_ACCESS_TOKEN, SUPABASE_PROJECT_REF
+  and SUPABASE_DB_PASSWORD were all empty in the job environment.
+- No Production apply was executed. History parity/baseline review remain pending.
+
+## Verified configuration inventory (2026-09-05)
+
+Inspected through the signed-in GitHub settings UI, without opening secret values:
+https://github.com/paramonjong-afk/WisdomAI/settings/secrets/actions
+
+- Repository secrets present: CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN,
+  CLOUDFLARE_PAGES_PROJECT.
+- Environment secrets section: no secrets shown.
+- Required Supabase Actions secrets absent from that page:
+  SUPABASE_ACCESS_TOKEN, SUPABASE_PROJECT_REF, SUPABASE_DB_PASSWORD.
+- D:/WisdomAI-React/.env contains populated VITE_SUPABASE_URL and
+  VITE_SUPABASE_ANON_KEY. These are frontend settings, not deployment credentials.
+- D:/WisdomAI-React/.env.local contains no matching Supabase variable names.
+- No matching deployment credentials were present in checked Process/User/Machine
+  environment variables or the known workspace/subproject .env locations.
+- This is a bounded inventory, not a claim that no copy exists anywhere else.
+- Known non-secret project reference: xkieyqixlufjqructjkr.
+- Never write secret values, tokens, database passwords or .env contents here,
+  in logs, commits or chat. Inspect names/presence only.
+
+## Blocker and next action
+
+The user's PowerShell successfully authenticated and pushed e1cd910. Codex's
+CLI session cannot use the stored login; the connector has no write permission.
+The user has pushed fc384f0. Configure the three required repository Actions
+secrets (or correct their availability), then rerun failed jobs of 33917433661.
+Never put credentials in this document or chat.
+
+Then compare local/remote heads, push the task branch without force, and inspect
+the complete fresh migration replay and linked dry-run. Do not merge or deploy
+until all gates pass and the provisional schema foundation is reviewed.
+
+Read `docs/SUPABASE_REPLAY_FLOW.md` for the narrow identity guard behavior and
+remaining baseline/history risks. Do not fabricate identities or suppress
+validation errors to make CI pass. No Production migration or deploy was run.
+
+## Remaining review before merge
+
+- Inspect the linked dry-run's exact migration list and remote history parity.
+- The backdated profiles/projects foundation is provisional; current local patch
+  preserves all existing-table settings. Remote history compatibility still needs review.
+- Current local patch replaces the line regex with tested conservative SQL token
+  checks and makes function deployment depend on successful migration apply.
+- The new local patch requires a fresh CI replay and dry-run before merge.
+- Keep PR draft until these issues and dry-run are resolved. No authorization
+  to merge this PR or apply Production migrations is inferred from a CI pass.
+
+## Resume from this workspace
+
+Working copy:
+C:/Users/jongp/Documents/Codex/2026-08-23/program-general/supabase-migration-safety-gate
+
+Read AGENTS.md, docs/RELEASE_INCIDENT_PLAYBOOK.md and docs/SUPABASE_REPLAY_FLOW.md.
+Check the live SYS-CICD-001 claim before edits. Preserve attempt_count and do
+not reset the retry cap to hide failures. Preserve unrelated working-tree files.
+
+From the user's authenticated PowerShell, these commands expose no secret values:
+
+```powershell
+git -C "C:\Users\jongp\Documents\Codex\2026-08-23\program-general\supabase-migration-safety-gate" status --short --branch
+gh secret list --repo paramonjong-afk/WisdomAI
+gh run view 33917433661 --repo paramonjong-afk/WisdomAI
+```
+
+Only after the required secrets are available, rerun verification:
+
+```powershell
+gh run rerun 33917433661 --failed --repo paramonjong-afk/WisdomAI
+```
+
+The signed-in Chrome session can read GitHub settings; Codex's shell was unable
+to use the user's Windows keyring login. The connector can read CI but write
+operations returned 403. Recheck capabilities rather than asking for raw tokens.
+
+Recovery: before merge, use a reviewed revert on the task branch if needed.
+No Production rollback is required for this task because nothing was applied.
+This handoff is tracked locally; verify it reaches the remote before relying on
+it from another machine/account. No unrelated files belong in its commit.
+
+## Latest local completion work (2026-09-05)
+
+- New SQL guard covers added/modified files, multiline DML, nested query WHERE,
+  dollar-quoted bodies and explicit review for dynamic SQL. It is conservative,
+  not a parser or proof of SQL safety.
+- Functions workflow is reusable, called after apply succeeds; function-only
+  pushes run verification too. Main releases are serialized without cancellation.
+- Foundation existing-table no-op is verified in PostgreSQL.
+- Added npm run test:migration-safety to aggregate all replay regressions; CI runs it.
+- Local tests, typecheck, full lint, build and git diff --check passed.
+- Workflow YAML contract checks pass. Standalone YAML parser packages were not
+  available locally; GitHub validation of the new workflow is still required.
+- GitHub Secrets were checked again: still only the three Cloudflare entries.
+- New scripts/complete-supabase-ci-setup.ps1 is for the user's authenticated
+  PowerShell. Syntax was verified; credential writes were not executed by Codex.
+  It checks branch/clean tree, preserves existing secret names, prompts through
+  GitHub CLI for missing confidential values, sets the known project reference,
+  and optionally pushes only the task branch. It never merges or deploys.
+
+One-command user handoff after this local patch is committed:
+
+```powershell
+& "C:\Users\jongp\Documents\Codex\2026-08-23\program-general\supabase-migration-safety-gate\scripts\complete-supabase-ci-setup.ps1" -Push
+```
+
+The user must supply the Supabase personal access token and database password
+at the CLI prompts. Do not substitute frontend anon/service keys or reset a
+database password merely to make this setup pass. Then inspect the new PR head,
+fresh CI replay and dry-run. Production completion remains blocked until verified.
+# Connection recovery update - 2026-09-05
+
+Local verification: connection diagnostic fixtures PASS, workflow contracts
+PASS, typecheck PASS, full lint PASS, build PASS (12104 modules), diff check PASS.
+New route code has not yet been verified in GitHub runtime. Pooler/direct still
+require DB credentials and are not a password-independent migration solution.
+
+User requested safe alternate connection routes, not a password reset. New
+implementation: API GET diagnostic plus explicit CLI pooler/direct selection.
+See SUPABASE_CONNECTION_RECOVERY.md. API diagnostic does not replace dry-run.
+
+Live evidence obtained through the existing authenticated Supabase connector:
+read-only count of supabase_migrations.schema_migrations = 379;
+latest recorded version = 20260831134117. This proves the connector can read
+history, NOT that the GitHub PAT works or that remote/local history matches.
+No historical versions were repaired, no migration applied, no business data
+changed. GitHub PAT secret-name presence was verified earlier; DB password
+remains unavailable. New API diagnostic still needs branch push and CI execution.

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-const migration = readFileSync('supabase/migrations/20260829115423_money_route_policy_registry.sql', 'utf8')
+const migration = readFileSync('supabase/migrations/20260829120637_money_route_policy_registry.sql', 'utf8')
 const panel = readFileSync('src/pages/MasterDataCenter/MoneyRoutePolicyPanel.tsx', 'utf8')
 const page = readFileSync('src/pages/MasterDataCenter/index.tsx', 'utf8')
 
