@@ -6,6 +6,25 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-05 - DOC-INGEST-009 storage/database integrity scan
+
+```mermaid
+flowchart LR
+  A[Storage + attachment metadata] --> B[Service-role read-only scan]
+  B --> C{Integrity finding?}
+  C -->|No| D[Complete scan record]
+  C -->|Yes| E[Idempotent issue fingerprint]
+  E --> F[Manager-visible issue queue]
+  F --> G[Human review / approved repair later]
+```
+
+- Scope: scan physical blobs, logical attachments and private Storage object metadata for orphan blobs, dangling references, missing object/thumbnail, tenant UUID namespace mismatch and declared/object size mismatch.
+- Permissions: `run_storage_integrity_scan` is service-role only; managers may read scan runs/issues through RLS. The scan never deletes, moves, repairs or exposes object contents.
+- Failure/retry: bounded scan returns `truncated=true` when the limit is reached and does not resolve unseen issues; repeated findings upsert by fingerprint rather than creating duplicates.
+- Audit/owner: every run and finding retains timestamps, source ID, company, bucket/path and structured details; Storage/Platform owns follow-up and any repair requires a separate reviewed migration or worker.
+- Migration: `20260905130000_storage_integrity_scan.sql`; rollback is revoke/disable the RPC while retaining issue/run history.
+- Verification: contract test, migration safety, full replay, typecheck, lint, build, then service-role dry-run and fault-injection read-only verification after apply.
+
 ## 2026-09-05 - DOC-INGEST-004 financial attachment room boundary
 
 - Flow: private evidence upload -> `chat-attachments/{company_id}/{room_id}` -> Storage RLS -> short-lived signed URL -> in-room preview/audit.

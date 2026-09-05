@@ -101,6 +101,7 @@
     "test:work-item-reconciliation": "node --experimental-strip-types scripts/work-item-reconciliation.test.ts",
     "test:storage-tenant": "node --experimental-strip-types scripts/storage-tenant-security.test.ts",
     "test:financial-attachment-storage": "node --experimental-strip-types scripts/financial-attachment-storage-security.test.ts",
+    "test:storage-integrity-scan": "node --experimental-strip-types scripts/storage-integrity-scan.test.ts",
     "test:drawing-ai-tenant": "node --experimental-strip-types scripts/drawing-ai-tenant.test.ts",
     "test:attendance-tenant": "node --experimental-strip-types scripts/attendance-tenant-edge.test.ts",
     "test:attendance-soft-delete": "node --experimental-strip-types scripts/attendance-soft-delete.test.ts",
