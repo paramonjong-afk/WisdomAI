@@ -23,7 +23,7 @@ flowchart TD
 
 # Supabase connection recovery
 
-Version 2026-09-05; owner Platform; task SYS-CICD-001.
+Version 2026-09-05; owner Platform; tasks SYS-CICD-001 and SYS-CICD-002.
 
 ## Three routes, not three independent credentials
 
@@ -75,7 +75,9 @@ business data or financial transactions change in this implementation.
 Install its isolated dependencies with `npm ci --ignore-scripts` in that folder.
 No app dependency changes. The password is masked and sent only over the local
 child process stdin, then through certificate-verified TLS to the fixed WisdomAI
-direct Postgres host. No HTTP listener, password log, clipboard access or
+session pooler on port 5432. The session pooler is used because the direct
+database hostname has no usable DNS address on the current IPv4-only network.
+No HTTP listener, password log, clipboard access or
 credential persistence. Plaintext necessarily exists briefly in process memory;
 this is not a memory-hardening or forensic-erasure guarantee.
 
@@ -83,7 +85,7 @@ One Client, one connect, SELECT 1 in a default-read-only session, no retries.
 The form disables its button and uses an exclusively locked timestamp file to
 enforce a 30-minute local cooldown across windows. Never delete this marker to
 guess more passwords. It does not know about attempts from other tools/IPs.
-Network/IPv6, TLS verification, authentication rejection and unknown failures
+Network/DNS, TLS verification, authentication rejection and unknown failures
 are distinct outcomes; never disable TLS verification to make a test pass.
 No claim that a failed network test proves the password incorrect. A successful
 test does not save GitHub secrets, approve migrations or deploy anything.

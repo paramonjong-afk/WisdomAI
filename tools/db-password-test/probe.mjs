@@ -1,11 +1,18 @@
 import { pathToFileURL } from 'node:url'
 import { Client } from 'pg'
 
+export const connectionTarget = Object.freeze({
+  host: 'aws-1-ap-south-1.pooler.supabase.com',
+  port: 5432,
+  user: 'postgres.xkieyqixlufjqructjkr',
+  database: 'postgres',
+})
+
 export async function probe(password, ClientClass = Client) {
   if (typeof password !== 'string' || !password || password.length > 1024) return 'INVALID_INPUT'
   const client = new ClientClass({
-    host: 'db.xkieyqixlufjqructjkr.supabase.co', port: 5432,
-    user: 'postgres', database: 'postgres', password,
+    ...connectionTarget,
+    password,
     ssl: { rejectUnauthorized: true },
     connectionTimeoutMillis: 8000, query_timeout: 4000, statement_timeout: 4000,
     options: '-c default_transaction_read_only=on',

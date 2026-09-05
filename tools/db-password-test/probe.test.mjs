@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { probe } from './probe.mjs'
+import { connectionTarget, probe } from './probe.mjs'
 let connects = 0
 let queries = 0
 let ends = 0
@@ -7,7 +7,13 @@ class FakeClient {
   constructor(config) {
     assert.equal(config.ssl.rejectUnauthorized, true)
     assert.equal(config.options, '-c default_transaction_read_only=on')
-    assert.equal(config.host, 'db.xkieyqixlufjqructjkr.supabase.co')
+    assert.deepEqual(
+      { host: config.host, port: config.port, user: config.user, database: config.database },
+      connectionTarget,
+    )
+    assert.equal(config.host, 'aws-1-ap-south-1.pooler.supabase.com')
+    assert.equal(config.port, 5432)
+    assert.equal(config.user, 'postgres.xkieyqixlufjqructjkr')
     assert.equal(config.password, 'fixture-only')
   }
   on() {}

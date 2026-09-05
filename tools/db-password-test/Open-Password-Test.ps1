@@ -16,7 +16,7 @@ $form.MaximizeBox = $false
 $label = New-Object System.Windows.Forms.Label
 $label.Location = New-Object System.Drawing.Point(20, 20)
 $label.Size = New-Object System.Drawing.Size(570, 85)
-$label.Text = "WisdomAI database only - direct connection (IPv6 may be required).`r`nOne attempt. SELECT 1 only. No data changes or password saving.`r`nStop if wrong. Multiple failures can block your IP.`r`nEnter only a password you believe is correct."
+$label.Text = "WisdomAI database only - session pooler (IPv4 reachable).`r`nOne attempt. SELECT 1 only. No data changes or password saving.`r`nStop if wrong. Multiple failures can block your IP.`r`nEnter only a password you believe is correct."
 $form.Controls.Add($label)
 $passwordBox = New-Object System.Windows.Forms.TextBox
 $passwordBox.Location = New-Object System.Drawing.Point(20, 115)
@@ -92,7 +92,7 @@ $button.Add_Click({
             'CONNECTED_READ_ONLY' { 'SUCCESS: password accepted and SELECT 1 passed. No data changed. Save it in GitHub SUPABASE_DB_PASSWORD yourself.' }
             'PASSWORD_REJECTED_STOP' { 'PASSWORD REJECTED. STOP. Do not guess again. No data changed.' }
             'TLS_CERTIFICATE_BLOCKED' { 'TLS certificate could not be verified. Password not confirmed. Do not disable SSL verification.' }
-            'NETWORK_UNREACHABLE' { 'Direct database is not reachable (network / IPv6 / DNS / ban). Password not confirmed.' }
+            'NETWORK_UNREACHABLE' { 'Session pooler is not reachable (network / DNS / firewall). Password not confirmed.' }
             default { 'Connection not verified. Do not assume a wrong password. Ask for diagnosis; no retry was made.' }
         }
     } catch {
