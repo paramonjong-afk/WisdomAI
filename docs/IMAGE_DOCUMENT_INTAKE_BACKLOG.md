@@ -48,6 +48,7 @@
 - แยก role/purpose สำหรับบัญชี การเงิน ผู้อนุมัติ ผู้ตรวจสอบ และผู้ดูแลระบบ
 - Signed URL อายุสั้น; บันทึก preview/download/export; ป้องกันสมาชิกบริษัททั่วไปเปิดไฟล์การเงิน
 - ทดสอบ positive/negative อย่างน้อย 2 บริษัทและ cross-tenant
+- Evidence 5/9/2569: ตรวจ Production พบ policy เดิมของ `chat-attachments` อนุญาตสมาชิกบริษัททุกคนอ่านไฟล์ทุกห้องในบริษัท แม้ไม่ได้เป็นสมาชิกห้อง แก้ด้วย migration `20260905113756_restrict_financial_attachment_room_access.sql` ให้ object path ต้องผูกกับ `chat_rooms.company_id/id` จริง และอนุญาตเฉพาะสมาชิกห้องหรือ Company Manager; path ผิดรูปแบบและ cross-tenant fail closed. Migration ลบ policy ชื่อเก่าที่กว้างทั้งหมดโดยไม่ลบ object หรือเปลี่ยน bucket public. ตรวจด้วย `test:financial-attachment-storage`, `test:storage-tenant`, migration replay, typecheck, lint และ build ก่อน merge. Rollback ใช้ corrective migration คืน policy ก่อนหน้าเฉพาะเมื่อจำเป็น ห้ามลบ migration ที่ apply แล้ว.
 
 ### DOC-INGEST-005 — Dedupe แบบไฟล์จริงและเอกสารเชิงธุรกิจ
 
