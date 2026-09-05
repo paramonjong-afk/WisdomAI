@@ -8,9 +8,9 @@ flowchart TD
   C --> D{Database password available?}
   D -->|No| E[Read-only diagnosis only - apply blocked]
   D -->|Yes| F{Explicit transport selection}
-  F -->|pooler default| G[CLI linked pooler]
-  F -->|direct| H[CLI skip-pooler]
-  G --> I[Full replay and linked dry-run]
+  F -->|pooler default| G[CLI session-pooler DB URL]
+  F -->|direct| H[CLI direct DB URL]
+  G --> I[Full replay and database dry-run]
   H --> I
   I --> J[PR review then main verifies again]
   J --> K[Apply once using same verified transport]
@@ -32,10 +32,12 @@ Version 2026-09-05; owner Platform; tasks SYS-CICD-001 and SYS-CICD-002.
    project ID and history response. Minimum scoped token permissions:
    Project Settings Read and Migrations Read. Never returns names, SQL, raw
    errors or credential values. A successful read does NOT approve a migration.
-2. CLI via pooler: default existing migration route. Needs token, project ref
-   and SUPABASE_DB_PASSWORD. Password remains in environment, never argv.
+2. CLI via pooler: default migration route. Needs project ref and
+   SUPABASE_DB_PASSWORD. It bypasses Management API linking after scoped PATs
+   returned 403 for the project/ref pair. Password remains in `PGPASSWORD`; the
+   `--db-url` argument contains no password and pins the repository CA.
 3. CLI direct: set repository VARIABLE SUPABASE_DB_TRANSPORT to `direct`.
-   Same credentials; useful for pooler/network failures, NOT forgotten passwords.
+   Same database credentials; useful for pooler/network failures, NOT forgotten passwords.
    Requires runner network reachability to the direct endpoint (often IPv6).
    Set variable back to `pooler` to recover. Run verification after any change.
 
@@ -44,7 +46,7 @@ that output for apply. No automatic transport fallback, retries, history repair,
 credential rotation, SQL API writes or Production password reset is implemented.
 Unknown transport values fail closed. All existing required checks remain.
 connection-diagnostics runs independently so a missing database password does
-not prevent obtaining API evidence, but it never substitutes for linked dry-run.
+not prevent obtaining API evidence, but it never substitutes for database dry-run.
 
 ## When access succeeds
 

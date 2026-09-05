@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 30307)
+Total output lines: 811
+
 Warning: truncated output (original token count: 71747)
 Total output lines: 1857
 
@@ -435,15 +438,7 @@ flowchart LR
 
 - **Scope:** Master Data → reviewed transfer parties → Accounting → Advance Finance.
 - **Incident:** Confirmation failed before persistence because PostgreSQL does not provide `min(uuid)`.
-- **Fix:** The canonical holder-match RPC now selects a deterministic first UUID from an ordered distinct array; no Raw/OCR/sou…41747 tokens truncated… HR ได้ทันทีหากต้องหยุดข้อความใหม่
-
-## ล่าสุด: Omni Channel Intake / OutTake v1.0 — 22/8/2569
-
-- **เหตุผล:** LINE และ Web Chat ต้องเป็นทั้ง Intake/OutTake ได้ตาม config กลาง พร้อมแก้ปัญหา LINE ปลายทางเต็ม และกันเอกสาร/ข้อความซ้ำจากสองช่องทางก่อนส่งปลายทาง
-- **ผลกระทบ:** `docs/OMNI_CHANNEL_INTAKE_OUTTAKE_FLOW.md`, `docs/INTAKE_CASE_FLOW.md`, `src/pages/FlowRegistry/index.tsx`, ตาราง `omni_channel_routes`, `omni_intake_sources`, `omni_filter_tasks`, `omni_outtake_delivery_events`, trigger จาก `line_messages` และ `chat_messages`
-- **Migration:** `202608220002_omni_channel_intake_outtake.sql`
-- **การตรวจสอบ:** migration contract test, Supabase schema/trigger verification, `npm run lint`, `npm run build`, และตรวจหน้า Flow Registry/Document Flow
-- **Rollback:** ปิด trigger `omni_register_line_message_after_insert` และ `omni_register_chat_message_after_insert`; ข้อมูล LINE, Web Chat และ Document Flow เดิมไม่ถูกลบ
+- **Fix:** The canonical holder-match RPC now…307 tokens truncated…back:** ปิด trigger `omni_register_line_message_after_insert` และ `omni_register_chat_message_after_insert`; ข้อมูล LINE, Web Chat และ Document Flow เดิมไม่ถูกลบ
 
 ## ล่าสุด: Omni Filter UI v1.1 — 22/8/2569
 
@@ -748,6 +743,29 @@ flowchart LR
 - **Owner/Rollback:** Accounting owner; ปิด Source และ revoke RPC ได้โดยคง Obligation, Slip, Lineage และ Audit เพื่อ recovery
 
 ### Supabase Connection Recovery (2026-09-05)
+
+```mermaid
+flowchart LR
+  G[GitHub Actions Secrets] --> V[Guard + local full replay]
+  V --> T{Database transport}
+  T -->|pooler| P[Session pooler URL without password]
+  T -->|direct| D[Direct URL without password]
+  P --> R[Remote dry-run]
+  D --> R
+  R -->|pass + main only| A[Apply once]
+  R -->|fail/drift| B[Block; no apply or fallback write]
+```
+
+- Database transport follow-up: migration verify/apply no longer calls
+  Management API `supabase link`. It uses the selected PostgreSQL endpoint with
+  `PGPASSWORD`, a password-free `--db-url`, strict Project Ref validation and
+  the pinned Supabase root CA. The default remains the IPv4 session pooler.
+- Impact: CI transport only. No frontend, RLS, schema, business data, migration
+  history repair or Production write is performed by this change. Apply remains
+  limited to a successful verification followed by the same `main` commit.
+- Failure/rollback: authentication, TLS, history drift or unknown transport fail
+  closed. Revert this workflow/docs/test commit to restore linked transport;
+  never retry with a second write path after an uncertain apply.
 
 - Read-only reconciliation follow-up: compare local/remote version IDs, reject
   duplicate IDs and fail diagnostic on drift. A matching version list does not

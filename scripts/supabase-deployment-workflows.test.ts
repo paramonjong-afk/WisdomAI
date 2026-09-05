@@ -44,8 +44,8 @@ for (const contract of [
   "if: github.event_name == 'push' && github.ref == 'refs/heads/main'",
   'supabase start',
   'supabase db reset',
-  'supabase db push --linked --dry-run',
-  'supabase db push --linked',
+  'supabase db push --db-url "$DB_URL" --dry-run',
+  'supabase db push --db-url "$DB_URL"',
   'ALLOW-DESTRUCTIVE-MIGRATION',
   'node scripts/migration-safety-guard.mjs "$MIGRATION_BASE"',
   'node scripts/migration-safety-guard.test.mjs',
@@ -60,8 +60,13 @@ assert.match(migrationsWorkflow, /connection-diagnostics:/)
 assert.match(migrationsWorkflow, /node scripts\/supabase-connection-check.test.mjs/)
 assert.match(migrationsWorkflow, /needs.verify-migrations.outputs.db_transport/)
 assert.match(migrationsWorkflow, /vars.SUPABASE_DB_TRANSPORT \|\| 'pooler'/)
-assert.equal((migrationsWorkflow.match(/LINK_ARGS\+=\(--skip-pooler\)/g) ?? []).length, 2)
+assert.equal((migrationsWorkflow.match(/PGPASSWORD: \$\{\{ secrets\.SUPABASE_DB_PASSWORD \}\}/g) ?? []).length, 2)
+assert.equal((migrationsWorkflow.match(/aws-1-ap-south-1\.pooler\.supabase\.com/g) ?? []).length, 2)
+assert.equal((migrationsWorkflow.match(/sslmode=verify-full&sslrootcert=\$\{DB_CA\}/g) ?? []).length, 2)
+assert.equal((migrationsWorkflow.match(/\^\[a-z0-9\]\{20\}\$/g) ?? []).length, 2)
+assert.doesNotMatch(migrationsWorkflow, /supabase link|--linked/, 'migration path must not depend on Management API linking')
 assert.doesNotMatch(migrationsWorkflow, /--password/, 'password must stay in environment, not process arguments')
+assert.doesNotMatch(migrationsWorkflow, /DB_URL=.*(?:PGPASSWORD|SUPABASE_DB_PASSWORD)/, 'database URL must not interpolate the password')
 assert.doesNotMatch(migrationsWorkflow, /continue-on-error|db push[^\n]*\|\|/, 'never silently fall back after an uncertain write')
 assert.match(functionsWorkflow, /if: github.event_name == 'push' && github.ref == 'refs\/heads\/main'/)
 
@@ -70,7 +75,7 @@ const pullRequestTrigger = migrationsWorkflow.slice(
   migrationsWorkflow.indexOf('  push:'),
 )
 assert.doesNotMatch(pullRequestTrigger, /\n\s+paths:/, 'required verification must run on every pull request to main')
-assert.equal((migrationsWorkflow.match(/supabase db push --linked$/gm) ?? []).length, 1, 'real push must exist only in apply job')
+assert.equal((migrationsWorkflow.match(/supabase db push --db-url "\$DB_URL"$/gm) ?? []).length, 1, 'real push must exist only in apply job')
 assert.ok(migrationsWorkflow.indexOf('verify-migrations:') < migrationsWorkflow.indexOf('apply-migrations:'), 'verify job must precede apply job')
 assert.doesNotMatch(functionsWorkflow + migrationsWorkflow, /xkieyqixlufjqructjkr\.(?:supabase|postgres)|eyJ[A-Za-z0-9_-]+\./, 'workflow must not hard-code credentials')
 assert.match(profilesFoundation, /create table if not exists public\.profiles/)
