@@ -6,6 +6,21 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-06 - Advance Holders invalid activity-date presentation guard
+
+```mermaid
+flowchart LR
+  A[Source activity timestamp] --> B{Parse and range check}
+  B -->|Valid| C[Display localized date/time]
+  B -->|Invalid or future| D[แสดง วันที่ผิดปกติ]
+  A --> E[Retain original value for audit/review]
+```
+
+- Scope: `/advance-holders` activity and transfer-date presentation only. A malformed or future timestamp is no longer rendered as a plausible date such as Buddhist year `2612`; it is labeled `วันที่ผิดปกติ`.
+- Data safety: no source timestamp, transaction, case, audit, status, or routing value is changed. The guard is presentation-only and shares the same future-date rule used by realtime review reasons.
+- Owner/verification: Advance Holders/Accounting owns the UI behavior; regression coverage is in `scripts/advance-holder-realtime.test.ts`, with typecheck, lint, build, and Preview smoke required.
+- Failure/rollback: if the formatter or test causes a regression, revert the task commit and keep the original timestamp for manual review. No migration, permission, or Production data rollback is required.
+
 ## 2026-09-05 - DOC-INGEST-009 storage/database integrity scan
 
 ```mermaid

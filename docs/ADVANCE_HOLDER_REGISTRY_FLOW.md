@@ -38,6 +38,7 @@ flowchart LR
 - Inactive person, cross-company reference, duplicate alias, or missing permission is rejected without writing a holder or advance.
 - If the name suggestion is wrong or not confident, Admin leaves it unconfirmed; no case is created from uncertainty.
 - Correct the holder registry or reprocess the original slip; matching is idempotent because each financial transaction can fund only one root advance case.
+- Activity timestamps are presentation-validated before display. Invalid, unparsable, or future-dated values are shown as `วันที่ผิดปกติ`; the original timestamp remains unchanged for audit and review.
 - Rollback: disable the auto-match trigger and hide the registry UI. Existing records, source slips, cases, and audit/timeline remain for traceability.
 
 ## Change record
@@ -50,3 +51,4 @@ flowchart LR
 | v1.2 | 21/8/2569 | Simplify registration to holder name only; move bank/account evidence to each slip and add a one-time learned-alias confirmation for English/variant names | `20260821053404_simplify_advance_holder_learning.sql` | migration/RPC/trigger, lint/build/test and production inspection | Restore bank fields as optional display metadata; retain aliases/audit/cases |
 | v1.3 | 21/8/2569 | Show the matching method, source quality, and full source route automatically on the advance case without changing extracted slip facts | No migration; reads central audit/case/flow data | lint/build/test and protected-route inspection | Hide UI projection; retain data/audit |
 | v1.4 | 21/8/2569 | Normalize Thai titles in central holder/alias matching and safely reprocess qualified historical slips | `20260821071722_normalize_advance_holder_titles.sql`, `20260821072004_fix_advance_holder_name_regex.sql` | normalize function and created draft cases verified | Disable auto-match/reprocess; retain source, cases, and audit |
+| v1.7 | 6/9/2569 | Prevent future or malformed activity timestamps from being presented as valid dates in Advance Holders while preserving source evidence | No migration; shared `formatAdvanceHolderDate` presentation guard | `test:advance-holder-realtime`, typecheck, lint, build, and Preview smoke | Revert the presentation/test commit; original timestamp and audit data remain unchanged |

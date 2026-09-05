@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { calculateHolderRealtimeBalance, movementReviewReasons } from '../src/pages/AdvanceHolders/advanceHolderRealtime.ts'
+import { formatAdvanceHolderDate } from '../src/pages/AdvanceHolders/advanceHolderDate.ts'
 import type { AdvanceHolderSlipMatch } from '../src/services/advanceHolderSlipMatch.ts'
 
 const base = {
@@ -45,6 +46,9 @@ const productionLike = calculateHolderRealtimeBalance('holder-tawichai', 0, [
 assert.deepEqual({ received: productionLike.realtimeReceived, paid: productionLike.realtimePaid, projected: productionLike.projectedBalance }, { received: 8060, paid: 500, projected: 7560 })
 assert.deepEqual(movementReviewReasons(movements[1], new Date('2026-08-31T00:00:00Z')), ['ข้อมูลสลิปยังไม่ยืนยัน', 'ขาดเส้นทางปลายทาง'])
 assert.ok(movementReviewReasons({ ...movements[0], transferAt: '3112-08-29T00:00:00Z' }, new Date('2026-08-31T00:00:00Z')).includes('วันที่ผิดปกติ'))
+assert.equal(formatAdvanceHolderDate('2069-09-05T14:32:00Z', new Date('2026-09-06T00:00:00Z')), 'วันที่ผิดปกติ')
+assert.equal(formatAdvanceHolderDate('not-a-date', new Date('2026-09-06T00:00:00Z')), 'วันที่ผิดปกติ')
+assert.notEqual(formatAdvanceHolderDate('2026-09-05T14:32:00Z', new Date('2026-09-06T00:00:00Z')), 'วันที่ผิดปกติ')
 
 const page = readFileSync(new URL('../src/pages/AdvanceHolders/index.tsx', import.meta.url), 'utf8')
 const migration = readFileSync(new URL('../supabase/migrations/20260831084415_enable_advance_holder_realtime.sql', import.meta.url), 'utf8')
