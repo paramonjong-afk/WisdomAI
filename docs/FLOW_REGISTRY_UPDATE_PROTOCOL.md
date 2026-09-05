@@ -804,3 +804,25 @@ flowchart LR
 - **Roles/Permissions/Integration:** ใช้สิทธิ์ Accounting Admin/Manager และ RLS เดิม; Allocation, Payroll destination และ Audit ใช้คำสั่งยืนยันเดิม
 - **Failure/Retry:** ถ้ามีหลายประวัติของ Profile เดียว ระบบเลือกสถานะปัจจุบันก่อน; ชื่อยังไม่ชัดคงค้าง Review โดยไม่สร้างบุคคลซ้ำ
 - **Owner/Migration/Verification/Rollback:** Accounting/HR; ไม่มี migration; former-employee contract + typecheck/lint/build + authenticated Drawer; rollback เฉพาะ query/label โดยข้อมูลเดิมไม่เปลี่ยน
+
+### Supabase Migration History Reconciliation v1.1 (5/9/2569)
+
+```mermaid
+flowchart LR
+  L[Local migration history] --> C[Compare version and reviewed SQL]
+  R[Production migration history] --> C
+  C --> A[Align 16 identical source versions]
+  C --> M[Add 9 inert historical markers]
+  C --> K[Keep 5 corrective migrations separate]
+  A --> T[Full replay and Production dry-run]
+  M --> T
+  K --> T
+  T -->|Exact and approved| P[PR merge gate]
+  T -->|Unexpected migration| B[Stop and review]
+```
+
+- **Input/Output/State:** ใช้เฉพาะเลข migration, ชื่อ และผลตรวจ SQL ที่บันทึกไว้; ผลลัพธ์เป็น source history ที่ตรง Production โดยไม่แก้ remote history
+- **Roles/Permissions/Integration:** Platform/Release Owner; GitHub PR และ Supabase dry-run เป็น gate บังคับ ห้ามใช้ repair หรือ include-all เพื่อข้าม drift
+- **Failure/Retry:** marker ต้องไม่มี SQL ที่รันได้; ถ้า replay หรือ dry-run แสดงรายการเกินที่คาดให้หยุดและตรวจใหม่ ไม่ apply บางส่วน
+- **Audit/Owner:** SYS-CICD-001, Platform; contract test ล็อก 16 aligned, 9 marker, 5 correction และ version uniqueness
+- **Impact/Migration/Rollback:** เปลี่ยนเฉพาะไฟล์ source history ยังไม่แตะ Production; rollback ด้วย revert commit ก่อน merge

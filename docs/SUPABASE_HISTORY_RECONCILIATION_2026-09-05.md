@@ -1,6 +1,28 @@
 # Read-only migration reconciliation
 
-Date: 2026-09-05. Task: SYS-CICD-001. Status: BLOCKED for Production apply.
+Date: 2026-09-05. Task: SYS-CICD-001. Status: source reconciliation in review;
+Production apply remains blocked until replay and linked dry-run pass.
+
+## Source reconciliation prepared
+
+- Aligned 16 source filenames with the already-recorded Production version IDs
+  only after the preserved SQL bodies passed the strict outer-trim comparison.
+  File contents were not changed.
+- Added nine comment-only markers for already-recorded Production versions.
+  Four originals contain historical room/message delivery backfills and are
+  deliberately not replayed. Five have a later corrective source migration,
+  which remains separately versioned and executable.
+- The five corrective migrations remain at versions 20260829101053,
+  20260829103500, 20260829173946, 20260830054524, and 20260830061245.
+- migration-history-reconciliation.test.mjs locks the 16 renames, nine inert
+  markers, five corrections, and global version uniqueness. The marker test
+  rejects any executable SQL.
+
+This is a source-only reconciliation. It does not edit the remote migration
+history, execute a historical backfill, apply a new migration, or authorize a
+merge. A complete fresh replay and Production db push dry-run are still
+mandatory. If the dry-run proposes any historical marker or aligned version,
+stop rather than using migration repair or include-all.
 
 ## Evidence
 
@@ -86,8 +108,6 @@ No history repair, rename, replay, schema change or migration apply was performe
 - 20260904120000_recover_orphaned_system_work_item_claims.sql
 - 20260904130000_bounded_retry_and_escalation_alerts.sql
 
-## Next safe steps
-
 ## Additional read-only findings
 
 - All 7 tables named by the Advance Holder realtime migration are already
@@ -114,13 +134,14 @@ apply. It performs GET only; existing replay/linked dry-run gates remain.
 
 ## Remaining release steps
 
-1. Review raw SQL for candidate pairs without logging embedded personal values.
-2. Investigate eight unmatched remote-only versions and provisional foundation.
-3. Prepare an explicit mapping and reviewed reconciliation plan; keep existing
-   remote history untouched until approval and recovery evidence exist.
-4. Push tested recovery branch and verify GitHub token via GET diagnostic.
-5. Full replay and linked dry-run still required. Do not use include-all, remove
-   gates, repair history, or use API apply as a shortcut for missing credentials.
+1. Run the reconciliation contract and the complete migration replay locally.
+2. Push the source-only branch and require GitHub's replay plus linked dry-run.
+3. Review the exact pending list. Expected candidates are the five corrective
+   migrations plus the four post-Production local migrations; the provisional
+   foundation may require a separate baseline decision.
+4. Keep the PR draft and do not merge unless the dry-run is exact, the SQL guard
+   passes, and the owner explicitly approves the resulting Production changes.
 
-Rollback: this report requires none on the database. Remove/revert this report
-only if superseded; retain evidence in handoff. No password/token is stored here.
+Rollback: revert the source reconciliation commit before merge. No database
+rollback is required because this step does not change Production. No
+password/token is stored here.
