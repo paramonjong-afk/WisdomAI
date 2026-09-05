@@ -44,7 +44,8 @@ for (const contract of [
   "if: github.event_name == 'push' && github.ref == 'refs/heads/main'",
   'supabase start',
   'supabase db reset',
-  'supabase db push --db-url "$DB_URL" --dry-run',
+  'node scripts/supabase-historical-dry-run-guard.mjs',
+  'supabase db push --db-url "$DB_URL" --dry-run --include-all',
   'supabase db push --db-url "$DB_URL"',
   'ALLOW-DESTRUCTIVE-MIGRATION',
   'node scripts/migration-safety-guard.mjs "$MIGRATION_BASE"',
@@ -76,6 +77,8 @@ const pullRequestTrigger = migrationsWorkflow.slice(
 )
 assert.doesNotMatch(pullRequestTrigger, /\n\s+paths:/, 'required verification must run on every pull request to main')
 assert.equal((migrationsWorkflow.match(/supabase db push --db-url "\$DB_URL"$/gm) ?? []).length, 1, 'real push must exist only in apply job')
+assert.equal((migrationsWorkflow.match(/--include-all/g) ?? []).length, 1, 'include-all must exist only in the guarded dry-run')
+assert.doesNotMatch(migrationsWorkflow, /supabase db push --db-url "\$DB_URL" --include-all(?![^\n]*--dry-run)/, 'real apply must never use include-all')
 assert.ok(migrationsWorkflow.indexOf('verify-migrations:') < migrationsWorkflow.indexOf('apply-migrations:'), 'verify job must precede apply job')
 assert.doesNotMatch(functionsWorkflow + migrationsWorkflow, /xkieyqixlufjqructjkr\.(?:supabase|postgres)|eyJ[A-Za-z0-9_-]+\./, 'workflow must not hard-code credentials')
 assert.match(profilesFoundation, /create table if not exists public\.profiles/)

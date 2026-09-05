@@ -135,6 +135,15 @@ replay and linked dry-run can continue. Every result keeps
 `apply_authorized=false`. It performs GET only; existing replay/linked dry-run
 gates remain mandatory.
 
+The six historical local-only versions are now protected by an exact allowlist
+guard before CI may run `db push --dry-run --include-all`. The guard reads
+remote history through GET only, rejects any remote-only version or allowlist
+change, and always leaves `apply_authorized=false`. The real apply command does
+not contain `--include-all`, so this exception cannot apply Production changes.
+Read-only schema verification confirmed that the foundation tables and the
+named corrective functions/table/view already exist on Production; this does
+not prove data-backfill equivalence and does not authorize migration repair.
+
 ## Remaining release steps
 
 1. Run the reconciliation contract and the complete migration replay locally.

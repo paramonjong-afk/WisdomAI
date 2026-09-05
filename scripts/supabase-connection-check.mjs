@@ -9,6 +9,13 @@ export function reconcileVersions(local, remote) {
   }
   const localOnly = local.filter(v => !remote.includes(v))
   const remoteOnly = remote.filter(v => !local.includes(v))
+  const remoteLatestVersion = remote.length ? [...remote].sort().at(-1) : null
+  const historicalLocalOnly = remoteLatestVersion
+    ? localOnly.filter(v => v < remoteLatestVersion)
+    : []
+  const futureLocalOnly = remoteLatestVersion
+    ? localOnly.filter(v => v > remoteLatestVersion)
+    : localOnly
   const historyStatus = remoteOnly.length
     ? 'remote_versions_missing_locally'
     : localOnly.length
@@ -19,6 +26,9 @@ export function reconcileVersions(local, remote) {
     local_count: local.length, remote_count: remote.length,
     shared_count: local.length - localOnly.length,
     local_only_versions: localOnly, remote_only_versions: remoteOnly,
+    remote_latest_version: remoteLatestVersion,
+    historical_local_only_versions: historicalLocalOnly,
+    future_local_only_versions: futureLocalOnly,
   }
 }
 
