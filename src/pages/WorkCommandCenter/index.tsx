@@ -156,7 +156,7 @@ export function WorkCommandCenterPage() {
           : null,
       );
     }
-    setNotice(userError(error))
+    if (error) setNotice(userError(error));
     if (!silent) setBusy(false);
   }, []);
   useEffect(() => {

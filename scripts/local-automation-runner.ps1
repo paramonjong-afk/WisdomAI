@@ -105,7 +105,13 @@ Work only inside $Workspace. Inspect existing changes and preserve unrelated use
       } finally {
         $sha256.Dispose()
       }
-      Finish-Run $item $secret 'blocked' ([int]$item.progress) "Codex CLI failed: $($tail.Substring(0,[Math]::Min(1500,$tail.Length)))" 'local_runner_failed' $fingerprint
+      # Keep the END of the tail, not the start: when the prompt itself is long
+      # (a detailed work item description), the last-20-lines tail can be
+      # dominated by Codex echoing that prompt back, pushing the actual error
+      # message past a head-truncated cutoff and leaving evidence useless for
+      # diagnosis. The real failure is almost always at the very end.
+      $tailStart = [Math]::Max(0, $tail.Length - 1500)
+      Finish-Run $item $secret 'blocked' ([int]$item.progress) "Codex CLI failed: $($tail.Substring($tailStart))" 'local_runner_failed' $fingerprint
       exit 1
     }
 
