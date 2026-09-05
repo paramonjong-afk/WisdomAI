@@ -176,10 +176,12 @@ begin
   return jsonb_build_object('scan_id',scan_id,'status','completed','issue_count',finding_count,
     'truncated',finding_count >= safe_limit,'started_at',scan_started);
 exception when others then
-  update public.storage_integrity_scan_runs
-  set status='failed', error_message=left(sqlerrm,500), finished_at=clock_timestamp()
-  where id=scan_id;
-  raise;
+  insert into public.storage_integrity_scan_runs(id,status,issue_count,started_at,finished_at,error_message)
+  values (scan_id,'failed',0,scan_started,clock_timestamp(),left(sqlerrm,500))
+  on conflict (id) do update set
+    status='failed', finished_at=excluded.finished_at, error_message=excluded.error_message;
+  return jsonb_build_object('scan_id',scan_id,'status','failed','issue_count',0,
+    'error_message',left(sqlerrm,500),'started_at',scan_started);
 end;
 $$;
 

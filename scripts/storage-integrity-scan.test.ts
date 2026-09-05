@@ -25,4 +25,6 @@ assert.match(migration, /finding_count < safe_limit[\s\S]*status='open'/, 'bound
 assert.match(migration, /source_type in \('blob','attachment','storage_object'\)/)
 assert.match(migration, /current_company_id\(\)/)
 assert.match(migration, /trash_storage_path/)
+assert.match(migration, /values \(scan_id,'failed',0,scan_started,clock_timestamp\(\),left\(sqlerrm,500\)\)/)
+assert.match(migration, /'status','failed'/)
 console.log('storage integrity scan contract passed: read-only, bounded, idempotent, tenant-aware')
