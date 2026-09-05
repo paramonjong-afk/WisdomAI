@@ -9,8 +9,13 @@ export function reconcileVersions(local, remote) {
   }
   const localOnly = local.filter(v => !remote.includes(v))
   const remoteOnly = remote.filter(v => !local.includes(v))
+  const historyStatus = remoteOnly.length
+    ? 'remote_versions_missing_locally'
+    : localOnly.length
+      ? 'local_migrations_pending_dry_run'
+      : 'version_ids_match_sql_unverified'
   return {
-    history_status: localOnly.length || remoteOnly.length ? 'version_mismatch_review_required' : 'version_ids_match_sql_unverified',
+    history_status: historyStatus,
     local_count: local.length, remote_count: remote.length,
     shared_count: local.length - localOnly.length,
     local_only_versions: localOnly, remote_only_versions: remoteOnly,
@@ -83,6 +88,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (process.env.GITHUB_STEP_SUMMARY) {
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n## Supabase connection recovery\n\n\`\`\`json\n${safe}\n\`\`\`\nRead access is not migration approval. No SQL executed.\n`)
   }
-  if (report.management !== 'read_verified_history_not_reconciled'
-    || report.history_status !== 'version_ids_match_sql_unverified') process.exitCode = 1
+  const unsafeHistory = report.history_status === 'remote_versions_missing_locally'
+  if (report.management !== 'read_verified_history_not_reconciled' || unsafeHistory) process.exitCode = 1
 }

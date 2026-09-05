@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 const page = readFileSync(new URL('../src/pages/AccountingDocuments/index.tsx', import.meta.url), 'utf8')
 const model = readFileSync(new URL('../src/services/transferSlipMoneyLineage.ts', import.meta.url), 'utf8')
 const migration = readFileSync(new URL('../supabase/migrations/20260829003040_transfer_slip_allocation_account_selection.sql', import.meta.url), 'utf8')
-const controlFundMigration = readFileSync(new URL('../supabase/migrations/20260829161000_prevent_control_fund_expense_accounts.sql', import.meta.url), 'utf8')
+const controlFundMigration = readFileSync(new URL('../supabase/migrations/20260829093532_prevent_control_fund_expense_accounts.sql', import.meta.url), 'utf8')
 
 assert.match(page, /2\. เลือกรายการบัญชีค่าใช้จ่าย/)
 assert.match(page, /รายการบัญชีจากข้อมูลกลาง/)

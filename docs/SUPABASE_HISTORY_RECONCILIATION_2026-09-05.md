@@ -128,9 +128,12 @@ No history repair, rename, replay, schema change or migration apply was performe
   and the three daily_wage_transfer delivery migrations. Do not fabricate them
   or assume the similarly named intake-routing files are equivalent.
 
-The API diagnostic now compares version sets and fails on drift or duplicate
-IDs. Even identical version sets are marked SQL unverified and cannot authorize
-apply. It performs GET only; existing replay/linked dry-run gates remain.
+The API diagnostic now distinguishes unsafe remote-only drift from legitimate
+local migrations awaiting dry-run. Remote-only versions and duplicate IDs fail;
+local-only versions are reported as `local_migrations_pending_dry_run` so the
+replay and linked dry-run can continue. Every result keeps
+`apply_authorized=false`. It performs GET only; existing replay/linked dry-run
+gates remain mandatory.
 
 ## Remaining release steps
 
