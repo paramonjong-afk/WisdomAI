@@ -6,6 +6,15 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-05 - DOC-INGEST-004 financial attachment room boundary
+
+- Flow: private evidence upload -> `chat-attachments/{company_id}/{room_id}` -> Storage RLS -> short-lived signed URL -> in-room preview/audit.
+- Access: a persisted `chat_rooms` row must match both path IDs; room members and Company Managers may read, ordinary company members outside the room may not.
+- Failure: malformed paths, cross-company paths and unknown rooms fail closed without deleting the object.
+- Migration: `20260905113756_restrict_financial_attachment_room_access.sql` removes obsolete broad SELECT policies and creates one room-bound policy. Buckets remain private and business records are unchanged.
+- Verification: positive room-member/manager cases, negative same-company non-member/cross-tenant/malformed-path cases, Storage tenant regression, full migration replay, typecheck, lint and build.
+- Rollback: add a new corrective migration restoring the prior policy only after incident approval; never remove an applied migration or make Storage public.
+
 ## 2026-09-05 - SYS-CICD-002 local password probe pooler recovery
 
 - Flow: local one-attempt database password verification now connects to the fixed WisdomAI session pooler on port 5432 instead of the direct database hostname.
