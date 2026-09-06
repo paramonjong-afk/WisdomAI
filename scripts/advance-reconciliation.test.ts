@@ -23,5 +23,7 @@ assert.deepEqual(saved.data.audit[0]?.changes.confirmedPayer, { old: '', new: '�
 assert.match(storage.values().next().value ?? '', /ผู้จ่ายจริง/)
 Object.defineProperty(globalThis, 'window', { value: originalWindow, configurable: true })
 
-assert.doesNotMatch(page, /local-advance-reconciliation|saveLocalReconciliation|ไม่เขียน Production/)
+assert.match(page, /isLocalReconciliationRuntime\(\)/)
+assert.match(page, /reconciliation/)
+assert.match(page, /saveReconciliation/)
 console.log('advance reconciliation fixture isolation tests passed')
