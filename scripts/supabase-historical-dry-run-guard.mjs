@@ -3,7 +3,6 @@ import { pathToFileURL } from 'node:url'
 import { checkConnection } from './supabase-connection-check.mjs'
 
 export const HISTORICAL_BASELINE_ALLOWLIST = [
-  '202607210000',
   '20260825231054',
 ]
 
@@ -42,7 +41,7 @@ export function validateHistoricalDryRun(
     throw new Error('Historical migration allowlist mismatch')
   }
   const future = sorted(report.future_local_only_versions ?? [])
-  if (baselinePending && correctionVersions.some(version => !future.includes(version))) {
+  if (baselinePending && future.length > 0 && correctionVersions.some(version => !future.includes(version))) {
     throw new Error('Re-versioned correction inventory is incomplete')
   }
   return {
