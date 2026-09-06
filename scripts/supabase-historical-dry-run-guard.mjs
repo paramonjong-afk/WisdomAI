@@ -4,6 +4,7 @@ import { checkConnection } from './supabase-connection-check.mjs'
 
 export const HISTORICAL_BASELINE_ALLOWLIST = [
   '202607210000',
+  '20260825231054',
 ]
 
 export const REVERSIONED_CORRECTION_VERSIONS = [
@@ -65,3 +66,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exitCode = 1
   }
 }
+
