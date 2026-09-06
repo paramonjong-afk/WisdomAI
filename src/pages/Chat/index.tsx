@@ -122,6 +122,10 @@ type ChatMessage = {
 }
 
 type MessageAttachmentUrlMap = Record<string, string>
+const workApprovalKeyFromMessage = (message: ChatMessage) => {
+  if (message.message_class !== 'system_confirmation' || !message.text_content) return null
+  return /^\[WORK_APPROVAL:([A-Z0-9-]+)\]/.exec(message.text_content)?.[1] ?? null
+}
 type UnreadCountMap = Record<string, number>
 type OnlineProfileMap = Record<string, boolean>
 type AttachmentSelectionSource = 'input' | 'change' | 'drop' | 'camera' | 'file_system'
@@ -2083,6 +2087,31 @@ export function ChatPage() {
     setBusy(false)
   }
 
+  const decideSystemWorkApproval = async (workKey: string, approved: boolean) => {
+    if (!canManageCompany || !activeProfileId) return
+    const reason = window.prompt(`${approved ? 'อนุมัติ' : 'ไม่อนุมัติ'} ${workKey}\nกรุณาระบุเหตุผลเพื่อบันทึก Audit`)?.trim()
+    if (!reason) return
+    setBusy(true)
+    try {
+      const { data, error } = await supabase.rpc('decide_system_work_item_approval', {
+        target_work_key: workKey,
+        target_decision: approved ? 'approve' : 'reject',
+        target_reason: reason,
+        target_channel: 'web_chat',
+      })
+      if (error) throw error
+      const result = data?.[0]
+      setToast(result?.result_status === 'already_decided'
+        ? `รายการนี้ถูกจัดการแล้วผ่าน ${result?.decision_channel ?? 'อีกช่องทาง'}`
+        : `${approved ? 'อนุมัติ' : 'ไม่อนุมัติ'} ${workKey} แล้ว`)
+      if (selectedRoom) await loadMessages(selectedRoom.id)
+    } catch (error) {
+      setToast(userError(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const toggleAttendanceIntegration = async () => {
     if (!selectedRoom || !currentCompany?.company_id || !canManageThisRoom || !activeProfileId) return
     const isCurrentTarget = attendanceIntegrationRoomId === selectedRoom.id
@@ -3498,9 +3527,24 @@ export function ChatPage() {
                               </Stack>
 
                               {message.message_type === 'text' ? (
-                                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'break-word' }}>
-                                  {message.text_content}
-                                </Typography>
+                                <>
+                                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'break-word' }}>
+                                    {message.text_content?.replace(/^\[WORK_APPROVAL:[A-Z0-9-]+\]\n?/, '')}
+                                  </Typography>
+                                  {(() => {
+                                    const workKey = workApprovalKeyFromMessage(message)
+                                    return workKey && canManageCompany ? (
+                                      <Stack direction="row" spacing={0.75} sx={{ pt: 0.5 }}>
+                                        <Button size="small" variant="contained" color="success" disabled={busy} onClick={() => void decideSystemWorkApproval(workKey, true)}>
+                                          อนุมัติ
+                                        </Button>
+                                        <Button size="small" variant="outlined" color="error" disabled={busy} onClick={() => void decideSystemWorkApproval(workKey, false)}>
+                                          ไม่อนุมัติ
+                                        </Button>
+                                      </Stack>
+                                    ) : null
+                                  })()}
+                                </>
                               ) : (
                                   <Card variant="outlined" sx={{ bgcolor: isMine ? 'rgba(255,255,255,0.15)' : undefined, minWidth: 0, maxWidth: '100%' }}>
                                   <CardContent sx={{ py: 1, px: 1.5 }}>

@@ -898,12 +898,21 @@ Deno.serve(async request=>{
       const match=/^work:(approve|reject):([A-Z0-9-]+)$/.exec(callback.data??'')
       if(!match){await answerCallback(callback.id,'คำสั่งไม่ถูกต้อง');return json({status:'ignored'})}
       const approved=match[1]==='approve',workKey=match[2]
-      const {data:item}=await admin.from('system_work_items').select('work_key,title,status').eq('work_key',workKey).or(`company_id.is.null,company_id.eq.${actor.company_id}`).maybeSingle()
-      if(!item||item.status!=='review'){await answerCallback(callback.id,'งานนี้ไม่ได้รออนุมัติ');return json({status:'ignored'})}
-      const {error}=await admin.from('system_work_items').update({status:approved?'ready':'blocked',production_status:approved?'approved_for_execution':'rejected_by_admin',evidence:`Telegram ${approved?'approved':'rejected'} by linked admin`,updated_at:new Date().toISOString()}).eq('work_key',workKey)
+      const {data:decision,error}=await admin.rpc('decide_system_work_item_approval',{
+        target_work_key:workKey,
+        target_decision:approved?'approve':'reject',
+        target_reason:`ตัดสินใจผ่าน Telegram โดย ${actor.profile_id}`,
+        target_channel:'telegram',
+      })
       if(error)throw error
-      await answerCallback(callback.id,approved?'อนุมัติแล้ว':'ไม่อนุมัติแล้ว')
-      await finishCallbackMessage(callback,`${approved?'อนุมัติ':'ไม่อนุมัติ'} ${workKey}`,approved?'พร้อมดำเนินการ':'ปฏิเสธแล้ว')
+      const result=decision?.[0]
+      if(result?.result_status==='already_decided'){
+        await answerCallback(callback.id,'รายการนี้ถูกตัดสินใจแล้ว')
+        await finishCallbackMessage(callback,'รายการถูกจัดการแล้ว',`ตัดสินใจผ่าน ${result.decision_channel}`)
+      }else{
+        await answerCallback(callback.id,approved?'อนุมัติแล้ว':'ไม่อนุมัติแล้ว')
+        await finishCallbackMessage(callback,`${approved?'อนุมัติ':'ไม่อนุมัติ'} ${workKey}`,approved?'พร้อมดำเนินการ':'ปฏิเสธแล้ว')
+      }
     }else{
       if(message?.photo?.length){
         const received=await receiveEmployeeIntakePhoto(actor,chatId,userId,update.update_id,message)

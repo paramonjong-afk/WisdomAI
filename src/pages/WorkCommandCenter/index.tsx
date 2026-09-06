@@ -268,42 +268,29 @@ export function WorkCommandCenterPage() {
     if (!reason) return;
     setBusy(true);
     setNotice("");
-    const changes = approved
-      ? {
-          status: "ready" as WorkStatus,
-          evidence: `อนุมัติให้ดำเนินการผ่านศูนย์สั่งงาน: ${reason}`,
-          current_step: "ได้รับอนุมัติ รอเริ่มดำเนินการ",
-          production_status: "approved_for_execution",
-        }
-      : {
-          status: "blocked" as WorkStatus,
-          evidence: `ไม่อนุมัติผ่านศูนย์สั่งงาน: ${reason}`,
-          current_step: "ไม่ผ่านการอนุมัติ",
-          production_status: "rejected_by_admin",
-        };
     try {
-      const data = await runWithMutationAttempt({
+      await runWithMutationAttempt({
         module: "WorkCommandCenter",
         action: `${approved ? "อนุมัติ" : "ไม่อนุมัติ"}งานจากศูนย์สั่งงาน`,
         actorProfileId: user?.id || profile?.id,
         companyId: currentCompany?.company_id ?? null,
         request: { work_key: selected.work_key, approved, reason },
-        operation: async () =>
-          await supabase
-            .from("system_work_items")
-            .update(changes)
-            .eq("work_key", selected.work_key)
-            .eq("status", "review")
-            .select(
-              "work_key,title,category,status,progress,risk,detail,production_status,owner,evidence,current_step,heartbeat_at,lease_expires_at,created_at,updated_at",
-            )
-            .single(),
-      }) as Item | null;
+        operation: async () => {
+          const { data, error } = await supabase.rpc("decide_system_work_item_approval", {
+            target_work_key: selected.work_key,
+            target_decision: approved ? "approve" : "reject",
+            target_reason: reason,
+            target_channel: "web",
+          });
+          if (error) throw error;
+          return { data: data?.[0] ?? null };
+        },
+      });
       setNotice(
         `${approved ? "อนุมัติ" : "ไม่อนุมัติ"} ${selected.work_key} และบันทึก Audit แล้ว`,
       );
       await load();
-      await openDetail(data as Item);
+      setSelected(null);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : userError(error));
     }
