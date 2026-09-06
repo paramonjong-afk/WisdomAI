@@ -294,7 +294,7 @@ begin
     ) then raise exception 'money_allocation_purpose_invalid:%', purpose; end if;
     if allocation_amount is null or allocation_amount <= 0 then raise exception 'money_allocation_amount_invalid:%', allocation_sequence; end if;
     if target_decision = 'confirm' and purpose = 'unknown' then raise exception 'money_allocation_purpose_required:%', allocation_sequence; end if;
-    if target_decision = 'confirm' and purpose in ('materials','project_expense') and project_id is null then raise exception 'money_allocation_project_required:%', allocation_sequence; end if;
+    if target_decision = 'confirm' and purpose in ('materials','project_expense','subcontractor','travel') and project_id is null then raise exception 'money_allocation_project_required:%', allocation_sequence; end if;
     if project_id is not null and not exists(select 1 from public.projects p where p.id = project_id and p.company_id = item_row.company_id) then raise exception 'money_allocation_project_invalid:%', allocation_sequence; end if;
     if site_id is not null and not exists(select 1 from public.project_sites s where s.id = site_id and s.company_id = item_row.company_id and (project_id is null or s.project_id = project_id)) then raise exception 'money_allocation_site_invalid:%', allocation_sequence; end if;
 
@@ -335,7 +335,7 @@ begin
       if not ('inventory' = any(next_departments)) then next_departments := array_append(next_departments, 'inventory'); end if;
       if not ('project' = any(next_departments)) then next_departments := array_append(next_departments, 'project'); end if;
       if not ('inventory_project' = any(next_destinations)) then next_destinations := array_append(next_destinations, 'inventory_project'); end if;
-    elsif purpose in ('project_expense','subcontractor','travel') and project_id is not null then
+    elsif purpose in ('project_expense','subcontractor','travel') then
       if not ('project' = any(next_departments)) then next_departments := array_append(next_departments, 'project'); end if;
       if not ('project' = any(next_destinations)) then next_destinations := array_append(next_destinations, 'project'); end if;
     elsif purpose in ('advance_transfer','onward_transfer') then
@@ -384,6 +384,13 @@ begin
   returning * into lineage_row;
 
   if target_decision = 'confirm' then
+    update public.financial_transactions
+    set review_status = 'confirmed', reviewed_by = auth.uid(), reviewed_at = now(), updated_at = now()
+    where id = (base_result->>'transaction_id')::uuid;
+    update public.document_flow_items
+    set data_review_status = 'rechecked', data_review_note = null, data_reviewed_at = now(), data_reviewed_by = auth.uid(),
+        version = version + 1, updated_at = now()
+    where id = item_row.id;
     if advance_count = 1 then
       perform public.auto_create_safe_employee_advance_from_transfer(item_row.source_message_id);
       select id into advance_case_id from public.employee_advance_cases where source_flow_item_id = item_row.id limit 1;

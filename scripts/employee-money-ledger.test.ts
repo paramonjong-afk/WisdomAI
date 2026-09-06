@@ -58,5 +58,10 @@ for (const marker of [
 ]) assert.match(migration, new RegExp(marker), `migration should contain ${marker}`)
 assert.doesNotMatch(migration, /delete\s+from\s+public\.employee_money_ledger_entries/i)
 assert.match(migration, /revoke\s+insert\s*,\s*update\s*,\s*delete[\s\S]+employee_money_ledger_entries/i)
+assert.match(migration, /allocation:'\s*\|\|\s*target_allocation_id[\s\S]+:v/)
+assert.match(migration, /ignored_already_projected/)
+assert.match(migration, /allocation_version_replaced/)
+assert.match(migration, /entry\.financial_transaction_id\s*=\s*transaction\.id/)
+assert.match(migration, /event_key\s*=\s*target_event_key[\s\S]+version_conflict/)
 
 console.log('employee money ledger contract and math: PASS')

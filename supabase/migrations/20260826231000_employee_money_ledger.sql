@@ -179,6 +179,7 @@ declare
   purpose_value text;
   amount_value numeric;
   source_fingerprint_value text;
+  stale_entry public.employee_money_ledger_entries;
   candidate_ids uuid[] := '{}';
   direct_ids uuid[] := '{}';
   candidate_count integer := 0;
@@ -193,7 +194,31 @@ begin
   select * into transaction_row from public.financial_transactions where id = target_transaction_id;
   if transaction_row.id is null or transaction_row.company_id is null then raise exception 'employee_money_transaction_not_found'; end if;
 
-  source_key_value := case when target_allocation_id is null then 'transaction:' || transaction_row.id::text else 'allocation:' || target_allocation_id::text end;
+  if target_allocation_id is null and exists(
+    select 1 from public.employee_money_ledger_entries existing_entry
+    where existing_entry.financial_transaction_id = transaction_row.id
+      and existing_entry.allocation_id is not null
+      and existing_entry.entry_status not in ('rejected','reversed')
+  ) then
+    insert into public.employee_money_match_queue(company_id, financial_transaction_id, allocation_id, source_key, source_name,
+      normalized_source_name, match_status, reason, event_key)
+    values(transaction_row.company_id, transaction_row.id, null, 'transaction:' || transaction_row.id::text, transaction_row.recipient_name,
+      public.normalize_employee_payment_name(transaction_row.recipient_name), 'ignored_already_projected', 'รายการนี้ถูกสร้างจาก allocation แล้ว ไม่สร้างบัญชีพักซ้ำ', target_event_key)
+    on conflict(company_id, source_key) do update set match_status = excluded.match_status, reason = excluded.reason,
+      event_key = excluded.event_key, updated_at = now();
+    select * into result from public.employee_money_ledger_entries existing_entry
+    where existing_entry.financial_transaction_id = transaction_row.id
+      and existing_entry.allocation_id is not null
+      and existing_entry.entry_status not in ('rejected','reversed')
+    order by existing_entry.created_at desc limit 1;
+    return result;
+  end if;
+
+  if target_allocation_id is not null then
+    select * into allocation_row from public.transfer_slip_money_allocations where id = target_allocation_id and company_id = transaction_row.company_id;
+    if allocation_row.id is null or allocation_row.status not in ('confirmed','routed','reconciled') then raise exception 'employee_money_allocation_not_confirmed'; end if;
+  end if;
+  source_key_value := case when target_allocation_id is null then 'transaction:' || transaction_row.id::text else 'allocation:' || target_allocation_id::text || ':v' || allocation_row.version::text end;
   select * into source_item from public.document_flow_items where source_message_id = transaction_row.source_message_id order by created_at limit 1;
 
   if transaction_row.review_status in ('duplicate','dismissed') or transaction_row.duplicate_of is not null then
@@ -205,11 +230,27 @@ begin
   end if;
 
   if target_allocation_id is not null then
-    select * into allocation_row from public.transfer_slip_money_allocations where id = target_allocation_id and company_id = transaction_row.company_id;
-    if allocation_row.id is null or allocation_row.status not in ('confirmed','routed','reconciled') then raise exception 'employee_money_allocation_not_confirmed'; end if;
     purpose_value := allocation_row.purpose_type;
     amount_value := allocation_row.allocation_amount;
     source_name_value := coalesce(nullif(btrim(allocation_row.payee_name), ''), transaction_row.recipient_name);
+    for stale_entry in
+      select * from public.employee_money_ledger_entries existing_entry
+      where existing_entry.allocation_id = target_allocation_id
+        and existing_entry.source_key <> source_key_value
+        and existing_entry.entry_status not in ('rejected','reversed')
+      for update
+    loop
+      update public.employee_money_ledger_entries
+      set entry_status = 'reversed', reviewed_by = auth.uid(), reviewed_at = now(),
+          reason = 'ถูกแทนที่ด้วย allocation version ใหม่', version = version + 1, updated_at = now()
+      where id = stale_entry.id;
+      insert into public.employee_money_ledger_audit(company_id, entry_id, event_key, action, actor_profile_id, before_data, after_data, reason)
+      values(stale_entry.company_id, stale_entry.id, target_event_key || ':reverse:' || stale_entry.id::text,
+        'allocation_version_replaced', auth.uid(), to_jsonb(stale_entry),
+        (select to_jsonb(updated_entry) from public.employee_money_ledger_entries updated_entry where updated_entry.id = stale_entry.id),
+        'ย้อนรายการบัญชีพักเดิมก่อนสร้าง version ใหม่')
+      on conflict(company_id, event_key) do nothing;
+    end loop;
   else
     purpose_value := case transaction_row.expense_type when 'labor' then 'payroll' when 'advance' then 'advance_transfer' else 'unknown' end;
     amount_value := transaction_row.amount_total;
@@ -424,8 +465,8 @@ declare before_row public.employee_money_ledger_entries; result public.employee_
 begin
   select * into before_row from public.employee_money_ledger_entries where id = target_entry_id for update;
   if before_row.id is null or not public.is_company_manager(before_row.company_id) then raise exception 'employee_money_entry_not_found_or_denied'; end if;
-  if before_row.version <> target_expected_version then raise exception 'employee_money_version_conflict'; end if;
   if exists(select 1 from public.employee_money_ledger_audit where company_id = before_row.company_id and event_key = target_event_key) then return before_row; end if;
+  if before_row.version <> target_expected_version then raise exception 'employee_money_version_conflict'; end if;
   if target_action = 'approve' and before_row.entry_status = 'matched_pending_review' then
     update public.employee_money_ledger_entries set entry_status = 'approved', reviewed_by = auth.uid(), reviewed_at = now(),
       reason = coalesce(nullif(btrim(target_reason), ''), reason), version = version + 1, updated_at = now()
@@ -531,7 +572,7 @@ join public.profiles profile on profile.id = employment.profile_id
 where transaction.expense_type in ('advance','labor')
   and transaction.review_status not in ('duplicate','dismissed') and transaction.duplicate_of is null
   and public.normalize_employee_payment_name(transaction.recipient_name) = public.normalize_employee_payment_name(profile.full_name)
-  and not exists(select 1 from public.employee_money_ledger_entries entry where entry.company_id = transaction.company_id and entry.source_key = 'transaction:' || transaction.id::text);
+  and not exists(select 1 from public.employee_money_ledger_entries entry where entry.company_id = transaction.company_id and entry.financial_transaction_id = transaction.id);
 
 grant select on public.employee_money_balance_summary, public.employee_money_legacy_candidates to authenticated;
 

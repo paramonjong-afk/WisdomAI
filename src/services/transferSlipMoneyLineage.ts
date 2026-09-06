@@ -115,7 +115,7 @@ export const validateMoneyLineage = (draft: MoneyLineageDraft, transferAmount: n
   const allocationTotal = draft.allocations.reduce((sum, allocation, index) => {
     const amount = numberOrNull(allocation.amount)
     if (allocation.purposeType === 'unknown') missing.push(`วัตถุประสงค์รายการที่ ${index + 1}`)
-    if (['materials', 'project_expense'].includes(allocation.purposeType) && !allocation.projectId) missing.push(`โครงการรายการที่ ${index + 1}`)
+    if (['materials', 'project_expense', 'subcontractor', 'travel'].includes(allocation.purposeType) && !allocation.projectId) missing.push(`โครงการรายการที่ ${index + 1}`)
     if (amount == null || !Number.isFinite(amount) || amount <= 0) errors.push(`รายการจัดสรรที่ ${index + 1} จำนวนเงินไม่ถูกต้อง`)
     return sum + (amount != null && Number.isFinite(amount) ? amount : 0)
   }, 0)

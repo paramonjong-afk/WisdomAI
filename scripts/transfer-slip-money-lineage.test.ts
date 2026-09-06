@@ -13,6 +13,8 @@ assert.equal(moneyAllocationTotal(draft.allocations), 10000)
 assert.deepEqual(moneyAllocationDestinations(draft.allocations), ['บัญชี → Stock → โครงการ', 'บัญชี → HR/ค่าแรง'])
 assert.deepEqual(moneyPurposeRoute('materials').departments, ['inventory', 'project'])
 assert.equal(moneyPurposeRoute('payroll').route, 'บัญชี → HR/ค่าแรง')
+const projectPurpose = { ...emptyMoneyLineage('บริษัท', 'นาย ก', 10000, '2026-08-23T10:00'), fundingSourceType: 'company_account' as const, payerName: 'บริษัท', finalBeneficiaryName: 'ผู้รับเหมา', purposeType: 'subcontractor' as const, paidAmount: '10000', remainingAmount: '0', allocations: [{ ...emptyMoneyAllocation(10000, 'ผู้รับเหมา'), purposeType: 'subcontractor' as const, projectId: '' }] }
+assert.match(validateMoneyLineage(projectPurpose, 10000).missing.join(' '), /โครงการรายการที่ 1/)
 draft.paidAmount = '9000'
 assert.match(validateMoneyLineage(draft, 10000).errors.join(' '), /ยอดจ่ายไม่ตรง/)
 draft.paidAmount = '10000'; draft.allocations[1].amount = '3000'; draft.remainingAmount = '0'
