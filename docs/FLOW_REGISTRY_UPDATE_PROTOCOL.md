@@ -39,6 +39,7 @@ flowchart LR
 - Audit/owner: every run and finding retains timestamps, source ID, company, bucket/path and structured details; Storage/Platform owns follow-up and any repair requires a separate reviewed migration or worker.
 - Migration: `20260905130000_storage_integrity_scan.sql`; rollback is revoke/disable the RPC while retaining issue/run history.
 - Verification: contract test, migration safety, full replay, typecheck, lint, build, then service-role dry-run and fault-injection read-only verification after apply.
+- Runtime/UI completion (6/9/2569): Production completed scan `47313523-a978-44dd-9eb3-da358e15ff2e` found 370 open findings (348 orphan Storage objects, 4 missing objects, 18 tenant namespace mismatches). `/system-health` now reads the tenant-scoped `storage_integrity_issues` projection into the existing Incident register with reference, owner, fingerprint, first/last seen and resolution state. Raw files remain unchanged; unsafe repairs stay human-reviewed.
 
 ## 2026-09-05 - DOC-INGEST-004 financial attachment room boundary
 
