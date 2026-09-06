@@ -274,14 +274,7 @@ export function AdvanceSettlementsPage() {
     }, 0)
     return () => window.clearTimeout(timer)
   }, [openSlipPreview, selected])
-  useEffect(() => {
-    if (!selected || !companyId) {
-      const timer = window.setTimeout(() => setReconciliation(null), 0)
-      return () => window.clearTimeout(timer)
-    }
-    const timer = window.setTimeout(() => setReconciliation(loadLocalReconciliation(companyId, { advanceId: selected.id, advanceNumber: selected.advance_number, amountReceived: Number(selected.amount_received), slipSender: selected.financial_transactions?.sender_name ?? null })), 0)
-    return () => window.clearTimeout(timer)
-  }, [companyId, selected])
+
   const total = (row: AdvanceCase) => (row.employee_advance_settlement_items ?? []).filter((item) => item.approval_status === 'approved').reduce((sum, item) => sum + Number(item.amount), 0)
   const outstanding = (row: AdvanceCase) => Number(row.amount_received) - total(row)
   const addLine = async () => { if (!selected) return; setSaving(true); const { error: rpcError } = await supabase.rpc('add_employee_advance_settlement_item', { target_case_id: selected.id, target_event_key: crypto.randomUUID(), target_expense_type: line.expense_type, target_amount: Number(line.amount), target_expense_date: line.expense_date, target_payee_name: null, target_project_id: null, target_work_package_id: null, target_evidence_flow_item_id: null, target_evidence_reference: line.evidence_reference || null, target_description: line.description }); setSaving(false); if (rpcError) { setError(userError(rpcError)); return }; setLineOpen(false); await load() }
