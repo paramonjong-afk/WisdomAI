@@ -1,3 +1,20 @@
+## 2026-09-06 - Production Advance fixture isolation v2.2
+
+```mermaid
+flowchart LR
+  A[Central Advance + Document Flow + Audit] --> B[Production Advance Detail]
+  B --> C{Reconciliation state}
+  C -->|Central status/audit| D[Display Flow node]
+  C -->|No canonical record| E[Show missing and route to central Flow]
+  F[Test-only fixture] --> G[Test harness only]
+```
+
+- Scope: Production Advance Detail no longer imports or writes the Local reconciliation fixture or browser storage. It reads company-scoped central Advance, Document Flow, source-slip, settlement, and Audit records only.
+- Permissions/tenant boundary: existing authenticated role and company-scoped RLS/Flow permissions are unchanged; no cross-company data is loaded.
+- Failure/retry: missing central reconciliation data is shown as a clear missing state; retry remains through the existing page reload/central Flow path. No local fallback can mask Production state.
+- Audit/owner: status and timestamps come from central case status and `close` Audit when available; Advance Finance/Accounting owns the Flow.
+- Verification/rollback: fixture-isolation and mobile tests, typecheck, targeted lint, build, CI, and authenticated Advance smoke; rollback is a page-only revert with central cases, slips, settlement lines, and Audit retained.
+
 Warning: truncated output (original token count: 30307)
 Total output lines: 811
 
@@ -58,6 +75,7 @@ flowchart LR
 - Audit/owner: every run and finding retains timestamps, source ID, company, bucket/path and structured details; Storage/Platform owns follow-up and any repair requires a separate reviewed migration or worker.
 - Migration: `20260905130000_storage_integrity_scan.sql`; rollback is revoke/disable the RPC while retaining issue/run history.
 - Verification: contract test, migration safety, full replay, typecheck, lint, build, then service-role dry-run and fault-injection read-only verification after apply.
+- Runtime/UI completion (6/9/2569): Production completed scan `47313523-a978-44dd-9eb3-da358e15ff2e` found 370 open findings (348 orphan Storage objects, 4 missing objects, 18 tenant namespace mismatches). `/system-health` now reads the tenant-scoped `storage_integrity_issues` projection into the existing Incident register with reference, owner, fingerprint, first/last seen and resolution state. Raw files remain unchanged; unsafe repairs stay human-reviewed.
 
 ## 2026-09-05 - DOC-INGEST-004 financial attachment room boundary
 

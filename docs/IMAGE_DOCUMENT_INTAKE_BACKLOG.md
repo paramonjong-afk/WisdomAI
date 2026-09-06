@@ -79,6 +79,7 @@
 - Implementation 5/9/2569: เพิ่ม `storage_integrity_scan_runs`, `storage_integrity_issues` และ service-role RPC `run_storage_integrity_scan(target_limit)` แบบ read-only/idempotent. ตรวจ orphan active blob, dangling `line_attachments.blob_id`, missing object/thumbnail, tenant UUID namespace และ declared/object size mismatch; ใช้ fingerprint กัน issue ซ้ำ และไม่ปิด issue เก่าหากผล scan ถูกจำกัดจำนวน. ไม่มีการลบ ย้าย หรือซ่อมไฟล์อัตโนมัติ.
 - Verification: `test:storage-integrity-scan`, migration safety, migration replay, typecheck, lint และ build; runtime scan/fault-injection ยังต้องทำหลัง migration apply โดย service role และต้องตรวจผลก่อนเปิด auto-fix.
 - Rollback: revoke/disable `run_storage_integrity_scan`; คงตาราง issue/run ไว้เพื่อ audit และไม่แตะ business/storage objects.
+- Production verification 6/9/2569: migration applied; complete read-only scan `47313523-a978-44dd-9eb3-da358e15ff2e` completed with 370 findings (orphan Storage 348, missing object 4, tenant namespace mismatch 18). Findings are visible in `/system-health` Incident register; no object was deleted/moved/re-written and unsafe repairs remain assigned to Storage/Platform review.
 
 - ตรวจ orphan object, dangling DB row, missing thumbnail/page, hash mismatch และผิด tenant namespace
 - ซ่อมเฉพาะกรณีปลอดภัย; อื่น ๆ เปิด Incident พร้อม evidence/fingerprint และป้องกันเปิดซ้ำ
