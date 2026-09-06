@@ -1,5 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { lineEmployeeIntakeBundleKey } from '../_shared/line-employee-intake.ts'
+import { inspectDocumentSecurity } from '../_shared/document-security.ts'
 
 const url=Deno.env.get('SUPABASE_URL')!
 const serviceKey=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -337,6 +338,8 @@ async function receiveEmployeeIntakePhoto(actor:{company_id:string;profile_id:st
   }
   const photo=[...message.photo].sort((a,b)=>(b.file_size??b.width*b.height)-(a.file_size??a.width*a.height))[0]
   const downloaded=await downloadTelegramPhoto(photo.file_id)
+  const security=inspectDocumentSecurity(downloaded.bytes,downloaded.contentType)
+  if(!security.accepted)return{intakeId:intake.id,count:intake.document_count,created,rejected:true,reason:security.reason}
   const hash=await sha256Hex(downloaded.bytes)
   const path=`${actor.company_id}/${intake.id}/telegram-${updateId}-${photo.file_id.slice(-16)}.jpg`
   const {error:uploadError}=await admin.storage.from('employee-intake-documents').upload(path,downloaded.bytes,{contentType:downloaded.contentType,upsert:false})
@@ -907,6 +910,11 @@ Deno.serve(async request=>{
     }else{
       if(message?.photo?.length){
         const received=await receiveEmployeeIntakePhoto(actor,chatId,userId,update.update_id,message)
+        if(received?.rejected){
+          await sendText(chatId,`❌ ไฟล์ไม่ผ่านด่านความปลอดภัย (${received.reason}) กรุณาถ่ายหรือส่งไฟล์ใหม่`)
+          await admin.from('telegram_admin_events').update({status:'processed',processed_at:new Date().toISOString(),error_message:`security_rejected:${received.reason}`}).eq('id',reserved!.id)
+          return json({status:'employee_intake_document_rejected'})
+        }
         if(received){
           await sendText(chatId,`📄 รับเอกสารแล้ว ${received.count} รายการ\nเอกสารชุดนี้ใช้สำหรับอะไร?\nระบบยังไม่สร้างบัญชีพนักงานจนกว่าข้อมูลครบและ Admin อนุมัติ`,{inline_keyboard:[
             [{text:'👤 พนักงานใหม่',callback_data:`employee_intake:new:${received.intakeId}`}],

@@ -128,9 +128,10 @@
 
 การปิดแต่ละงานต้องมี migration/code reference, automated test, Production smoke test, หลักฐาน audit และคู่มือ rollback/restore ตามความเสี่ยงของงาน
 
-### v1.1 — 6/9/2569 — DOC-INGEST-001 security gate
+### v1.2 — 6/9/2569 — DOC-INGEST-001 security gate across intake channels
 
-- เพิ่ม `supabase/functions/_shared/document-security.ts` ตรวจ magic bytes กับ MIME, ขนาดไฟล์ และ PDF ที่มี encryption/active content ก่อนคำนวณ hash, optimize หรือ upload จาก LINE
-- ไฟล์ไม่ผ่านถูกบันทึกเป็น `security_rejected` พร้อมเหตุผลใน ingestion audit และไม่เข้าสู่ OCR หรือปลายทาง
-- Verification: `npm.cmd run test:document-security`, `npm.cmd run typecheck` และ targeted ESLint ผ่าน; การทดสอบ Production และการรองรับช่องทางอื่นยังต้องทำผ่าน PR แยก
+- เพิ่ม `supabase/functions/_shared/document-security.ts` ตรวจ magic bytes กับ MIME, ขนาดไฟล์ และ PDF ที่มี encryption/active content ก่อนคำนวณ hash, optimize หรือ upload จาก LINE, Telegram Employee Intake และ Web Chat
+- ไฟล์ไม่ผ่านถูกบันทึกเป็น `security_rejected` พร้อมเหตุผล; LINE suppresses Omni source/task และ Web Chat/Telegram ไม่เขียน Storage หรือสร้างเอกสารต่อ
+- รองรับ PDF name escape (`#XX`) และไม่ใช้ document gate กับเสียง/วิดีโอที่มี flow ของตัวเอง
+- Verification: document security, LINE, Omni, employee multichannel, Web Chat attachment tests, typecheck, lint, build และ authenticated Production smoke ผ่าน; ไม่มี migration
 - Rollback: revert PR ของ gate แล้วคง ingestion เดิมไว้; ไม่ลบไฟล์หรือข้อมูลย้อนหลัง

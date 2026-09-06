@@ -27,9 +27,9 @@ Total output lines: 1857
 
 ```mermaid
 flowchart LR
-  A[LINE file download] --> B[Signature and MIME check]
+  A[LINE / Telegram / Web Chat file] --> B[Signature and MIME check]
   B --> C{Safe and within size limit?}
-  C -->|No| D[security_rejected + audit reason]
+  C -->|No| D[security_rejected + audit reason + queue suppression]
   C -->|Yes| E[Hash and dedupe]
   E --> F[Optimize / OCR / route]
 ```
