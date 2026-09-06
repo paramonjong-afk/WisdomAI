@@ -24,6 +24,7 @@ type ErrorEvidence={messageId:string;attachmentId:string;bucket:string;path:stri
 type ErrorStatistics={open_incidents:number;critical_open:number;incidents_24h:number;incidents_7d:number;system_occurrences:number;user_confirmations:number;repeated_incidents:number;affected_modules:number;generated_at:string|null}
 type ImageStorageRow={retention_class:'temporary'|'work_evidence'|'system_error'|'financial'|'audit';file_count:number;stored_bytes:number;reclaimable_duplicate_bytes:number;oldest_file_at:string|null;newest_file_at:string|null}
 type ImageOptimizationProgress={total_images:number;optimized_images:number;kept_original_images:number;failed_images:number;pending_images:number;storage_bytes_saved:number;last_optimized_at:string|null}
+type StorageIntegrityIssue={id:string;fingerprint:string;source_type:'blob'|'attachment'|'storage_object';source_id:string;company_id:string|null;issue_code:string;storage_bucket:string|null;storage_path:string|null;details:Record<string,unknown>;status:'open'|'resolved'|'ignored';first_seen_at:string;last_seen_at:string;resolved_at:string|null}
 type Group={line_group_id:string;display_name:string|null}
 type Run={id:string;status:string;healthy_count:number;warning_count:number;critical_count:number;started_at:string;finished_at:string|null;error_message:string|null}
 type CommunicationEvent={event_id:string;company_id:string|null;occurred_at:string;channel:string;event_type:string;status:string;title:string|null;message:string|null;destination:string|null;source_type:string;source_id:string;actor_profile_id:string|null;related_profile_id:string|null;related_work_key:string|null;error_message:string|null;responded_at:string|null}
@@ -149,6 +150,7 @@ export function SystemHealthPage(){
   const [evidencePreview,setEvidencePreview]=useState<{urls:string[];reference:string}|null>(null)
   const [imageStorageRows,setImageStorageRows]=useState<ImageStorageRow[]>([])
   const [imageOptimization,setImageOptimization]=useState<ImageOptimizationProgress|null>(null)
+  const [storageIntegrityIssues,setStorageIntegrityIssues]=useState<StorageIntegrityIssue[]>([])
   const [optimizerRunning,setOptimizerRunning]=useState(false)
   const [auditAction,setAuditAction]=useState<AuditAction|null>(null)
   const [auditReason,setAuditReason]=useState('')
@@ -156,7 +158,7 @@ export function SystemHealthPage(){
 
   const load=useCallback(async(silent=false)=>{
     if(!silent)setBusy(true)
-    const [s,c,i,g,r,w,e,errorRows,errorStats,imageStorage,imageOptimizationProgress,performanceRows]=await Promise.all([
+    const [s,c,i,g,r,w,e,errorRows,errorStats,imageStorage,imageOptimizationProgress,performanceRows,storageIssues]=await Promise.all([
       supabase.from('health_monitor_settings').select('*').eq('company_id',companyId).eq('singleton',true).maybeSingle(),
       supabase.from('health_monitor_checks').select('*').eq('company_id',companyId).order('module'),
       supabase.from('health_monitor_incidents').select('*').eq('company_id',companyId).order('started_at',{ascending:false}).limit(100),
@@ -169,11 +171,13 @@ export function SystemHealthPage(){
       supabase.from('line_image_storage_report').select('*').eq('company_id',companyId).order('retention_class'),
       supabase.from('line_image_optimization_progress').select('*').eq('company_id',companyId).maybeSingle(),
       supabase.from('app_activity_logs').select('id,page_path,severity,message,metadata,created_at').eq('company_id',companyId).eq('event_type','performance_metric').order('created_at',{ascending:false}).limit(200),
+      supabase.from('storage_integrity_issues').select('id,fingerprint,source_type,source_id,company_id,issue_code,storage_bucket,storage_path,details,status,first_seen_at,last_seen_at,resolved_at').order('last_seen_at',{ascending:false}).limit(500),
     ])
     const failures=[
       ['การตั้งค่า',s.error],['ผลตรวจ',c.error],['เหตุการณ์',i.error],['กลุ่ม LINE',g.error],
       ['ประวัติรอบตรวจ',r.error],['งานระบบ',w.error],['Log การสื่อสาร',e.error],
       ['ทะเบียน Error',errorRows.error],['สถิติ Error',errorStats.error],['พื้นที่รูปจาก LINE',imageStorage.error],['ข้อมูลความเร็วหน้าเว็บ',performanceRows.error],
+      ['ความสอดคล้องไฟล์และฐานข้อมูล',storageIssues.error],
     ].filter((entry):entry is [string,NonNullable<typeof s.error>]=>Boolean(entry[1]))
     if(s.data)setSettings({...initial,...s.data,daily_summary_time:String(s.data.daily_summary_time??initial.daily_summary_time).slice(0,5)})
     if(c.data)setChecks(c.data)
@@ -205,6 +209,7 @@ export function SystemHealthPage(){
     if(errorStats.data)setErrorStatistics({...initialErrorStatistics,...(errorStats.data as unknown as ErrorStatistics)})
     if(imageStorage.data)setImageStorageRows(imageStorage.data as ImageStorageRow[])
     if(performanceRows.data)setPerformanceMetrics(performanceRows.data as PerformanceMetric[])
+    if(storageIssues.data)setStorageIntegrityIssues(storageIssues.data as StorageIntegrityIssue[])
     setImageOptimization(imageOptimizationProgress.data as ImageOptimizationProgress|null)
     setMessage(failures.length?`โหลดข้อมูลบางส่วนไม่สำเร็จ: ${failures.map(([name,error])=>`${name} (${userError(error)})`).join(', ')}`:'')
     setLoaded(true)
@@ -440,8 +445,18 @@ export function SystemHealthPage(){
         resolution:status==='resolved'?(item.evidence||'ปิดงานและตรวจผลแล้ว'):null,
       }
     })
-    return [...errorRows,...incidentRows,...workRows].sort((left,right)=>new Date(right.lastSeen).getTime()-new Date(left.lastSeen).getTime())
-  },[errorEvents,incidents,workItems])
+    const storageRows=storageIntegrityIssues.map<ProblemRow>(issue=>({
+      id:`storage:${issue.id}`,source:'monitor',sourceId:issue.id,reference:`STG-${issue.id.slice(0,8).toUpperCase()}`,
+      title:`Storage: ${issue.issue_code}`,
+      detail:`${issue.source_type} · ${issue.storage_bucket??'-'} / ${issue.storage_path??'-'}`,
+      status:issue.status==='open'?'pending':'resolved',
+      severity:issue.issue_code==='missing_object'?'critical':issue.issue_code==='orphan_storage_object'?'medium':'high',
+      owner:'Storage / Platform',fingerprint:issue.fingerprint,
+      firstSeen:issue.first_seen_at,lastSeen:issue.last_seen_at,
+      resolution:issue.status==='open'?null:`${issue.status==='ignored'?'ยกเว้นโดยผู้ตรวจ':'ตรวจว่าแก้ไขแล้ว'} · ${formatDate(issue.resolved_at)}`,
+    }))
+    return [...errorRows,...incidentRows,...storageRows,...workRows].sort((left,right)=>new Date(right.lastSeen).getTime()-new Date(left.lastSeen).getTime())
+  },[errorEvents,incidents,storageIntegrityIssues,workItems])
   const usageRows=useMemo(()=>{
     const channel=(name:string)=>communicationEvents.filter(event=>event.channel===name)
     const failed=(rows:CommunicationEvent[])=>rows.filter(event=>event.status==='failed'||Boolean(event.error_message)).length
