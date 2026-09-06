@@ -903,6 +903,7 @@ Deno.serve(async request=>{
         target_decision:approved?'approve':'reject',
         target_reason:`ตัดสินใจผ่าน Telegram โดย ${actor.profile_id}`,
         target_channel:'telegram',
+        target_actor_profile_id:actor.profile_id,
       })
       if(error)throw error
       const result=decision?.[0]

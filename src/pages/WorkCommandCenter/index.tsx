@@ -269,7 +269,7 @@ export function WorkCommandCenterPage() {
     setBusy(true);
     setNotice("");
     try {
-      await runWithMutationAttempt({
+      const decision = await runWithMutationAttempt<{ work_key: string; approved: boolean; reason: string }, { data?: { result_status?: string; decision_channel?: string } | null }>({
         module: "WorkCommandCenter",
         action: `${approved ? "อนุมัติ" : "ไม่อนุมัติ"}งานจากศูนย์สั่งงาน`,
         actorProfileId: user?.id || profile?.id,
@@ -286,9 +286,10 @@ export function WorkCommandCenterPage() {
           return { data: data?.[0] ?? null };
         },
       });
-      setNotice(
-        `${approved ? "อนุมัติ" : "ไม่อนุมัติ"} ${selected.work_key} และบันทึก Audit แล้ว`,
-      );
+      const result = decision.data;
+      setNotice(result?.result_status === "already_decided"
+        ? `รายการนี้ถูกจัดการแล้วผ่าน ${result.decision_channel ?? "อีกช่องทาง"}`
+        : `${approved ? "อนุมัติ" : "ไม่อนุมัติ"} ${selected.work_key} และบันทึก Audit แล้ว`);
       await load();
       setSelected(null);
     } catch (error) {
