@@ -26,6 +26,12 @@ const reconciled = validateHistoricalDryRun({
 })
 assert.equal(reconciled.baseline_history_repair_required, false)
 
+const remoteContainsCorrections = validateHistoricalDryRun({
+  ...safeReport,
+  future_local_only_versions: [],
+})
+assert.equal(remoteContainsCorrections.baseline_history_repair_required, true)
+
 for (const unsafe of [
   { ...safeReport, management: 'permission_denied' },
   { ...safeReport, apply_authorized: true },
@@ -36,3 +42,4 @@ for (const unsafe of [
 ]) assert.throws(() => validateHistoricalDryRun(unsafe))
 
 console.log('Historical baseline guard passed: one baseline, future corrections, remote drift rejection, apply denied')
+
