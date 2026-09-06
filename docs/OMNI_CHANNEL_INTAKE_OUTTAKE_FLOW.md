@@ -1,4 +1,4 @@
-# OMNI CHANNEL INTAKE / OUTTAKE FLOW — LINE + Web Chat
+# OMNI CHANNEL INTAKE / OUTTAKE FLOW — LINE + Telegram + Web Chat
 
 ```mermaid
 flowchart TD
@@ -7,7 +7,10 @@ flowchart TD
   S -->|rejected| R[security_rejected audit\nOmni source dismissed\nfilter tasks cancelled]
   S -->|accepted| C[Omni Intake Source Registry]
   B -->|audio/video/text| C
-  B[Web Chat Intake] --> C
+  B[Telegram Employee Intake] --> S
+  W[Web Chat attachment] --> S
+  S -->|accepted| C[Omni Intake Source Registry]
+  S -->|rejected| R
   C --> D[Conversation Analyzer: type / intent / summary / confidence]
   D --> E{ซ้ำกับอีกช่องทางหรือไม่}
   E -->|ซ้ำ| F[เลือก primary source เดียว\nอีกขาเป็น duplicate/context]
@@ -24,12 +27,13 @@ flowchart TD
 
 ## วัตถุประสงค์
 
-ทำให้ LINE และ Web Chat เป็นได้ทั้งขาเข้าและขาออก โดยใช้ config กลางตัดสินเส้นทาง ไม่ให้ระบบผูกตายกับ LINE และลดปัญหา LINE เต็ม 3,000 ด้วยการย้ายงานภายในไป Web Chat/Queue เป็นหลัก ไฟล์ภาพและเอกสารผ่านด่านความปลอดภัยก่อนเข้าสู่ Omni source/queue ส่วนเสียงและวิดีโอใช้ flow เดิม
+ทำให้ LINE, Telegram และ Web Chat เป็นได้ทั้งขาเข้าและขาออก โดยไฟล์ภาพ/PDF ทุกช่องทางต้องผ่าน trusted signature, MIME, size และ active-content gate ก่อนเขียน Storage/ทะเบียนกลาง/คิว ส่วนเสียงและวิดีโอใช้ flow เดิม
 
 ## Inputs
 
 - `line_messages` และ `line_attachments` จาก LINE webhook
 - `chat_messages` จาก Web Chat ที่ผู้ใช้ภายในส่งเอง
+- `chat-attachment-upload` Edge Function รับ Web Chat multipart upload แบบ authenticated
 - ข้อมูลบริษัท ห้อง ผู้ส่ง เวลา ข้อความ ไฟล์แนบ และ project hint
 
 ## Outputs
@@ -53,12 +57,14 @@ flowchart TD
 - Company manager/Admin อ่านและจัดการ config, Filter task และ source registry ของบริษัทตนเอง
 - สมาชิกแผนกอ่าน task ตามสิทธิ์ department เดิม
 - Trigger ฝั่ง DB เขียน source registry ได้ แต่ไม่เปิด insert/update ตรงให้ client ทั่วไป
+- Web Chat file message ใช้ `chat-attachment-upload`; RLS ปฏิเสธ file insert ตรงและ Storage policy ไม่เปิด upload ตรง
 
 ## Integrations
 
 - LINE → trigger `omni_register_line_message_trigger`
 - LINE document rejection → `omni_intake_sources.filter_status=dismissed`, `outtake_status=suppressed`, `omni_filter_tasks.task_status=cancelled`
 - Web Chat → trigger `omni_register_chat_message_trigger`
+- Web Chat file → `chat-attachment-upload` → private Storage → `chat_messages` → `omni_register_chat_message_trigger`
 - Analyzer → `omni_analyze_conversation`
 - Dedupe + queue → `omni_register_source`
 - Backfill → `omni_backfill_recent_sources`
