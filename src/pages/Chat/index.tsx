@@ -70,6 +70,7 @@ import {
   type OperationalTaskCard,
 } from '../../services/webChatOperationalCore'
 import { useNavigate } from 'react-router-dom'
+import { inspectDocumentSecurity } from '../../../supabase/functions/_shared/document-security'
 
 type RoomMemberRole = 'owner' | 'member'
 
@@ -2179,6 +2180,12 @@ export function ChatPage() {
       setToast('ไฟล์ชนิดนี้ยังไม่รองรับ กรุณาใช้รูป JPG, PNG, WebP, HEIC หรือ PDF')
       clearPendingAttachment()
       if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+    const security = inspectDocumentSecurity(new Uint8Array(await file.arrayBuffer()), contentType)
+    if (!security.accepted) {
+      setToast(`ไฟล์ไม่ผ่านด่านความปลอดภัย (${security.reason}) กรุณาเลือกไฟล์ใหม่`)
+      clearPendingAttachment()
       return
     }
     updatePendingAttachment(file)
