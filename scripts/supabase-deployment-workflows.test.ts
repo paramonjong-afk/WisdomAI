@@ -80,9 +80,9 @@ const pullRequestTrigger = migrationsWorkflow.slice(
   migrationsWorkflow.indexOf('  push:'),
 )
 assert.doesNotMatch(pullRequestTrigger, /\n\s+paths:/, 'required verification must run on every pull request to main')
-assert.equal((migrationsWorkflow.match(/supabase db push --db-url "\$DB_URL"$/gm) ?? []).length, 1, 'real push must exist only in apply job')
-assert.equal((migrationsWorkflow.match(/--include-all/g) ?? []).length, 1, 'include-all must exist only in the guarded dry-run')
-assert.doesNotMatch(migrationsWorkflow, /supabase db push --db-url "\$DB_URL" --include-all(?![^\n]*--dry-run)/, 'real apply must never use include-all')
+assert.equal((migrationsWorkflow.match(/supabase db push --db-url "\$DB_URL"(?: --include-all)?$/gm) ?? []).length, 2, 'dry-run and guarded apply pushes must exist exactly once each')
+assert.equal((migrationsWorkflow.match(/--include-all/g) ?? []).length, 2, 'include-all must exist in guarded dry-run and guarded apply')
+assert.match(migrationsWorkflow, /supabase db push --db-url "\$DB_URL" --include-all/, 'guarded apply must include historical migrations')
 assert.equal((migrationsWorkflow.match(/supabase migration repair 202607210000/g) ?? []).length, 1, 'only the reviewed foundation baseline may be repaired')
 assert.doesNotMatch(migrationsWorkflow, /migration repair (?!202607210000)/, 'no other migration history repair is authorized')
 assert.ok(migrationsWorkflow.indexOf("to_regclass('public.profiles') is not null") < migrationsWorkflow.indexOf('supabase migration repair 202607210000'), 'schema baseline must be verified before history repair')
