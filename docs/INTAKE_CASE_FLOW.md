@@ -22,8 +22,56 @@ flowchart LR
   I --> J[Intake Quality Gate]
   J -->|ผ่าน| K[Filter: จัดประเภทและปลายทาง]
   J -->|มีปัญหา/ซ้ำ| L[ค้าง Intake Admin]
+  G --> N{เป็นเอกสารบุคคลหรือไม่}
+  N -->|ใช่ มั่นใจ >= 65%| O2[คัดลอกไฟล์เข้า Private HR Intake\nรวมชุดตามห้อง + ผู้ส่ง + 10 นาที]
+  N -->|ใช่ แต่ไม่มั่นใจ| L
+  O2 --> P2[awaiting_purpose\nHR/Admin ตรวจเอกสาร]
   K --> M[คิวแผนกปลายทาง]
 ```
+
+## Employee Intake สองขั้น — v1.5 (25/8/2569)
+
+```mermaid
+flowchart TD
+  A[LINE / Web Chat ส่งเอกสารพนักงานใหม่] --> B[เก็บ Raw + เอกสารทุกไฟล์ใน HR Intake]
+  B --> C[AI แยกประเภทและสกัดเฉพาะข้อมูลที่อนุญาต]
+  C --> D{มีชื่อที่ยืนยันได้และมีเอกสารอย่างน้อย 1 ไฟล์?}
+  D -->|ไม่| E[รอ HR ตรวจ / ขอข้อมูลเพิ่ม]
+  D -->|ใช่| F[HR/Admin สร้างประวัติเบื้องต้น]
+  F --> G[Employee Master: preboarding\nไม่มี Profile/Login]
+  F --> H[เชื่อมเอกสารทุกไฟล์แบบ idempotent]
+  F --> I[Audit: ผู้ทำ / Intake / จำนวนเอกสาร / ช่องที่ขาด]
+  G --> J{ข้อมูลบังคับครบหรือยัง?}
+  H --> J
+  J -->|ยังขาด| K[คิว HR Onboarding\nเพิ่ม/อัปเดตข้อมูล]
+  K --> K2[ตรวจชื่อ โทร ประเภทจ้าง\nตำแหน่ง วันที่เริ่มงาน]
+  K2 --> K3[บันทึกร่างผ่าน Edge + RPC\nคำนวณ missing_fields + Audit]
+  K3 --> J
+  J -->|ครบ| L[pending_review\nรออนุมัติสุดท้าย]
+  L --> M[Admin/Company Manager ยืนยัน]
+  M --> N[approved → Onboarding Readiness]
+  N --> O{Readiness ครบและเปิดใช้งานแยกแล้ว?}
+  O -->|ไม่| P[ยัง Login/ลงเวลา/คิดค่าแรงไม่ได้]
+  O -->|ใช่| Q[เปิดใช้งานตามสิทธิ์และไซต์]
+```
+
+- Input คือชุดเอกสารต้นฉบับจาก Intake; ระบบเก็บ Raw และทุกไฟล์ไว้เสมอ ไม่เลือกแสดงหรือผูกเพียงไฟล์แรก
+- การสร้างประวัติเบื้องต้นต้องมีชื่อที่ยืนยันได้และเอกสารอย่างน้อยหนึ่งไฟล์ แต่ยอมให้ประเภทการจ้างเป็น `unknown` ชั่วคราว
+- Output ขั้นแรกคือ `employee_people.employee_status=preboarding`, `profile_id=null` และทะเบียนเอกสารที่เชื่อมครบทุกไฟล์ จึงยังไม่มี Login, สิทธิ์ลงเวลา, ไซต์ หรือรายการค่าแรง
+- สถานะ Intake คง `information_required` ตราบใดที่ยังมี `missing_fields`; เปลี่ยนเป็น `pending_review` เมื่อข้อมูลครบ และเป็น `approved` หลังผู้มีสิทธิ์ยืนยันสุดท้ายเท่านั้น
+- สิทธิ์สร้าง/อนุมัติใช้ Admin ระดับระบบหรือ Company Admin/Executive/Manager ในบริษัทเดียวกัน ผ่าน Edge Function และ RPC service-role เท่านั้น
+- การกดซ้ำใช้ `source_intake_id` และ unique document link เป็น idempotency key; ไม่สร้างพนักงานหรือเอกสารซ้ำ และทุกการสร้าง/เชื่อมเขียน Workforce Audit
+- Failure แสดงสาเหตุเฉพาะ: ไม่มีชื่อ, ไม่มีเอกสาร, สถานะปิดแล้ว, ข้อมูลยังไม่ครบ หรือสิทธิ์ไม่พอ; ผู้ใช้แก้ข้อมูลแล้ว retry รายการเดิมได้
+- Owner: HR/Admin เป็นเจ้าของการเติมข้อมูลและอนุมัติ; Platform Admin เป็นเจ้าของ schema/RPC และ recovery
+- หน้า `/employees` เป็นจุดทำงานของ HR: ปุ่ม `เพิ่ม / อัปเดตข้อมูล` เปิดร่างเดิมจาก Employee Master, ตรวจค่าก่อนส่ง, บันทึกผ่าน Edge Function/RPC กลาง และอ่านผล `remaining_fields` กลับมาแสดง ห้ามเขียนตารางตรงจากหน้าเว็บ
+- Retry ใช้ `source_intake_id` เดิม จึงอัปเดตพนักงานเดิมและเขียน Audit ใหม่โดยไม่สร้าง Employee/เอกสารซ้ำ; ถ้าล้มเหลว transaction จะ rollback ทั้ง Employee, Intake state และ Audit
+
+### Change record
+
+| Version | Date | Rationale | Impact | Migration | Verification | Rollback |
+| --- | --- | --- | --- | --- | --- | --- |
+| v1.5 | 25/8/2569 | ให้ HR เติมข้อมูลที่ขาดจากคิว Onboarding ได้จริงโดยไม่ย้อนกลับไปแก้ฐานข้อมูล | เพิ่มฟอร์มร่าง, validation, readiness projection และ audit; ยังคงไม่มี Profile/Login/ลงเวลา/ค่าแรง | `20260825212911_employee_intake_preboarding_update.sql` | contract, typecheck, lint, build, migration dry-run/apply, Edge และ authenticated `/employees` smoke | ซ่อนปุ่ม/ฟอร์มและคืน Edge/RPC; ข้อมูลร่างล่าสุดและ Audit คงไว้เพื่อ recovery |
+| v1.4 | 25/8/2569 | ให้เริ่มทะเบียนพนักงานจากเอกสารที่ยืนยันได้โดยไม่เดาข้อมูลที่ขาด | เพิ่มปุ่มสร้างประวัติเบื้องต้น, preview ทุกไฟล์, final approval gate และ audit; ไม่เปิดสิทธิ์ใช้งาน | `20260825203000_employee_intake_preboarding_draft.sql` | contract, intake routing, typecheck, lint, build, linked dry-run/apply และ authenticated UI/Data smoke | revert UI/Edge/RPC; เปลี่ยนประวัติเบื้องต้นเป็น archived ได้โดยเก็บ Intake/เอกสาร/Audit เพื่อ recovery ห้ามลบ Raw |
 
 ## หลักข้อมูล
 
@@ -274,3 +322,45 @@ flowchart LR
 - ข้อมูลต้นทางและข้อความยังแยกหน้าที่เดิม: คิวเอกสารคือไฟล์/รูปที่ต้องส่งต่อ ส่วนข้อความและบริบทคือข้อความ/ผล AI ที่ใช้สร้างคิว
 - ปิดคิวได้ผ่าน transition เดิมเท่านั้น ข้อมูลไม่ถูกลบและค้นย้อนหลังผ่าน Timeline/Audit ได้
 - Owner: Platform UI; rollback คือคืน tab selector เดิมโดยไม่กระทบ gateway หรือ schema
+
+## LINE Employee Document → Restricted HR Intake — v3.9 (25/8/2569)
+
+```mermaid
+flowchart LR
+  A[LINE รูป/ไฟล์] --> B[เก็บ Raw message + attachment ก่อน]
+  B --> C[Vision Classification]
+  C -->|เอกสารบุคคล confidence >= 65%| D[Bundle Key\nบริษัท + ห้อง + ผู้ส่ง + 10 นาที]
+  C -->|ต่ำ/ไม่ชัด| E[Intake Manual Review\nไม่เดาปลายทาง]
+  D --> F[Private employee-intake-documents]
+  F --> G[Employee Intake: awaiting_purpose]
+  G --> H{HR/Admin เลือกวัตถุประสงค์}
+  H -->|พนักงานใหม่| I[อ่านเฉพาะ field ที่อนุญาต\nรอตรวจและอนุมัติ]
+  H -->|แก้ข้อมูลเดิม/เก็บเอกสาร| J[Flow ตามวัตถุประสงค์]
+  I --> K[อนุมัติแล้วจึงสร้าง Employee Master]
+  B --> L[Audit + ingestion trace]
+  D --> L
+  G --> L
+  M[Reprocess ด้วย LINE message id เดิม] --> D
+```
+
+- **Input:** รูปจาก LINE รวมบัตรประชาชน ใบขับขี่ ทะเบียนบ้าน วุฒิการศึกษา หลักฐานบัญชี และรูปพนักงาน; Raw message/attachment ต้องถูกบันทึกก่อนการจำแนกเสมอ
+- **Validation:** AI คืนชนิดเอกสารและ confidence; confidence ต่ำกว่า 65% ค้าง Manual Review ห้ามสร้างพนักงานหรือเดาปลายทาง
+- **Data/Privacy:** เก็บเลขบัตรและเลขบัญชีได้เฉพาะ 4 ตัวท้าย ไม่เก็บ laser code, ศาสนา, raw OCR หรือข้อมูลสมาชิกคนอื่นในทะเบียนบ้าน; สำเนา HR อยู่ bucket private และ `retention_class=hr_restricted`
+- **State/Output:** เอกสารที่ผ่านถูกจัดเป็น Bundle เดียวด้วยบริษัท+ห้อง+ผู้ส่ง+หน้าต่าง 10 นาที, สร้าง `employee_intakes.status=awaiting_purpose` และแสดงใน HR Intake เพื่อให้ Admin เลือก New/Update/Archive ก่อนดำเนินการต่อ
+- **Idempotency/Retry:** `source_bundle_key` กันสร้าง Intake ซ้ำ และ `company_id + source_channel + external_file_id` กันไฟล์ซ้ำ; รายการเก่า reprocess ได้ด้วย LINE message ID เดิมโดยไม่ลบหรือแก้ Raw
+- **Audit:** `line_ingestion_events`, `document_flow_events` และ `employee_workforce_audit_logs` เชื่อม source message, attachment, bundle และ Intake; failure คง Raw และ retry ได้
+- **Roles:** Edge Function ใช้ service role เฉพาะ ingestion/copy; HR/Admin/Company manager อ่านและตัดสินใจตาม RLS; การอนุมัติพนักงานยังใช้ RPC เดิมและไม่มี Auth account ก่อนอนุมัติ
+- **Integrations:** LINE Messaging API, Gemini Vision, Supabase Storage/Database, Document Flow และ HR Intake
+- **Owner:** HR/Admin เป็นเจ้าของการยืนยันข้อมูล; Platform Integration เป็นเจ้าของ classifier, retry และ audit
+- **Migration:** `20260825194500_line_hr_document_intake_routing.sql`
+- **Verification:** contract tests ของ bundle/idempotency/reprocess, Employee Intake, LINE webhook, typecheck, lint, build, migration dry-run และ authenticated HR Intake smoke
+- **Rollback:** ปิดการ route ใน `line-webhook` และ trigger `zz_route_hr_image_review_to_intake`; คง Raw, Intake, เอกสาร private และ Audit ที่เกิดแล้วเพื่อกู้คืน ห้ามลบข้อมูลย้อนหลัง
+
+### Internal recovery authorization — v4.0 (25/8/2569)
+
+- Recovery action ยังคงรับเฉพาะ server credential; ผู้ใช้ทั่วไปและ anonymous ถูกปฏิเสธ `401` เหมือนเดิม
+- รองรับทั้ง secret key ที่ Function ใช้อยู่และ legacy service-role JWT ที่ Supabase CLI ส่งคืน โดย legacy JWT ต้องประกาศ role `service_role` และผ่านการตรวจลายเซ็นจริงกับ PostgREST ก่อนทำ mutation
+- การตรวจ role จาก payload เป็นเพียง prefilter; ห้ามถือว่า JWT ถูกต้องจนกว่า Supabase จะตอบรับ credential จาก protected REST request
+- ส่งซ้ำใช้ `source_bundle_key` และ external LINE message ID เดิม จึง reuse Intake/เอกสารเดิมและไม่สร้างพนักงานอัตโนมัติ
+- Verification: contract test, anonymous/invalid-token `401`, valid service-role recovery, จำนวนเอกสาร, Intake/Audit และ Telegram result
+- Rollback: คืน exact-key comparison ได้ แต่จะทำให้ legacy CLI recovery ใช้ไม่ได้; ข้อมูล Raw/Intake/เอกสาร/Audit ที่สร้างแล้วต้องคงไว้

@@ -1,5 +1,5 @@
-import type { DocumentFlowScope, OmniFilterTaskRow } from './documentFlowGateway'
-import { classifyIntake } from './intakeClassificationGateway'
+import type { DocumentFlowScope, OmniFilterTaskRow } from '../../src/services/documentFlowGateway'
+import { classifyIntake } from '../../src/services/intakeClassificationGateway'
 
 export type LocalFixtureFlowRow = Record<string, unknown> & {
   id: string

@@ -12,13 +12,14 @@ const workflow = readFileSync(resolve(root, '.github/workflows/deploy-cloudflare
 
 const requiredContracts = [
   "git status --porcelain",
-  "Import-DotEnvFile -Path (Join-Path $EnvironmentRoot '.env')",
-  "Import-DotEnvFile -Path (Join-Path $EnvironmentRoot '.env.local')",
-  "accounts/$AccountId/tokens/verify",
-  "accounts/$AccountId/pages/projects/$ProjectName",
-  "$env:CF_PAGES = '1'",
-  "release.host -ne 'cloudflare'",
-  "remoteRelease.revision -ne $revision",
+  'git fetch origin main --quiet',
+  'git rev-parse origin/main',
+  '$commitHash -ne $originMain',
+  '/release.json',
+  "$release.host -eq 'cloudflare'",
+  '$release.revision -eq $revision',
+  'Cloudflare Automatic Deployment',
+  'do not upload a locally built dist',
   'PRODUCTION_DEPLOY_OK',
 ]
 
@@ -26,20 +27,25 @@ for (const contract of requiredContracts) {
   if (!script.includes(contract)) throw new Error(`Missing deploy safety contract: ${contract}`)
 }
 
-if (/Set-Content.+CLOUDFLARE_API_TOKEN/i.test(script)) throw new Error('Token must never be written to a file')
-if (packageJson.scripts?.['deploy:cloudflare'] !== 'powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-cloudflare-production.ps1') {
-  throw new Error('Missing canonical npm deploy:cloudflare command')
+for (const forbidden of ['Import-DotEnvFile', 'CLOUDFLARE_API_TOKEN', 'wrangler pages deploy', 'npm run build', 'VITE_SUPABASE_ANON_KEY']) {
+  if (script.includes(forbidden)) throw new Error(`Deploy verifier must not use local build credentials/artifacts: ${forbidden}`)
 }
-if (!flow.includes('Cloudflare Git Integration') || !flow.includes('emergency fallback')) {
-  throw new Error('Release flow must make Git Integration primary and Token deployment fallback-only')
+if (packageJson.scripts?.['deploy:cloudflare'] !== 'npm run verify:cloudflare-production') {
+  throw new Error('Legacy deploy command must delegate to the safe verifier')
 }
-for (const contract of ['GitHub `main`', 'Cloudflare Git Integration', 'release.json', 'authenticated runtime smoke', 'ห้ามลอง Token เดิมซ้ำ']) {
+if (packageJson.scripts?.['verify:cloudflare-production'] !== 'powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-cloudflare-production.ps1') {
+  throw new Error('Missing canonical Cloudflare Production verifier')
+}
+if (!flow.includes('Cloudflare Git Integration') || !flow.includes('เส้นทางเดียว')) {
+  throw new Error('Release flow must make Git Integration the only Production deploy path')
+}
+for (const contract of ['GitHub `main`', 'Cloudflare Git Integration', 'release.json', 'authenticated runtime smoke', 'ห้ามอัปโหลด local artifact']) {
   if (!playbook.includes(contract)) throw new Error(`Missing release incident playbook contract: ${contract}`)
 }
-if (!deploymentGuide.includes('only normal release path') || !deploymentGuide.includes('Manual fallback')) {
-  throw new Error('Cloudflare deployment guide does not separate normal Git deploy from manual fallback')
+if (!deploymentGuide.includes('only release path') || !deploymentGuide.includes('ห้าม Manual upload')) {
+  throw new Error('Cloudflare deployment guide must require the single Git-integrated release path')
 }
-if (!agents.includes('docs/RELEASE_INCIDENT_PLAYBOOK.md') || !agents.includes('emergency fallback only')) {
+if (!agents.includes('docs/RELEASE_INCIDENT_PLAYBOOK.md') || !agents.includes('only Production deployment path')) {
   throw new Error('AGENTS.md must require the release incident standard in every Codex thread')
 }
 for (const contract of ['name: Verify Cloudflare Pages Build', 'Cloudflare deployment handoff', 'connected Git integration']) {
@@ -49,4 +55,4 @@ if (workflow.includes('wrangler-action') || workflow.includes('secrets.CLOUDFLAR
   throw new Error('Normal GitHub verification workflow must not depend on the manual Cloudflare Token path')
 }
 
-console.log('cloudflare release contract: PASS — Git integration primary, local Token fallback-only')
+console.log('cloudflare release contract: PASS — Git integration is the only deploy path')

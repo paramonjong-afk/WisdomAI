@@ -1,8 +1,70 @@
 # WORKFORCE FLOW — แกนหลังระบบงานบุคคล
 
+## Employee Bank Account Secure Store v3.1 — 26/8/2569
+
+```mermaid
+flowchart LR
+  A[เอกสาร/LINE/กรอก Manual] --> B[Bank Candidate: ชื่อ ธนาคาร เลขท้าย]
+  B --> B1[Admin ค้นด้วยเลขท้าย 4 ตัว\nMaster + Candidate/OCR + Slip + Vendor]
+  B1 -->|ชื่อตรงและยังไม่ผูก| C
+  B1 -->|ชื่อไม่ตรง/ผูกคนอื่น| D
+  B --> C{Admin/การเงินยืนยันเจ้าของและเลขเต็ม}
+  C -->|ยังไม่ครบ| D[แสดงมีเพียงเลขท้าย\nยังไม่พร้อมใช้จ่าย]
+  C -->|ครบ| E[HMAC Fingerprint + AES256 Encryption]
+  E --> F[Private Secure Store\nเลขบัญชีเต็ม]
+  E --> G[Public Master\nธนาคาร + 4 ตัวท้าย + สถานะ]
+  G --> H[บัญชีหลัก/รอง พร้อมใช้จ่าย]
+  H --> I{ขอเปิดดูเลขเต็ม}
+  I -->|มีสิทธิ์ + เหตุผล| J[เปิด 60 วินาที + Audit]
+  I -->|ไม่มีสิทธิ์| K[ปฏิเสธและคงข้อมูลปกปิด]
+```
+
+- **Input/Output:** รับ Candidate เดิมหรือกรอกเลขเต็มจากหลักฐาน; Public Master เก็บเฉพาะธนาคาร/4 ตัวท้าย/fingerprint/status ส่วนเลขเต็มเป็น ciphertext ใน private schema
+- **Candidate search:** Admin ค้นด้วยเลขท้าย 4 ตัวจาก Master Account, Master Candidate/OCR, สลิปทั้งผู้รับ/ผู้โอน และบัญชีผู้ขายในบริษัทปัจจุบัน ผลลัพธ์แสดงแบบปกปิด; หลักฐานที่ยังไม่เป็น Master ต้องยืนยันก่อน และผูกได้เมื่อชื่อเจ้าของตรงและบัญชียังไม่ผูกกับบุคคลอื่นเท่านั้น
+- **States:** candidate → last4_only → secure_verified → primary/secondary → inactive/archived; รายการเดิมไม่ถูกเดาและคง `last4_only` จน Admin เติมเลขเต็ม
+- **Roles/Permissions:** เพิ่ม แก้ และเปิดดูเลขเต็มได้เฉพาะ Platform Admin หรือ company role `company_admin`, `executive`, `accounting_hr`; anonymous/พนักงานทั่วไป/ผู้คุมไซต์ถูกปฏิเสธ
+- **Integrations:** Employee Drawer, Master Data Candidate, Supabase Vault key, pgcrypto, Workforce Audit; Payroll/Payment อ่านเลขเต็มผ่าน audited RPC เท่านั้นในงานถัดไป
+- **Failure/Retry:** Vault/key ไม่พร้อม, เลขผิดรูปแบบ, ซ้ำกับเจ้าของอื่น หรือพนักงานไม่อยู่บริษัทต้อง fail ก่อนเขียน; unchanged ไม่สร้าง Audit ซ้ำ
+- **Audit:** เพิ่ม/แก้/เปิดดูเก็บ actor, company, employee, bank id, reason, before/after แบบปกปิด; ห้ามบันทึกเลขเต็ม
+- **Owner:** Finance/HR Data Controller และ Platform Security Owner
+- **Migration/Verification/Rollback:** `20260826203000_employee_bank_account_secure_store.sql` และ `20260826204500_employee_bank_secret_audit_fk_indexes.sql`; ตรวจ ciphertext/fingerprint/RPC privilege/idempotency/Audit, FK advisor และหน้า authenticated; rollback ซ่อน Action/revoke RPC โดยคง ciphertext, Master และ Audit เพื่อ recovery
+- **v3.2 (27/8/2569):** เพิ่ม `20260826232000_employee_bank_candidate_last4_search.sql` สำหรับค้นหา Candidate ด้วยเลขท้าย 4 ตัวแบบ company-scoped/masked; rollback โดย revoke RPC และซ่อนช่องค้นหา โดยไม่ลบบัญชีหรือ Audit
+- **v3.3 (27/8/2569):** เพิ่ม `20260826232500_employee_bank_all_source_last4_search.sql` ขยายผลค้นหาไป Master Candidate/OCR, สลิปผู้รับ/ผู้โอน และบัญชีผู้ขาย; source-only ยังห้ามผูกจนยืนยันเป็น Master
+
+## Employee Contact Action v3.0 — 26/8/2569
+
+```mermaid
+flowchart LR
+  A[Employee Drawer บัญชี/ติดต่อ] --> B{มีเบอร์โทรหรือไม่}
+  B -->|ไม่มี| C[+ เพิ่มเบอร์โทร]
+  B -->|มี| D[แสดงค่า + ไอคอนแก้ไข]
+  C --> E[ตรวจรูปแบบ/สิทธิ์บริษัท]
+  D --> E
+  E --> F[admin_update_employee_phone]
+  F --> J{มี employee_people แล้ว?}
+  J -->|ไม่มี| K[สร้างหรือเชื่อม legacy projection]
+  J -->|มี| G[employee_people.phone]
+  K --> G
+  F --> H[Workforce Audit]
+  G --> I[Read-back และแสดงค่าล่าสุด]
+```
+
+- **Input/Output:** Admin/manager เพิ่ม แก้ หรือลบเบอร์ของ Employee Person ที่เชื่อม Profile ในบริษัทปัจจุบัน; หน้าจอ read-back ก่อนแจ้งสำเร็จ
+- **State:** ไม่มีค่า/มีค่า → editing → validating → saving → updated/unchanged/error; `unchanged` ไม่สร้าง Audit ซ้ำ
+- **Roles/Permissions:** แสดง Action เฉพาะผู้จัดการข้อมูลพนักงาน; RPC ตรวจ session, current company และ manager ซ้ำ และไม่เปิดให้ anonymous
+- **Integrations:** ใช้ UI Action Standard v1.0 ใน `docs/UI_ACTION_STANDARD.md`; LINE หลายบัญชีใช้ปุ่มข้อความขนาดเล็กพร้อมไอคอนเพิ่ม
+- **Failure/Retry/Audit:** รูปแบบผิดหรือไม่พบ Profile ในบริษัทต้องคง Dialog ให้แก้ไข; legacy Profile ที่ยังไม่มี `employee_people` จะสร้าง/เชื่อม projection เฉพาะเมื่อ Admin บันทึก; บันทึก actor/company/profile/before-after/reason/source ใน Workforce Audit
+- **Owner:** HR Operations / Design System Owner
+- **Migration/Verification/Rollback:** `20260826200000_employee_phone_admin_update.sql`, `20260826210000_employee_phone_legacy_profile_bridge.sql`; contract, permission/idempotency/Audit/legacy bridge, typecheck, lint, build และ authenticated smoke; rollback โดยซ่อน Action/revoke RPC และคง contact projection, ค่า phone และ Audit เพื่อ recovery
+
 ```mermaid
 flowchart TD
   A[Intake / Admin / พนักงาน ส่งข้อมูล HR] --> B[Workforce source tables]
+  L[LINE รูป/ไฟล์] --> A1{เป็นเอกสารบุคคลหรือไม่}
+  A1 -->|ใช่| A2[Restricted HR Intake\nรอ HR/Admin ยืนยัน]
+  A1 -->|ไม่ใช่/ไม่ชัด| A3[Intake Manual Review]
+  A2 --> B[Workforce source tables]
+  A3 --> B
   B --> C{เป็นงานที่ HR ต้องรู้หรือไม่}
   C -->|ใช่| D[HR Chat Event Stream]
   D --> E[ห้อง HR ใน Web Chat]
@@ -10,7 +72,176 @@ flowchart TD
   F --> G[Reports / Payroll / เอกสาร / Dashboard]
   C -->|ไม่ใช่| F
   D --> H[Delivery ledger กันข้อความซ้ำ + retry]
+  A2 --> I[Employee Intake Gate]
+  I --> J[สร้าง Employee Master เบื้องต้น\npreboarding / no Login]
+  J --> K{ข้อมูลบังคับครบ?}
+  K -->|ไม่| I
+  K -->|ครบ + Admin อนุมัติ| B
 ```
+
+## Secure Employee Document Viewer v2.6 — 26/8/2569
+
+```mermaid
+flowchart LR
+  A[Admin เปิด Drawer พนักงาน] --> B[เลือกเอกสารที่ available]
+  B --> C[RPC ตรวจ Login + บริษัทปัจจุบัน + Manager]
+  C -->|ผ่าน| D[ตรวจ Document และ Employee Person บริษัทเดียวกัน]
+  D --> E[บันทึก Audit ว่าขอ Preview/Download]
+  E --> F[คืน Storage reference]
+  F --> G[สร้าง Signed URL อายุ 10 นาที]
+  G --> H[แสดงภาพ/PDF หรือดาวน์โหลด]
+  C -->|ไม่ผ่าน| I[แจ้งสิทธิ์/บริษัทไม่ถูกต้อง]
+  D -->|ไม่พบ/ไม่ available| J[แจ้งปัญหาและคง Drawer]
+  J --> K[ไป Intake เพื่อค้นหา/แนบ/กู้เอกสาร]
+  G -->|สร้าง URL ไม่สำเร็จ| L[แจ้ง retry โดยไม่เปิด Storage สาธารณะ]
+```
+
+- **Input:** `employee_person_documents.id` จาก Drawer, action `preview/download`, ผู้ใช้และบริษัทที่กำลังใช้งาน
+- **Output/State:** Signed URL ของ private Storage อายุ 600 วินาที; ไม่มีการเปลี่ยนสถานะเอกสารหรือ Employee Master
+- **Role/Permission:** Platform Admin หรือ Company Manager ของบริษัทปัจจุบันเท่านั้น; RPC ตรวจ tenant ซ้ำก่อนคืน storage reference และ Storage RLS ยังเป็นด่านสุดท้าย
+- **Integration:** Employee Drawer → `request_employee_document_access` → Workforce Audit → Supabase private Storage; ลิงก์ recovery ไป HR Intake
+- **Failure/Retry:** ไม่พบไฟล์/ไม่ available/ผิดบริษัท/ไม่มีสิทธิ์จะไม่คืน path; signed URL ล้มเหลวแจ้งชัดและ retry ได้; เอกสารขาดให้ค้นหา/แนบจาก Intake โดยไม่สร้าง Employee ซ้ำ
+- **Audit/Idempotency:** ทุกคำขอเปิดดู/ดาวน์โหลดบันทึก `employee_document_preview_requested` หรือ `employee_document_download_requested`; การขอซ้ำสร้าง Audit ใหม่ตามเหตุการณ์ แต่ไม่สร้าง Document link ใหม่
+- **Owner:** HR/Admin เป็นผู้ใช้และแก้ความไม่ครบ; Workforce Module เป็นเจ้าของ permission/audit; Document Intake เป็นเจ้าของไฟล์ต้นฉบับและ recovery
+
+### Change record
+
+| Version | Date | Rationale | Impact | Migration | Verification | Rollback |
+| --- | --- | --- | --- | --- | --- | --- |
+| v2.6 | 26/8/2569 | ให้เอกสารใน Drawer เปิดตรวจได้จริงโดยไม่เผย bucket/path หรือทำ Storage เป็น public | `/employees`, Workforce Audit, private Storage signed URL และ Intake recovery | `20260826000100_employee_document_secure_preview.sql` | contract, migration dry-run/apply, RLS/RPC check, typecheck, lint, build และ authenticated Drawer preview/Audit smoke | revert UI/RPC และ revoke function; เอกสาร/Raw/link เดิมไม่เปลี่ยน และ Audit ที่เกิดแล้วคงไว้ |
+
+## Employee LINE Account Link v2.8 — 26/8/2569
+
+```mermaid
+flowchart TD
+  A[Admin เปิด Drawer > บัญชี/ติดต่อ] --> B[โหลด LINE Sender ของบริษัท]
+  B --> C[เลือก Candidate + ระบุหลักฐาน]
+  C --> D{มี LINE เดิมหรือไม่}
+  D -->|ไม่มี| E[ตรวจ Company/Employee/Duplicate]
+  D -->|มี| F{Admin ยืนยันเปลี่ยนหรือไม่}
+  F -->|ไม่| G[คงข้อมูลเดิมและแจ้งให้ยืนยัน]
+  F -->|ใช่| E
+  E -->|ไม่ผ่าน| H[แจ้งสาเหตุและคง Dialog]
+  E -->|ผ่าน| I[ผูก Employee LINE Account]
+  I --> J[Sync Attendance Identity]
+  J --> K[Sync LINE Sender Profile]
+  K --> L[บันทึก Workforce Audit]
+  L --> M[Refetch Drawer และแสดงบัญชีที่ยืนยัน]
+  M --> N[Webhook/ลงเวลาใช้ Identity เดียวกัน]
+```
+
+- **Input:** พนักงานในบริษัทปัจจุบัน, LINE Sender/Candidate ที่ระบบเคยรับจริง, เหตุผล/หลักฐาน และคำยืนยันเปลี่ยนบัญชีเดิม
+- **Output/State:** `employee_line_accounts`, `attendance_channel_identities` และ `line_senders.profile_id` ตรงกัน; กดซ้ำบัญชีเดิมคืน `already_linked` โดยไม่สร้าง Audit ซ้ำ
+- **Role/Permission:** Company Manager/Admin เท่านั้น; RPC ตรวจ Login, current company, active member, Candidate company และการผูกกับคนอื่นซ้ำภายใน transaction
+- **Integration:** Employee Drawer → LINE Sender → Employee LINE Master → Attendance Identity → LINE Webhook → Workforce Audit
+- **Failure/Retry:** Candidate หาย/ผิดบริษัท/ผูกคนอื่น/มีบัญชีเดิมแต่ไม่ยืนยันเปลี่ยน จะไม่แก้ข้อมูล; retry บัญชีเดิมเป็น idempotent; ยกเลิกต้องมีเหตุผลและเก็บ Audit
+- **Audit/Recovery:** เก็บ old/new LINE ID, display name, actor, reason และ source; ยกเลิกปิดทั้ง Employee/Attendance identity แต่ไม่ลบ Sender หรือประวัติ
+- **Owner:** HR/Admin เป็นผู้ยืนยันตัวบุคคล; LINE Intake เป็นเจ้าของ Sender; Workforce เป็นเจ้าของ link/audit; Attendance ใช้ identity ที่ผ่านการยืนยันแล้ว
+
+### Change record
+
+| Version | Date | Rationale | Impact | Migration | Verification | Rollback |
+| --- | --- | --- | --- | --- | --- | --- |
+| v2.8 | 26/8/2569 | Drawer เห็นข้อมูล LINE แต่ยังผูก Candidate ให้พนักงานไม่ได้ | `/employees`, Employee LINE Master, Attendance Identity, LINE Sender และ Workforce Audit | `20260826180000_employee_admin_line_account_link.sql` | migration dry-run/apply, duplicate/idempotency/permission contracts, tests, typecheck, lint, build และ authenticated Production smoke | revert UI และ revoke RPC; ใช้ `admin_unlink_employee_line_account` พร้อมเหตุผลเพื่อคืนสถานะรายบุคคล โดยไม่ลบ Sender/Audit |
+
+## Employee Multiple LINE Accounts v2.9 — 26/8/2569
+
+```mermaid
+flowchart LR
+  A[Admin เปิด Drawer] --> B[เพิ่ม LINE อีกบัญชี]
+  B --> C[เลือก Candidate + หลักฐาน]
+  C --> D{บัญชีหลักหรือรอง}
+  D --> E[ตรวจบริษัท สมาชิก และ LINE ซ้ำ]
+  E --> F[Employee LINE + Sender + Attendance Identity]
+  F --> G[Audit และแสดงทุกบัญชี]
+  G --> H[ยกเลิกเฉพาะบัญชี]
+  H --> I{เป็นบัญชีหลัก?}
+  I -->|ใช่| J[เลื่อนบัญชีรองเป็นบัญชีหลัก]
+  I -->|ไม่| G
+```
+
+- **Input/Output:** Admin เลือก LINE Candidate ระบุหลักฐาน และเลือกบัญชีหลักหรือรอง; Drawer แสดงทุกบัญชีที่ยืนยัน
+- **State/Permission:** `candidate → active_primary|active_secondary → inactive`; มีบัญชีหลัก active สูงสุดหนึ่งบัญชี; Company Manager/Admin เท่านั้น และ LINE หนึ่งบัญชีห้ามผูกหลายคน
+- **Integration:** sync `employee_line_accounts`, `line_senders.profile_id`, `attendance_channel_identities`; self-link token ใช้กติกาเดียวกัน
+- **Failure/Retry:** LINE ผิดบริษัท/ของคนอื่นถูกปฏิเสธ; กดซ้ำไม่สร้าง identity ซ้ำ; ยกเลิกบัญชีหลักจะเลื่อนบัญชีรองล่าสุด โดยไม่ลบข้อความเดิม
+- **Audit/Owner:** เพิ่ม/ยกเลิกบันทึก Workforce Audit; HR/Workforce Owner ยืนยันตัวบุคคล
+- **Change/Rollback:** v2.9, migration `20260826190000_employee_multiple_line_accounts.sql`; rollback โดย revoke RPC/ซ่อน Action และต้อง reconcile หลายบัญชีก่อนคืน unique constraint
+
+## Employee Drawer Information Hub v2.7 — 26/8/2569
+
+```mermaid
+flowchart TD
+  A[Admin เปิด Drawer พนักงาน] --> B[โหลด Profile/Employment/Site/Document]
+  B --> C[โหลด LINE ที่ยืนยันแล้วในบริษัท]
+  B --> D[โหลดบัญชีธนาคาร Master ที่ผูก Profile/Employee Person]
+  B --> E[สรุปข้อมูลขาด]
+  E --> F[Tab ภาพรวม + ขั้นตอนถัดไป]
+  E --> G[Tab การจ้างงาน + Site]
+  E --> H[Tab บัญชี/ติดต่อ]
+  E --> I[Tab เอกสาร]
+  H -->|ไม่พบ LINE| J[Line Monitor / Candidate Review]
+  H -->|ไม่พบบัญชี| K[Master Data Candidate Review]
+  J --> L[Admin/พนักงานยืนยันก่อนผูก Master]
+  K --> L
+  I -->|เอกสารขาด| M[HR Intake ค้นหา/แนบย้อนหลัง]
+  L --> N[Refetch Drawer และลดจำนวนข้อมูลขาด]
+  M --> N
+```
+
+- **Input:** Profile, Employment, active Site Assignment, Employee Person/Document, company-scoped LINE Account และ verified Bank Master
+- **Output/State:** Drawer 4 แท็บพร้อมจำนวนข้อมูลขาดและ Next Action; เป็น projection อ่านข้อมูลจริง ไม่มีการ auto-link หรือแก้ Master จากการเปิดหน้า
+- **Role/Permission:** ใช้ RLS เดิมของบริษัท; Manager เห็นข้อมูลบริษัทปัจจุบันเท่านั้น; LINE และบัญชีธนาคารที่ยังไม่ยืนยันไม่ถูกแสดงเป็นข้อเท็จจริงของพนักงาน
+- **Integration:** Employee → LINE Monitor/Account Link, Master Data Center, HR Intake, Workforce Setup และ Reports
+- **Failure/Retry:** query ใดล้มเหลวให้แจ้งโหลดข้อมูลพนักงานไม่สำเร็จและไม่แสดงว่า “ครบ”; Candidate คลุมเครือคงรอตรวจ ห้ามเดาจากชื่อ; refetch หลังยืนยันเพื่อแสดงสถานะจริง
+- **Audit/Idempotency:** Drawer เป็น read-only projection; การผูก LINE/Bank/Document ใช้ Flow ปลายทางและ Audit/idempotency ของแต่ละระบบ
+- **Owner:** HR/Admin จัดการข้อมูลขาด; LINE Monitor, Master Data และ Intake เป็นเจ้าของการยืนยันข้อมูลต้นทาง; Workforce เป็นเจ้าของสรุปความพร้อม
+
+### Change record
+
+| Version | Date | Rationale | Impact | Migration | Verification | Rollback |
+| --- | --- | --- | --- | --- | --- | --- |
+| v2.7 | 26/8/2569 | Drawer ยาวและไม่เห็น LINE/บัญชีธนาคาร ทำให้ Admin ไม่รู้ว่าข้อมูลใดพร้อมหรือยังขาด | `/employees` แบ่ง 4 Tabs, อ่าน LINE/Bank company-scoped, สรุป missing และลิงก์ไป Flow เจ้าของข้อมูล | ไม่มี schema migration | contract, tenant tests, typecheck, lint, build และ authenticated Production smoke ครบ 4 Tabs | revert UI/query; LINE/Bank/Document/Employment Master และ Audit ไม่เปลี่ยน |
+
+## Employee Preboarding Visible List v2.4 — 25/8/2569
+
+```mermaid
+flowchart LR
+  A[HR Intake อนุมัติเอกสารเบื้องต้น] --> B[สร้าง Employee Person\nสถานะ preboarding]
+  B --> C[แสดงใต้รายชื่อพนักงาน\nพนักงานเตรียมเริ่มงาน]
+  C --> D[แสดงช่องขาดสีแดง\nLogin ค่าจ้าง เวลา ไซต์ สิทธิ์]
+  D --> E[Admin สร้างบัญชีจากทะเบียนเดิม]
+  E --> F[ตรวจ company + person + ชื่อ + duplicate]
+  F --> G[สร้าง Auth/Profile/Membership/Employment]
+  G --> H[ผูก employee_people.profile_id\nและบันทึก Audit]
+  H --> I[อยู่สถานะ preboarding\nจน Admin ตั้งค่าครบ]
+  F -->|ไม่ผ่าน| J[ไม่เขียนข้อมูล/คืน Error ชัดเจน]
+  G -->|บางขั้นตอนไม่ผ่าน| K[Rollback บัญชีและข้อมูลที่สร้าง\nเก็บทะเบียน/เอกสารเดิม]
+```
+
+- **Input:** Employee Person จาก Intake ที่มีเอกสารและสถานะ `preboarding`; Admin ระบุอีเมล รหัสผ่านชั่วคราว และสิทธิ์บัญชี
+- **Output/State:** รายการแสดงในกลุ่ม “พนักงานเตรียมเริ่มงาน” พร้อมช่องขาดสีแดง; หลังสร้างบัญชีจะผูกกับทะเบียนเดิมและยังเป็น `preboarding` ไม่เปิดการลงเวลา/ค่าแรงโดยอัตโนมัติ
+- **Role/Permission:** เฉพาะ Platform Admin หรือ Company Admin/Executive/Manager ในบริษัทเดียวกัน; service role ใช้ภายใน Edge Function เท่านั้น
+- **Integration:** Supabase Auth, profiles, company_members, user_company_preferences, employee_employment_records และ employee_people
+- **Failure/Retry:** ตรวจทะเบียนถูกบริษัท ยังไม่ถูกผูก และชื่อเดียวกันก่อนเขียน; หากขั้นตอนใดล้มเหลวให้ลบข้อมูลบัญชีที่สร้างในรอบนั้น แต่เก็บ Intake/Employee Person/Document เดิมเพื่อ retry
+- **Audit/Idempotency:** `employee_people.profile_id is null` เป็น linking gate; บันทึก `employee_preboarding_account_linked`; กดซ้ำตอบ conflict และไม่สร้างบัญชีซ้ำ
+- **Owner:** HR/Admin เป็นผู้เติมและยืนยันข้อมูล; Workforce Module เป็นเจ้าของ validation, linking, rollback และ Audit
+
+### Change record
+
+| Version | Date | Rationale | Impact | Migration | Verification | Rollback |
+| --- | --- | --- | --- | --- | --- | --- |
+| v2.4 | 25/8/2569 | ให้ทะเบียนพนักงานเบื้องต้นปรากฏร่วมกับงานพนักงานและชี้ข้อมูลที่ Admin ต้องเติม โดยไม่สร้างบุคคลซ้ำ | `/employees`, `create-employee`, Auth/Profile/Membership/Employment linking และ Workforce Audit | ไม่มี schema migration | contract test, typecheck, lint, build, dry-run, authenticated Production smoke และตรวจ person/profile/audit | revert UI/Edge commit; บัญชีที่สร้างแล้วใช้ recovery ตาม Audit โดยไม่ลบ Intake/Document ต้นฉบับ |
+| v2.4.1 | 25/8/2569 | ป้องกันทะเบียนที่ผูกบัญชีสำเร็จแล้วค้างในรายการและเสนอปุ่มสร้างบัญชีซ้ำ | `/employees` กรองกลุ่มเตรียมเริ่มงานด้วย `profile_id is null`; พนักงานที่ผูกแล้วอยู่ตารางหลักเพียงจุดเดียว | ไม่มี | contract, typecheck, lint, build และ authenticated Production smoke หลังสร้างบัญชี | revert UI query ได้โดยไม่กระทบข้อมูลหรือ Audit |
+| v2.5 | 25/8/2569 | เพิ่มการมอบหมายไซต์จาก Drawer พนักงานด้วยข้อมูลชุดเดียวกับระบบลงเวลา | Drawer → canonical `assign_employee_site`; ตรวจบริษัท/สิทธิ์/ไซต์/policy/ช่วงวัน/รายการซ้ำ และบันทึก event แบบ immutable | `20260825231500_employee_drawer_site_assignment_audit.sql` | contract, typecheck, lint, build, migration dry-run/apply และ authenticated Drawer smoke | ซ่อนส่วน Drawer และคืน RPC ก่อนหน้า; assignment/event ที่สร้างแล้วคงไว้เพื่อตรวจสอบ |
+| v2.5.1 | 25/8/2569 | ป้องกันการกดมอบหมายไซต์เดิมซ้ำจาก Drawer หลังบันทึกสำเร็จ | กรองไซต์ active ที่มอบหมายแล้วออกจากตัวเลือก, reset ฟอร์มทุกครั้งที่เปิด Drawer และซ่อนปุ่มเมื่อไม่มีไซต์เหลือ | ไม่มี | contract, typecheck, lint, build และ authenticated Drawer smoke กับพนักงานที่มี Assignment แล้ว | คืน UI filter ได้; duplicate gate ใน RPC และข้อมูลเดิมไม่เปลี่ยน |
+
+## Employee Master ก่อนข้อมูลครบ — v1.1 (25/8/2569)
+
+- เอกสารจาก Intake สามารถสร้างตัวตนพนักงานระดับ `preboarding` เพื่อให้ HR เริ่มจัดแฟ้มและตามข้อมูลได้ โดยไม่สร้าง `profiles`, `company_members`, การมอบหมายไซต์ หรือข้อมูลค่าแรง
+- เอกสารทุกใบเชื่อมผ่าน `employee_person_documents`; กดซ้ำไม่สร้างแถวซ้ำ และยังย้อนกลับไปยัง Intake/ไฟล์ต้นฉบับได้
+- ประเภทการจ้าง `unknown` ใช้ได้เฉพาะ Employee Master ขั้นต้น; ก่อนอนุมัติ Intake ต้องเป็น daily/monthly/temporary/contractor และข้อมูลบังคับต้องครบ
+- การเปิดใช้งานจริงยังต้องผ่าน Onboarding Readiness และ action แยก จึงไม่ทำให้บุคคลที่ข้อมูลไม่ครบลงเวลา/เข้าระบบ/คำนวณค่าแรงโดยอัตโนมัติ
+- Rollback: ปิด action/RPC และ archive Employee Master ที่สร้างผิดโดยคงเอกสารและ Audit; ไม่ reset/drop และไม่ลบ Raw Intake
 
 ## วัตถุประสงค์
 เอกสารนี้เป็น **แกนหลัง (backbone)** ของระบบงานบุคคลในโปรเจกต์:
@@ -271,8 +502,126 @@ flowchart LR
 - Failure/retry: ข้อมูลไม่ครบหรือสิทธิ์ไม่ผ่านจะไม่เปลี่ยนสถานะ; การกดซ้ำ idempotent และเติมเฉพาะลิงก์เอกสารที่ยังไม่มี
 - Owner: HR/Admin; Integration: Edge Function `review-employee-intake`, RPC `approve_employee_intake`, Employee Master และ Storage
 
+### LINE Employee Document Intake (v2.0, 25/8/2569)
+
+```mermaid
+flowchart LR
+  A[LINE Image Raw] --> B[HR Document Classification]
+  B -->|มั่นใจ| C[Private Bundle\nawaiting_purpose]
+  B -->|ไม่มั่นใจ| D[Manual Review]
+  C --> E[HR/Admin เลือก New / Update / Archive]
+  E --> F[Extract allowlisted fields]
+  F --> G[Pending Review]
+  G -->|Approve| H[Employee Master / Preboarding]
+  G -->|Reject / ขอข้อมูล| I[เปิด Intake ต่อ]
+  A --> J[Audit + Retry by original message id]
+```
+
+- รับบัตรประชาชน ใบขับขี่ ทะเบียนบ้าน วุฒิการศึกษา หลักฐานบัญชี และรูปพนักงานจาก LINE โดยเก็บ Raw ต้นฉบับก่อนเสมอ
+- เอกสารมั่นใจตั้งแต่ 65% ถูกรวมตามบริษัท ห้อง ผู้ส่ง และช่วง 10 นาที ไปยัง HR Intake แบบ private; ต่ำกว่านั้นค้าง Manual Review
+- ระบบยังไม่สร้าง Auth/Profile/Employee จน HR/Admin เลือกวัตถุประสงค์ ตรวจ field ที่อ่านได้ และอนุมัติผ่าน Flow เดิม
+- เก็บเฉพาะข้อมูลที่จำเป็นและเลขระบุ 4 ตัวท้าย; เอกสารและ Audit แยกตามบริษัทด้วย RLS
+- Reprocess ใช้ LINE message ID เดิมและ idempotency key จึงกู้รายการเก่าได้โดยไม่สร้าง Intake/ไฟล์ซ้ำ
+- Failure/retry: Raw ไม่ถูกลบ, การ copy/DB fail ถูกบันทึกใน ingestion, และเรียก recovery action ซ้ำได้อย่างปลอดภัย
+- Owner: HR/Admin ดูแลการตัดสินใจ; Platform Integration ดูแล classifier/routing/retry
+- Migration: `20260825194500_line_hr_document_intake_routing.sql`; rollback ปิด route/trigger โดยคง Raw, private document และ Audit ไว้
+
+### Planned: Employee Identity & Document/Bank Completeness (v0.1, 25/8/2569)
+
+> สถานะ `รอดำเนินการ` — แผนภาพนี้เป็น Contract สำหรับงานถัดไป ยังไม่ใช่ความสามารถที่เปิดใช้ใน Production
+
+```mermaid
+flowchart LR
+  A[LINE / Web / Upload / Login] --> B[เก็บ Raw และ Source Reference]
+  B --> C{ตรวจพบพนักงาน Candidate เดียว\nในบริษัทเดียวกัน?}
+  C -->|ไม่ชัดเจน| D[คิว HR ตรวจตัวตน]
+  C -->|ชัดเจน| E[คิว HR ยืนยันการผูก]
+  D --> E
+  E --> F[Employee Identity\nLogin + หลาย LINE + Alias]
+  B --> G[จำแนกเอกสาร / หลักฐานธนาคาร]
+  G --> H{ซ้ำด้วย Source หรือ Hash?}
+  H -->|ซ้ำ| I[เชื่อมรายการเดิม / บันทึก Audit]
+  H -->|ใหม่| J[Document หรือ Bank Candidate]
+  J --> K{HR/Admin ตรวจและยืนยัน?}
+  K -->|ขอเพิ่ม/ปฏิเสธ| L[เปิดคิวต่อ / ส่งกลับเจ้าของ]
+  K -->|ยืนยัน| M[แนบ employee_person_documents\nหรืออัปเดต Bank Master แบบมี Version]
+  F --> N[Employee Completeness Gate]
+  M --> N
+  N -->|ยังขาด| O[คิว HR ข้อมูล/เอกสารขาด]
+  N -->|ครบ| P[พร้อม Onboarding / Payroll ตามสิทธิ์]
+```
+
+- **Input:** Login, LINE account ได้หลายบัญชี, alias/ชื่อเล่น, Raw document, attachment/source ID, OCR candidate และข้อมูลบัญชีธนาคาร
+- **Output:** ตัวตนพนักงานที่ HR ยืนยัน, reference เอกสารที่เพิ่มภายหลัง, บัญชีธนาคารแบบ versioned, completeness status และ HR task สำหรับรายการขาด
+- **States:** `missing`, `candidate`, `needs_review`, `verified`, `rejected`, `expired`, `superseded`; เอกสารหรือบัญชีที่ยังไม่ `verified` ห้ามใช้เปิด Payroll/สิทธิ์อัตโนมัติ
+- **Roles/permissions:** HR/Admin จัดการเฉพาะบริษัทของตน; Platform Admin ตรวจปัญหาระบบได้แต่ไม่ยืนยันข้อมูลธุรกิจแทนโดยไม่มี company membership
+- **Integrations:** LINE/Web/Upload → Intake → Employee Identity/Document Registry/Bank Master → Onboarding/Payroll; Raw และ source reference ต้องคงอยู่
+- **Failure/retry:** ใช้ source message/document ID และ content hash เป็น idempotency key; retry ต้องเติมลิงก์ที่ขาดโดยไม่สร้างเอกสารหรือบัญชีซ้ำ
+- **Audit:** บันทึกผู้เสนอ/ผู้ยืนยัน, before/after, เหตุผล, source, company, employee, document/bank version และเวลา; เลขบัญชีใน UI/Log ต้องปกปิด
+- **Owner:** HR Operations; เจ้าของ integration คือ Platform Integration; rollback โดย deactivate link/version ล่าสุดและคืนค่าที่ verified ก่อนหน้า ห้ามลบ Raw/Audit
+
+### Existing Employee Resolution Gate (v0.2, 25/8/2569)
+
+```mermaid
+flowchart TD
+  A[เอกสาร/ข้อมูลพนักงานเข้า Intake] --> B[เก็บ Raw + Source + Hash]
+  B --> C[ค้น Candidate ภายในบริษัทเดียวกัน\nชื่อ/alias/โทร/LINE/บัญชี/เอกสาร]
+  C --> D{จำนวน Candidate ที่น่าเชื่อถือ}
+  D -->|0| E[เสนอ: พนักงานใหม่]
+  D -->|1| F[เสนอ: อัปเดตพนักงานเดิม]
+  D -->|มากกว่า 1 / ขัดแย้ง| G[Manual Identity Review]
+  E --> H{HR/Admin ยืนยัน}
+  F --> H
+  G --> H
+  H -->|สร้างใหม่| I[สร้าง Employee Master preboarding]
+  H -->|อัปเดตเดิม| J[เชื่อมเอกสารกับ Profile/Employee เดิม]
+  H -->|ข้อมูลไม่พอ| K[ขอข้อมูลเพิ่ม / เปิด Intake ต่อ]
+  J --> L[อัปเดต Completeness\nไม่เปลี่ยนสถานะ active]
+  I --> M[คิวตั้งค่าการจ้างงานและสิทธิ์]
+  L --> N[Audit การแนบย้อนหลัง]
+```
+
+- ต้องใช้ Gate นี้ก่อน `create_employee_preboarding_from_intake` ทุกครั้ง รวม LINE, Web Chat, Upload และการกู้เอกสารย้อนหลัง
+- Matching เป็น Candidate เท่านั้น; ห้ามถือว่าชื่อใกล้กันเป็นคนเดียวกันโดยไม่มี HR/Admin ยืนยัน
+- `update_existing` ต้องคงสถานะการจ้างงาน/สิทธิ์/ไซต์ของพนักงานเดิม และเพิ่มเฉพาะ reference เอกสาร/ข้อมูลที่ผู้ตรวจยืนยัน
+- `create_new` ต้องมีเหตุผลเมื่อมี Candidate เดิม เพื่อป้องกันการสร้างซ้ำโดยไม่ตั้งใจ
+- Idempotency ใช้ Intake ID, source attachment ID และ content hash; กดซ้ำต้องไม่สร้าง Person/Document link ซ้ำ
+- Audit ต้องเก็บ Candidate ที่เสนอ, คะแนน/เหตุผล, ผู้ตัดสินใจ, before/after และปลายทาง Employee/Profile
+- Failure/recovery: หากพบภายหลังว่าสร้าง Preboarding ซ้ำ ให้ใช้ reconcile action เชื่อมไป Profile เดิมและปิด draft ซ้ำโดยไม่ลบ Raw/เอกสาร/Audit
+
+### Employee Drawer Site Assignment (v2.5, 25/8/2569)
+
+```mermaid
+flowchart TD
+  A[Admin/Manager เปิด Drawer พนักงาน] --> B[โหลดไซต์ active และ Assignment ของบริษัท]
+  B --> C[เลือกไซต์ วันเริ่ม และไซต์หลัก]
+  C --> D{ตรวจสิทธิ์และข้อมูลกลาง}
+  D -->|ข้ามบริษัท/ไซต์หรือ policy ผิด/วันผิด| E[ไม่เขียนข้อมูล + แจ้งแนวทางแก้]
+  D -->|Assignment ช่วงเดียวกันซ้ำ| F[ไม่สร้างซ้ำ + เปิดทางไปจัดการประวัติ]
+  D -->|ผ่าน| G[RPC assign_employee_site]
+  G --> H[เขียน employee_site_assignments]
+  H --> I[เขียน employee_site_assignment_events: created]
+  I --> J[รีเฟรช Readiness และแสดงไซต์ใน Drawer]
+  J --> K[ระบบลงเวลาใช้ Assignment ชุดเดียวกัน]
+  E --> C
+  F --> C
+```
+
+- **Input:** พนักงาน, บริษัทปัจจุบัน, ไซต์ active, วันเริ่ม, ค่าสถานะไซต์หลัก และ work policy ตั้งต้นของไซต์
+- **Output:** Assignment ที่ระบบลงเวลาอ่านได้, จำนวนไซต์/Readiness ที่รีเฟรช และ Audit event แบบ immutable
+- **States:** Assignment ใหม่เป็น `active`; การย้าย/สิ้นสุด/ยกเลิกใช้ lifecycle เดิมที่ `/workforce-setup` ห้ามแก้ประวัติด้วยการสร้างแถวซ้ำ
+- **Roles/permissions:** เฉพาะ company manager/Admin ที่ `is_company_manager` ผ่าน; พนักงาน ไซต์ และ policy ต้องอยู่บริษัทเดียวกับ context
+- **Integrations:** Employee Drawer → canonical RPC → `employee_site_assignments` → readiness/attendance; หน้าประวัติยังอยู่ `/workforce-setup`
+- **Failure/retry:** ตรวจช่วงวันและ overlap ในฐานข้อมูล; retry ด้วยข้อมูลเดิมต้องได้ `site_assignment_already_active` และไม่เขียนซ้ำ
+- **Audit:** เมื่อสร้างสำเร็จต้องเพิ่ม `employee_site_assignment_events` ชนิด `created` พร้อม actor, company และ after snapshot
+- **Owner:** HR Operations / Site Admin; rollback โดยซ่อน Action และคืน RPC ก่อนหน้า โดยไม่ลบ Assignment/Event ที่เกิดแล้ว
+
 | Version | วันที่ | เหตุผล/ผลกระทบ | Migration | Verification | Rollback |
 |---|---|---|---|---|---|
+| v2.0 | 25/8/2569 | จำแนกเอกสารบุคคลจาก LINE แล้วส่งเข้า Restricted HR Intake แบบ bundle/idempotent พร้อม recovery จาก message ID เดิม | `20260825194500_line_hr_document_intake_routing.sql` | LINE/Employee/Omni contract, typecheck, targeted lint, build, migration dry-run และ authenticated HR smoke | ปิด route/trigger โดยคง Raw, Intake, private document และ Audit |
+| v2.1 | 25/8/2569 | ทำให้ recovery ภายในรองรับ legacy service-role JWT โดยตรวจ role และลายเซ็นกับ Supabase ก่อนอนุญาต; anonymous/user token ยังถูกปฏิเสธ | ไม่มี | contract, invalid-token 401, valid recovery, Intake/document/Audit/Telegram result, lint/build | คืน exact-key guard; คงข้อมูล Intake/เอกสาร/Audit ที่เกิดแล้ว |
+| v2.2 | 25/8/2569 | หน้า Employee อ่านสถานะ Intake จริงและแยก “ข้อมูลขาด / รอยืนยัน / ยืนยันแล้ว” เพื่อไม่แสดงปุ่มแก้ข้อมูลซ้ำหลังอนุมัติ; รายการ approved ยังคงใน Onboarding เพื่อทำขั้นตั้งค่าการจ้างงานและสิทธิ์ | ไม่มี | preboarding contract, typecheck, lint, build และ authenticated Employee smoke | คืน UI label/query เดิม; Employee Master, Intake, เอกสารและ Audit ไม่เปลี่ยน |
+| v2.3 | 25/8/2569 | Drawer พนักงาน active แสดงทะเบียนเอกสารที่เชื่อมผ่าน `employee_people.profile_id` เพื่อให้ตรวจเอกสารย้อนหลังได้จากพนักงานเดิม | ไม่มี | preboarding contract, RLS read, typecheck/lint/build และ authenticated Drawer smoke | ซ่อนส่วนเอกสาร; reference/Raw/Audit ไม่เปลี่ยน |
 | v1.9 | 22/8/2569 | ซ่อม Intake ที่สร้างพนักงานแล้วแต่ไม่เปลี่ยนเป็น approved และทำให้เอกสารที่อนุมัติแสดงในทะเบียนพนักงาน | `20260822001621_employee_intake_approval_document_link.sql` | RPC reconciliation, document-link count, RLS, lint/build/test และหน้าพนักงาน | ปิด UI registry/คืน RPC เก่าได้; ไม่ลบ Employee Master, Intake หรือไฟล์ต้นฉบับ |
 | v2.0 | 22/8/2569 | กำหนดเส้นชัยของ HR Intake ที่อนุมัติ: ออกจาก Intake Room ไป Employee Master `preboarding`/คิว HR Onboarding; จำนวน Intake ไม่รวม approved/cancelled | `20260822005245_employee_intake_approved_exit_to_onboarding.sql` | ตรวจ reconcile, count/query, หน้า Intake และหน้า Employee | คืน query/count เดิมได้; ไม่ลบ Employee Master, เอกสาร หรือ Audit |
 
@@ -286,6 +635,37 @@ stateDiagram-v2
     archived --> active : reactivate
     active --> deleted : delete (ผ่าน preview + สิทธิ์เงื่อนไข)
 ```
+
+### Employee Existing Bank Candidate Link (v3.2, 26/8/2569)
+
+```mermaid
+flowchart TD
+  A[Admin เปิด Employee Drawer] --> B[ค้น Master Bank ในบริษัท]
+  B --> C{ชื่อเจ้าของ normalized ตรงพนักงาน?}
+  C -->|ไม่ตรง| D[ไม่เสนอและไม่ผูก]
+  C -->|ตรง| E[แสดงธนาคาร เลขท้าย Source และสถานะ Secure]
+  E --> F{ผูกกับบุคคลอื่นแล้ว?}
+  F -->|ใช่| G[ปิด Action พร้อมเหตุผล]
+  F -->|ไม่| H[Admin ตรวจหลักฐานและเลือกบัญชีหลัก/รอง]
+  H --> I[RPC ตรวจสิทธิ์ บริษัท ชื่อ และข้อมูลซ้ำอีกครั้ง]
+  I -->|ผ่าน| J[เชื่อม Master Bank กับ Profile]
+  J --> K[Audit existing_bank_candidate_linked]
+  K --> L{มี Secure Number?}
+  L -->|มี| M[พร้อมใช้จ่าย]
+  L -->|ไม่มี| N[แจ้งเติมเลขเต็มผ่าน Secure Store]
+  I -->|ไม่ผ่าน| O[ไม่เขียนข้อมูล + แจ้งวิธีแก้]
+```
+
+- **Input/Output:** ใช้ Profile, บริษัทปัจจุบัน และบัญชี Master ที่ชื่อ normalized ตรงกัน; ส่งออกเป็นการเชื่อมบัญชีเดิม ไม่สร้างบัญชีซ้ำและไม่เปิดเผยเลขเต็ม
+- **States:** `available → linked`; `linked_same` เป็น idempotent unchanged; `linked_other` ถูกปิด Action; บัญชีเลขท้ายอย่างเดียวยังคงไม่พร้อมจ่ายจนเติมเลขเต็ม
+- **Roles/permissions:** เฉพาะ Platform Admin, company_admin, executive และ accounting_hr; RPC ตรวจ Auth, company membership และชื่อเจ้าของซ้ำฝั่งฐานข้อมูล
+- **Integrations:** Employee Drawer → candidate RPC → `master_bank_accounts` → Secure Store readiness → Workforce Audit; Source table/ID แสดงแบบไม่เปิดข้อมูลลับ
+- **Failure/retry:** ชื่อไม่ตรง, ข้ามบริษัท, ผูกคนอื่น หรือหลักฐานไม่ครบจะไม่เขียน; retry บัญชีเดิมคืน `unchanged` และไม่สร้าง Audit ซ้ำ
+- **Owner:** HR Operations / Accounting HR
+
+| Version | วันที่ | เหตุผล/ผลกระทบ | Migration | Verification | Rollback |
+|---|---|---|---|---|---|
+| v3.2 | 26/8/2569 | ให้ Admin ใช้บัญชีที่ระบบมีอยู่แล้วได้อย่างปลอดภัย ลดการกรอกซ้ำ แต่ยังบังคับตรวจหลักฐานและไม่เดาเลขเต็ม | `20260825233255_employee_bank_candidate_link.sql` | candidate/link/permission/idempotency/Audit contract, typecheck, lint, build, migration dry-run และ authenticated Drawer smoke | ซ่อน Candidate Action และ revoke RPC; Master Bank, Secure Secret และ Audit เดิมคงอยู่ |
 
 ---
 

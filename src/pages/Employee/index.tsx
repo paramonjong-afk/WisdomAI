@@ -1,12 +1,23 @@
 import {
   Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
-  Chip, Divider, Drawer, MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography,
+  Chip, Divider, Drawer, IconButton, Menu, MenuItem, Paper, Stack, Tab, Tabs, TextField, Tooltip, Typography,
   Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow,
 } from '@mui/material'
+import AddOutlinedIcon from '@mui/icons-material/AddOutlined'
+import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined'
+import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined'
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
+import FilterListOutlinedIcon from '@mui/icons-material/FilterListOutlined'
+import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined'
+import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined'
+import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined'
+import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined'
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
+import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { PageHeader } from '../../components/PageHeader'
-import { StandardDataTable } from '../../components/StandardDataTable'
+import { StandardDataTable, type StandardDataTableTools } from '../../components/StandardDataTable'
 import { useAuth } from '../../hooks/useAuth'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
@@ -20,6 +31,7 @@ import { parseFunctionError, toFriendlyError, type StandardErrorPayload } from '
 import { createAttemptStore, createSignature, generateAttemptId, globalMutationAttemptStore, summarizePreflight, toPreflightResult, type OperationAttemptRecord, type OperationIssue } from '../../utils/operation-center'
 import { summarizeCreateEmployeeIssues, validateCreateEmployeePayload } from '../../utils/create-employee-validation'
 import { invokeHrMutation } from '../../services/hrMutationGateway'
+import { documentFlowGateway } from '../../services/documentFlowGateway'
 
 type Employee = {
   id: string
@@ -47,8 +59,26 @@ type EmployeeIntakeMaster = {
   employment_type: string
   employee_status: string
   created_at: string
+  phone: string | null
+  position: string | null
+  start_date: string | null
+  intake_status: string | null
+  missing_fields: string[]
   documents: Array<{ id: string; employee_person_id: string; document_type: string; link_status: string }>
 }
+type EmployeePersonDocument = {
+  id: string; employee_person_id: string; source_intake_document_id: string; document_type: string
+  link_status: string; source_channel: string; mime_type: string; linked_at: string
+}
+type EmployeeDocumentAccess = EmployeePersonDocument & { storage_bucket: string; storage_path: string }
+type EmployeeLineAccount = { id: string; profile_id: string; line_user_id: string; verified_at: string; active: boolean; is_primary: boolean; account_label: string | null; line_senders: { display_name: string | null } | null }
+type EmployeeLineCandidate = { line_user_id: string; display_name: string | null; picture_url: string | null; profile_id: string | null; updated_at: string }
+type EmployeeBankAccount = { id: string; profile_id: string | null; employee_person_id: string | null; bank_name: string | null; account_last4: string; verification_status: string; verified_at: string | null; secure_number_available: boolean; is_primary: boolean }
+type EmployeeBankCandidate = { id: string; owner_name: string; bank_name: string | null; account_last4: string; verification_status: string; secure_number_available: boolean; is_primary: boolean; evidence_source_table: string | null; evidence_source_id: string | null; verified_at: string | null; link_status: 'available' | 'linked_same' | 'linked_other' | 'name_mismatch' | 'source_only'; source_kind?: 'master_registry' | 'master_candidate' | 'transfer_recipient' | 'transfer_sender' | 'vendor_alias'; source_at?: string | null }
+type EmployeeContact = { employee_person_id: string; phone: string | null }
+type EmployeeSiteOption = { id: string; name: string; work_policy_id: string | null; projects: { name: string } | null }
+type EmployeeSiteAssignment = { id: string; profile_id: string; site_id: string; starts_on: string; ends_on: string | null; is_primary: boolean; project_sites: { name: string; projects: { name: string } | null } | null }
+type IntakeEmployeeDraft = { full_name: string; phone: string; employment_type: string; position: string; start_date: string }
 type WorkPolicyOption = { id: string; name: string; active: boolean }
 type CreateEmployeeError = StandardErrorPayload & { request_id?: string }
 type CreateEmployeeErrorCode =
@@ -167,7 +197,7 @@ const emptyEmployment: EmploymentForm = {
 }
 const employmentLabels:Record<string,string>={daily:'รายวัน',monthly:'รายเดือน',temporary:'ชั่วคราว',contractor:'ผู้รับเหมา'}
 const intakeDocumentLabels: Record<string, string> = {
-  thai_national_id: 'บัตรประชาชน', house_registration: 'ทะเบียนบ้าน',
+  thai_national_id: 'บัตรประชาชน', driving_license: 'ใบขับขี่', house_registration: 'ทะเบียนบ้าน',
   education_certificate: 'วุฒิการศึกษา', bank_evidence: 'หลักฐานบัญชีธนาคาร',
   portrait: 'รูปถ่าย', other: 'เอกสารอื่น', unknown: 'รอระบุประเภท',
 }
@@ -323,13 +353,61 @@ export function EmployeePage() {
   const { user, profile, refreshProfile, currentCompany, signOut } = useAuth()
   const [searchParams,setSearchParams]=useSearchParams()
   const [employeeListFilter, setEmployeeListFilter]=useState<'active'|'resigned'|'all'>('active')
+  const [employeeFilterAnchor, setEmployeeFilterAnchor] = useState<HTMLElement | null>(null)
+  const employeeTableToolsRef = useRef<StandardDataTableTools | null>(null)
+  const employeeSearchActionsRef = useRef<{ toggle: () => void } | null>(null)
   const canManage = profile?.role === 'admin'
     || profile?.role === 'manager'
     || ['company_admin', 'executive', 'manager', 'site_supervisor'].includes(currentCompany?.company_role ?? '')
   const canDeleteEmployee = profile?.role === 'admin' || ['company_admin', 'executive'].includes(currentCompany?.company_role ?? '')
+  const canManageSensitiveBank = profile?.role === 'admin' || ['company_admin', 'executive', 'accounting_hr'].includes(currentCompany?.company_role ?? '')
   const canCreate = canManage
   const [employees, setEmployees] = useState<Employee[]>([])
   const [intakeEmployeePeople, setIntakeEmployeePeople] = useState<EmployeeIntakeMaster[]>([])
+  const [employeeDocumentsByProfile, setEmployeeDocumentsByProfile] = useState<Record<string, EmployeePersonDocument[]>>({})
+  const [employeeLineAccountsByProfile, setEmployeeLineAccountsByProfile] = useState<Record<string, EmployeeLineAccount[]>>({})
+  const [employeeLineCandidates, setEmployeeLineCandidates] = useState<EmployeeLineCandidate[]>([])
+  const [lineLinkEmployee, setLineLinkEmployee] = useState<Employee | null>(null)
+  const [lineLinkCandidateId, setLineLinkCandidateId] = useState('')
+  const [lineLinkReason, setLineLinkReason] = useState('ยืนยันโดย Admin จากประวัติชื่อและการสนทนา LINE')
+  const [lineLinkPrimary, setLineLinkPrimary] = useState(false)
+  const [lineLinkSaving, setLineLinkSaving] = useState(false)
+  const [phoneEmployee, setPhoneEmployee] = useState<Employee | null>(null)
+  const [phoneValue, setPhoneValue] = useState('')
+  const [phoneSaving, setPhoneSaving] = useState(false)
+  const [bankEmployee, setBankEmployee] = useState<Employee | null>(null)
+  const [bankTarget, setBankTarget] = useState<EmployeeBankAccount | null>(null)
+  const [bankName, setBankName] = useState('')
+  const [bankFullNumber, setBankFullNumber] = useState('')
+  const [bankPrimary, setBankPrimary] = useState(true)
+  const [bankReason, setBankReason] = useState('Admin ตรวจสอบจากเอกสารต้นฉบับและเจ้าของบัญชีแล้ว')
+  const [bankSaving, setBankSaving] = useState(false)
+  const [bankEntryMode, setBankEntryMode] = useState<'candidate' | 'manual'>('candidate')
+  const [bankCandidates, setBankCandidates] = useState<EmployeeBankCandidate[]>([])
+  const [bankCandidateId, setBankCandidateId] = useState('')
+  const [bankCandidatesLoading, setBankCandidatesLoading] = useState(false)
+  const [bankLast4Search, setBankLast4Search] = useState('')
+  const [bankRevealTarget, setBankRevealTarget] = useState<EmployeeBankAccount | null>(null)
+  const [bankRevealReason, setBankRevealReason] = useState('ใช้ตรวจสอบหรือจัดทำรายการจ่ายให้พนักงาน')
+  const [bankRevealing, setBankRevealing] = useState(false)
+  const [revealedBankNumbers, setRevealedBankNumbers] = useState<Record<string, string>>({})
+  const [employeeBankAccountsByProfile, setEmployeeBankAccountsByProfile] = useState<Record<string, EmployeeBankAccount[]>>({})
+  const [employeeContactsByProfile, setEmployeeContactsByProfile] = useState<Record<string, EmployeeContact>>({})
+  const [employeeDrawerTab, setEmployeeDrawerTab] = useState(0)
+  const [employeeDocumentPreview, setEmployeeDocumentPreview] = useState<EmployeeDocumentAccess | null>(null)
+  const [employeeDocumentPreviewUrl, setEmployeeDocumentPreviewUrl] = useState('')
+  const [employeeDocumentPreviewError, setEmployeeDocumentPreviewError] = useState('')
+  const [employeeDocumentBusy, setEmployeeDocumentBusy] = useState('')
+  const [employeeSiteOptions, setEmployeeSiteOptions] = useState<EmployeeSiteOption[]>([])
+  const [employeeSiteAssignments, setEmployeeSiteAssignments] = useState<EmployeeSiteAssignment[]>([])
+  const [drawerSiteId, setDrawerSiteId] = useState('')
+  const [drawerSiteStartsOn, setDrawerSiteStartsOn] = useState(new Date().toISOString().slice(0, 10))
+  const [drawerSitePrimary, setDrawerSitePrimary] = useState('yes')
+  const [drawerSiteSaving, setDrawerSiteSaving] = useState(false)
+  const [intakeDraftPerson, setIntakeDraftPerson] = useState<EmployeeIntakeMaster | null>(null)
+  const [intakeDraft, setIntakeDraft] = useState<IntakeEmployeeDraft>({ full_name: '', phone: '', employment_type: 'unknown', position: '', start_date: '' })
+  const [intakeDraftSaving, setIntakeDraftSaving] = useState(false)
+  const [preboardingAccountPerson, setPreboardingAccountPerson] = useState<EmployeeIntakeMaster | null>(null)
   const [names, setNames] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState('')
@@ -504,20 +582,41 @@ export function EmployeePage() {
 
     const intakePeopleQuery = !currentCompany?.company_id
       ? Promise.resolve({ data: [], error: null })
-      : supabase.from('employee_people').select('id,source_intake_id,employee_code,full_name,employment_type,employee_status,created_at').eq('company_id', currentCompany.company_id).order('created_at', { ascending: false }).limit(500)
+      : supabase.from('employee_people').select('id,source_intake_id,employee_code,full_name,phone,employment_type,position,start_date,employee_status,created_at').eq('company_id', currentCompany.company_id).eq('employee_status','preboarding').is('profile_id', null).order('created_at', { ascending: false }).limit(500)
     const intakePersonDocumentsQuery = !currentCompany?.company_id
       ? Promise.resolve({ data: [], error: null })
-      : supabase.from('employee_person_documents').select('id,employee_person_id,document_type,link_status').eq('company_id', currentCompany.company_id).order('created_at')
-    const [profileResult,employmentResult,assignmentResult,readinessResult,membershipResult,intakePeopleResult,intakePersonDocumentsResult]=await Promise.all([
+      : supabase.from('employee_person_documents').select('id,employee_person_id,source_intake_document_id,document_type,link_status,source_channel,mime_type,linked_at').eq('company_id', currentCompany.company_id).order('created_at')
+    const employeePersonProfilesQuery = !currentCompany?.company_id
+      ? Promise.resolve({ data: [], error: null })
+      : supabase.from('employee_people').select('id,profile_id,phone').eq('company_id', currentCompany.company_id).not('profile_id', 'is', null).limit(1000)
+    const employeeIntakesQuery = !currentCompany?.company_id
+      ? Promise.resolve({ data: [], error: null })
+      : supabase.from('employee_intakes').select('id,status,missing_fields').eq('company_id', currentCompany.company_id).limit(500)
+    const lineAccountsQuery = !currentCompany?.company_id
+      ? Promise.resolve({ data: [], error: null })
+      : supabase.from('employee_line_accounts').select('id,profile_id,line_user_id,verified_at,active,is_primary,account_label,line_senders(display_name)').eq('company_id', currentCompany.company_id).order('is_primary', { ascending: false }).order('verified_at', { ascending: false })
+    const bankAccountsQuery = !currentCompany?.company_id
+      ? Promise.resolve({ data: [], error: null })
+      : supabase.from('master_bank_accounts').select('id,profile_id,employee_person_id,bank_name,account_last4,verification_status,verified_at,secure_number_available,is_primary').eq('company_id', currentCompany.company_id).neq('verification_status', 'archived').order('is_primary', { ascending: false }).order('updated_at', { ascending: false })
+    const lineCandidatesQuery = !currentCompany?.company_id || !canManage
+      ? Promise.resolve({ data: [], error: null })
+      : supabase.from('line_senders').select('line_user_id,display_name,picture_url,profile_id,updated_at').eq('company_id', currentCompany.company_id).order('updated_at', { ascending: false }).limit(500)
+    const [profileResult,employmentResult,assignmentResult,readinessResult,membershipResult,intakePeopleResult,intakePersonDocumentsResult,employeeIntakesResult,employeePersonProfilesResult,siteResult,lineAccountsResult,bankAccountsResult,lineCandidatesResult]=await Promise.all([
       query,
       supabase.from('employee_employment_records').select('profile_id,employee_code,employment_type,job_title,department,employment_status,attendance_policy,work_policy_id').eq('company_id',currentCompany?.company_id ?? ''),
-      supabase.from('employee_site_assignments').select('profile_id').eq('company_id',currentCompany?.company_id ?? '').eq('active',true),
+      supabase.from('employee_site_assignments').select('id,profile_id,site_id,starts_on,ends_on,is_primary,project_sites(name,projects(name))').eq('company_id',currentCompany?.company_id ?? '').eq('active',true),
       supabase.from('employee_onboarding_readiness').select('profile_id,has_work_policy,ready_to_clock').eq('company_id',currentCompany?.company_id ?? ''),
       membershipQuery,
       intakePeopleQuery,
       intakePersonDocumentsQuery,
+      employeeIntakesQuery,
+      employeePersonProfilesQuery,
+      supabase.from('project_sites').select('id,name,work_policy_id,projects(name)').eq('company_id',currentCompany?.company_id ?? '').eq('active',true).order('name'),
+      lineAccountsQuery,
+      bankAccountsQuery,
+      lineCandidatesQuery,
     ])
-    if (profileResult.error||employmentResult.error||assignmentResult.error||readinessResult.error||membershipResult.error||intakePeopleResult.error||intakePersonDocumentsResult.error) {
+    if (profileResult.error||employmentResult.error||assignmentResult.error||readinessResult.error||membershipResult.error||intakePeopleResult.error||intakePersonDocumentsResult.error||employeeIntakesResult.error||employeePersonProfilesResult.error||siteResult.error||lineAccountsResult.error||bankAccountsResult.error||lineCandidatesResult.error) {
       setErrorMessage(profileResult.error
         ? userError(profileResult.error)
         : employmentResult.error
@@ -532,6 +631,18 @@ export function EmployeePage() {
                 ? userError(intakePeopleResult.error)
                 : intakePersonDocumentsResult.error
                   ? userError(intakePersonDocumentsResult.error)
+                : employeeIntakesResult.error
+                  ? userError(employeeIntakesResult.error)
+                : employeePersonProfilesResult.error
+                  ? userError(employeePersonProfilesResult.error)
+                : siteResult.error
+                  ? userError(siteResult.error)
+                : lineAccountsResult.error
+                  ? userError(lineAccountsResult.error)
+                : bankAccountsResult.error
+                  ? userError(bankAccountsResult.error)
+                : lineCandidatesResult.error
+                  ? userError(lineCandidatesResult.error)
               : 'โหลดข้อมูลพนักงานไม่สำเร็จ')
     } else {
       const employmentMap=new Map((employmentResult.data??[]).map(row=>[row.profile_id,row]))
@@ -554,6 +665,8 @@ export function EmployeePage() {
         site_count: siteCounts.get(row.id) ?? 0,
       })) as Employee[]
       setEmployees(rows)
+      setEmployeeSiteAssignments((assignmentResult.data ?? []) as unknown as EmployeeSiteAssignment[])
+      setEmployeeSiteOptions((siteResult.data ?? []) as unknown as EmployeeSiteOption[])
       setNames(Object.fromEntries(rows.map((employee) => [employee.id, employee.full_name ?? ''])))
       const documentsByPerson = new Map<string, EmployeeIntakeMaster['documents']>()
       for (const document of intakePersonDocumentsResult.data ?? []) {
@@ -561,13 +674,341 @@ export function EmployeePage() {
         current.push(document)
         documentsByPerson.set(document.employee_person_id, current)
       }
+      const profileByPerson = new Map((employeePersonProfilesResult.data ?? []).map((person) => [person.id, person.profile_id]))
+      const documentsByProfile = new Map<string, EmployeePersonDocument[]>()
+      for (const document of intakePersonDocumentsResult.data ?? []) {
+        const profileId = profileByPerson.get(document.employee_person_id)
+        if (!profileId) continue
+        const current = documentsByProfile.get(profileId) ?? []
+        current.push(document)
+        documentsByProfile.set(profileId, current)
+      }
+      setEmployeeDocumentsByProfile(Object.fromEntries(documentsByProfile))
+      const contactByProfile: Record<string, EmployeeContact> = {}
+      for (const person of employeePersonProfilesResult.data ?? []) {
+        if (person.profile_id) contactByProfile[person.profile_id] = { employee_person_id: person.id, phone: person.phone }
+      }
+      setEmployeeContactsByProfile(contactByProfile)
+      const lineByProfile = new Map<string, EmployeeLineAccount[]>()
+      for (const account of (lineAccountsResult.data ?? []) as unknown as EmployeeLineAccount[]) {
+        const current = lineByProfile.get(account.profile_id) ?? []
+        current.push(account)
+        lineByProfile.set(account.profile_id, current)
+      }
+      setEmployeeLineAccountsByProfile(Object.fromEntries(lineByProfile))
+      setEmployeeLineCandidates((lineCandidatesResult.data ?? []) as EmployeeLineCandidate[])
+      const profileByPersonId = new Map((employeePersonProfilesResult.data ?? []).map((person) => [person.id, person.profile_id]))
+      const bankByProfile = new Map<string, EmployeeBankAccount[]>()
+      for (const account of (bankAccountsResult.data ?? []) as EmployeeBankAccount[]) {
+        const profileId = account.profile_id ?? (account.employee_person_id ? profileByPersonId.get(account.employee_person_id) : null)
+        if (!profileId) continue
+        const current = bankByProfile.get(profileId) ?? []
+        current.push(account)
+        bankByProfile.set(profileId, current)
+      }
+      setEmployeeBankAccountsByProfile(Object.fromEntries(bankByProfile))
+      const intakeById = new Map((employeeIntakesResult.data ?? []).map((intake) => [intake.id, intake]))
       setIntakeEmployeePeople((intakePeopleResult.data ?? []).map((person) => ({
         ...person,
+        intake_status: person.source_intake_id ? intakeById.get(person.source_intake_id)?.status ?? null : null,
+        missing_fields: person.source_intake_id ? intakeById.get(person.source_intake_id)?.missing_fields ?? [] : [],
         documents: documentsByPerson.get(person.id) ?? [],
       })))
     }
     setLoading(false)
   }, [canManage, currentCompany, user])
+
+  const openLineLink = (employee: Employee) => {
+    const existing = employeeLineAccountsByProfile[employee.id]?.some((account) => account.active)
+    setLineLinkEmployee(employee)
+    setLineLinkCandidateId('')
+    setLineLinkReason('ยืนยันโดย Admin จากประวัติชื่อและการสนทนา LINE')
+    setLineLinkPrimary(!existing)
+  }
+
+  const saveLineLink = async () => {
+    if (!lineLinkEmployee || !lineLinkCandidateId || lineLinkReason.trim().length < 3) return
+    const candidate = employeeLineCandidates.find((item) => item.line_user_id === lineLinkCandidateId)
+    if (!candidate) {
+      setErrorMessage('ไม่พบ LINE Candidate ที่เลือก กรุณารีเฟรชข้อมูลแล้วลองใหม่')
+      return
+    }
+    if (candidate.profile_id && candidate.profile_id !== lineLinkEmployee.id) {
+      setErrorMessage('LINE Candidate นี้มี Profile เจ้าของอยู่แล้ว กรุณาตรวจสอบพนักงานคนนั้นก่อนเปลี่ยนการผูก')
+      return
+    }
+    setLineLinkSaving(true)
+    setErrorMessage('')
+    try {
+      const { data, error } = await supabase.rpc('admin_add_employee_line_account', {
+        target_profile_id: lineLinkEmployee.id,
+        target_line_user_id: lineLinkCandidateId,
+        make_primary: lineLinkPrimary,
+        link_reason: lineLinkReason.trim(),
+      })
+      if (error) throw error
+      await loadEmployees()
+      setLineLinkEmployee(null)
+      setMessage(data?.status === 'already_linked'
+        ? 'บัญชี LINE นี้ผูกกับพนักงานอยู่แล้ว ไม่มีการสร้างข้อมูลซ้ำ'
+        : `ผูก LINE ${candidate.display_name || lineLinkCandidateId.slice(-8)} กับ ${lineLinkEmployee.full_name || lineLinkEmployee.email} สำเร็จ และบันทึก Audit แล้ว`)
+    } catch (error) {
+      const friendly = toFriendlyError({ error, module: 'employee_line_link', fallback: 'ผูกบัญชี LINE ไม่สำเร็จ' })
+      setErrorMessage(`${userError(friendly)}\nแนวทางแก้: ${friendly.action}`)
+    } finally {
+      setLineLinkSaving(false)
+    }
+  }
+
+  const unlinkLineAccount = async (employee: Employee, account: EmployeeLineAccount) => {
+    const reason = window.prompt('ระบุเหตุผลที่ยกเลิกการผูก LINE (อย่างน้อย 3 ตัวอักษร)')?.trim() ?? ''
+    if (reason.length < 3) return
+    setLineLinkSaving(true)
+    setErrorMessage('')
+    try {
+      const { error } = await supabase.rpc('admin_unlink_employee_line_identity', {
+        target_profile_id: employee.id,
+        target_line_user_id: account.line_user_id,
+        unlink_reason: reason,
+      })
+      if (error) throw error
+      await loadEmployees()
+      setMessage(`ยกเลิก LINE ${account.line_senders?.display_name || account.line_user_id.slice(-8)} ของ ${employee.full_name || employee.email} แล้ว และเก็บ Audit ไว้`)
+    } catch (error) {
+      const friendly = toFriendlyError({ error, module: 'employee_line_unlink', fallback: 'ยกเลิกการผูก LINE ไม่สำเร็จ' })
+      setErrorMessage(`${userError(friendly)}\nแนวทางแก้: ${friendly.action}`)
+    } finally {
+      setLineLinkSaving(false)
+    }
+  }
+
+  const openPhoneEditor = (employee: Employee, phone: string | null | undefined) => {
+    setPhoneEmployee(employee)
+    setPhoneValue(phone ?? '')
+  }
+
+  const saveEmployeePhone = async () => {
+    if (!phoneEmployee) return
+    const normalizedPhone = phoneValue.replace(/\s+/g, '').trim()
+    if (normalizedPhone && !/^\+?[0-9-]{8,20}$/.test(normalizedPhone)) {
+      setErrorMessage('เบอร์โทรต้องมี 8–20 หลัก ใช้ได้เฉพาะตัวเลข เครื่องหมาย + และ -')
+      return
+    }
+    setPhoneSaving(true)
+    setErrorMessage('')
+    try {
+      const { data, error } = await supabase.rpc('admin_update_employee_phone', {
+        target_profile_id: phoneEmployee.id,
+        next_phone: normalizedPhone || null,
+        change_reason: normalizedPhone ? 'Admin เพิ่มหรือแก้ไขเบอร์โทรจาก Employee Drawer' : 'Admin ลบเบอร์โทรจาก Employee Drawer',
+      })
+      if (error) throw error
+      await loadEmployees()
+      setPhoneEmployee(null)
+      setMessage(data?.status === 'unchanged' ? 'เบอร์โทรเป็นข้อมูลเดิม ไม่มีการบันทึกซ้ำ' : 'บันทึกเบอร์โทรและ Audit เรียบร้อยแล้ว')
+    } catch (error) {
+      const friendly = toFriendlyError({ error, module: 'employee_phone_update', fallback: 'บันทึกเบอร์โทรไม่สำเร็จ' })
+      setErrorMessage(`${userError(friendly)}\nแนวทางแก้: ${friendly.action}`)
+    } finally {
+      setPhoneSaving(false)
+    }
+  }
+
+  const openBankEditor = async (employee: Employee, account?: EmployeeBankAccount) => {
+    setBankEmployee(employee)
+    setBankTarget(account ?? null)
+    setBankName(account?.bank_name ?? '')
+    setBankFullNumber('')
+    setBankPrimary(account?.is_primary ?? true)
+    setBankReason('Admin ตรวจสอบจากเอกสารต้นฉบับและเจ้าของบัญชีแล้ว')
+    setBankCandidates([])
+    setBankCandidateId('')
+    setBankLast4Search('')
+    setBankEntryMode(account ? 'manual' : 'candidate')
+    if (!account) {
+      setBankCandidatesLoading(true)
+      const { data, error } = await supabase.rpc('list_employee_bank_account_candidates', { target_profile_id: employee.id })
+      setBankCandidatesLoading(false)
+      if (error) {
+        const friendly = toFriendlyError({ error, module: 'employee_bank_candidates', fallback: 'ค้นหาบัญชีเดิมไม่สำเร็จ' })
+        setErrorMessage(`${userError(friendly)}\nแนวทางแก้: ${friendly.action}`)
+        setBankEntryMode('manual')
+        return
+      }
+      const candidates = (data ?? []) as EmployeeBankCandidate[]
+      setBankCandidates(candidates)
+      const available = candidates.find((candidate) => candidate.link_status === 'available')
+      if (available) setBankCandidateId(available.id)
+      else setBankEntryMode('manual')
+    }
+  }
+
+  const searchBankCandidatesByLast4 = async () => {
+    if (!bankEmployee || !/^\d{4}$/.test(bankLast4Search)) return
+    setBankCandidatesLoading(true)
+    setErrorMessage('')
+    try {
+      const { data, error } = await supabase.rpc('search_employee_bank_account_candidates', {
+        target_profile_id: bankEmployee.id,
+        target_account_last4: bankLast4Search,
+      })
+      if (error) throw error
+      const candidates = (data ?? []) as EmployeeBankCandidate[]
+      setBankCandidates(candidates)
+      setBankCandidateId(candidates.find((candidate) => candidate.source_kind === 'master_registry' && candidate.link_status === 'available')?.id ?? '')
+      setBankEntryMode('candidate')
+    } catch (error) {
+      const friendly = toFriendlyError({ error, module: 'employee_bank_candidate_last4_search', fallback: 'ค้นหาบัญชีจากเลขท้ายไม่สำเร็จ' })
+      setErrorMessage(`${userError(friendly)}\nแนวทางแก้: ${friendly.action}`)
+    } finally { setBankCandidatesLoading(false) }
+  }
+
+  const linkEmployeeBankCandidate = async () => {
+    if (!bankEmployee || !bankCandidateId || bankReason.trim().length < 3) return
+    setBankSaving(true)
+    setErrorMessage('')
+    try {
+      const { data, error } = await supabase.rpc('admin_link_employee_bank_account_candidate', {
+        target_profile_id: bankEmployee.id, target_bank_account_id: bankCandidateId,
+        make_primary: bankPrimary, link_reason: bankReason.trim(),
+      })
+      if (error) throw error
+      await loadEmployees()
+      setBankEmployee(null)
+      setMessage(data?.status === 'unchanged' ? 'บัญชีนี้ผูกอยู่แล้ว ไม่มีการบันทึกซ้ำ' : data?.secure_number_available ? 'ผูกบัญชีเดิมและ Audit เรียบร้อย พร้อมใช้จ่าย' : 'ผูกบัญชีเดิมและ Audit แล้ว กรุณาเติมเลขบัญชีเต็มก่อนใช้จ่าย')
+    } catch (error) {
+      const friendly = toFriendlyError({ error, module: 'employee_bank_candidate_link', fallback: 'ผูกบัญชีเดิมไม่สำเร็จ' })
+      setErrorMessage(`${userError(friendly)}\nแนวทางแก้: ${friendly.action}`)
+    } finally { setBankSaving(false) }
+  }
+
+  const saveEmployeeBankAccount = async () => {
+    if (!bankEmployee) return
+    const normalized = bankFullNumber.replace(/[^0-9]/g, '')
+    if (!/^[0-9]{8,20}$/.test(normalized)) { setErrorMessage('เลขบัญชีต้องมีตัวเลข 8–20 หลัก'); return }
+    if (bankName.trim().length < 2) { setErrorMessage('กรุณาระบุธนาคาร'); return }
+    setBankSaving(true)
+    setErrorMessage('')
+    try {
+      const { data, error } = await supabase.rpc('admin_upsert_employee_bank_account', {
+        target_profile_id: bankEmployee.id,
+        target_bank_account_id: bankTarget?.id ?? null,
+        target_bank_name: bankName.trim(),
+        full_account_number: normalized,
+        make_primary: bankPrimary,
+        change_reason: bankReason.trim(),
+      })
+      if (error) throw error
+      await loadEmployees()
+      setBankEmployee(null)
+      setMessage(data?.status === 'unchanged' ? 'ข้อมูลบัญชีเป็นข้อมูลเดิม ไม่มีการบันทึกซ้ำ' : 'บันทึกบัญชีแบบเข้ารหัสและ Audit เรียบร้อยแล้ว')
+    } catch (error) {
+      const friendly = toFriendlyError({ error, module: 'employee_bank_account', fallback: 'บันทึกบัญชีธนาคารไม่สำเร็จ' })
+      setErrorMessage(`${userError(friendly)}\nแนวทางแก้: ${friendly.action}`)
+    } finally { setBankSaving(false) }
+  }
+
+  const revealEmployeeBankAccount = async () => {
+    if (!bankRevealTarget || bankRevealReason.trim().length < 3) return
+    setBankRevealing(true)
+    setErrorMessage('')
+    try {
+      const { data, error } = await supabase.rpc('reveal_employee_bank_account_number', {
+        target_bank_account_id: bankRevealTarget.id,
+        access_reason: bankRevealReason.trim(),
+      })
+      if (error) throw error
+      const fullNumber = String(data?.full_account_number ?? '')
+      setRevealedBankNumbers((current) => ({ ...current, [bankRevealTarget.id]: fullNumber }))
+      const revealedId = bankRevealTarget.id
+      window.setTimeout(() => setRevealedBankNumbers((current) => { const next = { ...current }; delete next[revealedId]; return next }), 60_000)
+      setBankRevealTarget(null)
+      setMessage('เปิดเลขบัญชีเต็มแล้ว ระบบจะซ่อนอัตโนมัติภายใน 60 วินาทีและบันทึก Audit แล้ว')
+    } catch (error) {
+      const friendly = toFriendlyError({ error, module: 'employee_bank_reveal', fallback: 'เปิดดูเลขบัญชีเต็มไม่สำเร็จ' })
+      setErrorMessage(`${userError(friendly)}\nแนวทางแก้: ${friendly.action}`)
+    } finally { setBankRevealing(false) }
+  }
+
+  const assignSiteFromDrawer = async () => {
+    if (!employeeDrawer || !drawerSiteId) return
+    const duplicate = employeeSiteAssignments.some((assignment) => assignment.profile_id === employeeDrawer.id && assignment.site_id === drawerSiteId)
+    if (duplicate) {
+      setErrorMessage('พนักงานถูกมอบหมายเข้าไซต์นี้อยู่แล้ว กรุณาเลือกไซต์อื่นหรือจัดการประวัติเดิมที่หน้ากำหนดเวลางานและรอบจ่าย')
+      return
+    }
+    setDrawerSiteSaving(true)
+    setErrorMessage('')
+    try {
+      const selectedSite = employeeSiteOptions.find((site) => site.id === drawerSiteId)
+      const { error } = await supabase.rpc('assign_employee_site', {
+        target_profile_id: employeeDrawer.id,
+        target_site_id: drawerSiteId,
+        target_starts_on: drawerSiteStartsOn,
+        target_ends_on: null,
+        target_work_policy_id: selectedSite?.work_policy_id ?? null,
+        target_is_primary: drawerSitePrimary === 'yes',
+      })
+      if (error) throw error
+      await loadEmployees()
+      setMessage(`มอบหมายไซต์ ${selectedSite?.name ?? ''} ให้ ${employeeDrawer.full_name ?? 'พนักงาน'} สำเร็จ และบันทึก Audit แล้ว`)
+      setDrawerSiteId('')
+      setEmployeeDrawer((current) => current ? { ...current, site_count: (current.site_count ?? 0) + 1 } : current)
+    } catch (error) {
+      const friendly = toFriendlyError({ error, module: 'employee_site_assignment', fallback: 'มอบหมายไซต์งานไม่สำเร็จ' })
+      setErrorMessage(`${userError(friendly)}\nแนวทางแก้: ${friendly.action}`)
+    } finally {
+      setDrawerSiteSaving(false)
+    }
+  }
+
+  const openEmployeeDrawer = (employee: Employee) => {
+    setDrawerSiteId('')
+    setDrawerSiteStartsOn(new Date().toISOString().slice(0, 10))
+    setDrawerSitePrimary('yes')
+    setEmployeeDrawerTab(0)
+    setEmployeeDrawer(employee)
+  }
+
+  const requestEmployeeDocumentAccess = async (document: EmployeePersonDocument, action: 'preview' | 'download') => {
+    const busyKey = `${document.id}:${action}`
+    setEmployeeDocumentBusy(busyKey)
+    if (action === 'preview') {
+      setEmployeeDocumentPreview({ ...document, storage_bucket: '', storage_path: '' })
+      setEmployeeDocumentPreviewUrl('')
+      setEmployeeDocumentPreviewError('')
+    }
+    try {
+      const { data, error } = await supabase.rpc('request_employee_document_access', {
+        target_document_id: document.id,
+        target_action: action,
+      })
+      if (error) throw error
+      const access = (Array.isArray(data) ? data[0] : data) as EmployeeDocumentAccess | null
+      if (!access?.storage_bucket || !access.storage_path) throw new Error('employee_document_storage_reference_missing')
+      const signedResult = action === 'download'
+        ? await supabase.storage.from(access.storage_bucket).createSignedUrl(access.storage_path, 600, { download: true })
+        : await supabase.storage.from(access.storage_bucket).createSignedUrl(access.storage_path, 600)
+      if (signedResult.error || !signedResult.data?.signedUrl) throw signedResult.error ?? new Error('employee_document_signed_url_missing')
+      if (action === 'preview') {
+        setEmployeeDocumentPreview(access)
+        setEmployeeDocumentPreviewUrl(signedResult.data.signedUrl)
+      } else {
+        const anchor = window.document.createElement('a')
+        anchor.href = signedResult.data.signedUrl
+        anchor.target = '_blank'
+        anchor.rel = 'noopener noreferrer'
+        anchor.click()
+      }
+    } catch (error) {
+      const friendly = toFriendlyError({ error, module: 'employee_document_access', fallback: 'เปิดเอกสารพนักงานไม่สำเร็จ' })
+      const detail = `${userError(friendly)} แนวทางแก้: ${friendly.action}`
+      if (action === 'preview') setEmployeeDocumentPreviewError(detail)
+      else setErrorMessage(detail)
+    } finally {
+      setEmployeeDocumentBusy('')
+    }
+  }
 
   const refreshWithProfile = useCallback(async () => {
     if (syncBusyRef.current) return
@@ -582,6 +1023,36 @@ export function EmployeePage() {
       syncBusyRef.current = false
     }
   }, [refreshProfile, loadEmployees])
+
+  const openIntakeDraft = (person: EmployeeIntakeMaster) => {
+    setIntakeDraftPerson(person)
+    setIntakeDraft({ full_name: person.full_name ?? '', phone: person.phone ?? '', employment_type: person.employment_type ?? 'unknown', position: person.position ?? '', start_date: person.start_date ?? '' })
+    setErrorMessage('')
+  }
+
+  const saveIntakeDraft = async (approveAfterSave = false) => {
+    if (!intakeDraftPerson?.source_intake_id) { setErrorMessage('รายการนี้ไม่มี Intake อ้างอิง จึงยังอัปเดตผ่านกระบวนการกลางไม่ได้'); return }
+    if (!intakeDraft.full_name.trim()) { setErrorMessage('กรุณาระบุชื่อพนักงาน'); return }
+    setIntakeDraftSaving(true); setErrorMessage('')
+    try {
+      const result = await documentFlowGateway.reviewEmployeeIntake({ intakeId: intakeDraftPerson.source_intake_id, action: 'update_preboarding', draft: { ...intakeDraft, full_name: intakeDraft.full_name.trim(), phone: intakeDraft.phone.trim(), position: intakeDraft.position.trim() } })
+      if (result.error || result.data?.ok === false) { const parsed = await parseFunctionError(result.error ?? result.data); throw parsed.payload ?? result.error ?? new Error('บันทึกข้อมูลก่อนเริ่มงานไม่สำเร็จ') }
+      const remaining = Array.isArray(result.data?.remaining_fields) ? result.data.remaining_fields : []
+      const labels: Record<string,string> = { phone: 'เบอร์โทร', employment_type: 'ประเภทการจ้าง', position: 'ตำแหน่ง', start_date: 'วันที่เริ่มงาน' }
+      if (approveAfterSave) {
+        if (remaining.length > 0) throw new Error(`ข้อมูลยังไม่ครบ: ${remaining.map((field: string) => labels[field] ?? field).join(', ')}`)
+        const approval = await documentFlowGateway.reviewEmployeeIntake({ intakeId: intakeDraftPerson.source_intake_id, action: 'approve' })
+        if (approval.error || approval.data?.ok === false) { const parsed = await parseFunctionError(approval.error ?? approval.data); throw parsed.payload ?? approval.error ?? new Error('อนุมัติส่งเข้า Onboarding ไม่สำเร็จ') }
+        setMessage('บันทึกและยืนยันข้อมูลครบแล้ว · ส่งเข้าสู่ Onboarding สำเร็จ โดยยังไม่เปิด Login ลงเวลา หรือค่าแรง')
+      } else {
+        setMessage(remaining.length === 0 ? 'บันทึกแล้ว · ข้อมูลครบ พร้อมให้ Admin ยืนยันขั้นสุดท้าย' : `บันทึกร่างแล้ว · ยังขาด ${remaining.map((field: string) => labels[field] ?? field).join(', ')}`)
+      }
+      setIntakeDraftPerson(null); await loadEmployees()
+    } catch (error) {
+      const friendly = toFriendlyError({ error, module: 'employee_preboarding', fallback: 'บันทึกข้อมูลก่อนเริ่มงานไม่สำเร็จ' })
+      setErrorMessage(`${friendly.message} · แนวทาง: ${friendly.action}`)
+    } finally { setIntakeDraftSaving(false) }
+  }
 
   const navigate = useNavigate()
   const copyText = async (text: string, fallbackMessage: string) => {
@@ -781,7 +1252,10 @@ export function EmployeePage() {
     }
     setCreateEmployeeAttempt(attemptRecord)
     try {
-      const result = await invokeHrMutation<CreateEmployeeSuccess | CreateEmployeeError>('create-employee', newEmployee)
+      const result = await invokeHrMutation<CreateEmployeeSuccess | CreateEmployeeError>('create-employee', {
+        ...newEmployee,
+        sourceEmployeePersonId: preboardingAccountPerson?.id,
+      })
       console.log('[create-employee] result', result)
       if (result.error || ('error' in (result.data ?? {}))) {
         const serverDataError = result.data && 'error' in result.data
@@ -827,6 +1301,7 @@ export function EmployeePage() {
         if (committed) {
           setMessage(`เพิ่มพนักงาน ${newEmployee.fullName} สำเร็จ กรุณาส่งอีเมลและรหัสผ่านชั่วคราวให้พนักงานด้วยช่องทางส่วนตัว`)
           setCreateOpen(false)
+          setPreboardingAccountPerson(null)
           setNewEmployee({ fullName: '', email: '', password: '', role: 'employee' })
           setDryRunResult(null)
           setDryRunResultError('')
@@ -849,6 +1324,7 @@ export function EmployeePage() {
       } else {
         setMessage(`สร้างบัญชี ${newEmployee.fullName} สำเร็จ กรุณาส่งอีเมลและรหัสผ่านชั่วคราวให้พนักงานด้วยช่องทางส่วนตัว`)
         setCreateOpen(false)
+        setPreboardingAccountPerson(null)
         setNewEmployee({ fullName: '', email: '', password: '', role: 'employee' })
         setCreateEmployeeAction('')
         setCreateEmployeeErrorCode('')
@@ -871,6 +1347,7 @@ export function EmployeePage() {
       if (committed) {
         setMessage(`เพิ่มพนักงาน ${newEmployee.fullName} สำเร็จ กรุณาส่งอีเมลและรหัสผ่านชั่วคราวให้พนักงานด้วยช่องทางส่วนตัว`)
         setCreateOpen(false)
+        setPreboardingAccountPerson(null)
         setNewEmployee({ fullName: '', email: '', password: '', role: 'employee' })
         setDryRunResult(null)
         setDryRunResultError('')
@@ -988,7 +1465,11 @@ export function EmployeePage() {
       return
     }
     try {
-      const result = await invokeHrMutation<CreateEmployeeDryRunSuccess | CreateEmployeeSuccess>('create-employee', { ...newEmployee, dryRun: true })
+      const result = await invokeHrMutation<CreateEmployeeDryRunSuccess | CreateEmployeeSuccess>('create-employee', {
+        ...newEmployee,
+        dryRun: true,
+        sourceEmployeePersonId: preboardingAccountPerson?.id,
+      })
       if (result.error || ('error' in (result.data ?? {}))) {
         const serverDataError = result.data && 'error' in result.data
           ? toStandardErrorPayload(result.data)
@@ -1650,6 +2131,11 @@ export function EmployeePage() {
   const activeUserCount = new Set(activityLogs.map((log) =>
     log.profiles?.email || log.profiles?.full_name).filter(Boolean)).size
   const pendingCorrectionSessionIds = new Set(correctionRequests.map((request) => request.session_id))
+  const drawerSiteAssignments = employeeDrawer
+    ? employeeSiteAssignments.filter((assignment) => assignment.profile_id === employeeDrawer.id)
+    : []
+  const drawerAssignedSiteIds = new Set(drawerSiteAssignments.map((assignment) => assignment.site_id))
+  const drawerAvailableSiteOptions = employeeSiteOptions.filter((site) => !drawerAssignedSiteIds.has(site.id))
 
   const exportActivityCsv = () => {
     const headers = ['วันเวลา', 'พนักงาน', 'เหตุการณ์', 'ระดับ', 'หน้า', 'อุปกรณ์', 'รายละเอียด']
@@ -1680,25 +2166,32 @@ export function EmployeePage() {
         title="พนักงาน"
         description="กำหนดชื่อที่ใช้แสดงในระบบและข้อความแจ้งเตือน LINE"
         action={canCreate && tab === 0 ? (
-          <Stack direction="row" spacing={1}>
-            <Button variant="outlined" onClick={() => void refreshWithProfile()} disabled={loading}>
-              รีเฟรชรายชื่อ
-            </Button>
-            <Button variant="outlined" onClick={() => void refreshWithProfile()} disabled={loading}>
-              อัปเดตสิทธิ์และรายชื่อ
-            </Button>
-            <Button
-              variant="contained"
-              onClick={() => {
+          <Stack direction="row" spacing={0.5} sx={{ alignSelf: { xs: 'stretch', sm: 'flex-start' }, justifyContent: 'flex-end' }}>
+            <Tooltip title="รีเฟรชรายชื่อ">
+              <span><IconButton color="primary" onClick={() => void refreshWithProfile()} disabled={loading} aria-label="รีเฟรชรายชื่อ"><RefreshOutlinedIcon /></IconButton></span>
+            </Tooltip>
+            <Tooltip title="อัปเดตสิทธิ์และรายชื่อ">
+              <span><IconButton color="primary" onClick={() => void refreshWithProfile()} disabled={loading} aria-label="อัปเดตสิทธิ์และรายชื่อ"><ManageAccountsOutlinedIcon /></IconButton></span>
+            </Tooltip>
+            <Tooltip title="เพิ่มพนักงาน">
+              <span><IconButton color="primary" aria-label="เพิ่มพนักงาน" onClick={() => {
                 setCreateEmployeeAction('')
                 setCreateEmployeeErrorCode('')
                 setErrorMessage('')
                 clearCreateForm()
                 setCreateOpen(true)
-              }}
-            >
-              เพิ่มพนักงาน
-            </Button>
+              }}><AddOutlinedIcon /></IconButton></span>
+            </Tooltip>
+            <Tooltip title="ตัวกรองรายชื่อ"><IconButton size="small" onClick={(event) => setEmployeeFilterAnchor(event.currentTarget)} aria-label="ตัวกรองรายชื่อ"><FilterListOutlinedIcon /></IconButton></Tooltip>
+            <Menu anchorEl={employeeFilterAnchor} open={Boolean(employeeFilterAnchor)} onClose={() => setEmployeeFilterAnchor(null)}>
+              <MenuItem selected={employeeListFilter === 'active'} onClick={() => { setEmployeeListFilter('active'); setEmployeeFilterAnchor(null) }}>พนักงานปกติ ({activeEmployees.length})</MenuItem>
+              <MenuItem selected={employeeListFilter === 'resigned'} onClick={() => { setEmployeeListFilter('resigned'); setEmployeeFilterAnchor(null) }}>พนักงานลาออก ({resignedEmployees.length})</MenuItem>
+              <MenuItem selected={employeeListFilter === 'all'} onClick={() => { setEmployeeListFilter('all'); setEmployeeFilterAnchor(null) }}>รวมพนักงานทั้งหมด ({employees.length})</MenuItem>
+            </Menu>
+            <Tooltip title="ค้นหา"><IconButton size="small" onClick={() => employeeSearchActionsRef.current?.toggle()} aria-label="ค้นหาพนักงาน"><SearchOutlinedIcon /></IconButton></Tooltip>
+            <Tooltip title="ตั้งค่าคอลัมน์"><IconButton size="small" onClick={(event) => employeeTableToolsRef.current?.openColumnSettings(event.currentTarget)} aria-label="ตั้งค่าคอลัมน์"><SettingsOutlinedIcon /></IconButton></Tooltip>
+            <Tooltip title="ส่งออก CSV"><IconButton size="small" onClick={() => employeeTableToolsRef.current?.exportCsv()} aria-label="ส่งออก CSV"><DownloadOutlinedIcon /></IconButton></Tooltip>
+            <Tooltip title="ส่งออก PDF"><IconButton size="small" onClick={() => employeeTableToolsRef.current?.exportPdf()} aria-label="ส่งออก PDF"><PictureAsPdfOutlinedIcon /></IconButton></Tooltip>
           </Stack>
         ) : undefined}
       />
@@ -1720,46 +2213,6 @@ export function EmployeePage() {
         <Stack sx={{ alignItems: 'center', py: 6 }}><CircularProgress /></Stack>
       ) : (
         <Stack spacing={2}>
-          <Paper variant="outlined" sx={{ p: 2 }}>
-            <Stack
-              direction={{ xs: 'column', md: 'row' }}
-              spacing={1}
-              sx={{ alignItems: { xs: 'stretch', md: 'center' } }}
-            >
-              <TextField
-                select
-                value={employeeListFilter}
-                onChange={(event) => setEmployeeListFilter(event.target.value as 'active'|'resigned'|'all')}
-                size="small"
-                label="แสดงรายชื่อ"
-                sx={{ minWidth: 220 }}
-              >
-                <MenuItem value="active">พนักงานปกติ ({activeEmployees.length})</MenuItem>
-                <MenuItem value="resigned">พนักงานลาออก ({resignedEmployees.length})</MenuItem>
-                <MenuItem value="all">รวมพนักงานทั้งหมด ({employees.length})</MenuItem>
-              </TextField>
-              <Chip size="small" label={`ลาออก: ${resignedEmployees.length}`} color="warning" variant={employeeListFilter === 'resigned' ? 'filled' : 'outlined'} />
-            </Stack>
-          </Paper>
-          {canManage && intakeEmployeePeople.length > 0 && <Paper variant="outlined" sx={{ p: 2 }}>
-            <Stack spacing={1.25}>
-              <Box>
-                <Typography sx={{ fontWeight: 800 }}>คิว HR Onboarding จาก Intake ({intakeEmployeePeople.length})</Typography>
-                <Typography variant="body2" color="text.secondary">รายการที่อนุมัติแล้วออกจาก Intake และอยู่ที่นี่เพื่อให้ HR ตั้งค่าก่อนเริ่มงาน โดยเอกสารต้นทางเชื่อมกับทะเบียนพนักงานแล้ว</Typography>
-              </Box>
-              <TableContainer>
-                <Table size="small"><TableHead><TableRow><TableCell>พนักงาน</TableCell><TableCell>สถานะ</TableCell><TableCell>เอกสารแนบ</TableCell></TableRow></TableHead><TableBody>
-                  {intakeEmployeePeople.map((person) => <TableRow key={person.id}>
-                    <TableCell><Typography sx={{ fontWeight: 700 }}>{person.full_name}</Typography><Typography variant="caption" color="text.secondary">{person.employee_code} · {employmentLabels[person.employment_type] ?? person.employment_type}</Typography></TableCell>
-                    <TableCell><Chip size="small" color={person.employee_status === 'active' ? 'success' : 'warning'} label={person.employee_status === 'preboarding' ? 'รอตั้งค่าก่อนเริ่มงาน' : person.employee_status} /></TableCell>
-                    <TableCell><Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
-                      {person.documents.length === 0 ? <Typography variant="caption" color="text.secondary">ยังไม่มีเอกสารแนบ</Typography> : person.documents.map((document) => <Chip key={document.id} size="small" color={document.link_status === 'available' ? 'success' : 'default'} label={intakeDocumentLabels[document.document_type] ?? document.document_type} />)}
-                    </Stack></TableCell>
-                  </TableRow>)}
-                </TableBody></Table>
-              </TableContainer>
-            </Stack>
-          </Paper>}
           <StandardDataTable
             rows={visibleEmployees}
             getRowId={(employee) => employee.id}
@@ -1768,12 +2221,16 @@ export function EmployeePage() {
             emptyText={employeeListFilter === 'resigned' ? 'ยังไม่มีรายชื่อพนักงานลาออก' : employeeListFilter === 'all' ? 'ยังไม่มีรายชื่อพนักงานในระบบ' : 'ยังไม่มีรายชื่อพนักงานปกติ'}
             exportFileName="wisdomai-employees"
             minWidth={760}
+            compactToolbar
+            hideBuiltInToolbarActions
+            onToolsReady={(tools) => { employeeTableToolsRef.current = tools }}
+            onSearchReady={(actions) => { employeeSearchActionsRef.current = actions }}
             columns={[
             {
               id: 'employee', label: 'พนักงาน', minWidth: 230,
               render: (employee) => <Button
                 variant="text"
-                onClick={() => setEmployeeDrawer(employee)}
+                onClick={() => openEmployeeDrawer(employee)}
                 sx={{ display: 'block', p: 0, textAlign: 'left', textTransform: 'none' }}
               >
                 <Typography sx={{ fontWeight: 700, color: 'text.primary' }}>{employee.full_name || 'ยังไม่ระบุชื่อ'}</Typography>
@@ -1801,7 +2258,7 @@ export function EmployeePage() {
             },
             {
               id: 'ready', label: 'ความพร้อม', minWidth: 130,
-              render: employee => { const missing=employeeMissingData(employee); return <Button size="small" variant="text" onClick={() => setEmployeeDrawer(employee)} sx={{ p: 0, textTransform: 'none' }}><Chip size="small" color={missing.length===0 ? 'success' : 'warning'} label={missing.length===0 ? 'พร้อมทำงาน' : `ขาด: ${missing.join(', ')}`} /></Button> },
+              render: employee => { const missing=employeeMissingData(employee); return <Button size="small" variant="text" onClick={() => openEmployeeDrawer(employee)} sx={{ p: 0, textTransform: 'none' }}><Chip size="small" color={missing.length===0 ? 'success' : 'warning'} label={missing.length===0 ? 'พร้อมทำงาน' : `ขาด: ${missing.join(', ')}`} /></Button> },
               exportValue: employee => { const missing=employeeMissingData(employee); return missing.length===0 ? 'พร้อมทำงาน' : `ขาด: ${missing.join(', ')}` },
             },
             {
@@ -1817,10 +2274,46 @@ export function EmployeePage() {
             },
             {
               id: 'actions', label: 'จัดการ', minWidth: 105,
-              render: employee => <Button size="small" variant="outlined" onClick={() => setEmployeeDrawer(employee)}>ดู / จัดการ</Button>,
+              render: employee => <Button size="small" variant="outlined" onClick={() => openEmployeeDrawer(employee)}>ดู / จัดการ</Button>,
             },
           ]}
           />
+          {canManage && intakeEmployeePeople.length > 0 && <Paper variant="outlined" sx={{ p: 2, borderColor: 'warning.light' }}>
+            <Stack spacing={1.25}>
+              <Box>
+                <Typography sx={{ fontWeight: 800 }}>พนักงานเตรียมเริ่มงาน ({intakeEmployeePeople.length})</Typography>
+                <Typography variant="body2" color="text.secondary">สร้างทะเบียนเบื้องต้นแล้ว แต่ยังไม่เปิด Login ลงเวลา หรือคำนวณค่าแรง จนกว่า Admin จะตั้งค่าครบ</Typography>
+              </Box>
+              <TableContainer>
+                <Table size="small"><TableHead><TableRow><TableCell>พนักงาน</TableCell><TableCell>ความพร้อม</TableCell><TableCell>เอกสารแนบ</TableCell><TableCell align="right">จัดการ</TableCell></TableRow></TableHead><TableBody>
+                  {intakeEmployeePeople.map((person) => {
+                    const intakeMissing = person.missing_fields.map((field) => ({ phone: 'เบอร์โทร', employment_type: 'ประเภทการจ้าง', position: 'ตำแหน่ง', start_date: 'วันเริ่มงาน' }[field] ?? field))
+                    const operationalMissing = person.intake_status === 'approved' ? ['อีเมล / บัญชี Login', 'ค่าจ้าง', 'ตารางเวลาทำงาน', 'ไซต์งาน', 'สิทธิ์ใช้งาน'] : []
+                    const missing = Array.from(new Set([...intakeMissing, ...operationalMissing]))
+                    return <TableRow key={person.id}>
+                      <TableCell><Typography sx={{ fontWeight: 700 }}>{person.full_name}</Typography><Typography variant="caption" color="text.secondary">{person.employee_code} · {employmentLabels[person.employment_type] ?? person.employment_type}</Typography></TableCell>
+                      <TableCell><Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', maxWidth: 430 }}>
+                        <Chip size="small" color="warning" label="เตรียมเริ่มงาน" />
+                        {missing.map((label) => <Chip key={label} size="small" color="error" variant="outlined" label={`ขาด: ${label}`} />)}
+                      </Stack></TableCell>
+                      <TableCell><Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                        {person.documents.length === 0 ? <Chip size="small" color="error" variant="outlined" label="ขาด: เอกสารแนบ" /> : person.documents.map((document) => <Chip key={document.id} size="small" color={document.link_status === 'available' ? 'success' : 'default'} label={intakeDocumentLabels[document.document_type] ?? document.document_type} />)}
+                      </Stack></TableCell>
+                      <TableCell align="right">{person.intake_status === 'approved'
+                        ? <Button size="small" variant="contained" onClick={() => {
+                          setPreboardingAccountPerson(person)
+                          setNewEmployee({ fullName: person.full_name, email: '', password: '', role: 'employee' })
+                          setCreateOpen(true)
+                          clearCreateDiagnostics()
+                        }}>สร้างบัญชี / ตั้งค่าสิทธิ์</Button>
+                        : <Button size="small" variant="outlined" onClick={() => openIntakeDraft(person)}>กรอกข้อมูลที่ขาด</Button>}
+                      </TableCell>
+                    </TableRow>
+                  })}
+                </TableBody></Table>
+              </TableContainer>
+            </Stack>
+          </Paper>}
         </Stack>
       ))}
 
@@ -2160,67 +2653,220 @@ export function EmployeePage() {
             <Button onClick={() => setEmployeeDrawer(null)}>ปิด</Button>
           </Stack>
 
-          <Divider sx={{ my: 2 }} />
-          {employeeDrawer && <Stack spacing={2.5}>
-            <Box>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>ข้อมูลส่วนตัว</Typography>
-              <TextField
-                fullWidth size="small" label="ชื่อพนักงาน"
-                value={names[employeeDrawer.id] ?? ''}
-                slotProps={{ htmlInput: { maxLength: 120 } }}
-                onChange={(event) => setNames((current) => ({ ...current, [employeeDrawer.id]: event.target.value }))}
-              />
-              <Button
-                sx={{ mt: 1 }} variant="contained" fullWidth
-                disabled={savingId === employeeDrawer.id || (names[employeeDrawer.id]?.trim().length ?? 0) < 2}
-                onClick={() => void saveName(employeeDrawer)}
-              >
-                {savingId === employeeDrawer.id ? <CircularProgress size={20} color="inherit" /> : 'บันทึกชื่อ'}
-              </Button>
-              {canManage && employeeDrawer.id !== user?.id && <Button sx={{ mt: 1 }} variant="outlined" fullWidth onClick={() => openAccountEditor(employeeDrawer)}>แก้ไข Email / Password เข้าระบบ</Button>}
-            </Box>
+          {employeeDrawer && (() => {
+            const documents = employeeDocumentsByProfile[employeeDrawer.id] ?? []
+            const lineAccounts = employeeLineAccountsByProfile[employeeDrawer.id] ?? []
+            const bankAccounts = employeeBankAccountsByProfile[employeeDrawer.id] ?? []
+            const contact = employeeContactsByProfile[employeeDrawer.id]
+            const employmentMissing = employeeMissingData(employeeDrawer)
+            const contactMissing = [!employeeDrawer.email && 'อีเมล', !contact?.phone && 'เบอร์โทร', lineAccounts.length === 0 && 'LINE', bankAccounts.length === 0 && 'บัญชีธนาคาร'].filter(Boolean) as string[]
+            const documentMissing = documents.length === 0 ? ['เอกสาร'] : []
+            const allMissing = [...employmentMissing, ...contactMissing, ...documentMissing]
+            return <>
+              <Tabs value={employeeDrawerTab} onChange={(_event, value) => setEmployeeDrawerTab(value)} variant="scrollable" scrollButtons="auto" sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+                <Tab label={`ภาพรวม${allMissing.length ? ` (${allMissing.length})` : ''}`} />
+                <Tab label={`การจ้างงาน${employmentMissing.length ? ` (${employmentMissing.length})` : ''}`} />
+                <Tab label={`บัญชี/ติดต่อ${contactMissing.length ? ` (${contactMissing.length})` : ''}`} />
+                <Tab label={`เอกสาร${documentMissing.length ? ` (${documentMissing.length})` : ''}`} />
+              </Tabs>
 
-            <Divider />
-            <Box>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>การจ้างงานและหน่วยงาน</Typography>
-              <Stack spacing={0.75}>
-                <Typography>รหัสพนักงาน: <strong>{employeeDrawer.employee_code || 'ยังไม่กำหนด'}</strong></Typography>
-                <Typography>ประเภท: <strong>{employmentLabels[employeeDrawer.employment_type ?? ''] ?? employeeDrawer.employment_type ?? 'ยังไม่กำหนด'}</strong></Typography>
-                <Typography>ตำแหน่ง / ฝ่าย: <strong>{employeeDrawer.job_title || '-'}{employeeDrawer.department ? ` · ${employeeDrawer.department}` : ''}</strong></Typography>
-                <Typography>ไซต์ที่รับผิดชอบ: <strong>{employeeDrawer.site_count ?? 0} ไซต์</strong></Typography>
-              </Stack>
-              {canManage && <Button fullWidth variant="outlined" sx={{ mt: 1.5 }} onClick={() => { setEmployeeDrawer(null); void openEmployment(employeeDrawer) }}>แก้ไขข้อมูลการจ้างงาน ค่าจ้าง และนโยบายเวลา</Button>}
-            </Box>
+              {employeeDrawerTab === 0 && <Stack spacing={2}>
+                {allMissing.length === 0
+                  ? <Alert severity="success">ข้อมูลสำคัญครบและพร้อมใช้งาน</Alert>
+                  : <Alert severity="warning">ข้อมูลที่ยังต้องจัดการ: {allMissing.join(', ')}</Alert>}
+                <Paper variant="outlined" sx={{ p: 1.5 }}>
+                  <Typography variant="subtitle2">สถานะการทำงาน</Typography>
+                  <Stack direction="row" spacing={0.75} useFlexGap sx={{ mt: 1, flexWrap: 'wrap' }}>
+                    <Chip size="small" label={`สิทธิ์ ${employeeDrawer.role}`} />
+                    <Chip size="small" color={employmentStatusColor(employeeDrawer.employment_status)} label={employmentStatusLabel(employeeDrawer.employment_status)} />
+                    <Chip size="small" color={employeeDrawer.membership_active === false ? 'warning' : 'success'} label={employeeDrawer.membership_active === false ? 'สมาชิกปิดใช้งาน' : 'เข้าถึงระบบปกติ'} />
+                  </Stack>
+                </Paper>
+                <Paper variant="outlined" sx={{ p: 1.5 }}>
+                  <Typography variant="subtitle2">ขั้นตอนถัดไปสำหรับ Admin</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{allMissing.length ? `เติม ${allMissing[0]} แล้วตรวจความพร้อมอีกครั้ง` : 'ตรวจเอกสารและข้อมูลการจ้างเป็นระยะ ไม่มีงานบังคับค้าง'}</Typography>
+                  {allMissing.length > 0 && <Button size="small" sx={{ mt: 1 }} onClick={() => setEmployeeDrawerTab(employmentMissing.length ? 1 : contactMissing.length ? 2 : 3)}>ไปยังข้อมูลที่ขาด</Button>}
+                </Paper>
+                {canCreate && <Stack spacing={1}>
+                  <Typography variant="subtitle2">การดำเนินการ</Typography>
+                  <Button variant="outlined" component="a" href={`/reports?employee=${employeeDrawer.id}&add=1`}>เพิ่ม / แก้ไขเวลาทำงาน</Button>
+                  <Button color="info" variant="outlined" onClick={() => { setEmployeeDrawer(null); void openManageEmployeeScopeOnly(employeeDrawer) }}>เช็ค Cross-company</Button>
+                  {employeeDrawer.id !== user?.id && <>
+                    <Button color="warning" variant="contained" onClick={() => { setEmployeeDrawer(null); void openResignEmployee(employeeDrawer) }}>แจ้งลาออก</Button>
+                    <Button color="warning" variant="outlined" onClick={() => { setEmployeeDrawer(null); void openManageEmployee(employeeDrawer) }}>จัดการสถานะ / ลบข้อมูล</Button>
+                  </>}
+                </Stack>}
+              </Stack>}
 
-            <Divider />
-            <Box>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>ความพร้อมและสิทธิ์</Typography>
-              {(() => {
-                const missing = employeeMissingData(employeeDrawer)
-                return missing.length === 0
-                  ? <Alert severity="success">ข้อมูลพร้อมสำหรับการทำงาน</Alert>
-                  : <Alert severity="warning">ข้อมูลที่ยังขาด: {missing.join(', ')}</Alert>
-              })()}
-              <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
-                <Chip label={`สิทธิ์ ${employeeDrawer.role}`} />
-                <Chip color={employmentStatusColor(employeeDrawer.employment_status)} label={employmentStatusLabel(employeeDrawer.employment_status)} />
-                <Chip color={employeeDrawer.membership_active === false ? 'warning' : 'success'} label={employeeDrawer.membership_active === false ? 'สมาชิกปิดใช้งาน' : 'เข้าถึงระบบปกติ'} />
-              </Stack>
-            </Box>
+              {employeeDrawerTab === 1 && <Stack spacing={2}>
+                <Box>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>การจ้างงานและหน่วยงาน</Typography>
+                  <Stack spacing={0.75}>
+                    <Typography>รหัสพนักงาน: <strong>{employeeDrawer.employee_code || 'ยังไม่กำหนด'}</strong></Typography>
+                    <Typography>ประเภท: <strong>{employmentLabels[employeeDrawer.employment_type ?? ''] ?? employeeDrawer.employment_type ?? 'ยังไม่กำหนด'}</strong></Typography>
+                    <Typography>ตำแหน่ง / ฝ่าย: <strong>{employeeDrawer.job_title || '-'}{employeeDrawer.department ? ` · ${employeeDrawer.department}` : ''}</strong></Typography>
+                    <Typography>ไซต์ที่รับผิดชอบ: <strong>{employeeDrawer.site_count ?? 0} ไซต์</strong></Typography>
+                  </Stack>
+                  {canManage && <Button fullWidth variant="outlined" sx={{ mt: 1.5 }} onClick={() => { setEmployeeDrawer(null); void openEmployment(employeeDrawer) }}>แก้ไขการจ้างงาน ค่าจ้าง และนโยบายเวลา</Button>}
+                </Box>
+                <Divider />
+                <Box>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>มอบหมายไซต์งาน</Typography>
+                  {drawerSiteAssignments.length === 0
+                    ? <Alert severity="warning" sx={{ mb: 1.5 }}>ยังไม่มีไซต์งาน จึงยังไม่พร้อมลงเวลา</Alert>
+                    : <Stack spacing={0.75} sx={{ mb: 1.5 }}>{drawerSiteAssignments.map((assignment) => <Paper key={assignment.id} variant="outlined" sx={{ p: 1 }}><Typography sx={{ fontWeight: 700 }}>{assignment.project_sites?.projects?.name ? `${assignment.project_sites.projects.name} · ` : ''}{assignment.project_sites?.name ?? 'ไม่พบชื่อไซต์'}</Typography><Typography variant="caption" color="text.secondary">เริ่ม {new Date(`${assignment.starts_on}T00:00:00`).toLocaleDateString('th-TH')}{assignment.is_primary ? ' · ไซต์หลัก' : ''}</Typography></Paper>)}</Stack>}
+                  {canManage && drawerAvailableSiteOptions.length === 0
+                    ? <Stack spacing={1}><Alert severity="success">มอบหมายครบทุกไซต์ที่เปิดใช้งานแล้ว</Alert><Button component="a" href="/workforce-setup">จัดการประวัติ ย้าย หรือสิ้นสุดไซต์</Button></Stack>
+                    : canManage && <Stack spacing={1}>
+                        <TextField select size="small" fullWidth label="เลือกไซต์งาน" value={drawerSiteId} onChange={(event) => setDrawerSiteId(event.target.value)}>{drawerAvailableSiteOptions.map((site) => <MenuItem key={site.id} value={site.id}>{site.projects?.name ? `${site.projects.name} · ` : ''}{site.name}</MenuItem>)}</TextField>
+                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><TextField fullWidth size="small" type="date" label="วันเริ่มมอบหมาย" value={drawerSiteStartsOn} onChange={(event) => setDrawerSiteStartsOn(event.target.value)} slotProps={{ inputLabel: { shrink: true } }} /><TextField fullWidth size="small" select label="กำหนดเป็นไซต์หลัก" value={drawerSitePrimary} onChange={(event) => setDrawerSitePrimary(event.target.value)}><MenuItem value="yes">ใช่</MenuItem><MenuItem value="no">ไม่ใช่</MenuItem></TextField></Stack>
+                        <Button fullWidth variant="contained" disabled={drawerSiteSaving || !drawerSiteId || !drawerSiteStartsOn} onClick={() => void assignSiteFromDrawer()}>{drawerSiteSaving ? <CircularProgress size={20} color="inherit" /> : 'บันทึกการมอบหมายไซต์'}</Button>
+                        <Button component="a" href="/workforce-setup">จัดการประวัติ ย้าย หรือสิ้นสุดไซต์</Button>
+                      </Stack>}
+                </Box>
+              </Stack>}
 
-            {canCreate && <>
-              <Divider />
-              <Typography variant="subtitle2">การดำเนินการ</Typography>
-              <Button variant="outlined" component="a" href={`/reports?employee=${employeeDrawer.id}&add=1`}>เพิ่ม / แก้ไขเวลาทำงาน</Button>
-              <Button color="info" variant="outlined" onClick={() => { setEmployeeDrawer(null); void openManageEmployeeScopeOnly(employeeDrawer) }}>เช็ค Cross-company</Button>
-              {employeeDrawer.id !== user?.id && <>
-                <Button color="warning" variant="contained" onClick={() => { setEmployeeDrawer(null); void openResignEmployee(employeeDrawer) }}>แจ้งลาออก</Button>
-                <Button color="warning" variant="outlined" onClick={() => { setEmployeeDrawer(null); void openManageEmployee(employeeDrawer) }}>จัดการสถานะ / ลบข้อมูล</Button>
-              </>}
-            </>}
-          </Stack>}
+              {employeeDrawerTab === 2 && <Stack spacing={2}>
+                <Box>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>ข้อมูลติดต่อและบัญชีเข้าระบบ</Typography>
+                  <TextField fullWidth size="small" label="ชื่อพนักงาน" value={names[employeeDrawer.id] ?? ''} slotProps={{ htmlInput: { maxLength: 120 } }} onChange={(event) => setNames((current) => ({ ...current, [employeeDrawer.id]: event.target.value }))} />
+                  <Typography variant="body2" sx={{ mt: 1 }}>อีเมล: <strong>{employeeDrawer.email || 'ยังไม่มี'}</strong></Typography>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', minHeight: 36 }}>
+                    <Typography variant="body2">เบอร์โทร: <strong>{contact?.phone || 'ยังไม่มี'}</strong></Typography>
+                    {canManage && <Tooltip title={contact?.phone ? 'แก้ไขเบอร์โทร' : 'เพิ่มเบอร์โทร'}>
+                      <span><IconButton size="small" color="primary" aria-label={contact?.phone ? 'แก้ไขเบอร์โทร' : 'เพิ่มเบอร์โทร'} onClick={() => openPhoneEditor(employeeDrawer, contact?.phone)}>{contact?.phone ? <EditOutlinedIcon fontSize="small" /> : <AddOutlinedIcon fontSize="small" />}</IconButton></span>
+                    </Tooltip>}
+                  </Stack>
+                  <Button sx={{ mt: 1 }} variant="contained" fullWidth disabled={savingId === employeeDrawer.id || (names[employeeDrawer.id]?.trim().length ?? 0) < 2} onClick={() => void saveName(employeeDrawer)}>{savingId === employeeDrawer.id ? <CircularProgress size={20} color="inherit" /> : 'บันทึกชื่อ'}</Button>
+                  {canManage && employeeDrawer.id !== user?.id && <Button sx={{ mt: 1 }} variant="outlined" fullWidth onClick={() => openAccountEditor(employeeDrawer)}>แก้ไข Email / Password เข้าระบบ</Button>}
+                </Box>
+                <Divider />
+                <Box>
+                  <Typography variant="subtitle2">บัญชี LINE</Typography>
+                  {lineAccounts.length === 0 ? <Alert severity="warning" sx={{ mt: 1 }}>ยังไม่พบบัญชี LINE ที่ยืนยันกับพนักงานรายนี้</Alert> : <Stack spacing={0.75} sx={{ mt: 1 }}>{lineAccounts.map((account) => <Paper key={account.id} variant="outlined" sx={{ p: 1 }}><Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}><Box><Typography sx={{ fontWeight: 700 }}>{account.line_senders?.display_name || 'ไม่พบชื่อแสดงผล LINE'} {account.is_primary ? <Chip size="small" color="primary" label="บัญชีหลัก" /> : <Chip size="small" variant="outlined" label="บัญชีรอง" />}</Typography><Typography variant="caption" color="text.secondary">{account.active ? 'ใช้งานอยู่' : 'ปิดใช้งาน'} · ยืนยัน {new Date(account.verified_at).toLocaleString('th-TH')}</Typography></Box>{canManage && account.active && <Button size="small" color="warning" disabled={lineLinkSaving} onClick={() => void unlinkLineAccount(employeeDrawer, account)}>ยกเลิกบัญชีนี้</Button>}</Stack></Paper>)}</Stack>}
+                  {canManage && <Button size="small" sx={{ mt: 1 }} startIcon={<AddOutlinedIcon />} onClick={() => openLineLink(employeeDrawer)}>{lineAccounts.some((account) => account.active) ? 'เพิ่ม LINE อีกบัญชี' : 'ผูกบัญชี LINE'}</Button>}
+                  <Button size="small" sx={{ mt: 1 }} component="a" href="/line-monitor">ตรวจประวัติ LINE / Candidate ทั้งหมด</Button>
+                </Box>
+                <Divider />
+                <Box>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}><Typography variant="subtitle2">บัญชีธนาคาร</Typography>{canManageSensitiveBank && <Button size="small" startIcon={<AddOutlinedIcon />} onClick={() => void openBankEditor(employeeDrawer)}>เพิ่มบัญชี</Button>}</Stack>
+                  {bankAccounts.length === 0 ? <Alert severity="warning" sx={{ mt: 1 }}>ยังไม่พบบัญชีธนาคารที่ยืนยันและเชื่อมกับพนักงานรายนี้</Alert> : <Stack spacing={0.75} sx={{ mt: 1 }}>{bankAccounts.map((account) => <Paper key={account.id} variant="outlined" sx={{ p: 1 }}><Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', justifyContent: 'space-between' }}><Box><Typography sx={{ fontWeight: 700 }}>{account.bank_name || 'ไม่ระบุธนาคาร'} · {revealedBankNumbers[account.id] || `•••• ${account.account_last4}`} {account.is_primary && <Chip size="small" color="primary" label="บัญชีหลัก" />}</Typography><Stack direction="row" spacing={0.5} useFlexGap sx={{ mt: 0.5, flexWrap: 'wrap' }}><Chip size="small" color={account.secure_number_available ? 'success' : 'warning'} label={account.secure_number_available ? 'พร้อมใช้จ่าย' : 'มีเพียงเลขท้าย · ต้องเติมเลขเต็ม'} /><Typography variant="caption" color="text.secondary">{account.verified_at ? `ยืนยัน ${new Date(account.verified_at).toLocaleString('th-TH')}` : ''}</Typography></Stack></Box>{canManageSensitiveBank && <Stack direction="row" spacing={0.25}>{account.secure_number_available && <Tooltip title="แสดงเลขบัญชีเต็ม 60 วินาที"><IconButton size="small" aria-label="แสดงเลขบัญชีเต็ม" onClick={() => { setBankRevealTarget(account); setBankRevealReason('ใช้ตรวจสอบหรือจัดทำรายการจ่ายให้พนักงาน') }}><VisibilityOutlinedIcon fontSize="small" /></IconButton></Tooltip>}<Tooltip title={account.secure_number_available ? 'แก้ไขบัญชีธนาคาร' : 'เติมเลขบัญชีเต็ม'}><IconButton size="small" color="primary" aria-label={account.secure_number_available ? 'แก้ไขบัญชีธนาคาร' : 'เติมเลขบัญชีเต็ม'} onClick={() => openBankEditor(employeeDrawer, account)}>{account.secure_number_available ? <EditOutlinedIcon fontSize="small" /> : <AddOutlinedIcon fontSize="small" />}</IconButton></Tooltip></Stack>}</Stack></Paper>)}</Stack>}
+                  <Alert severity="info" sx={{ mt: 1 }}>ข้อมูลจากเอกสาร/LINE จะเป็น Candidate ก่อน และต้องให้ Admin ยืนยันเพื่อป้องกันผูกผิดคน</Alert>
+                  <Button size="small" sx={{ mt: 1 }} startIcon={<AccountBalanceOutlinedIcon />} component="a" href="/master-data">ตรวจบัญชีจากหลักฐาน</Button>
+                </Box>
+              </Stack>}
+
+              {employeeDrawerTab === 3 && <Stack spacing={1.5}>
+                <Typography variant="subtitle2">เอกสารประจำตัวและเอกสารย้อนหลัง</Typography>
+                {documents.length === 0
+                  ? <Alert severity="warning">ยังไม่มีเอกสารที่เชื่อมกับพนักงานรายนี้ กรุณาค้นหาหรือแนบจาก Intake</Alert>
+                  : <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>{documents.map((document) => <Chip key={document.id} size="small" color={document.link_status === 'available' ? 'success' : 'default'} variant="outlined" clickable={document.link_status === 'available'} disabled={Boolean(employeeDocumentBusy)} onClick={document.link_status === 'available' ? () => void requestEmployeeDocumentAccess(document, 'preview') : undefined} label={`${intakeDocumentLabels[document.document_type] ?? document.document_type}${document.link_status === 'available' ? ' · กดดู' : ` · ${document.link_status}`}`} />)}</Stack>}
+                <Button component="a" href="/document-flows?document_view=intake_room">ค้นหา / แนบเอกสารเพิ่มจาก Intake</Button>
+              </Stack>}
+            </>
+          })()}
         </Box>
       </Drawer>
+
+      <Dialog open={Boolean(phoneEmployee)} onClose={() => !phoneSaving && setPhoneEmployee(null)} fullWidth maxWidth="xs">
+        <DialogTitle>{phoneValue ? 'แก้ไขเบอร์โทร' : 'เพิ่มเบอร์โทร'} · {phoneEmployee?.full_name || phoneEmployee?.email}</DialogTitle>
+        <DialogContent><TextField autoFocus fullWidth label="เบอร์โทร" value={phoneValue} onChange={(event) => setPhoneValue(event.target.value)} placeholder="เช่น 0812345678 หรือ +85620..." helperText="รองรับตัวเลข เครื่องหมาย + และ - จำนวน 8–20 หลัก" sx={{ mt: 1 }} /></DialogContent>
+        <DialogActions><Button disabled={phoneSaving} onClick={() => setPhoneEmployee(null)}>ยกเลิก</Button><Button variant="contained" disabled={phoneSaving || (!!phoneValue.trim() && !/^\+?[0-9-\s]{8,24}$/.test(phoneValue.trim()))} onClick={() => void saveEmployeePhone()}>{phoneSaving ? <CircularProgress size={20} color="inherit" /> : 'บันทึกเบอร์โทร'}</Button></DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(bankEmployee)} onClose={() => !bankSaving && setBankEmployee(null)} fullWidth maxWidth="xs">
+        <DialogTitle>{bankTarget ? (bankTarget.secure_number_available ? 'แก้ไขบัญชีธนาคาร' : 'เติมเลขบัญชีเต็ม') : 'เพิ่มบัญชีธนาคาร'} · {bankEmployee?.full_name || bankEmployee?.email}</DialogTitle>
+        <DialogContent><Stack spacing={1.5} sx={{ mt: 1 }}>
+          {!bankTarget && <><Stack direction="row" spacing={1}><Button variant={bankEntryMode === 'candidate' ? 'contained' : 'outlined'} onClick={() => setBankEntryMode('candidate')}>ค้นหา/เลือกบัญชีเดิม</Button><Button variant={bankEntryMode === 'manual' ? 'contained' : 'outlined'} onClick={() => setBankEntryMode('manual')}>กรอกบัญชีใหม่</Button></Stack>{bankCandidatesLoading && <Alert severity="info">กำลังค้นหาบัญชีภายในบริษัท…</Alert>}</>}
+          {bankEntryMode === 'candidate' && !bankTarget ? <><Alert severity="info">กรอกเลขท้าย 4 ตัวเพื่อค้นหาจากทะเบียนกลาง, Candidate, สลิป/OCR และรายการผู้ขายภายในบริษัท ผลจากหลักฐานต้องยืนยันก่อนจึงจะผูกได้</Alert><Stack direction="row" spacing={1}><TextField autoFocus fullWidth label="เลขท้ายบัญชี 4 ตัว" value={bankLast4Search} onChange={(event) => setBankLast4Search(event.target.value.replace(/\D/g, '').slice(0, 4))} slotProps={{ htmlInput: { inputMode: 'numeric', maxLength: 4 } }} /><Button variant="outlined" disabled={bankCandidatesLoading || !/^\d{4}$/.test(bankLast4Search)} onClick={() => void searchBankCandidatesByLast4()}>ค้นหา</Button></Stack>{bankCandidates.length === 0 && !bankCandidatesLoading ? <Alert severity="warning">ไม่พบเลขท้ายนี้จากแหล่งข้อมูลที่ประมวลผลแล้ว</Alert> : <TextField select fullWidth label={`ผลค้นหา (${bankCandidates.length})`} value={bankCandidateId} onChange={(event) => setBankCandidateId(event.target.value)}>{bankCandidates.map((candidate) => { const sourceLabel = candidate.source_kind === 'master_registry' ? 'ทะเบียนกลาง' : candidate.source_kind === 'master_candidate' ? 'Candidate/OCR' : candidate.source_kind === 'transfer_recipient' ? 'สลิป · ผู้รับ' : candidate.source_kind === 'transfer_sender' ? 'สลิป · ผู้โอน' : 'บัญชีผู้ขาย'; return <MenuItem key={`${candidate.source_kind ?? 'master'}:${candidate.id}`} value={candidate.id} disabled={candidate.source_kind !== 'master_registry' || candidate.link_status !== 'available'}>{sourceLabel} · {candidate.bank_name || 'ไม่ระบุธนาคาร'} · •••• {candidate.account_last4} · {candidate.owner_name}{candidate.link_status === 'source_only' ? ' · ต้องยืนยันเป็น Candidate ก่อน' : candidate.link_status === 'linked_other' ? ' · ผูกกับบุคคลอื่นแล้ว' : candidate.link_status === 'linked_same' ? ' · ผูกอยู่แล้ว' : candidate.link_status === 'name_mismatch' ? ' · ชื่อไม่ตรง ต้องตรวจหลักฐาน' : ''}</MenuItem> })}</TextField>}{bankCandidates.some((candidate) => candidate.link_status === 'source_only') && <Alert severity="warning">พบข้อมูลจากหลักฐาน แต่ยังผูกไม่ได้: ไปที่ “ตรวจบัญชีจากหลักฐาน” เพื่อยืนยันเป็น Master Account ก่อน</Alert>}{bankCandidateId && (() => { const candidate = bankCandidates.find((item) => item.id === bankCandidateId); return candidate ? <Alert severity={candidate.secure_number_available ? 'success' : 'warning'}>{candidate.secure_number_available ? 'มีเลขเต็มใน Secure Store พร้อมใช้จ่ายหลังผูก' : 'มีเพียงเลขท้าย หลังผูกต้องเติมเลขเต็มก่อนใช้จ่าย'} · แหล่งที่มา {candidate.evidence_source_table || 'Master Data'}{candidate.evidence_source_id ? ` / …${candidate.evidence_source_id.slice(-8)}` : ''}</Alert> : null })()}</> : <><Alert severity="info">เลขเต็มจะเข้ารหัสใน Secure Store; หน้าจอ รายงาน และ Log แสดงเพียง 4 ตัวท้าย</Alert><TextField autoFocus fullWidth label="เลขบัญชีเต็ม" value={bankFullNumber} onChange={(event) => setBankFullNumber(event.target.value)} placeholder={bankTarget ? `บัญชีเดิม •••• ${bankTarget.account_last4}` : 'กรอกตัวเลข 8–20 หลัก'} /><TextField fullWidth label="ธนาคาร" value={bankName} onChange={(event) => setBankName(event.target.value)} /></>}
+          <TextField select fullWidth label="ประเภทบัญชี" value={bankPrimary ? 'primary' : 'secondary'} onChange={(event) => setBankPrimary(event.target.value === 'primary')}><MenuItem value="primary">บัญชีหลักสำหรับรับเงิน</MenuItem><MenuItem value="secondary">บัญชีรอง</MenuItem></TextField><TextField multiline minRows={2} fullWidth label="เหตุผล / หลักฐาน" value={bankReason} onChange={(event) => setBankReason(event.target.value)} />
+        </Stack></DialogContent>
+        <DialogActions><Button disabled={bankSaving} onClick={() => setBankEmployee(null)}>ยกเลิก</Button>{bankEntryMode === 'candidate' && !bankTarget ? <Button variant="contained" disabled={bankSaving || !bankCandidateId || bankReason.trim().length < 3} onClick={() => void linkEmployeeBankCandidate()}>{bankSaving ? <CircularProgress size={20} color="inherit" /> : 'ตรวจแล้ว · ผูกบัญชีนี้'}</Button> : <Button variant="contained" disabled={bankSaving || !/^[0-9\s-]{8,24}$/.test(bankFullNumber.trim()) || bankName.trim().length < 2 || bankReason.trim().length < 3} onClick={() => void saveEmployeeBankAccount()}>{bankSaving ? <CircularProgress size={20} color="inherit" /> : 'เข้ารหัสและบันทึก'}</Button>}</DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(bankRevealTarget)} onClose={() => !bankRevealing && setBankRevealTarget(null)} fullWidth maxWidth="xs">
+        <DialogTitle>ยืนยันการเปิดดูเลขบัญชีเต็ม</DialogTitle><DialogContent><Stack spacing={1.5} sx={{ mt: 1 }}><Alert severity="warning">การเปิดดูจะถูกบันทึก Audit และเลขเต็มจะซ่อนอัตโนมัติภายใน 60 วินาที</Alert><Typography>{bankRevealTarget?.bank_name} · •••• {bankRevealTarget?.account_last4}</Typography><TextField autoFocus multiline minRows={2} fullWidth label="เหตุผลในการเปิดดู" value={bankRevealReason} onChange={(event) => setBankRevealReason(event.target.value)} /></Stack></DialogContent><DialogActions><Button disabled={bankRevealing} onClick={() => setBankRevealTarget(null)}>ยกเลิก</Button><Button variant="contained" disabled={bankRevealing || bankRevealReason.trim().length < 3} onClick={() => void revealEmployeeBankAccount()}>{bankRevealing ? <CircularProgress size={20} color="inherit" /> : 'เปิดดูและบันทึก Audit'}</Button></DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(lineLinkEmployee)} onClose={() => !lineLinkSaving && setLineLinkEmployee(null)} fullWidth maxWidth="sm">
+        <DialogTitle>ผูกบัญชี LINE · {lineLinkEmployee?.full_name || lineLinkEmployee?.email}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Alert severity="info">เลือกจาก LINE ที่ระบบเคยรับข้อความในบริษัทนี้ ระบบจะไม่เดาจากชื่อและจะบันทึกผู้ยืนยันพร้อม Audit</Alert>
+            <TextField
+              select fullWidth label="LINE Candidate" value={lineLinkCandidateId}
+              onChange={(event) => setLineLinkCandidateId(event.target.value)}
+              helperText={`พบ ${employeeLineCandidates.length} บัญชีในบริษัท · บัญชีที่ผูกกับคนอื่นเลือกไม่ได้`}
+            >
+              {employeeLineCandidates.map((candidate) => {
+                const linkedToOther = Boolean(candidate.profile_id && candidate.profile_id !== lineLinkEmployee?.id)
+                return <MenuItem key={candidate.line_user_id} value={candidate.line_user_id} disabled={linkedToOther}>
+                  {candidate.display_name || 'ไม่พบชื่อแสดงผล'} · ID …{candidate.line_user_id.slice(-8)}{linkedToOther ? ' · ผูกกับพนักงานอื่นแล้ว' : candidate.profile_id === lineLinkEmployee?.id ? ' · บัญชีปัจจุบัน' : ''}
+                </MenuItem>
+              })}
+            </TextField>
+            {lineLinkEmployee && employeeLineAccountsByProfile[lineLinkEmployee.id]?.some((account) => account.active) && (
+              <TextField select fullWidth label="ประเภทบัญชี" value={lineLinkPrimary ? 'primary' : 'secondary'} onChange={(event) => setLineLinkPrimary(event.target.value === 'primary')}>
+                <MenuItem value="secondary">บัญชีรอง (ไม่กระทบบัญชีหลักเดิม)</MenuItem>
+                <MenuItem value="primary">ตั้งเป็นบัญชีหลักแทนบัญชีเดิม</MenuItem>
+              </TextField>
+            )}
+            <TextField multiline minRows={2} fullWidth label="เหตุผล / หลักฐานที่ใช้ยืนยัน" value={lineLinkReason} onChange={(event) => setLineLinkReason(event.target.value)} helperText="เช่น ตรวจจากชื่อเล่น เบอร์โทร และประวัติสนทนาแล้ว" />
+            {lineLinkCandidateId && <Paper variant="outlined" sx={{ p: 1.5 }}>
+              <Typography variant="body2"><strong>พนักงาน:</strong> {lineLinkEmployee?.full_name || lineLinkEmployee?.email}</Typography>
+              <Typography variant="body2"><strong>LINE:</strong> {employeeLineCandidates.find((item) => item.line_user_id === lineLinkCandidateId)?.display_name || 'ไม่พบชื่อแสดงผล'}</Typography>
+              <Typography variant="caption" color="text.secondary">ระบบตรวจ LINE ซ้ำ, บริษัท, Attendance Identity และบัญชีเดิมอีกครั้งในฐานข้อมูลก่อนบันทึก</Typography>
+            </Paper>}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button disabled={lineLinkSaving} onClick={() => setLineLinkEmployee(null)}>ยกเลิก</Button>
+          <Button
+            variant="contained"
+            disabled={lineLinkSaving || !lineLinkCandidateId || lineLinkReason.trim().length < 3}
+            onClick={() => void saveLineLink()}
+          >
+            {lineLinkSaving ? <CircularProgress size={20} color="inherit" /> : 'ตรวจและยืนยันการผูก LINE'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(employeeDocumentPreview)}
+        onClose={() => !employeeDocumentBusy && setEmployeeDocumentPreview(null)}
+        fullWidth
+        maxWidth="md"
+      >
+        <DialogTitle>{employeeDocumentPreview ? intakeDocumentLabels[employeeDocumentPreview.document_type] ?? employeeDocumentPreview.document_type : 'เอกสารพนักงาน'}</DialogTitle>
+        <DialogContent dividers>
+          {employeeDocumentPreview && <Stack spacing={1.5}>
+            <Typography variant="body2" color="text.secondary">
+              แหล่งข้อมูล: {employeeDocumentPreview.source_channel || 'ไม่ระบุ'} · เชื่อมเมื่อ {employeeDocumentPreview.linked_at ? new Date(employeeDocumentPreview.linked_at).toLocaleString('th-TH') : 'ไม่ระบุ'}
+            </Typography>
+            {employeeDocumentBusy.endsWith(':preview') && <Stack sx={{ py: 6, alignItems: 'center' }}><CircularProgress /><Typography sx={{ mt: 1 }}>กำลังตรวจสิทธิ์และเปิดเอกสาร...</Typography></Stack>}
+            {employeeDocumentPreviewError && <Alert severity="error">{employeeDocumentPreviewError}</Alert>}
+            {employeeDocumentPreviewUrl && employeeDocumentPreview.mime_type?.startsWith('image/') && (
+              <Box component="img" src={employeeDocumentPreviewUrl} alt={intakeDocumentLabels[employeeDocumentPreview.document_type] ?? 'เอกสารพนักงาน'} sx={{ display: 'block', maxWidth: '100%', maxHeight: '68vh', mx: 'auto', objectFit: 'contain' }} />
+            )}
+            {employeeDocumentPreviewUrl && employeeDocumentPreview.mime_type === 'application/pdf' && (
+              <Box component="iframe" src={employeeDocumentPreviewUrl} title={intakeDocumentLabels[employeeDocumentPreview.document_type] ?? 'เอกสารพนักงาน'} sx={{ width: '100%', height: '68vh', border: 0 }} />
+            )}
+            {employeeDocumentPreviewUrl && !employeeDocumentPreview.mime_type?.startsWith('image/') && employeeDocumentPreview.mime_type !== 'application/pdf' && (
+              <Alert severity="info">ไฟล์ชนิดนี้ไม่รองรับการแสดงในหน้าเว็บ กรุณากดดาวน์โหลดเพื่อเปิดด้วยโปรแกรมที่รองรับ</Alert>
+            )}
+          </Stack>}
+        </DialogContent>
+        <DialogActions>
+          <Button component="a" href="/document-flows?document_view=intake_room">ไปที่ Intake</Button>
+          <Button
+            disabled={!employeeDocumentPreviewUrl || Boolean(employeeDocumentBusy)}
+            onClick={() => employeeDocumentPreview && void requestEmployeeDocumentAccess(employeeDocumentPreview, 'download')}
+          >
+            {employeeDocumentBusy.endsWith(':download') ? <CircularProgress size={18} /> : 'ดาวน์โหลด'}
+          </Button>
+          <Button onClick={() => setEmployeeDocumentPreview(null)} disabled={Boolean(employeeDocumentBusy)}>ปิด</Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={Boolean(reviewTarget)} onClose={() => !reviewingId && setReviewTarget(null)} fullWidth maxWidth="sm">
         <DialogTitle>
@@ -2479,11 +3125,28 @@ export function EmployeePage() {
         </DialogActions>
       </Dialog>
 
+      <Dialog open={Boolean(intakeDraftPerson)} onClose={() => !intakeDraftSaving && setIntakeDraftPerson(null)} fullWidth maxWidth="sm">
+        <DialogTitle>เพิ่ม / อัปเดตข้อมูลก่อนเริ่มงาน</DialogTitle>
+        <DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
+          <Alert severity="info">รายการนี้เป็นประวัติเบื้องต้น ยังไม่เปิด Login ลงเวลา หรือคิดค่าแรง จนกว่า Admin จะยืนยันขั้นสุดท้าย</Alert>
+          <TextField required label="ชื่อพนักงาน" value={intakeDraft.full_name} onChange={(e) => setIntakeDraft((v) => ({ ...v, full_name: e.target.value }))} />
+          <TextField required label="เบอร์โทร" value={intakeDraft.phone} onChange={(e) => setIntakeDraft((v) => ({ ...v, phone: e.target.value }))} />
+          <TextField required select label="ประเภทการจ้าง" value={intakeDraft.employment_type} onChange={(e) => setIntakeDraft((v) => ({ ...v, employment_type: e.target.value }))}>
+            <MenuItem value="unknown" disabled>ยังไม่ระบุ</MenuItem><MenuItem value="daily">รายวัน</MenuItem><MenuItem value="monthly">รายเดือน</MenuItem><MenuItem value="temporary">ชั่วคราว</MenuItem><MenuItem value="contractor">ผู้รับเหมา</MenuItem>
+          </TextField>
+          <TextField required label="ตำแหน่ง" value={intakeDraft.position} onChange={(e) => setIntakeDraft((v) => ({ ...v, position: e.target.value }))} />
+          <TextField required type="date" label="วันที่เริ่มงาน" value={intakeDraft.start_date} onChange={(e) => setIntakeDraft((v) => ({ ...v, start_date: e.target.value }))} slotProps={{ inputLabel: { shrink: true } }} />
+          <Typography variant="caption" color="text.secondary">เอกสารที่เชื่อมแล้ว: {intakeDraftPerson?.documents.length ?? 0} รายการ · Intake และ Audit เดิมจะถูกเก็บครบ</Typography>
+        </Stack></DialogContent>
+        <DialogActions sx={{ flexWrap: 'wrap' }}><Button disabled={intakeDraftSaving} onClick={() => setIntakeDraftPerson(null)}>ยกเลิก</Button><Button variant="outlined" disabled={intakeDraftSaving || !intakeDraft.full_name.trim()} onClick={() => void saveIntakeDraft()}>{intakeDraftSaving ? <CircularProgress size={20} color="inherit" /> : 'บันทึกร่าง'}</Button><Button variant="contained" disabled={intakeDraftSaving || !intakeDraft.full_name.trim() || !intakeDraft.phone.trim() || intakeDraft.employment_type === 'unknown' || !intakeDraft.position.trim() || !intakeDraft.start_date} onClick={() => { if (window.confirm('ยืนยันว่าข้อมูลครบและส่งเข้าสู่ Onboarding ขั้นถัดไปใช่ไหม')) void saveIntakeDraft(true) }}>บันทึกและยืนยันข้อมูลครบ</Button></DialogActions>
+      </Dialog>
+
       <Dialog
         open={createOpen}
         onClose={() => {
           if (creating) return
           setCreateOpen(false)
+          setPreboardingAccountPerson(null)
           setCreateEmployeeAction('')
           setCreateEmployeeErrorCode('')
           setCreateEmployeeRawError('')
@@ -2495,11 +3158,13 @@ export function EmployeePage() {
         fullWidth
         maxWidth="sm"
       >
-        <DialogTitle>เพิ่มพนักงานใหม่</DialogTitle>
+        <DialogTitle>{preboardingAccountPerson ? 'สร้างบัญชีจากทะเบียนเตรียมเริ่มงาน' : 'เพิ่มพนักงานใหม่'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <Alert severity="info">
-              ระบบจะยืนยันอีเมลให้พร้อมใช้งานทันที กรุณาส่งรหัสผ่านชั่วคราวให้พนักงานเป็นการส่วนตัว
+              {preboardingAccountPerson
+                ? `ระบบจะผูกบัญชีกับทะเบียน ${preboardingAccountPerson.employee_code} เดิม ไม่สร้างประวัติพนักงานซ้ำ และยังคงสถานะเตรียมเริ่มงานจนตั้งค่าครบ`
+                : 'ระบบจะยืนยันอีเมลให้พร้อมใช้งานทันที กรุณาส่งรหัสผ่านชั่วคราวให้พนักงานเป็นการส่วนตัว'}
             </Alert>
             {!!createEmployeePreflightIssues.filter((issue) => issue.blocking).length && (
               <Alert severity="error" sx={{ whiteSpace: 'pre-wrap' }}>
@@ -2628,6 +3293,7 @@ export function EmployeePage() {
             disabled={creating}
             onClick={() => {
               setCreateOpen(false)
+              setPreboardingAccountPerson(null)
               setCreateEmployeeAction('')
               setCreateEmployeeErrorCode('')
               setCreateEmployeeRawError('')

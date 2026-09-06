@@ -44,8 +44,10 @@ const MutationAttemptCenterPage = lazyWithReload(() => import('../pages/Mutation
 const LineAccountLinkPage = lazyWithReload(() => import('../pages/LineAccountLink').then((module) => ({ default: module.LineAccountLinkPage })))
 const DocumentFlowsPage = lazyWithReload(() => import('../pages/DocumentFlows').then((module) => ({ default: module.DocumentFlowsPage })))
 const FlowRegistryPage = lazyWithReload(() => import('../pages/FlowRegistry').then((module) => ({ default: module.FlowRegistryPage })))
+const SystemInventoryPage = lazyWithReload(() => import('../pages/SystemInventory').then((module) => ({ default: module.SystemInventoryPage })))
 const MasterDataCenterPage = lazyWithReload(() => import('../pages/MasterDataCenter').then((module) => ({ default: module.MasterDataCenterPage })))
 const AppLauncherPage = lazyWithReload(() => import('../pages/AppLauncher').then((module) => ({ default: module.AppLauncherPage })))
+const AdminAccountRecoveryPage = lazyWithReload(() => import('../pages/AdminAccountRecovery').then((module) => ({ default: module.AdminAccountRecoveryPage })))
 
 const loading = (
   <Box sx={{ minHeight: '50vh', display: 'grid', placeItems: 'center' }}>
@@ -108,8 +110,10 @@ export const router = createBrowserRouter([
               { path: 'settings', element: adminOnly(<SettingsPage />) },
               { path: 'system-health', element: adminOnly(<SystemHealthPage />) },
               { path: 'flow-registry', element: adminOnly(<FlowRegistryPage />) },
+              { path: 'system-inventory', element: adminOnly(<SystemInventoryPage />) },
               { path: 'work-command-center', element: adminOnly(<WorkCommandCenterPage />) },
               { path: 'platform-control-center', element: platformOnly(<PlatformControlCenterPage />) },
+              { path: 'admin-account-recovery', element: adminOnly(<AdminAccountRecoveryPage />) },
               { path: 'my-profile', element: deferred(<MyProfilePage />) },
               { path: 'line-link', element: deferred(<LineAccountLinkPage />) },
               { path: 'mutation-attempt-center', element: adminOnly(<MutationAttemptCenterPage />) },

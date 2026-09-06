@@ -48,6 +48,7 @@
 - แยก role/purpose สำหรับบัญชี การเงิน ผู้อนุมัติ ผู้ตรวจสอบ และผู้ดูแลระบบ
 - Signed URL อายุสั้น; บันทึก preview/download/export; ป้องกันสมาชิกบริษัททั่วไปเปิดไฟล์การเงิน
 - ทดสอบ positive/negative อย่างน้อย 2 บริษัทและ cross-tenant
+- Evidence 5/9/2569: ตรวจ Production พบ policy เดิมของ `chat-attachments` อนุญาตสมาชิกบริษัททุกคนอ่านไฟล์ทุกห้องในบริษัท แม้ไม่ได้เป็นสมาชิกห้อง แก้ด้วย migration `20260905113756_restrict_financial_attachment_room_access.sql` ให้ object path ต้องผูกกับ `chat_rooms.company_id/id` จริง และอนุญาตเฉพาะสมาชิกห้องหรือ Company Manager; path ผิดรูปแบบและ cross-tenant fail closed. Migration ลบ policy ชื่อเก่าที่กว้างทั้งหมดโดยไม่ลบ object หรือเปลี่ยน bucket public. ตรวจด้วย `test:financial-attachment-storage`, `test:storage-tenant`, migration replay, typecheck, lint และ build ก่อน merge. Rollback ใช้ corrective migration คืน policy ก่อนหน้าเฉพาะเมื่อจำเป็น ห้ามลบ migration ที่ apply แล้ว.
 
 ### DOC-INGEST-005 — Dedupe แบบไฟล์จริงและเอกสารเชิงธุรกิจ
 
@@ -74,6 +75,10 @@
 - ทุกขั้นตอน idempotent มี dry-run, batch limit, audit และรายงาน bytes ที่คืนพื้นที่
 
 ### DOC-INGEST-009 — ตรวจความสอดคล้อง Storage/Database
+
+- Implementation 5/9/2569: เพิ่ม `storage_integrity_scan_runs`, `storage_integrity_issues` และ service-role RPC `run_storage_integrity_scan(target_limit)` แบบ read-only/idempotent. ตรวจ orphan active blob, dangling `line_attachments.blob_id`, missing object/thumbnail, tenant UUID namespace และ declared/object size mismatch; ใช้ fingerprint กัน issue ซ้ำ และไม่ปิด issue เก่าหากผล scan ถูกจำกัดจำนวน. ไม่มีการลบ ย้าย หรือซ่อมไฟล์อัตโนมัติ.
+- Verification: `test:storage-integrity-scan`, migration safety, migration replay, typecheck, lint และ build; runtime scan/fault-injection ยังต้องทำหลัง migration apply โดย service role และต้องตรวจผลก่อนเปิด auto-fix.
+- Rollback: revoke/disable `run_storage_integrity_scan`; คงตาราง issue/run ไว้เพื่อ audit และไม่แตะ business/storage objects.
 
 - ตรวจ orphan object, dangling DB row, missing thumbnail/page, hash mismatch และผิด tenant namespace
 - ซ่อมเฉพาะกรณีปลอดภัย; อื่น ๆ เปิด Incident พร้อม evidence/fingerprint และป้องกันเปิดซ้ำ

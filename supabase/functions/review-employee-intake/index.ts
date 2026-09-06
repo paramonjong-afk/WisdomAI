@@ -11,8 +11,9 @@ const cors = {
 }
 
 type ReviewEmployeeIntakeBody = {
-  action?: 'approve' | 'request_more' | 'cancel' | 'revert_approval'
+  action?: 'create_preboarding' | 'update_preboarding' | 'approve' | 'request_more' | 'cancel' | 'revert_approval'
   intake_id?: string
+  draft?: { full_name?: string; phone?: string; employment_type?: string; position?: string; start_date?: string }
 }
 
 type ErrorResponse = {
@@ -51,6 +52,32 @@ const mapError = (
     code: 'UNREADY_FOR_APPROVAL',
     action: 'กรุณารอข้อมูลครบก่อนแล้วลองอัปเดตอีกครั้ง',
     status: 409,
+  }
+  if (/employee_intake_candidate_name_required/i.test(message)) return {
+    message: 'ยังไม่พบชื่อพนักงานที่ยืนยันได้', code: 'CANDIDATE_NAME_REQUIRED',
+    action: 'ตรวจชื่อจากเอกสารหรือกรอกชื่อให้ถูกต้องก่อนสร้างประวัติเบื้องต้น', status: 409,
+  }
+  if (/employee_intake_document_required/i.test(message)) return {
+    message: 'ยังไม่มีเอกสารต้นฉบับที่เชื่อมกับ Intake', code: 'DOCUMENT_REQUIRED',
+    action: 'ตรวจการนำเข้าเอกสาร แล้วลองสร้างประวัติเบื้องต้นอีกครั้ง', status: 409,
+  }
+  if (/employee_intake_preboarding_not_actionable/i.test(message)) return {
+    message: 'รายการนี้ปิดหรืออนุมัติไปแล้ว จึงสร้างประวัติเบื้องต้นซ้ำไม่ได้', code: 'INVALID_STATE',
+    action: 'รีเฟรชและตรวจสถานะ Employee Master ของรายการนี้', status: 409,
+  }
+  if (/employee_intake_preboarding_not_found/i.test(message)) return {
+    message: 'ไม่พบประวัติพนักงานเบื้องต้นที่แก้ไขได้', code: 'PREBOARDING_NOT_FOUND',
+    action: 'รีเฟรชหน้าพนักงานแล้วตรวจว่ารายการยังอยู่ในคิว HR Onboarding', status: 409,
+  }
+  if (/employee_intake_phone_invalid/i.test(message)) return {
+    message: 'รูปแบบเบอร์โทรไม่ถูกต้อง', code: 'INVALID_PHONE',
+    action: 'กรอกเบอร์โทร 8-20 หลัก ใช้ได้เฉพาะตัวเลข เครื่องหมาย + และ -', status: 400,
+  }
+  if (/employee_intake_start_date_invalid/i.test(message)) return {
+    message: 'วันที่เริ่มงานไม่ถูกต้อง', code: 'INVALID_START_DATE', action: 'เลือกวันที่เริ่มงานใหม่', status: 400,
+  }
+  if (/employee_intake_employment_type_invalid/i.test(message)) return {
+    message: 'ประเภทการจ้างไม่ถูกต้อง', code: 'INVALID_EMPLOYMENT_TYPE', action: 'เลือกประเภทการจ้างจากรายการ', status: 400,
   }
   if (/employee_intake_approval_denied/i.test(message)) return {
     message: 'สิทธิ์การอนุมัติไม่เพียงพอ',
@@ -142,8 +169,8 @@ Deno.serve(async (request) => {
     const action = body?.action
     const intakeId = body?.intake_id?.trim()
 
-    if (!action || !['approve', 'request_more', 'cancel', 'revert_approval'].includes(action)) {
-      return errorResponse('ข้อมูล action ไม่ถูกต้อง', 'INVALID_ACTION', 'เลือกการดำเนินการที่ถูกต้อง (approve / request_more / cancel / revert_approval)', 400)
+    if (!action || !['create_preboarding', 'update_preboarding', 'approve', 'request_more', 'cancel', 'revert_approval'].includes(action)) {
+      return errorResponse('ข้อมูล action ไม่ถูกต้อง', 'INVALID_ACTION', 'เลือกการดำเนินการที่ถูกต้อง', 400)
     }
     if (!intakeId) {
       return errorResponse('ข้อมูล intake_id ไม่ครบ', 'INVALID_INTAKE_ID', 'เลือกรายการ HR Intake ก่อนกดยืนยัน', 400)
@@ -160,6 +187,47 @@ Deno.serve(async (request) => {
     }
     if (targetIntake.company_id !== companyId) {
       return errorResponse('ไม่พบสิทธิ์จัดการ intake นี้', 'INTAKE_NOT_FOUND', 'ตรวจสอบว่า intake นี้อยู่ในบริษัทที่คุณเลือกอยู่', 404)
+    }
+
+    if (action === 'create_preboarding') {
+      const { data: draft, error: draftError } = await admin.rpc('create_employee_preboarding_from_intake', {
+        target_intake_id: intakeId,
+        actor_profile_id: authData.user.id,
+      })
+      if (draftError) {
+        const mapped = mapError(draftError)
+        return errorResponse(mapped.message, mapped.code, mapped.action, mapped.status ?? 400)
+      }
+      return Response.json({
+        ok: true,
+        action: 'create_preboarding',
+        intake_id: intakeId,
+        employee_id: draft?.[0]?.employee_id ?? null,
+        employee_code: draft?.[0]?.employee_code ?? null,
+        result_status: draft?.[0]?.result_status ?? 'preboarding_created',
+        remaining_fields: draft?.[0]?.remaining_fields ?? [],
+        linked_document_count: draft?.[0]?.linked_document_count ?? 0,
+      }, { headers: { ...cors, 'content-type': 'application/json; charset=utf-8' } })
+    }
+
+    if (action === 'update_preboarding') {
+      const { data: updated, error: updateError } = await admin.rpc('update_employee_preboarding_from_intake', {
+        target_intake_id: intakeId,
+        actor_profile_id: authData.user.id,
+        draft: body.draft ?? {},
+      })
+      if (updateError) {
+        const mapped = mapError(updateError)
+        return errorResponse(mapped.message, mapped.code, mapped.action, mapped.status ?? 400)
+      }
+      return Response.json({
+        ok: true, action: 'update_preboarding', intake_id: intakeId,
+        employee_id: updated?.[0]?.employee_id ?? null,
+        employee_code: updated?.[0]?.employee_code ?? null,
+        result_status: updated?.[0]?.result_status ?? 'preboarding_updated',
+        remaining_fields: updated?.[0]?.remaining_fields ?? [],
+        ready_for_approval: updated?.[0]?.ready_for_approval ?? false,
+      }, { headers: { ...cors, 'content-type': 'application/json; charset=utf-8' } })
     }
 
     if (action === 'approve') {

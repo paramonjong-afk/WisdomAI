@@ -1,4 +1,4 @@
-import type { FlowRegistryFilters, FlowRegistryNode, FlowRegistryRecord, FlowRegistrySnapshot } from './flowRegistryGateway'
+import type { FlowRegistryFilters, FlowRegistryNode, FlowRegistryRecord, FlowRegistrySnapshot } from '../../src/services/flowRegistryGateway'
 
 const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
 

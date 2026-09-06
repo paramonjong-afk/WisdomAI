@@ -25,6 +25,18 @@ where work_key = 'LINE-GROUP-APPROVAL-001'
 
 do $$
 begin
+  -- A pristine installation has no historical UAT work item to reconcile.
+  -- Keep the original assertion for existing identities or any target row.
+  if not exists (select 1 from auth.users)
+     and not exists (select 1 from public.profiles)
+     and not exists (
+       select 1 from public.system_work_items
+       where work_key = 'LINE-GROUP-APPROVAL-001'
+     ) then
+    raise notice 'Completion reconciliation not applicable: no users, profiles or target work item exist';
+    return;
+  end if;
+
   if not exists (
     select 1
     from public.system_work_items

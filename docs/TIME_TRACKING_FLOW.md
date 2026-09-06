@@ -6,12 +6,13 @@ flowchart LR
   B -->|มือถือ| C[เปิด / Launcher]
   B -->|คอม + admin/manager| D[เปิด /dashboard รวม]
   B -->|คอม + employee| E[เปิด /my-profile]
+  C --> U[อ่าน Web Chat unread<br/>ตามสมาชิกห้อง + read state]
+  U --> U1[Badge ใน Launcher<br/>และไอคอน PWA เมื่อรองรับ]
   C --> C1{เลือกเมนู}
   C1 -->|ลงเวลา| F[ตรวจ GPS + Selfie + ยืนยัน]
   C1 -->|Web Chat| I[เปิด /chat]
   F --> G[attendance-clock]
   G --> H[attendance_sessions]
-  C --> I[กด Web Chat จากทางลัด]
   D --> J[เปิด Web Chat จาก Sidebar]
   E --> J
   I --> K[/chat ภายใน Auth session เดิม]
@@ -19,24 +20,25 @@ flowchart LR
   H --> L[HR Chat Bridge เมื่อเปิด integration]
 ```
 
-กราฟนี้แสดงจุดเข้าหลักหลัง Login: ระบบตรวจอุปกรณ์และบทบาทก่อนเลือกหน้าเริ่มต้น โดยมือถือเข้า `/` Launcher ที่มีปุ่มระดับเดียวกัน 2 ปุ่มคือ ลงเวลา (`/time-tracking`) และ Web Chat (`/chat`), คอมพิวเตอร์ที่เป็นผู้ดูแล/ผู้จัดการเข้า Dashboard รวม และพนักงานเข้า `/my-profile`; การลงเวลายังคงตรวจสอบผ่าน `attendance-clock` ก่อนเขียน `attendance_sessions`
+กราฟนี้แสดงจุดเข้าหลักหลัง Login: ระบบตรวจอุปกรณ์และบทบาทก่อนเลือกหน้าเริ่มต้น โดยมือถือเข้า `/` Launcher ที่มีปุ่มระดับเดียวกัน 2 ปุ่มคือ ลงเวลา (`/time-tracking`) และ Web Chat (`/chat`) พร้อมจำนวนข้อความที่ยังไม่ได้อ่าน; หน้าลงเวลามือถือโฟกัสเฉพาะสถานะวันนี้, GPS, ไซต์, Selfie และปุ่มเข้า/ออก โดยไม่วางปุ่ม Web Chat ซ้ำภายในหน้า การลงเวลายังคงตรวจสอบผ่าน `attendance-clock` ก่อนเขียน `attendance_sessions`
 
 ## วัตถุประสงค์
 
-ให้พนักงานบันทึกเวลาเข้า/ออกด้วย GPS และ Selfie จากหน้า Time Tracking ได้ตามเดิม พร้อมมีทางลัดไป Web Chat เพื่อพูดคุยหรือแจ้งลงเวลาผ่านคำสั่งเสียง/ข้อความ โดยใช้บัญชีและ `attendance_sessions` ชุดเดียวกัน
+ให้พนักงานบันทึกเวลาเข้า/ออกด้วย GPS และ Selfie จากหน้า Time Tracking ที่กระชับ ใช้มือเดียวได้ และเห็นเวลาเข้า–ออกของวันนี้ โดยแยกทางเข้า Web Chat ไว้ที่ Launcher เพื่อไม่ให้ไอคอนซ้อนกัน
 
 ## Inputs / Outputs
 
 - **Input:** บริษัทปัจจุบัน, ผู้ใช้ที่ Login แล้ว, ไซต์ที่ได้รับมอบหมาย, GPS, Selfie และ action `clock_in|clock_out`
 - **Output:** `attendance_sessions`, สถานะ `normal|needs_review|failed`, ประวัติลงเวลา และข้อความระบบในห้อง HR เมื่อเปิด bridge
 - **Navigation input:** device signals (`userAgent`, viewport, touch/coarse pointer), effective profile role, requested path และทางลัด Web Chat
-- **Navigation output:** มือถือไป `/` Launcher แล้วเลือก `/time-tracking` หรือ `/chat`; คอม `admin/manager` ไป `/dashboard`; คอม `employee` ไป `/my-profile`; Web Chat ไป `/chat` ภายใน session เดิม โดยไม่ส่งข้อมูล GPS/Selfie ผ่าน URL
+- **Navigation output:** มือถือไป `/` Launcher แล้วเลือก `/time-tracking` หรือ `/chat`; Launcher แสดง unread badge ภายในทุกอุปกรณ์ และซิงก์ badge ไปไอคอน PWA เมื่อ Badging API รองรับ; คอม `admin/manager` ไป `/dashboard`; คอม `employee` ไป `/my-profile`
+- **Mobile attendance output:** แสดงชื่อพนักงาน, วันที่/เวลาปัจจุบัน, สถานะวันนี้, ความพร้อม GPS/ไซต์/Selfie, ปุ่มเข้า–ออกหนึ่งปุ่ม และเวลาเข้า–ออกวันนี้ โดยไม่เปลี่ยน payload การบันทึก
 
 ## States
 
 `ready → location_checked → selfie_captured → awaiting_confirmation → recording → recorded|needs_review|failed`
 
-การกด `Web Chat` ไม่เปลี่ยน state ของ attendance และไม่ยกเลิกข้อมูลที่กำลังกรอกอยู่ในหน้าเดิมหากผู้ใช้นำทางออกเอง
+Web Chat และ Time Tracking แยกเป็นปลายทางระดับเดียวกันจาก Launcher; การเข้า Time Tracking ไม่สร้างหรือเปลี่ยน read state ของ Chat
 
 ## Roles / Permissions
 
@@ -49,13 +51,15 @@ flowchart LR
 - Time Tracking UI → Supabase Storage `attendance-selfies`
 - Time Tracking UI → Edge Function `attendance-clock`
 - `attendance_sessions` → Chat Attendance Bridge → ห้อง HR ผ่าน `chat_room_integrations`
-- React Router `/time-tracking` ↔ `/chat` ใช้ Auth session เดิม
+- App Launcher → `chat_room_members` + `chat_room_read_states` + `chat_messages` → unread badge
+- App Launcher → Web Badging API (`setAppBadge`/`clearAppBadge`) เฉพาะ installed PWA/อุปกรณ์ที่รองรับ
 
 ## Failure / Retry
 
 - ไม่มีบริษัท/ไซต์/สิทธิ์: หยุดก่อนบันทึกและแสดงข้อความแก้ไข
 - GPS/กล้อง/อัปโหลด/Edge Function ล้มเหลว: ไม่สร้าง attendance ที่ไม่สมบูรณ์ และให้เริ่มขั้นตอนใหม่
-- ปุ่ม Web Chat ใช้ navigation ภายในแอป; หาก session หมดอายุ ระบบพาไป Login ตาม ProtectedRoute
+- โหลดจำนวน Chat ไม่สำเร็จ: ล้างเลขที่อาจเก่า, แสดงคำเตือน และ retry ทุก 30 วินาที/Realtime; ไม่กระทบการลงเวลา
+- อุปกรณ์ไม่รองรับ PWA Badging API หรือ OS ปฏิเสธ: badge ภายใน Launcher ยังทำงาน และไม่บล็อกการใช้งาน
 - การส่ง Log HR ล้มเหลวไม่ทำให้ `attendance_sessions` ต้นทางล้มเหลว; bridge เก็บ retry ledger แยก
 
 ## Audit / Owner
@@ -97,3 +101,11 @@ flowchart LR
 - Migration: ไม่มี
 - Verification: auth-routing/launcher contract test, lint, build และตรวจ route `/` บน mobile viewport
 - Rollback: เปลี่ยน mobile destination กลับ `/time-tracking` ได้ โดยไม่ลบข้อมูลลงเวลา ห้องแชต หรือ audit
+
+### v1.6 — 31/8/2569
+
+- เหตุผล: ให้พนักงานเห็นข้อมูลสำคัญของการลงเวลาในจอเดียวและเห็นจำนวน Web Chat ค้างตั้งแต่ Launcher โดยไม่ใช้ไอคอนซ้อนในหน้าลงเวลา
+- ผลกระทบ: `/time-tracking` บนมือถือเพิ่ม status/time/readiness/today summary และปุ่มหลักหนึ่งปุ่ม; `/` แสดง unread text/badge และซิงก์ PWA badge เมื่อรองรับ; desktop settings, GPS/Selfie, `attendance-clock`, `attendance_sessions`, RLS และ Audit เดิมไม่เปลี่ยน
+- Migration: ไม่มี
+- Verification: launcher/attachment contract, attendance tests, typecheck, lint, build และ authenticated mobile smoke ที่ `/` กับ `/time-tracking`
+- Rollback: revert UI และ `appBadge` service; ข้อมูล Chat/read state/attendance/Selfie/Audit เดิมไม่ถูกแก้หรือลบ

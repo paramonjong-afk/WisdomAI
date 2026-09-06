@@ -4,10 +4,10 @@
 flowchart TD
   M0[ติดตั้ง/เปิดไอคอน WisdomAI เดียวบนมือถือ] --> L0[Login สำเร็จ]
   L0 --> L1{ตรวจอุปกรณ์และบทบาท}
-  L1 -->|มือถือ| L2[หน้า Time Tracking เดิม]
+  L1 -->|มือถือ| L2[Launcher: ลงเวลา / Web Chat]
   L1 -->|คอม + admin/manager| L3[Dashboard รวม]
   L1 -->|คอม + employee| L4[My Profile]
-  L2 --> L5[ทางลัด Web Chat]
+  L2 --> L5[เลือก Web Chat พร้อม unread badge]
   L3 --> L6[Sidebar Web Chat]
   L4 --> L6
   L5 --> U[ผู้ใช้เข้า Web Chat]
@@ -43,7 +43,7 @@ flowchart TD
   AA -->|ไม่ใช่| AC[แสดงรายการห้องแบบย่อด้านซ้าย]
 ```
 
-กราฟนี้สรุปภาพรวมใหม่ของห้อง HR: ผู้ใช้มือถือเปิดจากไอคอน WisdomAI เดียวแล้วเข้า Time Tracking เดิม ส่วนคอมพิวเตอร์จะไป Dashboard รวมเมื่อเป็น admin/manager หรือไป My Profile เมื่อเป็น employee จากนั้นผู้ใช้เปิด Web Chat ผ่านทางลัดหรือ Sidebar และทุก event ที่เป็นงาน HR จะถูกส่งผ่าน publisher กลางไปยังห้องเดียวกัน โดยใช้ delivery ledger กันข้อความซ้ำและเก็บ error/retry แยกจากข้อมูลต้นทาง ขณะเดียวกัน Web Chat จะเปิด Presence ของผู้ใช้ แสดงสถานะออนไลน์ เปิด private call channel ตามบริษัท/ห้องสำหรับโทรเสียง 1 ต่อ 1 ผ่าน WebRTC และใช้พื้นที่สนทนาแบบ compact เพื่อให้ข้อความเป็นศูนย์กลาง โดยเฉพาะบนมือถือจะซ่อนรายการห้องไว้ในเมนูเลือกห้อง
+กราฟนี้สรุปภาพรวมใหม่ของห้อง HR: ผู้ใช้มือถือเปิดจากไอคอน WisdomAI เดียวแล้วเข้า Launcher เพื่อเลือกลงเวลาหรือ Web Chat เป็นคนละปุ่ม โดย Web Chat แสดงจำนวนข้อความค้าง ส่วนคอมพิวเตอร์จะไป Dashboard รวมหรือ My Profile ตามบทบาท ทุก event ที่เป็นงาน HR จะถูกส่งผ่าน publisher กลางไปยังห้องเดียวกัน โดยใช้ delivery ledger กันข้อความซ้ำและเก็บ error/retry แยกจากข้อมูลต้นทาง
 
 ## วัตถุประสงค์
 
@@ -235,12 +235,20 @@ flowchart LR
 ```mermaid
 flowchart LR
   A[Login สำเร็จ] --> B[Launcher โหลดห้องที่เข้าถึงได้]
-  B --> C[อ่าน read cursor + นับข้อความใหม่]
-  C --> D[แสดง badge บนไอคอน Web Chat]
+  B --> C[อ่าน membership/joined_at + read cursor]
+  C --> D[นับข้อความใหม่ที่ไม่ใช่ของตนเอง/ไม่ถูกลบ]
+  D --> D1[แสดง badge+ข้อความใน Launcher]
+  D1 --> D2[ซิงก์ไอคอน PWA เมื่อ Badging API รองรับ]
   B --> E[กดไอคอนลงเวลา หรือ Web Chat]
   E --> F[เข้า module ภายใน Auth session เดิม]
-  G[เลือกไฟล์รูป/เอกสาร] --> H[ตรวจขนาดและ normalize MIME]
-  H --> I{ชนิดไฟล์อยู่ใน allow-list หรือไม่}
+  G[แตะปุ่มแนบแบบ native label] --> G0[Pointer down ล้างค่าเดิมก่อน picker]
+  G0 --> G1[Android/iOS เปิด file picker โดย input click ไม่ล้างไฟล์]
+  G1 --> G2[เลือกไฟล์และคง File handle ไว้จนอ่านเสร็จ]
+  G2 --> H[แสดง Preview และเริ่มส่งอัตโนมัติ]
+  H --> M[ตรวจสมาชิกห้องจากฐานข้อมูล]
+  M -->|ไม่เป็นสมาชิก| J[หยุดและแจ้งให้เพิ่มสมาชิก]
+  M -->|เป็นสมาชิก| V[ตรวจขนาดและ normalize MIME]
+  V --> I{ชนิดไฟล์อยู่ใน allow-list หรือไม่}
   I -->|ไม่| J[หยุดและแจ้งชนิดไฟล์ที่รองรับ]
   I -->|ใช่| S[ตรวจ Auth session และ expires_at]
   S -->|หมดอายุ/refresh ไม่สำเร็จ| T[คงไฟล์ค้างและแจ้งให้เข้าสู่ระบบใหม่]
@@ -249,13 +257,13 @@ flowchart LR
   K --> L[insert chat_messages แบบ file]
 ```
 
-- **Input:** `company_id`, `profile_id`, ห้องที่ RLS ให้เห็น, `chat_room_read_states`, `chat_messages.created_at`, ไฟล์จาก `<input type=file>` และ MIME/นามสกุลไฟล์
-- **Output:** launcher icon สองรายการ, badge จำนวนข้อความค้าง, หรือ `chat_messages` แบบ file พร้อม signed URL สำหรับสมาชิกห้อง
+- **Input:** `company_id`, `profile_id`, `chat_room_members.joined_at`, `chat_room_read_states`, `chat_messages.created_at/sender_profile_id/deleted_at`, ไฟล์จาก `<input type=file>` ที่เปิดผ่าน native label โดยล้างค่าเดิมใน pointer-down ก่อนเปิด picker และ MIME/นามสกุลไฟล์
+- **Output:** launcher icon สองรายการ, badge+ข้อความจำนวนค้าง, PWA app badge เมื่อรองรับ หรือ `chat_messages` แบบ file พร้อม signed URL สำหรับสมาชิกห้อง
 - **States:** `loading → ready|unread_error`; ไฟล์ `selected → validated → session_checked → uploaded → message_recorded|failed`; ถ้า session หมดอายุและ refresh ไม่สำเร็จจะคงไฟล์ไว้เพื่อ retry หลัง login ใหม่; HEIC/HEIF/AVIF/TIFF ถูก normalize ก่อนตรวจ allow-list
 - **Roles / Permission:** launcher ใช้ Auth session; unread query จำกัดบริษัท/ห้องตาม RLS; upload ใช้ `storage.objects` policy โดยสมาชิกบริษัทต้องเป็นสมาชิกห้อง และ company manager ใช้สิทธิ์ผู้จัดการตาม policy ที่มีอยู่; bucket ยังคง private
-- **Integrations:** `/` Application Launcher, `src/services/chatUnread.ts`, Supabase PostgREST/Realtime, Storage bucket `chat-attachments`, `chat_messages` และ signed URL
-- **Failure / Retry:** unread อ่านไม่ได้ให้คงไอคอนไว้และ retry ทุก 30 วินาที/เมื่อมี Realtime insert; MIME/ขนาดไม่ผ่านหยุดก่อน upload; ตรวจ `expires_at` และ refresh session ก่อน upload; ถ้า Storage ตอบ 401/RLS จะ refresh แล้วลอง upload ซ้ำหนึ่งครั้ง หาก refresh ไม่สำเร็จให้คงไฟล์ไว้และให้ login ใหม่; Storage หรือ insert ล้มเหลวลบ object ค้างและแจ้งผู้ใช้ โดยแยก session หมดอายุออกจากสิทธิ์ห้อง
-- **Audit events:** การเปลี่ยน route เป็น navigation event; การส่งไฟล์อยู่ใน `chat_messages` และ mutation attempt `send-file-message`; ไม่บันทึกไฟล์ซ้ำเมื่อ insert ล้มเหลว
+- **Integrations:** `/` Application Launcher, `src/services/chatUnread.ts`, `src/services/appBadge.ts`, Supabase PostgREST/Realtime, Web Badging API, Storage bucket `chat-attachments`, `chat_messages` และ signed URL
+- **Failure / Retry:** unread อ่านไม่ได้ให้ล้างเลขที่อาจเก่าและ retry ทุก 30 วินาที/เมื่อมี Realtime insert/read-state update; OS ไม่รองรับหรือปฏิเสธ App Badge ให้ใช้ badgeภายในต่อ; file picker ล้างค่าเดิมใน `pointerdown` ก่อน native picker เปิด และห้ามล้างใน input `click` หลัง picker กลับมา จึงเลือกรูปเดิมซ้ำได้โดยไม่ทำ File หายก่อน `change`; MIME/ขนาดไม่ผ่านหยุดก่อน upload; ตรวจ `expires_at` และ refresh session ก่อน upload; ถ้า Storage ตอบ 401/RLS จะ refresh แล้วลอง upload ซ้ำหนึ่งครั้ง หาก refresh ไม่สำเร็จให้คงไฟล์ไว้และให้ login ใหม่
+- **Audit events:** การเปลี่ยน route เป็น navigation event; client telemetry บันทึก `picker_opened → file_selected → send_started → message_recorded|membership/upload_failed` โดยไม่เก็บชื่อไฟล์; การส่งไฟล์อยู่ใน `chat_messages` และ mutation attempt `send-file-message`; ไม่บันทึกไฟล์ซ้ำเมื่อ insert ล้มเหลว
 - **Owner:** ผู้ใช้เป็น owner ของการเลือก module/แนบไฟล์; ทีมระบบเป็น owner ของ unread service, Storage allow-list, RLS และ cleanup path
 
 ## Mobile file-send reliability (v1.10)
@@ -584,3 +592,180 @@ flowchart LR
 - Migration: ไม่มี schema/data migration; ตรวจ Production แล้วไม่พบ `line_attendance_requests` หรือ `line_task_commands` ที่มาจากข้อความ generic เหล่านี้ จึงไม่มีรายการค้างให้ลบ/ยกเลิก
 - Verification: parser test สำหรับ generic/directional commands, targeted lint, build, Edge Function deploy และ query ตรวจรายการค้าง/สถานะบน Production
 - Rollback: คืน parser เดิมและ deploy `line-webhook` รุ่นก่อนหน้าได้; ข้อมูลคำขอ/attendance ที่มีอยู่ก่อนการเปลี่ยนไม่ถูกลบหรือแก้ย้อนหลัง
+
+### v2.5 — 31/8/2569
+
+- เหตุผล: ให้ผู้ใช้มือถือเห็นจำนวน Web Chat ค้างจาก Launcher/ไอคอน PWA และไม่วางทางลัด Chat ซ้ำในหน้าลงเวลาที่ต้องโฟกัสการเข้า–ออก
+- ผลกระทบ: unread ใช้ membership/join/read cutoff, ตัดข้อความตนเองและข้อความลบ, ซิงก์ Web Badging API เมื่อรองรับ; หน้า Time Tracking มือถือเปลี่ยนเฉพาะ presentation
+- Migration: ไม่มี; Chat room/message/read state, attendance, HR delivery และ RLS เดิมไม่เปลี่ยน
+- Verification: launcher/attachment contract, attendance tests, typecheck, lint, build และ authenticated mobile smoke
+- Rollback: revert unread/App Badge/mobile UI; ข้อมูลข้อความ ไฟล์ attendance และ Audit คงอยู่
+
+### v2.6 — 31/8/2569
+
+```mermaid
+flowchart LR
+  A[ผู้ใช้เลือกหรือลากรูป] --> B[Preview ไฟล์ที่เลือก]
+  B --> C[ตรวจ membership ห้องจริง]
+  C -->|ผ่าน| D[ตรวจ session/MIME/ขนาด]
+  C -->|ไม่ผ่าน| E[คงไฟล์และแจ้งวิธีแก้]
+  D --> F[Upload Storage อัตโนมัติ]
+  F -->|สำเร็จ| G[บันทึก chat_messages + แสดงรูปในห้อง]
+  F -->|ล้มเหลว| H[คง Preview + ปุ่มลองส่งอีกครั้ง]
+```
+
+- เหตุผล: Production bucket, migration และสิทธิ์ของเจ้าของระบบผ่าน แต่ไม่พบคำขอ Upload ใหม่หลังเลือกไฟล์ แสดงว่า flow สองจังหวะ “เลือกแล้วกดส่งไฟล์อีกครั้ง” ทำให้ผู้ใช้หยุดก่อนถึง Storage
+- ผลกระทบ: เลือกหรือลากไฟล์แล้วเริ่มส่งทันที, แสดง Preview/สถานะอัปโหลด, ตรวจ membership จริงก่อน Storage และคงไฟล์พร้อมปุ่มลองส่งอีกครั้งเมื่อผิดพลาด; ข้อความ/ไฟล์จะเกิดเพียงหลัง Storage และ `chat_messages` สำเร็จตาม flow เดิม
+- สิทธิ์: ไม่ขยาย RLS; ต้องเป็นสมาชิกห้องที่เลือก และยังใช้ Auth session, private bucket, company/room path และ policy เดิม
+- Migration: ไม่มี; Production migration `20260822003747` และ `20260822194037` ยังเป็นฐานเดิม
+- Verification: query bucket/policies/membership, Storage log, attachment contract, typecheck, lint, build และ authenticated runtime smoke โดยใช้รูปทดสอบที่ไม่ใช่ข้อมูลจริง
+- Rollback: revert auto-send/preview/preflight ใน `src/pages/Chat/index.tsx`; ไฟล์และข้อความที่ส่งสำเร็จแล้วคงอยู่และไม่ต้อง rollback ข้อมูล
+
+### v2.7 — 31/8/2569
+
+```mermaid
+flowchart LR
+  A[แตะปุ่มแนบ] --> B[Native label เปิด Android/iOS picker]
+  B --> C[ล้างค่า input ก่อนเปิดเพื่อเลือกรูปเดิมซ้ำได้]
+  C --> D[ผู้ใช้เลือกรูป]
+  D --> E[คง File handle ไม่ล้างก่อนอ่าน]
+  E --> F[Preview + Membership + Session]
+  F --> G[Storage upload]
+  G --> H[chat_messages + รูปในห้อง]
+  D --> I[Telemetry ระบุขั้นที่หยุด]
+```
+
+- เหตุผล: Production log จาก Android พบว่าเปิด `/chat` และอ่านห้องได้ แต่ไม่มี `chat-attachments` request หลังเลือกไฟล์ จึงต้องแก้จุดเปิด native picker/อายุของ File handle และเพิ่มหลักฐานแต่ละขั้น
+- ผลกระทบ: ปุ่มแนบเปลี่ยนเป็น `IconButton component="label"` ที่มี file input อยู่ภายใน, reset ค่าเฉพาะก่อนเปิด picker, ไม่ reset ทันทีหลัง `change`, และเก็บ telemetry โดยไม่บันทึกชื่อไฟล์; auto-send/preview/retry เดิมคงอยู่
+- สิทธิ์/ข้อมูล: RLS, private bucket, membership, company/room path, allow-list และ cleanup เดิมไม่เปลี่ยน; telemetry เก็บเฉพาะขั้น, room id, MIME และขนาด
+- Migration: ไม่มี
+- Verification: mobile picker contract, attachment/Chat tests, typecheck, lint, build, Production revision และ authenticated Android upload smoke พร้อมตรวจ Storage/message/telemetry
+- Rollback: revert native-label/reset/telemetry patch; ข้อความและไฟล์ที่ส่งสำเร็จแล้วคงอยู่
+
+### v2.8 — 31/8/2569
+
+```mermaid
+flowchart LR
+  A[แตะไอคอนแนบไฟล์] --> B[Pointer down ล้าง selection เดิม]
+  B --> C[Native picker เปิด]
+  C --> D[ผู้ใช้เลือกรูป]
+  D --> E[Input change ได้ File]
+  E --> F[Preview + Membership + Session]
+  F --> G[Storage + chat_messages]
+  G --> H[แสดงรูปในห้อง]
+  C -->|ยกเลิก| I[ไม่สร้างไฟล์หรือข้อความ]
+```
+
+- เหตุผล: Android Production บันทึก `chat_attachment_picker_opened` ในห้องจริง แต่ไม่มี `chat_attachment_file_selected`, Storage object หรือ `chat_messages` แสดงว่า input `click` ล้างค่าหลัง native picker กลับมาก่อน `change` ได้รับ File
+- ผลกระทบ: ย้ายการล้าง selection เดิมไปที่ `pointerdown` ของ native label และถอด reset ออกจาก input `click`; auto-send, Preview, membership, session, private Storage, message insert และ retry เดิมไม่เปลี่ยน
+- สิทธิ์/ข้อมูล: ไม่เปลี่ยน RLS, สมาชิก, private bucket, allow-list, company/room path หรือข้อมูลเดิม; ยังคง telemetry โดยไม่เก็บชื่อไฟล์
+- Migration: ไม่มี
+- Verification: attachment contract, targeted ESLint, typecheck, lint, build, Production revision parity และ Android smoke ตั้งแต่ `picker_opened → file_selected → send_started → Storage → message_recorded → image preview`
+- Rollback: revert v2.8 เพื่อคืน reset ที่ input click; ไฟล์/ข้อความที่ส่งสำเร็จแล้วไม่ถูกลบ
+
+### v2.9 — 31/8/2569
+
+```mermaid
+flowchart LR
+  A[แตะไอคอนแนบ] --> B[Native input overlay รับ Pointer โดยตรง]
+  B --> C[Android/iOS picker]
+  C -->|เลือกไฟล์| D[input/change ได้ File]
+  D --> E[กัน DOM event ซ้ำ]
+  E --> F[Telemetry file_received ก่อน validation]
+  F --> G{ห้อง/ขนาด/MIME ผ่านหรือไม่}
+  G -->|ผ่าน| H[Membership + Session]
+  H --> I[Private Storage]
+  I --> J[chat_messages + Preview]
+  G -->|ไม่ผ่าน| K[selection_blocked พร้อม reason]
+  H -->|ล้มเหลว| L[คงไฟล์ + Retry]
+  I -->|ล้มเหลว| L
+  C -->|ยกเลิก| M[ไม่สร้างข้อมูล]
+```
+
+- เหตุผล: หลัง deploy v2.8 Android ห้องจริงยังบันทึกเพียง `chat_attachment_picker_opened`; ไม่มีหลักฐานว่า browser ส่ง File กลับ และ telemetry เดิมอยู่หลัง validation จึงยังแยกกรณีถูกบล็อกไม่ได้
+- Input/Output/States: รับ File จาก native picker หรือ drag/drop → received/validated/uploading/message_recorded → แสดง Preview; ยกเลิกไม่สร้างข้อมูล และ failure คงไฟล์ให้ Retry ตามเดิม
+- ผลกระทบ: วาง native file input โปร่งใสเต็มไอคอนให้รับการแตะโดยตรง ไม่พึ่ง MUI label forwarding; ฟังทั้ง `input`/`change` และใช้ ref กัน event ซ้ำโดยไม่ส่งไฟล์ซ้ำ
+- สิทธิ์/Integration: ต้อง login, มี company/room และ membership จริง; Program Development ยัง owner-only; ใช้ Auth/session, private `chat-attachments`, `chat_messages`, signed preview และ Realtime เดิม
+- Failure/Retry: แยก `not_ready`, `file_too_large`, `unsupported_type`; session/Storage/message error ยังคง Preview และลองส่งใหม่ได้ โดยลบ object เมื่อ message insert ล้มเหลว
+- Audit/Owner: telemetry เพิ่ม `chat_attachment_file_received` และ `chat_attachment_selection_blocked` ก่อน validation โดยเก็บเฉพาะ source, room, ขนาด และ MIME ไม่เก็บชื่อไฟล์; owner คือ Web Chat/Application Platform
+- Migration: ไม่มี; RLS, bucket allow-list, company/room path และข้อมูลเดิมไม่เปลี่ยน
+- Verification: contract, lint, typecheck, build, Production revision parity และ authenticated Android smoke/read-back ตั้งแต่ pointer → File → Storage → message → Preview
+- Rollback: revert v2.9 แล้ว deploy ผ่าน Git integration; ไฟล์/ข้อความ/Audit เดิมไม่ถูกลบ
+
+### v3.0 — 31/8/2569
+
+```mermaid
+flowchart LR
+  A[แตะไอคอนแนบ] --> B{เลือกวิธี}
+  B -->|ถ่ายรูปในแอป| C[getUserMedia กล้องหลัง]
+  C --> D[Canvas สร้าง JPEG File]
+  B -->|เลือกรูปหรือไฟล์| E[File System Picker]
+  B -->|แบบสำรอง| F[Native input]
+  D --> G[Validation + Telemetry]
+  E --> G
+  F --> G
+  G --> H[Membership + Session]
+  H --> I[Private Storage]
+  I --> J[chat_messages + Preview]
+  C -->|ไม่อนุญาต/ไม่พร้อม| K[หยุดกล้อง + แจ้งเหตุผล]
+  E -->|ใช้ไม่ได้| F
+```
+
+- เหตุผล: Production Android revision `217c798` เปิด picker ได้ แต่เมื่อกลับจากกล้อง/แกลเลอรีหน้า Chat เริ่ม session ใหม่และไม่มี File event ทั้งสองครั้ง จึงยืนยันว่าจุดขาดเกิดก่อน validation/Storage และสัมพันธ์กับ native Media Picker/page restore
+- Input/Output/States: รับภาพจากกล้องในหน้าเว็บหรือ File System Picker/native fallback → File → validation → upload → message/Preview; ยกเลิกไม่สร้างข้อมูล และ error คง recovery เดิม
+- ผลกระทบ UI: แตะไอคอนแนบแล้วเลือก `ถ่ายรูปในแอป`, `เลือกรูปหรือไฟล์` หรือ `เลือกไฟล์แบบสำรอง`; กล้องในแอปไม่เปิด Android Camera app จึงลดโอกาสหน้า Chat ถูกทิ้งและ File สูญหาย
+- สิทธิ์/Integration: ต้อง login/มีห้อง/เป็นสมาชิก และ owner-only ยังเหมือนเดิม; ใช้ browser camera permission, Canvas JPEG, File System Access API แล้วต่อ Auth/private Storage/chat_messages/Realtime เดิม
+- Failure/Retry: permission กล้องไม่ผ่าน/กล้องไม่พร้อมหยุด media tracks; File System Picker ล้มเหลวเปิดหน้าตัวเลือกให้ใช้ fallback; validation/session/Storage/message error แจ้งเหตุผลและ retry ได้
+- Audit/Owner: `chat_attachment_camera_ready`, `file_received` source `camera|file_system`, `selection_blocked` reason `camera_unavailable|picker_failed`; ไม่เก็บชื่อไฟล์ เจ้าของ Web Chat/Application Platform
+- Migration: ไม่มี; RLS, bucket, allow-list, company/room path และข้อมูลเดิมไม่เปลี่ยน
+- Verification: camera/file picker contract, typecheck, lint, build, Production revision parity และ Android E2E แยกทั้งถ่ายรูปกับเลือกรูป/ไฟล์
+- Rollback: revert v3.0 และ deploy ผ่าน Git integration; ไฟล์/ข้อความ/Audit ที่มีอยู่ไม่ถูกลบ
+
+### v3.1 — 31/8/2569
+
+```mermaid
+flowchart LR
+  A[เลือกหรือถ่ายรูป] --> B[Validation]
+  B --> C[Preview + รอส่ง]
+  C -->|กดส่ง| D[ตรวจ Membership + Session]
+  C -->|ยกเลิก/เปลี่ยนห้อง| X[ล้างไฟล์ ไม่สร้างข้อความ]
+  D --> E[Private Storage]
+  E --> F[chat_messages]
+  F --> G[รูปในห้อง]
+  D -->|ไม่ผ่าน| H[ส่งไม่สำเร็จ + Retry]
+  E -->|ไม่ผ่าน| H
+```
+
+- เหตุผล: Production `b0d5a81` พิสูจน์ว่ากล้องในแอปและ File System Picker ส่งสำเร็จครบ 3 รูป แต่ auto-send ไม่มีจุดยืนยันที่มองเห็นชัด ผู้ใช้จึงเข้าใจว่าไฟล์ไม่ค้างหรือไม่ถูกส่ง
+- Input/Output/States: เลือกไฟล์ → `ready` พร้อม Preview/ป้ายรอส่ง → ผู้ใช้กดส่ง → `uploading` → ส่งสำเร็จ หรือ `failed` พร้อมปุ่มลองส่งอีกครั้ง
+- ผลกระทบ UI: รูป/ไฟล์ทุกแหล่งไม่ auto-send; การ์ดรอส่งแสดง Preview, ขนาด, สถานะ, ปุ่ม `ส่งรูป/ส่งไฟล์`, ยกเลิก และ retry; ปุ่มกล้องเปลี่ยนจาก `ถ่ายและส่งรูป` เป็น `ใช้รูปนี้`
+- สิทธิ์/Integration: คง membership, session, RLS, private Storage และ message flow เดิม; pending File ผูก room id และถูกล้างเมื่อเปลี่ยนห้องเพื่อป้องกันส่งผิดปลายทาง
+- Failure/Retry: validation error ไม่สร้าง pending; membership/session/upload/message error คง Preview เป็น failed; message error cleanup Storage object เดิม
+- Audit/Owner: `chat_attachment_waiting_confirmation` หลัง Preview พร้อม และ `send_started` หลังผู้ใช้กดส่ง; owner คือ Web Chat/Application Platform
+- Migration/Legacy: ไม่มี migration; รูป auto-send ที่บันทึกก่อน v3.1 คงอยู่ ไม่ลบและไม่สร้างซ้ำ
+- Verification: contract, typecheck, lint, build, revision parity และ Android E2E ตั้งแต่ Preview รอส่งจนเห็นรูปในห้อง
+- Rollback: revert v3.1 กลับ auto-send; ข้อมูลที่ส่งแล้วไม่เปลี่ยน
+
+### v3.2 — 31/8/2569
+
+```mermaid
+flowchart LR
+  A[เลือกหรือถ่ายรูป] --> B[Validation]
+  B --> C[IndexedDB Draft แยกผู้ใช้และห้อง]
+  C --> D[Preview รอส่ง]
+  D -->|หน้า Reload| E[Restore Draft]
+  E --> D
+  D -->|กดส่ง| F[Membership/Session → Storage → Message]
+  F --> G[ลบ Draft + แสดงรูป]
+  D -->|ยกเลิก/เปลี่ยนห้อง| H[ลบ Draft]
+```
+
+- เหตุผล: Production `870e033` รับ JPEG 1.2 MB และเข้า waiting confirmation แล้ว แต่ Android สร้าง session หน้า Chat ใหม่ภายในประมาณ 0.35 วินาที ทำให้ state/Preview ใน memory หายก่อนผู้ใช้เห็น
+- Input/Output/States: ไฟล์ผ่าน validation → local draft → ready; reload → restored ready; send → uploading → message recorded/failed; cancel/room change/success → draft removed
+- UI: เมื่อหน้า Android คืน/โหลดใหม่ การ์ด Preview ป้าย `รอส่ง` และปุ่ม `ส่งรูป` ถูกกู้คืนโดยอัตโนมัติ พร้อมข้อความแจ้งกู้คืน
+- สิทธิ์/ข้อมูล: IndexedDB เป็นพื้นที่เฉพาะ origin/device และ key มี company/profile/room; เก็บ Blob/ชื่อ/MIME/เวลาเฉพาะไม่เกิน 30 นาที; ไม่ส่ง server จนผู้ใช้กดส่ง
+- Failure/Retry: browser ไม่รองรับ draft ยังใช้ memory พร้อมเตือน; draft เสีย/หมดอายุไม่สร้างข้อความ; upload failure คง draft; สำเร็จ/ยกเลิก/เปลี่ยนห้องลบ draft
+- Audit/Owner: เพิ่ม `draft_persisted`, `draft_restored`; ไม่ส่งชื่อไฟล์หรือ bytes เข้า telemetry; owner Web Chat/Application Platform
+- Migration/Legacy: ไม่มี Supabase migration; เพิ่ม IndexedDB schema v1; ไฟล์และข้อความเดิมคงอยู่
+- Verification: contract/typecheck/lint/build/revision และ Android E2E ครบ restore หลัง session reload จนส่งสำเร็จ
+- Rollback: revert v3.2; draft local ที่เหลือหมดอายุภายใน 30 นาที ไม่มีผลกับ Storage/message

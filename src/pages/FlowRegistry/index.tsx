@@ -2,6 +2,7 @@ import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined'
 import AppsOutlinedIcon from '@mui/icons-material/AppsOutlined'
 import ChatBubbleOutlineOutlinedIcon from '@mui/icons-material/ChatBubbleOutlineOutlined'
 import LockResetOutlinedIcon from '@mui/icons-material/LockResetOutlined'
+import NotificationsNoneOutlinedIcon from '@mui/icons-material/NotificationsNoneOutlined'
 import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined'
 import RuleOutlinedIcon from '@mui/icons-material/RuleOutlined'
 import TimerOutlinedIcon from '@mui/icons-material/TimerOutlined'
@@ -45,11 +46,20 @@ const workforceFlows = [
 
 const accountingFlows = [
   {
+    title: 'ค่าใช้จ่ายขาย → ตรวจอนุมัติ → บัญชีร่าง',
+    version: 'Sales Expense Accounting v1.1 · 31/8/2569',
+    icon: <PaymentsOutlinedIcon color="primary" />,
+    summary: 'บันทึกยอดก่อน VAT พร้อมผู้ขาย/เอกสาร → ผู้ตรวจคนที่สองอนุมัติ → ตรวจว่าไม่มีบัญชีร่างเดิม → สร้าง Debit/Credit ร่างแบบสมดุล → ส่งฝ่ายบัญชีตรวจ Posting',
+    bullets: ['อ่านจาก docs/SALES_EXPENSE_ACCOUNTING_FLOW.md', 'รายการเดิมถูกเก็บเป็น legacy_unverified และต้องตรวจฐานยอดใหม่ ไม่ลบประวัติ', 'UI บันทึกและเปลี่ยนสถานะผ่าน RPC เท่านั้น พร้อม idempotency key และ old/new Audit', 'สร้าง Accounting Draft เท่านั้น ไม่ปิดยอด ไม่จ่ายเงิน และไม่ Posting อัตโนมัติ'],
+    path: '/project-controls',
+    action: 'ไปตรวจค่าใช้จ่ายขาย',
+  },
+  {
     title: 'ตรวจและยืนยันเอกสารบัญชี',
-    version: 'Accounting Confirmation v1.0 · 23/8/2569',
+    version: 'Accounting Confirmation v2.8 · 31/8/2569',
     icon: <RuleOutlinedIcon color="primary" />,
-    summary: 'แยก Error ตามขั้นตอนบันทึกประเภท โครงการ/บัญชี และยืนยัน เพื่อแก้ไขจุดที่ผิดก่อน retry โดยไม่สร้าง Accounting/Stock/AP ซ้ำ',
-    bullets: ['อ่านจาก docs/ACCOUNTING_DOCUMENT_CONFIRMATION_FLOW.md', 'ทุก mutation ผ่าน Mutation Attempt Center', 'จำกัด company และสิทธิ์ด้วย RPC/RLS', 'retry ใช้เอกสารเดิมและแจ้งขั้นตอนที่ล้มเหลวใกล้ปุ่มดำเนินการ'],
+    summary: 'ตรวจสลิปและเอกสารตาม Source/Audit เดิม พร้อมกลับหน้าต้นทางและบริบทเดิมเมื่อปิด Drawer โดยไม่สร้าง Accounting/Stock/AP ซ้ำ',
+    bullets: ['อ่านจาก docs/ACCOUNTING_DOCUMENT_CONFIRMATION_FLOW.md', 'ปุ่มปิดใช้ safe return_to และคง holder/transaction context', 'ทุก mutation ผ่าน Mutation Attempt Center', 'จำกัด company และสิทธิ์ด้วย RPC/RLS'],
     path: '/accounting-documents',
     action: 'ไปตรวจเอกสารบัญชี',
   },
@@ -62,15 +72,33 @@ const accountingFlows = [
     path: '/advance-settlements',
     action: 'ไปหน้าเงินสำรองจ่าย',
   },
+  {
+    title: 'จับคู่ผู้จ่ายบุคคลกับผู้ขาย',
+    version: 'Vendor Payment Matching v1.0 · 26/8/2569',
+    icon: <PaymentsOutlinedIcon color="primary" />,
+    summary: 'แยกผู้ถือบัญชีส่วนบุคคลออกจากร้านค้าที่รับเงินจริง ตรวจหลักฐานหลายชั้นก่อนยืนยันรายการจ่าย และค้างตรวจเมื่อข้อมูลไม่พอ',
+    bullets: ['อ่านจาก docs/VENDOR_PAYMENT_MATCHING_FLOW.md', 'ตรวจเลขภาษี/บัญชี alias ที่อนุมัติ/ชื่อ/ใบเสร็จ/โครงการตามลำดับหลักฐาน', 'ผู้จ่ายอาจเป็น Employee/Technician แต่ผู้ขายต้องเป็น Vendor Master; ข้อมูลกำกวมไม่ถูกเดา', 'ยืนยัน vendor_payment ไม่ได้หากไม่มี match สถานะ matched และมี Audit/Source Reference ครบ'],
+    path: '/accounting-documents',
+    action: 'ไปตรวจสลิปและจับคู่ผู้ขาย',
+  },
 ] as const
 
 const systemFlows = [
   {
+    title: 'Notification Center',
+    version: 'Notification Center v1.3 · 29/8/2569',
+    icon: <NotificationsNoneOutlinedIcon color="primary" />,
+    summary: 'รวมเหตุการณ์จากทุก Module พร้อมแยกงานที่ต้องทำ/แจ้งเตือนระบบ กรอง Module และ Type ได้ และอ่านทั้งหมดเฉพาะมุมมองปัจจุบัน',
+    bullets: ['อ่านจาก docs/NOTIFICATION_CENTER_FLOW.md', 'Filter all/unread/actionable/system + Module + Type เก็บใน URL', 'ปุ่มอ่านแล้วทั้งหมดทำเฉพาะรายการที่ยังไม่อ่านในมุมมองปัจจุบัน ไม่ปิดงานต้นทาง', 'ใช้ notification_read_states เดิม, request key แบบ idempotent และรองรับ partial failure/retry'],
+    path: '/notifications',
+    action: 'เปิดศูนย์แจ้งเตือน',
+  },
+  {
     title: 'Smart Entry / Auto Route',
-    version: 'Routing v1.1 · 23/8/2569',
+    version: 'Routing / Freshness v1.4 · 31/8/2569',
     icon: <AppsOutlinedIcon color="primary" />,
     summary: 'ลิงก์กลางสำหรับมือถือและคอม ตรวจ health และ revision ของ Vercel/Cloudflare ก่อนเลือกปลายทางที่เร็วที่สุดโดยไม่พาไปหน้าเก่า',
-    bullets: ['อ่านจาก docs/SMART_ENTRY_ROUTING_FLOW.md และ docs/RELEASE_PARITY_FLOW.md', 'Cloudflare ใช้ได้เฉพาะเมื่อ revision ตรง Vercel; ถ้าไม่ตรงจะปิด fallback ให้ชัดเจน', 'ถ้าไม่มีปลายทางที่ผ่านเงื่อนไข จะแสดงปุ่มลองใหม่โดยไม่ส่งข้อมูลบัญชี'],
+    bullets: ['อ่านจาก docs/SMART_ENTRY_ROUTING_FLOW.md และ docs/RELEASE_PARITY_FLOW.md', 'Cloudflare ใช้ได้เฉพาะเมื่อ revision ตรง Vercel; ถ้าไม่ตรงจะปิด fallback ให้ชัดเจน', 'ตัวแอปเทียบ runtime กับ release.json แบบ no-store และโหลด JavaScript ล่าสุดหนึ่งครั้งเมื่อ revision ไม่ตรง', 'ถ้า offline หรือ manifest ใช้ไม่ได้ จะไม่บล็อก Login/งานปัจจุบันและตรวจใหม่เมื่อกลับมาออนไลน์'],
     path: '/start.html',
     action: 'ทดสอบ Smart Entry',
   },
@@ -85,10 +113,10 @@ const systemFlows = [
   },
   {
     title: 'Application Launcher',
-    version: 'Entry Routing v1.5 · 23/8/2569',
+    version: 'Navigation v1.11 · 31/8/2569',
     icon: <AppsOutlinedIcon color="primary" />,
-    summary: 'หลัง Login มือถือเห็น Launcher ที่มี 2 ปุ่มแยกชัดเจน: ลงเวลา และ Web Chat; คอมพิวเตอร์ไป Dashboard รวมหรือ My Profile ตามสิทธิ์',
-    bullets: ['อ่านจาก docs/NAVIGATION_FLOW.md และ docs/TIME_TRACKING_FLOW.md', 'mobile → `/` Launcher → เลือก `/time-tracking` หรือ `/chat`; admin/manager บน desktop → `/dashboard`; employee บน desktop → `/my-profile`', 'Web Chat และลงเวลาเป็นปุ่มระดับเดียวกัน ไม่ซ้อนอยู่ในไอคอนอื่น และยังมี Sidebar/ทางลัดตามสิทธิ์'],
+    summary: 'หลัง Login มือถือเห็น Launcher ที่มี 2 ปุ่มแยก: ลงเวลา และ Web Chat พร้อมจำนวนข้อความค้าง; คอมพิวเตอร์ไป Dashboard รวมหรือ My Profile ตามสิทธิ์',
+    bullets: ['อ่านจาก docs/NAVIGATION_FLOW.md และ docs/TIME_TRACKING_FLOW.md', 'Logout ใช้ full document navigation พร้อม release/timestamp เพื่อไม่ค้าง SPA เก่า', 'หลัง Login มือถือไป `/` Launcher เสมอและไม่คืน deep route เดิม → เลือก `/time-tracking` หรือ `/chat`; admin/manager บน desktop → `/dashboard`; employee บน desktop → `/my-profile`', 'Unread นับเฉพาะห้องที่เป็นสมาชิก หลัง joined/read cutoff ไม่รวมข้อความตนเองหรือข้อความที่ลบ', 'Badge แสดงใน Launcher ทุกอุปกรณ์ และซิงก์ไปไอคอน PWA เมื่อ OS/Browser รองรับ', 'หน้า Time Tracking มือถือไม่วางไอคอน Web Chat ซ้ำ'],
     path: '/',
     action: 'ทดสอบจุดเข้าโปรแกรม',
   },
@@ -103,28 +131,28 @@ const systemFlows = [
   },
   {
     title: 'Master Data Governance',
-    version: 'Master Data v1.0 · 22/8/2569',
+    version: 'Master Data v2.3 · 26/8/2569',
     icon: <AccountTreeOutlinedIcon color="primary" />,
     summary: 'ข้อมูลจากสลิปและเอกสารเข้า candidate inbox ก่อน Admin ยืนยันเป็นบัญชี/ข้อมูลหลัก ใช้ซ้ำข้ามระบบ และ archive แทนการลบเมื่อหมดอายุ',
-    bullets: ['อ่านจาก docs/MASTER_DATA_GOVERNANCE_FLOW.md', 'ทะเบียนพนักงาน ผู้ขาย โครงการ และงานย่อยเดิมยังเป็น source-of-truth', 'เลขบัญชีที่แสดงเป็นข้อมูลธนาคารและเลขท้ายบัญชีเท่านั้น พร้อม audit และ retention 90 วันสำหรับ candidate'],
+    bullets: ['อ่านจาก docs/MASTER_DATA_GOVERNANCE_FLOW.md และ docs/EVIDENCE_SPLIT_REVIEW_STANDARD.md', 'Project-first Gate ต้องผูก Project + Work Package เดิม หรือสร้าง Project Candidate พร้อมเนื้องานที่ข้อมูลครบ; ไม่สร้าง Project จริงอัตโนมัติ', 'ข้อยกเว้นเฉพาะเติมเงินทดลองจ่าย: ยืนยัน Employee/Technician + บัญชี, เก็บ Project รอจัดสรร, ส่งบัญชีก่อนแล้วต่อ Advance Finance โดยไม่ posting/ปิดยอด', 'ทะเบียนพนักงาน ผู้ขาย โครงการ และงานย่อยเดิมยังเป็น source-of-truth', 'Drawer มี 2 Tab: ตรวจและเติมข้อมูล / สรุปและยืนยัน; ข้อมูลตรงข้าม Correction ได้ แต่ข้อมูลขาดหรือผู้โอน/ผู้รับขัดแย้งต้องตรวจ', 'รูป/PDF เปิดในหน้าเดียว: Desktop หลักฐานซ้าย + Drawer ขวา, Mobile สลับกลับข้อมูลโดยไม่ล้างฟอร์ม; แท็บใหม่เป็น fallback', 'Source Reference แยก Document/Intake/Message/Room/Attachment และจำนวน Audit ให้อ่าน/คัดลอกได้', 'ปุ่มยืนยันเป็น one-shot: ล็อกทันทีระหว่างบันทึก และหลังสำเร็จเหลือเฉพาะรายการถัดไป/กลับคิว', 'Auto Input พร้อมที่มา/ความมั่นใจ, วันเริ่มจากหลักฐานแรก และ Project/Correction Version/Audit โดยไม่เขียนทับ Raw/OCR'],
     path: '/master-data',
     action: 'ไปศูนย์ข้อมูลกลาง',
   },
   {
     title: 'Login / Reset Password',
-    version: 'Auth v1.1 · 21/8/2569',
+    version: 'Auth v1.2 · 31/8/2569',
     icon: <LockResetOutlinedIcon color="primary" />,
     summary: 'ขอลิงก์ reset จาก Login → รับ recovery hash/code จาก Supabase → ตั้งรหัสใหม่เฉพาะเมื่อมี recovery session',
-    bullets: ['อ่านจาก docs/AUTH_PASSWORD_RESET_FLOW.md', 'รองรับลิงก์กลับ /reset-password, / หรือ /login', 'ไม่บันทึก password/token ลง log และล้าง token จาก URL หลังตรวจสำเร็จ'],
-    path: '/login',
-    action: 'ไปหน้า Login',
+    bullets: ['อ่านจาก docs/AUTH_PASSWORD_RESET_FLOW.md', 'รองรับลิงก์กลับ /reset-password, / หรือ /login', 'Admin ตรวจสถานะ → ยกเลิกการระงับ → ส่งอีเมลใหม่จากหน้าเดียว พร้อม Audit', 'ไม่บันทึก password/token ลง log และล้าง token จาก URL หลังตรวจสำเร็จ'],
+    path: '/admin-account-recovery',
+    action: 'ไปหน้ากู้คืนบัญชี',
   },
   {
     title: 'HR Attendance → ห้องแชต',
-    version: 'HR Chat Stream v3.4 · Intake Gate/Bundle v1.0 · 23/8/2569',
+    version: 'HR Chat Stream v3.4 · Attachment v3.2 · 31/8/2569',
     icon: <ChatBubbleOutlineOutlinedIcon color="primary" />,
     summary: 'ห้อง HR กลางรับรายการแจ้งเวลา รายการแจ้งออก และงาน HR อื่น ๆ ทั้งลา แก้เวลา OT เอกสาร เคสพนักงาน และลาออก ในหน้าสนทนาแบบ compact พร้อม badge ข้อความค้างและโทรเสียง 1 ต่อ 1 ในห้อง',
-    bullets: ['อ่านจาก docs/CHAT_ATTENDANCE_BRIDGE_FLOW.md และ docs/HR_CONFIRMATION_BUNDLE_FLOW.md', 'Raw ทุกข้อความค้างที่ HR Intake Gate ก่อน; System/Daily Summary เป็นบริบทและไม่สร้าง Job', 'Duplicate/Already Confirmed ไม่สร้าง Job ใหม่ ส่วน Not HR/Low Confidence ส่งรอตรวจพร้อมเหตุผลและ source reference', 'Candidate ที่ครบชื่อ วัน เวลาเข้า/ออก โครงการ รหัส และตรวจซ้ำแล้วจึงรวมเป็น Bundle ตามช่าง+วันที่+โครงการ', 'Web Chat สร้าง Approval Job ก่อน และเขียน attendance จริงเฉพาะเมื่อ manager กด Action อนุมัติ', 'ปิด Job 100% ได้เมื่อข้อมูลครบ ไม่ซ้ำ อนุมัติ บันทึกจริง และ Audit ครบเท่านั้น; Reject/ขอข้อมูลเพิ่มยังเปิด Job', 'ใช้ request code เดิมเป็น idempotency key และเตือนรายการรอผู้รับผิดชอบเกิน 30 นาที', 'ใช้ห้อง HR เดิมจาก Chat integration ไม่ต้องตั้งค่าปลายทางใหม่', 'มี delivery ledger/retry กันข้อความซ้ำและเก็บ error โดยไม่ทำให้รายการ HR ต้นทางล้ม', 'หน้า Chat ใช้พื้นที่ข้อความเป็นหลัก รายการห้องย่อ และบนมือถือเลือกห้องผ่านเมนูได้', 'รองรับรูปมือถือ HEIC/HEIF/AVIF/TIFF และไฟล์แนบตาม allow-list ของ Storage', 'รูปที่ส่งจะแสดงเป็นภาพตัวอย่างในข้อความ กดภาพหรือ “เปิดรูปเต็ม” ได้; เอกสารยังแสดงเป็นการ์ดไฟล์', 'เลือกไฟล์จากปุ่มแนบหรือลากไฟล์มาวางในพื้นที่แชตได้ โดยจะแสดง drop overlay และ pending card ก่อนกด “ส่งไฟล์”', 'แนบไฟล์บนมือถือจะแสดง pending card และปุ่ม “ส่งไฟล์” พร้อมเก็บไว้ให้ retry เมื่อ session/เครือข่ายมีปัญหา', 'ตรวจอายุ session และ refresh ก่อน upload; แยก session หมดอายุออกจากสิทธิ์ห้องเพื่อไม่แจ้งผู้ใช้ผิด', 'Vercel และ Cloudflare fallback ต้องใช้ frontend artifact รุ่นเดียวกัน เพื่อไม่ให้ผู้ใช้เห็น flow upload คนละรุ่น', 'แนบไฟล์บนมือถือใช้ fallback object id เมื่อ randomUUID ใช้ไม่ได้ และแจ้ง error เรื่องสิทธิ์/MIME/เครือข่าย', 'จำห้องล่าสุดและ restore ห้องเดิมหลัง refresh; Realtime ส่ง JWT ก่อน subscribe เพื่อลด websocket 401', 'แถบ Web Chat แสดง คุณออนไลน์/กำลังเชื่อมต่อ/ออฟไลน์ จาก Supabase Presence', 'สมาชิกออนไลน์กดโทรเสียง 1 ต่อ 1 ผ่าน WebRTC ได้ พร้อมรับสาย ปฏิเสธ ปิดไมค์ และวางสาย', 'LINE จะไม่ตีความข้อความกำกวม “ลงเวลา” เป็นคำสั่งอัตโนมัติ ต้องระบุ “ลงเวลาเข้า” หรือ “ลงเวลาออก”'],
+    bullets: ['อ่านจาก docs/CHAT_ATTENDANCE_BRIDGE_FLOW.md และ docs/HR_CONFIRMATION_BUNDLE_FLOW.md', 'Raw ทุกข้อความค้างที่ HR Intake Gate ก่อน; System/Daily Summary เป็นบริบทและไม่สร้าง Job', 'Duplicate/Already Confirmed ไม่สร้าง Job ใหม่ ส่วน Not HR/Low Confidence ส่งรอตรวจพร้อมเหตุผลและ source reference', 'Candidate ที่ครบชื่อ วัน เวลาเข้า/ออก โครงการ รหัส และตรวจซ้ำแล้วจึงรวมเป็น Bundle ตามช่าง+วันที่+โครงการ', 'Web Chat สร้าง Approval Job ก่อน และเขียน attendance จริงเฉพาะเมื่อ manager กด Action อนุมัติ', 'ปิด Job 100% ได้เมื่อข้อมูลครบ ไม่ซ้ำ อนุมัติ บันทึกจริง และ Audit ครบเท่านั้น; Reject/ขอข้อมูลเพิ่มยังเปิด Job', 'ใช้ request codeเดิมเป็น idempotency key และเตือนรายการรอผู้รับผิดชอบเกิน 30 นาที', 'ใช้ห้อง HR เดิมจาก Chat integration ไม่ต้องตั้งค่าปลายทางใหม่', 'มี delivery ledger/retry กันข้อความซ้ำและเก็บ error โดยไม่ทำให้รายการ HR ต้นทางล้ม', 'หน้า Chat ใช้พื้นที่ข้อความเป็นหลัก รายการห้องย่อ และบนมือถือเลือกห้องผ่านเมนูได้', 'รองรับรูปมือถือ HEIC/HEIF/AVIF/TIFF และไฟล์แนบตาม allow-list ของ Storage', 'รูปที่ส่งจะแสดงเป็นภาพตัวอย่างในข้อความ กดภาพหรือ “เปิดรูปเต็ม” ได้; เอกสารยังแสดงเป็นการ์ดไฟล์', 'ปุ่มแนบแยกถ่ายรูปในแอปด้วยกล้องหลัง, File System Picker และ native fallback เพื่อลดปัญหา Android โหลดหน้าใหม่เมื่อกลับจาก Media Picker', 'เลือกหรือลากไฟล์แล้วพัก local draft ก่อนแสดง Preview/ป้ายรอส่ง; หาก Android โหลดหน้าใหม่จะกู้ Preview กลับอัตโนมัติ และลบ draft เมื่อส่งสำเร็จ ยกเลิก หรือเปลี่ยนห้อง', 'บันทึก telemetry ตั้งแต่เปิด picker/กล้อง, รับ File, พัก/กู้ draft, รอยืนยัน, เริ่มส่ง, error จนบันทึกข้อความ โดยไม่เก็บชื่อไฟล์', 'ตรวจอายุ session และ refresh ก่อน upload; แยก session หมดอายุออกจากสิทธิ์ห้องเพื่อไม่แจ้งผู้ใช้ผิด', 'Vercel และ Cloudflare fallback ต้องใช้ frontend artifact รุ่นเดียวกัน เพื่อไม่ให้ผู้ใช้เห็น flow upload คนละรุ่น', 'แนบไฟล์บนมือถือใช้ fallback object id เมื่อ randomUUID ใช้ไม่ได้ และแจ้ง error เรื่องสิทธิ์/MIME/เครือข่าย', 'จำห้องล่าสุดและ restore ห้องเดิมหลัง refresh; Realtime ส่ง JWT ก่อน subscribe เพื่อลด websocket 401', 'แถบ Web Chat แสดง คุณออนไลน์/กำลังเชื่อมต่อ/ออฟไลน์ จาก Supabase Presence', 'สมาชิกออนไลน์กดโทรเสียง 1 ต่อ 1 ผ่าน WebRTC ได้ พร้อมรับสาย ปฏิเสธ ปิดไมค์ และวางสาย', 'LINE จะไม่ตีความข้อความกำกวม “ลงเวลา” เป็นคำสั่งอัตโนมัติ ต้องระบุ “ลงเวลาเข้า” หรือ “ลงเวลาออก”'],
     path: '/chat',
     action: 'ไปตั้งค่าห้อง HR',
   },
@@ -147,11 +175,11 @@ const systemFlows = [
     action: 'เปิด Web Chat Operational Core',
   },
   {
-    title: 'ลงเวลา → Web Chat',
-    version: 'Time Tracking v1.2 · 22/8/2569',
+    title: 'ลงเวลามือถือแบบ Focused',
+    version: 'Time Tracking v1.6 · 31/8/2569',
     icon: <TimerOutlinedIcon color="primary" />,
-    summary: 'หน้า ลงเวลาทำงานใช้ไอคอน Web Chat ทางลัดไปคุยงานหรือแจ้งลงเวลาผ่านข้อความ/เสียง โดยใช้ Login และ attendance_sessions เดิม',
-    bullets: ['อ่านจาก docs/TIME_TRACKING_FLOW.md', 'จุดเข้าเริ่มต้นอยู่ที่ Application Launcher ซึ่งมีไอคอน Web Chat และลงเวลา', 'กดแล้วไป /chat ภายใน session เดิม ไม่ส่ง GPS/Selfie ผ่าน URL', 'ไม่เปลี่ยนวิธีตรวจ GPS, Selfie หรือบันทึก attendance เดิม'],
+    summary: 'หน้าลงเวลามือถือแสดงสถานะ เวลา ความพร้อม GPS/ไซต์/Selfie ปุ่มหลักหนึ่งปุ่ม และเวลาเข้า–ออกวันนี้ โดยแยก Web Chat ไว้ที่ Launcher',
+    bullets: ['อ่านจาก docs/TIME_TRACKING_FLOW.md', 'จุดเข้าเริ่มต้นอยู่ที่ Application Launcher ซึ่งมี Web Chat และลงเวลาเป็นปุ่มระดับเดียวกัน', 'มือถือเห็นข้อมูลสำคัญในจอเดียว ส่วนตั้งค่า Admin และตารางรายละเอียดอยู่ Desktop', 'ไม่เปลี่ยนวิธีตรวจ GPS, Selfie, attendance-clock, attendance_sessions หรือ Audit เดิม'],
     path: '/time-tracking',
     action: 'กลับหน้าลงเวลา',
   },

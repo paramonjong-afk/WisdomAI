@@ -33,6 +33,17 @@ export type TransferSlipQueueRow = {
   analysisConfidence: number | null
   analysisModel: string | null
   notes: string | null
+  truthStatus: 'needs_review' | 'needs_information' | 'confirmed' | 'duplicate'
+  isPostable: boolean
+  canonicalPayerName: string | null
+  canonicalFundHolderName: string | null
+  canonicalBeneficiaryName: string | null
+  canonicalAmount: number | null
+  partyIdentityStatus: 'confirmed_current' | 'confirmed_pair' | 'unconfirmed'
+  confirmedPartyPayerName: string | null
+  confirmedPartyBeneficiaryName: string | null
+  partyIdentitySourceLineageId: string | null
+  partyIdentityConfirmedAt: string | null
 }
 
 export const isDuplicateTransferSlip = (row: TransferSlipQueueRow) => row.reviewStatus === 'duplicate' || Boolean(row.duplicateOf)
@@ -43,7 +54,7 @@ export const isIncompleteTransferSlip = (row: TransferSlipQueueRow) => !row.tran
   || row.amount == null
   || row.dataReviewStatus === 'incomplete'
 
-export const isReviewedTransferSlip = (row: TransferSlipQueueRow) => row.reviewStatus === 'confirmed' || row.taskStatus === 'completed'
+export const isReviewedTransferSlip = (row: TransferSlipQueueRow) => row.truthStatus === 'confirmed' && row.isPostable
 
 export const transferSlipQueueBucket = (row: TransferSlipQueueRow): Exclude<TransferSlipQueueFilter, 'transfer_slip'> => {
   if (isDuplicateTransferSlip(row)) return 'duplicate'

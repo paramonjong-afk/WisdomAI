@@ -44,12 +44,14 @@ export const navigationGroups:NavigationGroup[]=[
   {label:'บัญชีและตั้งค่า',items:[
     {label:'ข้อมูลส่วนตัว',path:'/my-profile',roles:all},
     {label:'ตั้งค่าระบบ',path:'/settings',roles:['admin']},
+    {label:'กู้คืนบัญชีผู้ใช้',path:'/admin-account-recovery',roles:['admin']},
   ]},
   {label:'การสื่อสาร',items:[
     {label:'ห้องแชต',path:'/chat',roles:all},
   ]},
   {label:'ระบบตรวจสอบ',items:[
     {label:'ทะเบียน Flow ระบบ',path:'/flow-registry',roles:['admin']},
+    {label:'ตรวจสอบงานระบบ',path:'/system-inventory',roles:['admin']},
     {label:'ศูนย์สั่งงาน',path:'/work-command-center',roles:['admin']},
     {label:'สถานะระบบ',path:'/system-health',roles:['admin']},
     {label:'Mutation Attempt Center',path:'/mutation-attempt-center',roles:['admin']},

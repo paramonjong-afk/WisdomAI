@@ -45,3 +45,29 @@ export function getPostLoginDestination(
   // remains the safe recovery page and can retry after AuthContext refreshes.
   return '/'
 }
+
+/**
+ * Resolve the immediate destination after password login. Mobile always starts
+ * at the launcher, even when ProtectedRoute remembered a deep route before an
+ * explicit logout or session expiry. Desktop may safely restore that route;
+ * otherwise AppLauncher resolves the role destination after profile loading.
+ */
+export function getLoginNavigationTarget(
+  requested?: string | null,
+  device: EntryDevice = detectEntryDevice(),
+) {
+  if (device === 'mobile') return '/'
+  return requested?.startsWith('/') && !requested.startsWith('//') ? requested : '/'
+}
+
+/** Build a same-origin, cache-busted Login URL for a full document navigation. */
+export function buildFreshLoginUrl(
+  origin: string,
+  revision: string,
+  signedOutAt = Date.now(),
+) {
+  const url = new URL('/login', origin)
+  url.searchParams.set('__release', revision.trim().slice(0, 7) || 'unknown')
+  url.searchParams.set('signed_out_at', String(signedOutAt))
+  return url.toString()
+}

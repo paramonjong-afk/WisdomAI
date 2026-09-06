@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import { lineEmployeeIntakeBundleKey } from '../_shared/line-employee-intake.ts'
 
 const url=Deno.env.get('SUPABASE_URL')!
 const serviceKey=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -9,6 +10,26 @@ const geminiKey=Deno.env.get('GEMINI_API_KEY')??''
 const siteUrl=Deno.env.get('WISDOMAI_SITE_URL')??'https://wisdomai-react.vercel.app'
 const admin=createClient(url,serviceKey,{auth:{persistSession:false}})
 const json=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json; charset=utf-8'}})
+
+const decodeJwtRole=(token:string)=>{
+  try{
+    const payload=token.split('.')[1]
+    if(!payload)return''
+    const normalized=payload.replaceAll('-','+').replaceAll('_','/').padEnd(Math.ceil(payload.length/4)*4,'=')
+    return String((JSON.parse(atob(normalized)) as {role?:unknown}).role??'')
+  }catch{return''}
+}
+
+async function isAuthorizedServiceRequest(request:Request){
+  const authorization=request.headers.get('authorization')??''
+  if(authorization===`Bearer ${serviceKey}`)return true
+  const token=authorization.startsWith('Bearer ')?authorization.slice(7).trim():''
+  if(!token||decodeJwtRole(token)!=='service_role')return false
+  const verification=await fetch(`${url}/rest/v1/employee_intakes?select=id&limit=0`,{
+    method:'GET',headers:{apikey:token,authorization:`Bearer ${token}`},
+  }).catch(()=>null)
+  return Boolean(verification?.ok)
+}
 
 type TelegramUpdate={
   update_id:number
@@ -332,15 +353,37 @@ async function receiveEmployeeIntakePhoto(actor:{company_id:string;profile_id:st
 
 async function importLineEmployeeIntake(companyId:string,messageIds:string[]){
   if(!companyId||!messageIds.length||messageIds.length>10)throw new Error('invalid_line_intake_import')
-  const {data:messages,error:messageError}=await admin.from('line_messages').select('id,line_message_id,line_group_id').in('id',messageIds).eq('company_id',companyId)
-  if(messageError)throw messageError
-  if((messages??[]).length!==messageIds.length)throw new Error('line_intake_messages_not_found')
-  const {data:intake,error:intakeError}=await admin.from('employee_intakes').insert({
-    company_id:companyId,channel:'line',external_chat_id:messages?.[0]?.line_group_id??null,
-    purpose:null,status:'awaiting_purpose',document_count:0,
-  }).select('id').single()
+  const normalizedIds=[...new Set(messageIds.map(id=>id.trim()).filter(Boolean))]
+  const uuidIds=normalizedIds.filter(id=>/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))
+  const externalIds=normalizedIds.filter(id=>!uuidIds.includes(id))
+  const select='id,line_message_id,line_group_id,line_user_id,occurred_at'
+  const queries=[]
+  if(uuidIds.length)queries.push(admin.from('line_messages').select(select).in('id',uuidIds).eq('company_id',companyId))
+  if(externalIds.length)queries.push(admin.from('line_messages').select(select).in('line_message_id',externalIds).eq('company_id',companyId))
+  const queryResults=await Promise.all(queries)
+  const queryError=queryResults.find(result=>result.error)?.error
+  if(queryError)throw queryError
+  const messages=queryResults.flatMap(result=>result.data??[])
+  const foundIds=new Set(messages.flatMap(message=>[message.id,message.line_message_id].filter(Boolean)))
+  if(normalizedIds.some(id=>!foundIds.has(id)))throw new Error('line_intake_messages_not_found')
+  const sourceGroup=messages[0]?.line_group_id??null
+  const sourceUser=messages[0]?.line_user_id??'unknown'
+  if(messages.some(message=>(message.line_group_id??null)!==sourceGroup||(message.line_user_id??'unknown')!==sourceUser))throw new Error('line_intake_messages_must_share_sender_and_room')
+  const occurredAt=Math.min(...messages.map(message=>Date.parse(message.occurred_at)).filter(Number.isFinite))
+  if(!Number.isFinite(occurredAt))throw new Error('line_intake_message_time_invalid')
+  const sourceBundleKey=lineEmployeeIntakeBundleKey({companyId,groupId:sourceGroup,userId:sourceUser,occurredAt})
+  const {data:createdIntake,error:intakeError}=await admin.from('employee_intakes').upsert({
+    company_id:companyId,channel:'line',external_chat_id:sourceGroup,external_user_id:sourceUser,
+    source_bundle_key:sourceBundleKey,purpose:null,status:'awaiting_purpose',document_count:0,
+    source_started_at:new Date(occurredAt).toISOString(),
+  },{onConflict:'source_bundle_key',ignoreDuplicates:true}).select('id').maybeSingle()
   if(intakeError)throw intakeError
-  const {data:attachments,error:attachmentError}=await admin.from('line_attachments').select('id,message_id,storage_bucket,storage_path,content_type,size_bytes').in('message_id',messageIds)
+  const {data:intake,error:intakeLookupError}=createdIntake
+    ?{data:createdIntake,error:null}
+    :await admin.from('employee_intakes').select('id').eq('company_id',companyId).eq('source_bundle_key',sourceBundleKey).single()
+  if(intakeLookupError||!intake)throw intakeLookupError??new Error('line_intake_bundle_not_found')
+  const internalMessageIds=messages.map(message=>message.id)
+  const {data:attachments,error:attachmentError}=await admin.from('line_attachments').select('id,message_id,storage_bucket,storage_path,content_type,size_bytes').in('message_id',internalMessageIds)
   if(attachmentError)throw attachmentError
   for(const attachment of attachments??[]){
     const {data:blob,error:downloadError}=await admin.storage.from(attachment.storage_bucket).download(attachment.storage_path)
@@ -349,16 +392,24 @@ async function importLineEmployeeIntake(companyId:string,messageIds:string[]){
     const extension=(attachment.content_type??'image/jpeg').includes('png')?'png':(attachment.content_type??'').includes('webp')?'webp':'jpg'
     const targetPath=`${companyId}/${intake.id}/line-${attachment.id}.${extension}`
     const {error:uploadError}=await admin.storage.from('employee-intake-documents').upload(targetPath,bytes,{contentType:attachment.content_type??'image/jpeg',upsert:false})
-    if(uploadError)throw uploadError
-    const {error:documentError}=await admin.from('employee_intake_documents').insert({
+    if(uploadError&&!/already exists|duplicate/i.test(uploadError.message))throw uploadError
+    const {error:documentError}=await admin.from('employee_intake_documents').upsert({
       company_id:companyId,intake_id:intake.id,source_channel:'line',external_file_id:attachment.id,
       storage_path:targetPath,mime_type:attachment.content_type??'image/jpeg',size_bytes:attachment.size_bytes??bytes.length,
       content_sha256:await sha256Hex(bytes),extraction_status:'pending',
-    })
+    },{onConflict:'company_id,source_channel,external_file_id',ignoreDuplicates:true})
     if(documentError)throw documentError
   }
-  const documentCount=(attachments??[]).length
+  const {count:documentCount,error:countError}=await admin.from('employee_intake_documents').select('id',{count:'exact',head:true}).eq('company_id',companyId).eq('intake_id',intake.id)
+  if(countError)throw countError
   await admin.from('employee_intakes').update({document_count:documentCount,updated_at:new Date().toISOString()}).eq('id',intake.id).eq('company_id',companyId)
+  const {error:auditError}=await admin.from('employee_workforce_audit_logs').insert({
+    company_id:companyId,profile_id:null,actor_profile_id:null,entity_type:'employee_intake',entity_id:intake.id,
+    action:createdIntake?'line_employee_documents_reprocessed':'line_employee_documents_reprocess_idempotent',
+    reason:'Trusted recovery action imported existing immutable LINE attachments into restricted HR Intake',
+    new_values:{source_bundle_key:sourceBundleKey,source_message_ids:internalMessageIds,document_count:documentCount??0},
+  })
+  if(auditError)throw auditError
   const {data:chats,error:chatError}=await admin.from('telegram_admin_chats').select('telegram_chat_id').eq('company_id',companyId).eq('active',true)
   if(chatError)throw chatError
   const replyMarkup={inline_keyboard:[
@@ -368,14 +419,14 @@ async function importLineEmployeeIntake(companyId:string,messageIds:string[]){
     [{text:'⛔ ยกเลิก',callback_data:`employee_intake:cancel:${intake.id}`}],
   ]}
   const uniqueChats=[...new Set((chats??[]).map(chat=>String(chat.telegram_chat_id)))]
-  const deliveries=await Promise.allSettled(uniqueChats.map(chatId=>sendText(chatId,`📥 รับเอกสารจาก LINE แล้ว ${documentCount} รายการ\nเอกสารชุดนี้ใช้สำหรับอะไร?\nระบบยังไม่สร้างบัญชีพนักงานจนกว่า Admin จะตรวจอนุมัติ`,replyMarkup)))
-  return{intake_id:intake.id,document_count:documentCount,telegram_targets:uniqueChats.length,telegram_sent:deliveries.filter(result=>result.status==='fulfilled').length}
+  const deliveries=await Promise.allSettled(uniqueChats.map(chatId=>sendText(chatId,`📥 รับเอกสารจาก LINE แล้ว ${documentCount??0} รายการ\nเอกสารชุดนี้ใช้สำหรับอะไร?\nระบบยังไม่สร้างบัญชีพนักงานจนกว่า Admin จะตรวจอนุมัติ`,replyMarkup)))
+  return{intake_id:intake.id,document_count:documentCount??0,reused:!createdIntake,telegram_targets:uniqueChats.length,telegram_sent:deliveries.filter(result=>result.status==='fulfilled').length}
 }
 
 async function extractEmployeeDocument(bytes:Uint8Array,mimeType:string){
   if(!geminiKey)throw new Error('employee_document_ai_not_configured')
   const prompt=`Analyze this Thai employee onboarding document. Return JSON only with keys document_type and fields.
-Allowed document_type: thai_national_id, house_registration, education_certificate, bank_evidence, portrait, other.
+Allowed document_type: thai_national_id, driving_license, house_registration, education_certificate, bank_evidence, portrait, other.
 Allowed fields: title_th, first_name_th, last_name_th, first_name_en, last_name_en, date_of_birth (YYYY-MM-DD), nationality, address_line, subdistrict, district, province, postal_code, identifier_last4, education_level, institution_name, major, graduation_year, gpa.
 Never return a full national ID, card laser code, religion, portrait embedding, raw OCR text, or data about other household members. Use null for uncertain values.`
   const requestBody=JSON.stringify({generationConfig:{responseMimeType:'application/json'},contents:[{parts:[{text:prompt},{inlineData:{mimeType,data:bytesToBase64(bytes)}}]}]})
@@ -417,7 +468,7 @@ async function analyzeEmployeeIntake(actor:{company_id:string;profile_id:string}
       const fullName=[safeFields.first_name_th,safeFields.last_name_th].filter(Boolean).join(' ')
       if(fullName)nameVariants.add(fullName)
       for(const [key,value] of Object.entries(safeFields))if(value!==null&&value!==''&&merged[key]==null)merged[key]=value
-      const allowedDocumentTypes=new Set(['thai_national_id','house_registration','education_certificate','bank_evidence','portrait','other'])
+      const allowedDocumentTypes=new Set(['thai_national_id','driving_license','house_registration','education_certificate','bank_evidence','portrait','other'])
       const documentType=allowedDocumentTypes.has(result.document_type??'')?result.document_type:'other'
       if(documentType==='other'&&!Object.keys(safeFields).length)throw new Error('employee_document_no_readable_fields')
       await admin.from('employee_intake_documents').update({document_type:documentType,extracted_fields:safeFields,extraction_status:'completed',updated_at:new Date().toISOString()}).eq('id',document.id)
@@ -560,7 +611,10 @@ async function sendEmployeeIntakeSummary(companyId:string,intakeId:string){
     [{text:'✅ อนุมัติสร้างประวัติพนักงาน',callback_data:`employee_intake:approve:${intakeId}`}],
     [{text:'✏️ แก้ไขข้อมูล',callback_data:`employee_intake:update:${intakeId}`}],
     [{text:'⛔ ยกเลิก',callback_data:`employee_intake:cancel:${intakeId}`}],
-  ]}:{force_reply:true,input_field_placeholder:'ส่งข้อมูลที่ยังขาด'}
+  ]}:{inline_keyboard:[
+    [{text:'🗂️ สร้างประวัติเบื้องต้น',callback_data:`employee_intake:preboard:${intakeId}`}],
+    [{text:'⛔ ยกเลิก',callback_data:`employee_intake:cancel:${intakeId}`}],
+  ]}
   return broadcastEmployeeIntake(companyId,intakeId,prompt,replyMarkup,ready?'review_ready':'missing_fields')
 }
 
@@ -632,7 +686,7 @@ Deno.serve(async request=>{
   if(request.method!=='POST')return json({error:'Method not allowed'},405)
   const setupBody=await request.clone().json().catch(()=>({})) as {action?:string;company_id?:string;message_ids?:string[];intake_id?:string;request_id?:string}
   if(setupBody.action==='send_line_group_assignment_request'){
-    if(request.headers.get('authorization')!==`Bearer ${serviceKey}`)return json({error:'Unauthorized'},401)
+    if(!await isAuthorizedServiceRequest(request))return json({error:'Unauthorized'},401)
     try{return json({status:'processed',...(await sendLineGroupAssignmentRequest(setupBody.request_id??''))})}
     catch(error){
       if(setupBody.request_id)await admin.from('line_group_assignment_requests').update({notification_status:'failed',notification_error:error instanceof Error?error.message.slice(0,1000):'notification_failed',updated_at:new Date().toISOString()}).eq('id',setupBody.request_id).eq('status','pending')
@@ -640,27 +694,27 @@ Deno.serve(async request=>{
     }
   }
   if(setupBody.action==='preview_employee_intake'){
-    if(request.headers.get('authorization')!==`Bearer ${serviceKey}`)return json({error:'Unauthorized'},401)
+    if(!await isAuthorizedServiceRequest(request))return json({error:'Unauthorized'},401)
     try{return json({status:'previewed',...(await previewEmployeeIntake(setupBody.company_id??'',setupBody.intake_id??''))})}
     catch(error){return json({error:error instanceof Error?error.message:'employee_intake_preview_failed'},400)}
   }
   if(setupBody.action==='replay_employee_intake_reply'){
-    if(request.headers.get('authorization')!==`Bearer ${serviceKey}`)return json({error:'Unauthorized'},401)
+    if(!await isAuthorizedServiceRequest(request))return json({error:'Unauthorized'},401)
     try{return json({status:'replayed',...(await replayLatestEmployeeIntakeReply(setupBody.company_id??'',setupBody.intake_id??''))})}
     catch(error){return json({error:error instanceof Error?error.message:'employee_intake_reply_replay_failed'},400)}
   }
   if(setupBody.action==='repair_employee_intake_encoding'){
-    if(request.headers.get('authorization')!==`Bearer ${serviceKey}`)return json({error:'Unauthorized'},401)
+    if(!await isAuthorizedServiceRequest(request))return json({error:'Unauthorized'},401)
     try{return json({status:'repaired',...(await repairEmployeeIntakeEncoding(setupBody.company_id??'',setupBody.intake_id??''))})}
     catch(error){return json({error:error instanceof Error?error.message:'employee_intake_encoding_repair_failed'},400)}
   }
   if(setupBody.action==='send_employee_intake_summary'){
-    if(request.headers.get('authorization')!==`Bearer ${serviceKey}`)return json({error:'Unauthorized'},401)
+    if(!await isAuthorizedServiceRequest(request))return json({error:'Unauthorized'},401)
     try{return json({status:'sent',...(await sendEmployeeIntakeSummary(setupBody.company_id??'',setupBody.intake_id??''))})}
     catch(error){return json({error:error instanceof Error?error.message:'employee_intake_summary_failed'},400)}
   }
   if(setupBody.action==='import_line_employee_intake'){
-    if(request.headers.get('authorization')!==`Bearer ${serviceKey}`)return json({error:'Unauthorized'},401)
+    if(!await isAuthorizedServiceRequest(request))return json({error:'Unauthorized'},401)
     try{return json({status:'imported',...(await importLineEmployeeIntake(setupBody.company_id??'',setupBody.message_ids??[]))})}
     catch(error){return json({error:error instanceof Error?error.message:'line_intake_import_failed'},400)}
   }
@@ -763,7 +817,7 @@ Deno.serve(async request=>{
     if(chatError)throw chatError
 
     if(callback){
-      const intakeMatch=/^employee_intake:(new|approve|update|archive|cancel):([0-9a-f-]{36})$/.exec(callback.data??'')
+      const intakeMatch=/^employee_intake:(new|preboard|approve|update|archive|cancel):([0-9a-f-]{36})$/.exec(callback.data??'')
       if(intakeMatch){
         const action=intakeMatch[1],intakeId=intakeMatch[2]
         const {data:intake,error:intakeError}=await admin.from('employee_intakes').select('id,status,extracted_data').eq('id',intakeId).eq('company_id',actor.company_id).maybeSingle()
@@ -775,6 +829,19 @@ Deno.serve(async request=>{
           await sendEmployeeIntakeSummary(actor.company_id,intakeId)
           await admin.from('telegram_admin_events').update({status:'processed',processed_at:new Date().toISOString()}).eq('id',reserved!.id)
           return json({status:'employee_intake_already_ready'})
+        }
+        if(action==='preboard'){
+          const {data,error}=await admin.rpc('create_employee_preboarding_from_intake',{target_intake_id:intakeId,actor_profile_id:actor.profile_id})
+          if(error){
+            await answerCallback(callback.id,error.message.includes('candidate_name')?'ยังไม่มีชื่อที่ยืนยันได้':error.message.includes('document_required')?'ยังไม่พบเอกสารต้นฉบับ':'ไม่สามารถสร้างประวัติเบื้องต้นได้')
+            return json({status:'employee_preboarding_rejected'})
+          }
+          const result=data?.[0]
+          await answerCallback(callback.id,result?.result_status==='preboarding_reused'?'มีประวัติเบื้องต้นแล้ว':'สร้างประวัติเบื้องต้นแล้ว')
+          await finishCallbackMessage(callback,'สร้างประวัติเบื้องต้น',`รอข้อมูลเพิ่ม · ${result?.employee_code??''}`)
+          await sendEmployeeIntakeSummary(actor.company_id,intakeId)
+          await admin.from('telegram_admin_events').update({status:'processed',processed_at:new Date().toISOString()}).eq('id',reserved!.id)
+          return json({status:result?.result_status??'preboarding_created'})
         }
         if(action==='approve'){
           const extracted={...((intake.extracted_data??{}) as Record<string,unknown>)}
@@ -804,7 +871,7 @@ Deno.serve(async request=>{
           await answerCallback(callback.id,'กำลังอ่านเอกสาร')
           const analyzed=await analyzeEmployeeIntake(actor,intakeId)
           await finishCallbackMessage(callback,'พนักงานใหม่',analyzed.status==='pending_review'?'อ่านข้อมูลครบ รออนุมัติ':'กำลังรอข้อมูลเพิ่มเติม')
-          await sendText(chatId,employeeIntakeSummary(analyzed))
+          await sendEmployeeIntakeSummary(actor.company_id,intakeId)
         }else{
           const purpose=action==='update'?'update_employee':'archive_only'
           await admin.from('employee_intakes').update({purpose,status:'pending_review',submitted_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq('id',intakeId).eq('company_id',actor.company_id)

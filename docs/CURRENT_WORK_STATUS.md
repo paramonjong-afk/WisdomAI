@@ -1,5 +1,60 @@
 # WisdomAI — สถานะงานและรายการตรวจรับ
 
+## SYS-CICD-001 - 2026-09-04: BLOCKED before merge
+
+- Branch: `codex/supabase-migration-safety-gate`; PR: https://github.com/paramonjong-afk/WisdomAI/pull/28
+- Source revision tested in CI: `7276e9a`. No merge, Production migration apply, or Edge Function deployment performed for this PR.
+- Local workflow contracts, automation claim tests, health-monitor tenant tests, typecheck, lint and build passed; latest baseline changes passed workflow contracts and targeted lint only.
+- CI run `33880819046`: `verify-migrations` FAILED during fresh database replay; linked Production dry-run was not reached; `apply-migrations` SKIPPED. Separate `postgres-runtime` and preview builds passed, which does not prove full migration replay.
+- Confirmed blocker: legacy migration `202608090018_link_confirmed_telegram_admin.sql` requires an existing approved real-world identity. An empty database has no matching company member and the migration aborts. Do not insert real identities into CI, skip the migration, or disable the gate to make this green.
+- The new profiles/projects foundation is a provisional replay repair, NOT a verified Production baseline. It does not establish that the remaining history can replay; review its old timestamp and remote-history compatibility before any merge.
+- Next action: recover and review the authoritative initial schema and data-dependent historical migration strategy with the database owner, then verify the entire chain in an isolated database and run the linked dry-run. No blanket historical rewrites or migration repair commands.
+- Main protection was configured with strict required `verify-migrations`, PR requirement and admin enforcement. Do not weaken it. Until the workflow lands successfully, other PRs may also wait for this check.
+- Other pending safety review: the supplied SQL grep guard does not implement the documented unwhered UPDATE check; independent function deployment is not ordered after migration success. Do not treat the pipeline as ready for automatic Production rollout until reviewed.
+- Rollback before merge: keep this PR unmerged; no database rollback is required. Preserve the shared workspace and do not reset other rooms' changes.
+
+## รอบปิดงาน 26/8/2569 — HR และ Intake
+
+### ทำใน release นี้
+
+- `HR-UI-ACTION-20260826`: หน้า `/employees` ใช้ Action กลางที่หัวหน้าเพจสำหรับเพิ่ม รีเฟรช กรอง ค้นหา ตั้งค่าคอลัมน์ และส่งออก โดยตัด Toolbar ตัวกรองที่ซ้ำออกและคง Drawer/Onboarding รุ่นล่าสุดไว้
+- `INTAKE-EVIDENCE-SPLIT-20260826`: Drawer สลิปหน้า `/accounting-documents` แยก 3 ชั้นชัดเจน: หลักฐานเดิมอ่านอย่างเดียว, OCR/Derived ที่แก้พร้อม Audit และข้อมูลธุรกิจที่ยืนยันแล้วสำหรับกระทบยอด
+- ไม่มีการเขียนทับ Raw/รูปสลิป/Source Reference และไม่มีการแก้ยอด Production ในขั้นพัฒนา
+
+### งานค้างหลัง deploy
+
+- `RELEASE-HR-INTAKE-20260826`: `DONE` — GitHub `main` และ Cloudflare revision `44f5a98` ตรงกัน; authenticated smoke ผ่านหน้า `/employees` และ `/accounting-documents`, Drawer เคส ฿1,487 แสดงหลักฐานเดิม/OCR/ข้อมูลยืนยันครบ และไม่พบ console error
+- `INTAKE-CONFIRMED-MAPPING-UAT`: เปิดสลิปที่มีผู้โอนตามหลักฐานต่างจากผู้จ่ายจริงอย่างน้อย 1 รายการ ตรวจว่าทั้งสองค่าปรากฏพร้อมกันและสถานะยืนยันถูกต้อง
+- `ADVANCE-PAYROLL-DATA-CLOSE`: รายการ Advance/ค่าแรงเงินจริงยังต้องให้บัญชีตรวจ Allocation, Owner, วันที่ และหลักฐานก่อนสร้าง Payroll Line หรือตัดยอด ห้าม Final Lock อัตโนมัติ
+- `AUTO-CHECKPOINT-MERGE`: branch `codex/auto-checkpoint-guard` commit `30d36a4` ยังรอ Pull Request/merge แยกจาก release นี้
+- ถ้า push/deploy ถูกปฏิเสธ ให้เก็บ commit release บน branch นี้ พร้อมบันทึกคำสั่งที่ล้มเหลวและ revision ปลายทาง ห้าม force-push หรือทับ `main`
+
+## งานรอดำเนินการ: Employee Identity & Completeness
+
+### EMP-IDENTITY-004 — Existing Employee Resolution ก่อนสร้าง Preboarding
+
+- สถานะ: `รอดำเนินการ / ต้องใช้กับ Intake พนักงานทุกช่องทาง`
+- ขอบเขต: ก่อนสร้าง Employee Master ใหม่ ต้องค้น Candidate พนักงานเดิมในบริษัทเดียวกันจากชื่อ/alias/เบอร์โทร/บัญชีธนาคาร/เอกสาร/LINE และรหัสอ้างอิง แล้วให้ HR เลือก `อัปเดตพนักงานเดิม` หรือ `สร้างพนักงานใหม่`
+- กติกา: ชื่อสะกดใกล้เคียงเป็นเพียงสัญญาณ ห้ามรวมอัตโนมัติ; ถ้ามี Candidate มากกว่าหนึ่งคนต้องค้าง Manual Review; เอกสารย้อนหลังต้องเชื่อมกับตัวตนเดิมโดย reference และไม่สร้าง Preboarding ซ้ำ
+- Reconcile: ตรวจ Employee Master `preboarding` เทียบ Profile/Employment active เดิม; รายการที่ยืนยันว่าเป็นคนเดียวกันให้เชื่อม `profile_id`, รักษา Raw/Source/Audit และนำออกจากคิวพนักงานใหม่โดยไม่ลบหลักฐาน
+- Owner: HR/Admin ยืนยันตัวบุคคล; Platform Integration ดูแล matching/idempotency/RLS
+
+### EMP-IDENTITY-002 — ผูก Login, หลายบัญชี LINE และชื่อเรียก
+
+- สถานะ: `รอดำเนินการ / ยังไม่เปิดใช้ใน Production`
+- ขอบเขต: พนักงานหนึ่งคนผูก Login หนึ่งบัญชีและ LINE ได้หลายบัญชี, กำหนดบัญชีหลัก/สำรอง, เก็บชื่อเล่นและชื่อเรียกหลายแบบ, รองรับเปลี่ยน LINE โดยไม่สูญเสียประวัติ
+- Gate: ระบบเสนอ Candidate จากชื่อ/ประวัติ/บริษัทได้ แต่ HR/Admin ต้องยืนยันก่อนผูก; ห้ามจับคู่จากชื่ออย่างเดียว และห้ามย้ายข้อมูลข้ามบริษัท
+
+### EMP-COMPLETENESS-003 — เติมเอกสารและบัญชีธนาคารภายหลัง
+
+- สถานะ: `รอดำเนินการ / ยังไม่เปิดใช้ใน Production`
+- ขอบเขต: ตรวจข้อมูลที่ขาดรายพนักงาน, รับเอกสารที่ตรวจพบภายหลังจาก LINE/Web/Upload, เชื่อมเอกสารเดิมโดย reference โดยไม่คัดลอก Raw, และเปิดคิวให้ HR/Admin เติมข้อมูลที่จำเป็น
+- เอกสารขั้นต่ำที่ติดตาม: บัตรประชาชน, ทะเบียนบ้าน (ถ้ามี/ตามนโยบาย), วุฒิการศึกษา, หลักฐานบัญชีธนาคาร และเอกสารจ้างงานที่กำหนด
+- บัญชีธนาคาร: รองรับหลายบัญชี แต่มีบัญชีรับค่าจ้างหลักได้หนึ่งบัญชีต่อบริษัทและช่วงวันที่มีผล; แสดงเลขแบบปกปิด, เก็บหลักฐาน/ผู้ตรวจ/เวลาตรวจ และเปลี่ยนบัญชีด้วยประวัติแทนการเขียนทับ
+- Gate: OCR/AI สร้างได้เฉพาะ Candidate; ต้องตรวจชื่อเจ้าของบัญชี ธนาคาร เลขบัญชี และหลักฐานก่อนยืนยัน Master Data; เอกสารซ้ำกันด้วย source/hash และทุกการผูก/แก้ไขมี Audit
+- Output ที่ต้องทำ: แถบความครบถ้วนในหน้า Employee/Drawer, คิว HR “ข้อมูลหรือเอกสารขาด”, Action `แนบเอกสาร`, `เติมข้อมูล`, `ยืนยันบัญชีหลัก`, `ขอข้อมูลเพิ่ม`, และสถานะครบ/ขาด/รอตรวจ/หมดอายุ
+- Owner: HR/Admin ภายใน company scope; Rollback/Recovery: ยกเลิกลิงก์หรือคืนบัญชีหลักรุ่นก่อน โดยไม่ลบ Raw, เอกสารต้นฉบับ หรือ Audit
+
 ### CHAT-ATTACHMENT-004 — แสดงรูปแนบในข้อความ Web Chat (23/8/2569)
 
 - สถานะ: `ขึ้น Vercel/Cloudflare แล้ว; รอ authenticated UAT รูปจริง` | commit `9d6d215`; Vercel GitHub checks ของ `wisdom-ai` และ `wisdomai-react` สำเร็จ; Cloudflare bundle `Chat-CU7PYrsY.js` พบ marker inline preview ครบ

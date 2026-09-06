@@ -17,7 +17,9 @@ import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
 import RateReviewOutlinedIcon from '@mui/icons-material/RateReviewOutlined'
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded'
 import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined'
-import { Avatar, Box, Divider, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography } from '@mui/material'
+import LockResetOutlinedIcon from '@mui/icons-material/LockResetOutlined'
+import CloseOutlinedIcon from '@mui/icons-material/CloseOutlined'
+import { Avatar, Box, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography } from '@mui/material'
 import { NavLink } from 'react-router-dom'
 import { navigationGroups } from '../utils/navigation'
 import { useAuth } from '../hooks/useAuth'
@@ -43,12 +45,14 @@ const navigationIcons:Record<string,React.ReactNode>={
   '/chat':<ChatBubbleOutlineOutlinedIcon/>,
   '/solar':<SolarPowerOutlinedIcon/>,'/my-profile':<AccountCircleOutlinedIcon/>,
   '/settings':<SettingsOutlinedIcon/>,
+  '/admin-account-recovery':<LockResetOutlinedIcon/>,
   '/platform-control-center':<HubOutlinedIcon/>,
   '/mutation-attempt-center':<HistoryOutlinedIcon/>,
   '/flow-registry':<HubOutlinedIcon/>,
+  '/system-inventory':<FactCheckOutlinedIcon/>,
 }
 
-function NavigationContent() {
+function NavigationContent({ onNavigate }: { onNavigate?: () => void }) {
   const {profile,currentCompany}=useAuth()
   const location=useLocation()
   const roleFromProfile=(profile?.role ?? 'employee') as 'admin' | 'manager' | 'employee'
@@ -60,10 +64,10 @@ function NavigationContent() {
   const roleLabel = role === 'admin' ? 'ผู้ดูแลระบบ' : role === 'manager' ? 'ผู้จัดการ' : 'พนักงาน'
   const displayName=profile?.full_name||profile?.email||'ผู้ใช้งาน'
   return (
-    <Box sx={{ width:sidebarWidth,height:'100%',display:'flex',flexDirection:'column',bgcolor:'#333333',color:'common.white' }}>
+    <Box sx={{ width:'100%',height:'100%',display:'flex',flexDirection:'column',bgcolor:'#333333',color:'common.white' }}>
       <Toolbar sx={{ px:3,minHeight:'64px!important' }}>
         <Typography variant="h6" sx={{ fontWeight:900,letterSpacing:'-0.5px' }}>
-          WisdomAI
+          Wisdom Power
         </Typography>
       </Toolbar>
       <Typography variant="overline" sx={{ px:3,color:'#FABFB2',letterSpacing:'.08em' }}>
@@ -87,6 +91,7 @@ function NavigationContent() {
           <ListItemButton
             component={NavLink}
             to={item.path}
+            onClick={onNavigate}
             key={item.path}
             end={item.path === '/'}
             sx={{
@@ -139,4 +144,17 @@ export function Sidebar() {
       </Box>
     </Box>
   )
+}
+
+export function MobileSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+  return <Drawer anchor="left" open={open} onClose={onClose} ModalProps={{ keepMounted: true }} sx={{ display: { xs: 'block', md: 'none' } }} slotProps={{ paper: { sx: { width: 'min(88vw, 320px)', bgcolor: '#333333', color: 'common.white' } } }}>
+    <IconButton
+      aria-label="ปิดเมนูนำทาง"
+      onClick={onClose}
+      sx={{ position: 'absolute', top: 10, right: 10, zIndex: 1, width: 44, height: 44, color: 'common.white' }}
+    >
+      <CloseOutlinedIcon />
+    </IconButton>
+    <NavigationContent onNavigate={onClose} />
+  </Drawer>
 }

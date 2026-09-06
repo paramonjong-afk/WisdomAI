@@ -1,27 +1,36 @@
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined'
 import TimerOutlinedIcon from '@mui/icons-material/TimerOutlined'
-import { AppBar, Avatar, Box, Chip, Divider, IconButton, ListSubheader, MenuItem, Paper, TextField, Toolbar, Tooltip, Typography } from '@mui/material'
-import { useState } from 'react'
+import { AppBar, Avatar, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, IconButton, ListSubheader, MenuItem, TextField, Toolbar, Tooltip, Typography } from '@mui/material'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { logAppEvent, updateAppStatus } from '../lib/telemetry'
 import { releaseHostLabel, releaseInfo, releaseLabel } from '../lib/releaseInfo'
-import { navigationItems } from '../utils/navigation'
+import { brandAssets } from '../lib/brandAssets'
+import { buildFreshLoginUrl } from '../utils/authRouting'
 import { isPlatformAdmin as resolvePlatformAdmin } from '../utils/permissions'
+import { applyPendingReleaseUpdate, getPendingReleaseRevision, releaseUpdateAvailableEvent } from '../utils/releaseFreshness'
 import { NotificationBell } from '../components/NotificationBell'
 
-const mobileNavigationItems = navigationItems.filter(
-  (item) => item.path === '/time-tracking' || item.path === '/my-profile',
-)
-
-export function TopBar() {
+export function TopBar({ onMenuOpen }: { onMenuOpen?: () => void }) {
   const navigate = useNavigate()
   const { profile, user, companies, currentCompany, switchCompany, signOut } = useAuth()
   const [signingOut, setSigningOut] = useState(false)
+  const [pendingRelease, setPendingRelease] = useState(getPendingReleaseRevision)
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
   const displayName = profile?.full_name || user?.email || 'Wisdom user'
   const role = profile?.role ?? 'employee'
   const isPlatformAdmin = resolvePlatformAdmin(profile)
   const initials = displayName.slice(0, 2).toUpperCase()
+
+  useEffect(() => {
+    const handleReleaseUpdate = (event: Event) => {
+      const revision = (event as CustomEvent<{ revision?: string }>).detail?.revision?.trim() ?? ''
+      if (revision) setPendingRelease(revision)
+    }
+    window.addEventListener(releaseUpdateAvailableEvent, handleReleaseUpdate)
+    return () => window.removeEventListener(releaseUpdateAvailableEvent, handleReleaseUpdate)
+  }, [])
 
   const handleSignOut = async () => {
     setSigningOut(true)
@@ -31,7 +40,7 @@ export function TopBar() {
         await updateAppStatus(user.id, 'offline')
       }
       await signOut()
-      navigate('/login', { replace: true })
+      window.location.replace(buildFreshLoginUrl(window.location.origin, releaseInfo.revision))
     } finally {
       setSigningOut(false)
     }
@@ -40,80 +49,39 @@ export function TopBar() {
   return (
     <AppBar position="sticky" elevation={0} color="inherit" sx={{ borderBottom: 1, borderColor: 'divider' }}>
       <Toolbar>
-        <Box
-          component="details"
-          sx={{
-            display: { xs: 'block', md: 'none' },
-            '@media (pointer: coarse)': { display: 'block' },
-            mr: 1,
-            position: 'relative',
-            flexShrink: 0,
-          }}
-        >
-          <Box
-            component="summary"
+        <Tooltip title="เปิดเมนูนำทาง">
+          <IconButton
             aria-label="เปิดเมนูนำทาง"
+            onClick={onMenuOpen}
             sx={{
-              width: 48,
-              height: 48,
-              display: 'grid',
-              placeItems: 'center',
-              fontSize: 30,
-              lineHeight: 1,
-              cursor: 'pointer',
-              listStyle: 'none',
-              touchAction: 'manipulation',
-              userSelect: 'none',
-              '&::-webkit-details-marker': { display: 'none' },
+              display: { xs: 'block', md: 'none' },
+              '@media (pointer: coarse)': { display: 'block' },
+              mr: 1,
+              position: 'relative',
+              flexShrink: 0,
+              width: 44,
+              height: 44,
             }}
           >
-            ☰
-          </Box>
-          <Paper elevation={12} sx={{
-            position: 'absolute', zIndex: 2147483647, top: 52, left: 0,
-            width: 'min(86vw, 320px)', maxHeight: '75vh', overflowY: 'auto', p: 1,
-          }}>
-            {mobileNavigationItems.map((item) => <Box
-              component="a" key={item.path} href={item.path}
-              sx={{
-                display: 'block', minHeight: 48, px: 2, py: 1.5,
-                color: 'text.primary', textDecoration: 'none', borderRadius: 1,
-                fontWeight: item.path === '/time-tracking' ? 800 : 600,
-                bgcolor: item.path === '/time-tracking' ? 'action.selected' : 'transparent',
-              }}
-            >
-              {item.path === '/time-tracking' ? '⏱ ลงเวลาของฉัน' : '👤 ข้อมูลส่วนตัว'}
-            </Box>)}
             <Box
-              component="button"
-              type="button"
-              disabled={signingOut}
-              onClick={() => void handleSignOut()}
+              component="img"
+              src={brandAssets.transparentMark}
+              alt=""
               sx={{
-                width: '100%',
-                minHeight: 48,
-                px: 2,
-                py: 1.5,
-                border: 0,
-                borderTop: 1,
-                borderColor: 'divider',
-                bgcolor: 'transparent',
-                color: 'text.primary',
-                textAlign: 'left',
-                font: 'inherit',
-                fontWeight: 600,
-                cursor: 'pointer',
-                '&:active': { bgcolor: 'action.selected' },
+                width: 44,
+                height: 'auto',
+                display: 'block',
               }}
-            >
-              👥 ลงเวลาให้ผู้อื่น (เปลี่ยนบัญชี)
-            </Box>
-          </Paper>
-        </Box>
+            />
+          </IconButton>
+        </Tooltip>
         <Typography variant="body2" color="text.secondary" sx={{ flexGrow: 1, display: { xs: 'none', sm: 'block' } }}>
           {currentCompany?.company_name ?? 'Construction Management Platform'}
         </Typography>
-        <Box sx={{ flexGrow: 1, display: { xs: 'block', sm: 'none' } }} />
+        <Box sx={{ flexGrow: 1, minWidth: 0, display: { xs: 'block', sm: 'none' } }}>
+          <Typography variant="body2" noWrap sx={{ fontWeight: 800 }}>{currentCompany?.company_name ?? 'WisdomAI'}</Typography>
+          <Typography variant="caption" noWrap color="text.secondary">{displayName} · {role}</Typography>
+        </Box>
         <Tooltip title="ลงเวลา">
           <IconButton
             component="a"
@@ -152,6 +120,15 @@ export function TopBar() {
             sx={{ mr: 1, cursor: 'pointer', display: { xs: 'none', md: 'inline-flex' }, fontVariantNumeric: 'tabular-nums' }}
           />
         </Tooltip>
+        {pendingRelease && <Tooltip title="มีระบบรุ่นใหม่พร้อมใช้งาน งานปัจจุบันจะไม่ถูกรีเฟรชอัตโนมัติ">
+          <Chip
+            size="small"
+            color="warning"
+            label={<><Box component="span" sx={{ display: { xs: 'none', md: 'inline' } }}>{`มีรุ่นใหม่ ${pendingRelease} · อัปเดตเมื่อพร้อม`}</Box><Box component="span" sx={{ display: { xs: 'inline', md: 'none' } }}>มีรุ่นใหม่</Box></>}
+            onClick={() => setUpdateDialogOpen(true)}
+            sx={{ mr: 1, cursor: 'pointer', fontVariantNumeric: 'tabular-nums' }}
+          />
+        </Tooltip>}
         <NotificationBell />
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
           <Tooltip title="ข้อมูลส่วนตัว">
@@ -172,6 +149,16 @@ export function TopBar() {
           </Tooltip>
         </Box>
       </Toolbar>
+      <Dialog open={updateDialogOpen} onClose={() => setUpdateDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>มีระบบรุ่นใหม่พร้อมใช้งาน</DialogTitle>
+        <DialogContent>
+          <Typography>ระบบจะรีเฟรชหน้านี้เพื่ออัปเดตเป็นรุ่น {pendingRelease} กรุณาบันทึกแบบร่างหรืองานที่กำลังตรวจให้เรียบร้อยก่อน</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setUpdateDialogOpen(false)}>ทำงานต่อ</Button>
+          <Button variant="contained" color="warning" onClick={() => applyPendingReleaseUpdate(pendingRelease)}>บันทึกแล้ว อัปเดตตอนนี้</Button>
+        </DialogActions>
+      </Dialog>
     </AppBar>
   )
 }

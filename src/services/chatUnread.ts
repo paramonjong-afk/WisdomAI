@@ -9,15 +9,19 @@ type ChatUnreadScope = {
 export async function fetchChatUnreadCount({ companyId, profileId }: ChatUnreadScope) {
   if (!companyId || !profileId) return 0
 
-  const { data: roomRows, error: roomError } = await supabase
-    .from('chat_rooms')
-    .select('id')
-    .eq('company_id', companyId)
+  const { data: memberRows, error: memberError } = await supabase
+    .from('chat_room_members')
+    .select('room_id,joined_at,chat_rooms!inner(company_id)')
+    .eq('profile_id', profileId)
+    .eq('chat_rooms.company_id', companyId)
 
-  if (roomError) throw roomError
-  const roomIds = (roomRows ?? [])
-    .map((row) => (typeof row.id === 'string' ? row.id : ''))
-    .filter(Boolean)
+  if (memberError) throw memberError
+  const memberships = (memberRows ?? []).flatMap((row) => (
+    typeof row.room_id === 'string'
+      ? [{ roomId: row.room_id, joinedAt: typeof row.joined_at === 'string' ? row.joined_at : null }]
+      : []
+  ))
+  const roomIds = memberships.map((membership) => membership.roomId)
   if (roomIds.length === 0) return 0
 
   const { data: readRows, error: readError } = await supabase
@@ -34,13 +38,16 @@ export async function fetchChatUnreadCount({ companyId, profileId }: ChatUnreadS
     }
   })
 
-  const counts = await Promise.all(roomIds.map(async (roomId) => {
+  const counts = await Promise.all(memberships.map(async ({ roomId, joinedAt }) => {
     let query = supabase
       .from('chat_messages')
       .select('id', { count: 'exact', head: true })
       .eq('room_id', roomId)
+      .is('deleted_at', null)
+      .or(`sender_profile_id.is.null,sender_profile_id.neq.${profileId}`)
     const lastReadAt = readMap.get(roomId)
-    if (lastReadAt) query = query.gt('created_at', lastReadAt)
+    const unreadCutoff = [lastReadAt, joinedAt].filter((value): value is string => Boolean(value)).sort().at(-1)
+    if (unreadCutoff) query = query.gt('created_at', unreadCutoff)
     const { count, error } = await query
     if (error) throw error
     return count ?? 0

@@ -37,6 +37,9 @@ jobs:
       - name: Run transfer lineage test
         run: npm run test:transfer-slip-lineage
 
+      - name: Run employee money ledger test
+        run: npm run test:employee-money-ledger
+
       - name: Run Advance handoff tests
         run: npm run test:advance-report && npm run test:advance-confirmation
 
