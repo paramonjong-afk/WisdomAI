@@ -16,7 +16,7 @@ const checks: Array<[string, boolean]> = [
   ['Mobile navigation provides a visible touch-sized close action', sidebar.includes('aria-label="ปิดเมนูนำทาง"') && sidebar.includes('onClick={onClose}') && sidebar.includes('width: 44')],
   ['Dialogs and Drawers become viewport-sized on small screens', theme.includes("width:'100vw'") && theme.includes("height:'100dvh'")],
   ['Responsive theme covers the full 320-768px mobile range', theme.includes('mobileMaxWidth: 768') && theme.includes("@media (max-width: 768px), (pointer: coarse)")],
-  ['Clickable chips and tabs keep 44px touch targets', theme.includes("'.MuiChip-clickable':{minHeight:44}") && theme.includes('minWidth:110,minHeight:44')],
+  ['Clickable chips, tabs and icon actions keep touch-sized targets', theme.includes("'.MuiChip-clickable':{minHeight:44}") && theme.includes('minWidth:110,minHeight:44') && theme.includes("MuiIconButton:{styleOverrides:{root:{'@media (max-width: 768px), (pointer: coarse)':{minWidth:44,minHeight:44}}}")],
   ['Tables preserve horizontal access on touch screens', theme.includes('WebkitOverflowScrolling') && table.includes('ปัดซ้ายหรือขวา')],
 ]
 
