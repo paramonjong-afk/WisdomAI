@@ -21,7 +21,5 @@ const checks: Array<[string, boolean]> = [
 ]
 
 const failures = checks.filter(([, passed]) => !passed).map(([label]) => label)
-if (failures.length) throw new Error(`Mobile responsive contract failed:
-- ${failures.join('
-- ')}`)
-console.log(`Mobile responsive contract passed (${checks.length} checks)`)
+if (failures.length) throw new Error('Mobile responsive contract failed:\n- ' + failures.join('\n- '))
+console.log('Mobile responsive contract passed (' + checks.length + ' checks)')
