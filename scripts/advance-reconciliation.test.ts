@@ -23,5 +23,8 @@ assert.deepEqual(saved.data.audit[0]?.changes.confirmedPayer, { old: '', new: '�
 assert.match(storage.values().next().value ?? '', /ผู้จ่ายจริง/)
 Object.defineProperty(globalThis, 'window', { value: originalWindow, configurable: true })
 
-assert.doesNotMatch(page, /local-advance-reconciliation|saveLocalReconciliation|ไม่เขียน Production/)
+assert.match(page, /isLocalReconciliationRuntime/, 'local reconciliation must be runtime-gated')
+assert.match(page, /loadLocalReconciliation/, 'local reconciliation should load through the gated helper')
+assert.match(page, /saveLocalReconciliation/, 'local reconciliation should save through the gated helper')
+assert.match(page, /ไม่เขียน Production/, 'the UI must clearly label local-only reconciliation')
 console.log('advance reconciliation fixture isolation tests passed')
