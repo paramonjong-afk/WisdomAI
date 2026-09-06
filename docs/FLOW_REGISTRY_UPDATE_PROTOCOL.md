@@ -1,3 +1,20 @@
+## 2026-09-06 - Production Advance fixture isolation v2.2
+
+```mermaid
+flowchart LR
+  A[Central Advance + Document Flow + Audit] --> B[Production Advance Detail]
+  B --> C{Reconciliation state}
+  C -->|Central status/audit| D[Display Flow node]
+  C -->|No canonical record| E[Show missing and route to central Flow]
+  F[Test-only fixture] --> G[Test harness only]
+```
+
+- Scope: Production Advance Detail no longer imports or writes the Local reconciliation fixture or browser storage. It reads company-scoped central Advance, Document Flow, source-slip, settlement, and Audit records only.
+- Permissions/tenant boundary: existing authenticated role and company-scoped RLS/Flow permissions are unchanged; no cross-company data is loaded.
+- Failure/retry: missing central reconciliation data is shown as a clear missing state; retry remains through the existing page reload/central Flow path. No local fallback can mask Production state.
+- Audit/owner: status and timestamps come from central case status and `close` Audit when available; Advance Finance/Accounting owns the Flow.
+- Verification/rollback: fixture-isolation and mobile tests, typecheck, targeted lint, build, CI, and authenticated Advance smoke; rollback is a page-only revert with central cases, slips, settlement lines, and Audit retained.
+
 Warning: truncated output (original token count: 30307)
 Total output lines: 811
 
