@@ -13,7 +13,7 @@ import { supabase } from '../../lib/supabase'
 import { queueAdvanceConfirmation, type AdvanceConfirmationDelivery } from '../../services/advanceConfirmationGateway'
 import { documentFlowGateway } from '../../services/documentFlowGateway'
 import { userError } from '../../utils/userError'
-import { isLocalReconciliationRuntime, loadLocalReconciliation, saveLocalReconciliation, type AdvanceRemark, type AdvanceReconciliation } from '../../scripts/fixtures/advanceReconciliationFixture'
+import { isLocalReconciliationRuntime, loadLocalReconciliation, saveLocalReconciliation, type AdvanceRemark, type AdvanceReconciliation } from '../../../scripts/fixtures/advanceReconciliationFixture'
 import { isExpiredPreviewUrlError, isImageContentType, normalizePreviewFile, previewLoadMessage, previewSignedUrlErrorMessage, type AdvanceSlipPreviewFile, type PreviewFilePayload } from './advanceSlipPreview'
 import { advanceAuditAttemptLabel, buildAdvanceAuditTimeline, type AdvanceAuditEvent } from './advanceAuditTimeline'
 
@@ -523,3 +523,4 @@ function ReconciliationPanel({ value, canEdit, onSave }: { value: AdvanceReconci
 }
 function AmountLink({ label, value, onClick }: { label: string; value: string; onClick: () => void }) { return <Button aria-label={label} variant="text" size="small" sx={{ minWidth: 0, p: 0, fontWeight: 700, whiteSpace: 'nowrap' }} onClick={(event) => { event.stopPropagation(); onClick() }}>{value}</Button> }
 function BoxTitle() { return <Box><Typography variant="h5" sx={{ fontWeight: 800 }}>เงินทดรองและปิดยอด</Typography><Typography variant="body2" color="text.secondary">สลิปต้นทาง → รายการใช้เงิน → หลักฐาน → อนุมัติ → ปิดยอด</Typography></Box> }
+
