@@ -27,3 +27,6 @@ verify_jwt = false
 
 [functions.image-storage-optimizer]
 verify_jwt = false
+
+[functions.storage-consistency-worker]
+verify_jwt = false
