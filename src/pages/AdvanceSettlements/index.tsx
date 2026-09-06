@@ -13,7 +13,7 @@ import { supabase } from '../../lib/supabase'
 import { queueAdvanceConfirmation, type AdvanceConfirmationDelivery } from '../../services/advanceConfirmationGateway'
 import { documentFlowGateway } from '../../services/documentFlowGateway'
 import { userError } from '../../utils/userError'
-import { isLocalReconciliationRuntime, loadLocalReconciliation, saveLocalReconciliation, type AdvanceRemark, type AdvanceReconciliation } from './advanceReconciliation'
+import { isLocalReconciliationRuntime, loadLocalReconciliation, saveLocalReconciliation, type AdvanceRemark, type AdvanceReconciliation } from '../../scripts/fixtures/advanceReconciliationFixture'
 import { isExpiredPreviewUrlError, isImageContentType, normalizePreviewFile, previewLoadMessage, previewSignedUrlErrorMessage, type AdvanceSlipPreviewFile, type PreviewFilePayload } from './advanceSlipPreview'
 import { advanceAuditAttemptLabel, buildAdvanceAuditTimeline, type AdvanceAuditEvent } from './advanceAuditTimeline'
 
@@ -517,7 +517,7 @@ function ReconciliationPanel({ value, canEdit, onSave }: { value: AdvanceReconci
       {canEdit && <TextField size="small" label="เหตุผลการแก้ไขข้อมูลสำคัญ" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="ระบุเหตุผลก่อนบันทึก" />}
       {canEdit && <Button variant="contained" disabled={!changed} onClick={() => { onSave({ ...draft, difference }, reason); setReason('') }}>เพิ่ม Remark กระทบยอดเงินเข้า</Button>}
       {value.updatedAt && <Typography variant="caption" color="text.secondary">แก้ไขล่าสุด: {dateTime(value.updatedAt)} · {value.updatedBy}</Typography>}
-      <Box><Typography variant="caption" sx={{ fontWeight: 700 }}>ประวัติ Remark ({value.remarks.length})</Typography>{value.remarks.length ? value.remarks.slice(0, 5).map((remark) => <Typography key={remark.id} variant="caption" color="text.secondary" sx={{ display: 'block' }}>{dateTime(remark.at)} · {remark.actorName} · {remark.text || 'ไม่มีข้อความ'} · {remark.reason}</Typography>) : <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>ยังไม่บันทึก Remark กระทบยอด</Typography>}</Box>
+      <Box><Typography variant="caption" sx={{ fontWeight: 700 }}>ประวัติ Remark ({value.remarks.length})</Typography>{value.remarks.length ? value.remarks.slice(0, 5).map((remark: AdvanceRemark) => <Typography key={remark.id} variant="caption" color="text.secondary" sx={{ display: 'block' }}>{dateTime(remark.at)} · {remark.actorName} · {remark.text || 'ไม่มีข้อความ'} · {remark.reason}</Typography>) : <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>ยังไม่บันทึก Remark กระทบยอด</Typography>}</Box>
     </Stack>
   </Paper>
 }
