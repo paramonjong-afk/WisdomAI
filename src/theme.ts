@@ -1,7 +1,7 @@
 import { alpha, createTheme } from '@mui/material'
 
 export const uiResponsiveConfig = {
-  mobileMaxWidth: 600,
+  mobileMaxWidth: 768,
   tabletMaxWidth: 900,
   largeDesktopMinWidth: 1280,
 }
@@ -39,28 +39,32 @@ export const appTheme=createTheme({
         '*':{boxSizing:'border-box'},
         'html, body':{maxWidth:'100%',overflowX:'hidden'},
         '::selection':{backgroundColor:alpha('#A65940',0.24),color:'#1F140F'},
-        '@media (max-width: 600px)': {
+        '@media (max-width: 768px)': {
           'body':{fontSize:'0.94rem',lineHeight:1.4},
           'h1,h2,h3,h4,h5,h6':{lineHeight:1.2},
           '.MuiTypography-h4':{fontSize:'1.35rem'},
           '.MuiTypography-h5':{fontSize:'1.15rem'},
           '.MuiButton-root':{minHeight:44},
           '.MuiIconButton-root':{minWidth:44,minHeight:44},
+          '.MuiChip-clickable':{minHeight:44},
           '.MuiInputBase-root':{minHeight:48},
           '.MuiDialog-paper,.MuiDrawer-paper':{maxWidth:'100vw',maxHeight:'100dvh'},
         },
       },
     },
     MuiPaper:{styleOverrides:{root:{backgroundImage:'none'},outlined:{borderColor:'#E5DFDC'}}},
-    MuiButton:{defaultProps:{disableElevation:true},styleOverrides:{root:{minHeight:40,borderRadius:10,'@media (max-width: 600px)':{minHeight:44}}}},
+    MuiButton:{defaultProps:{disableElevation:true},styleOverrides:{root:{minHeight:40,borderRadius:10,'@media (max-width: 768px), (pointer: coarse)':{minHeight:44}}}},
+    MuiIconButton:{styleOverrides:{root:{'@media (max-width: 768px), (pointer: coarse)':{minWidth:44,minHeight:44}}}},
     MuiTextField:{defaultProps:{variant:'outlined'}},
     MuiOutlinedInput:{styleOverrides:{root:{borderRadius:10,backgroundColor:'#FFFFFF'}}},
+    MuiInputBase:{styleOverrides:{root:{'@media (max-width: 768px), (pointer: coarse)':{minHeight:48}}}},
     MuiTabs:{defaultProps:{scrollButtons:'auto',allowScrollButtonsMobile:true},styleOverrides:{root:{minHeight:44},indicator:{height:3,borderRadius:'3px 3px 0 0'}}},
-    MuiTab:{styleOverrides:{root:{minHeight:44,fontWeight:700,'@media (max-width: 600px)':{minWidth:110,minHeight:40,fontSize:'0.84rem'}}}},
+    MuiTab:{styleOverrides:{root:{minHeight:44,fontWeight:700,'@media (max-width: 768px), (pointer: coarse)':{minWidth:110,minHeight:44,fontSize:'0.84rem'}}}},
+    MuiChip:{styleOverrides:{root:{'&.MuiChip-clickable':{'@media (max-width: 768px), (pointer: coarse)':{minHeight:44}}}}},
     MuiDialog:{
       styleOverrides:{
         paper:{
-          '@media (max-width: 600px)':{width:'100vw',maxWidth:'100vw',height:'100dvh',maxHeight:'100dvh',margin:0,borderRadius:0},
+          '@media (max-width: 768px)':{width:'100vw',maxWidth:'100vw',height:'100dvh',maxHeight:'100dvh',margin:0,borderRadius:0},
           '@media (orientation: landscape) and (max-width: 768px)':{height:'100dvh'},
         },
       },
