@@ -247,7 +247,7 @@ jobs:
           test "$(psql "$DB_URL" -X -A -t -v ON_ERROR_STOP=1 -c "
             select count(*) from supabase_migrations.schema_migrations
             where version = '202607210000';")" = "1"
-          supabase db push --db-url "$DB_URL"
+          supabase db push --db-url "$DB_URL" --include-all
 
       - name: Notify Telegram (optional)
         if: always()
