@@ -869,3 +869,22 @@ flowchart LR
 - **Failure/Retry:** marker ต้องไม่มี SQL ที่รันได้; ถ้า replay หรือ dry-run แสดงรายการเกินที่คาดให้หยุดและตรวจใหม่ ไม่ apply บางส่วน
 - **Audit/Owner:** SYS-CICD-001, Platform; contract test ล็อก 16 aligned, 9 marker, 5 correction และ version uniqueness
 - **Impact/Migration/Rollback:** เปลี่ยนเฉพาะไฟล์ source history ยังไม่แตะ Production; rollback ด้วย revert commit ก่อน merge
+
+### Mobile Touch Target Completion v1.6 (6/9/2569)
+
+```mermaid
+flowchart LR
+  V[Viewport 320-768px<br/>or coarse pointer] --> T[Shared responsive theme]
+  T --> A[Buttons / Icon buttons / Inputs]
+  T --> C[Clickable Chips / Tabs]
+  T --> D[Full-screen Dialog / Drawer]
+  A --> U[Same actions and permissions as Desktop]
+  C --> U
+  D --> U
+  U --> Q[Authenticated route and Production smoke]
+```
+
+- **Input/Output/State:** viewport width and pointer capability select layout-only theme rules; application form, loading, success, error and retry states remain unchanged.
+- **Roles/Permissions/Integration:** every role keeps the same permission-filtered actions and company/project scope as Desktop; no query, RPC, storage or route contract changes.
+- **Failure/Retry/Audit:** interactive targets remain at least 44px through 768px and on coarse pointers; business mutation retry and Audit continue through each module's existing flow.
+- **Owner/Migration/Verification/Rollback:** Design System / Platform; no migration; verify responsive contract, typecheck, lint, build, 320/768/desktop viewports and authenticated Production pages; rollback by reverting the shared theme/test/docs commit.
