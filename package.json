@@ -176,6 +176,7 @@
     "test:payroll-forecast": "node --experimental-strip-types scripts/realtime-payroll-forecast.test.ts",
     "test:platform-control-center": "node --experimental-strip-types scripts/platform-control-center.test.ts",
     "test:document-pipeline": "node --experimental-strip-types scripts/document-pipeline.test.ts",
+    "test:document-security": "node --experimental-strip-types scripts/document-security.test.ts",
     "test:image-quality-policy": "node --experimental-strip-types scripts/image-quality-policy.test.ts",
     "test:pdf-storage-strategy": "node --experimental-strip-types scripts/pdf-storage-strategy.test.ts",
     "test:storage-retention": "node --experimental-strip-types scripts/storage-retention-worker.test.ts",

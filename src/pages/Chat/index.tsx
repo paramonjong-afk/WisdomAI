@@ -70,6 +70,7 @@ import {
   type OperationalTaskCard,
 } from '../../services/webChatOperationalCore'
 import { useNavigate } from 'react-router-dom'
+import { inspectDocumentSecurity } from '../../../supabase/functions/_shared/document-security'
 
 type RoomMemberRole = 'owner' | 'member'
 
@@ -2181,6 +2182,12 @@ export function ChatPage() {
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
+    const security = inspectDocumentSecurity(new Uint8Array(await file.arrayBuffer()), contentType)
+    if (!security.accepted) {
+      setToast(`ไฟล์ไม่ผ่านด่านความปลอดภัย (${security.reason}) กรุณาเลือกไฟล์ใหม่`)
+      clearPendingAttachment()
+      return
+    }
     updatePendingAttachment(file)
     setPendingAttachmentStatus('uploading')
     setBusy(true)
@@ -2247,54 +2254,21 @@ export function ChatPage() {
     selectRoom(selectedRoom.id)
     setToast('กำลังส่งไฟล์…')
     const sanitized = file.name.replace(/[^a-zA-Z0-9._-]+/g, '-')
-    const objectPath = `${currentCompany.company_id}/${selectedRoom.id}/${Date.now()}-${createChatAttachmentId()}-${sanitized}`
-    // Some mobile browsers report a generic or stale MIME on File objects.
-    // Re-wrap the body so Storage receives the same content type used by the
-    // bucket allow-list while retaining the original bytes and filename.
-    const uploadBody = file.type.trim().toLowerCase() === contentType || typeof File === 'undefined'
-      ? file
-      : new File([file], sanitized || 'attachment', { type: contentType, lastModified: file.lastModified })
-
+    let uploadedAttachmentPath = ''
     try {
-      const upload = () => supabase.storage.from('chat-attachments').upload(objectPath, uploadBody, {
-        cacheControl: '3600',
-        upsert: false,
-        contentType,
-      })
-      let { error: uploadError } = await upload()
-      if (uploadError && /401|jwt|token|session|expired|row-level|permission|unauthorized/i.test(uploadError.message)) {
-        const { data: refreshedSession, error: uploadRefreshError } = await supabase.auth.refreshSession()
-        if (uploadRefreshError || !refreshedSession.session?.access_token) {
-          setToast('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ก่อนแนบไฟล์')
-          updatePendingAttachment(file)
-          setPendingAttachmentStatus('failed')
-          setBusy(false)
-          return
-        }
-        ({ error: uploadError } = await upload())
-      }
-      if (uploadError) {
-        void logAppEvent(activeProfileId, {
-          eventType: 'client_error',
-          severity: 'error',
-          pagePath: '/chat',
-          message: 'chat_attachment_upload_failed',
-          metadata: {
-            room_id: selectedRoom.id,
-            content_type: contentType,
-          },
-        }).catch(() => undefined)
-        const lowerMessage = uploadError.message.toLowerCase()
-        const message = lowerMessage.includes('mime') || lowerMessage.includes('content type')
-          ? 'รูปแบบรูปนี้ยังไม่รองรับบน Storage กรุณาลอง JPG/PNG หรืออัปเดตแอปก่อน'
-          : lowerMessage.includes('401') || lowerMessage.includes('jwt') || lowerMessage.includes('token')
-            || lowerMessage.includes('session') || lowerMessage.includes('expired')
-            ? 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ก่อนแนบไฟล์'
-            : lowerMessage.includes('403') || lowerMessage.includes('42501') || lowerMessage.includes('row-level')
-              || lowerMessage.includes('permission') || lowerMessage.includes('unauthorized') || lowerMessage.includes('forbidden')
+      const form = new FormData()
+      form.append('company_id', currentCompany.company_id)
+      form.append('room_id', selectedRoom.id)
+      form.append('file', file, file.name)
+      const { data: uploadData, error: uploadError } = await supabase.functions.invoke('chat-attachment-upload', { body: form })
+      const trustedError = uploadData?.error ?? uploadError?.message?.toLowerCase() ?? ''
+      if (uploadError || uploadData?.error) {
+        const message = trustedError.includes('security_rejected') || trustedError.includes('mime')
+          ? 'ไฟล์ไม่ผ่านการตรวจความปลอดภัย กรุณาเลือกรูปหรือ PDF ที่ถูกต้อง'
+          : trustedError.includes('membership') || trustedError.includes('403')
             ? 'คุณไม่มีสิทธิ์แนบไฟล์ในห้องนี้ กรุณาตรวจว่ายังเป็นสมาชิกห้องอยู่'
-            : lowerMessage.includes('invalid input syntax for type uuid') || lowerMessage.includes('invalid uuid')
-              ? 'ข้อมูลห้องไม่ถูกต้อง กรุณารีเฟรชหน้าแล้วเลือกห้องใหม่'
+            : trustedError.includes('401') || trustedError.includes('jwt') || trustedError.includes('session')
+              ? 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่ก่อนแนบไฟล์'
               : userError(uploadError, 'อัปโหลดไฟล์ไม่สำเร็จ กรุณาตรวจอินเทอร์เน็ตแล้วลองใหม่')
         setToast(message)
         updatePendingAttachment(file)
@@ -2302,6 +2276,7 @@ export function ChatPage() {
         setBusy(false)
         return
       }
+      uploadedAttachmentPath = uploadData?.message?.attachment_path ?? ''
     } catch (error) {
       setToast(userError(error))
       updatePendingAttachment(file)
@@ -2317,22 +2292,7 @@ export function ChatPage() {
         actorProfileId: activeProfileId,
         companyId: currentCompany?.company_id ?? null,
         request: { room_id: selectedRoom.id, file_name: sanitized, file_size: file.size || 0 },
-        operation: async () => {
-          const { error: messageError } = await supabase.from('chat_messages').insert({
-            company_id: currentCompany.company_id,
-            room_id: selectedRoom.id,
-            sender_profile_id: activeProfileId,
-            message_type: 'file',
-            text_content: null,
-            attachment_bucket: 'chat-attachments',
-            attachment_path: objectPath,
-            attachment_name: sanitized,
-            attachment_content_type: contentType,
-            attachment_size: file.size || 0,
-          })
-          if (messageError) throw messageError
-          return { data: objectPath }
-        },
+        operation: async () => ({ data: uploadedAttachmentPath || true }),
       })
       setBusy(false)
       setMessageText('')
@@ -2351,7 +2311,6 @@ export function ChatPage() {
       setToast('ส่งไฟล์เรียบร้อยแล้ว', true)
       if (fileInputRef.current) fileInputRef.current.value = ''
     } catch (error) {
-      await supabase.storage.from('chat-attachments').remove([objectPath])
       setToast(userError(error))
       setPendingAttachmentStatus('failed')
       setBusy(false)
