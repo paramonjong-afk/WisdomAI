@@ -4,7 +4,6 @@ import { calculateEmployeeMoneyBalance, calculatePayrollOffsetPreview, normalize
 
 assert.equal(normalizeEmployeePaymentName('นาย พัฒนรัตน์ กันดี'), normalizeEmployeePaymentName('พัฒนรัตน์  กันดี'))
 assert.equal(normalizeEmployeePaymentName('ช่าง ภูธเรศ ภาวจันถึก'), 'ภูธเรศภาวจันถึก')
-assert.equal(normalizeEmployeePaymentName('น.ส. วรนุช มูลเหลา'), normalizeEmployeePaymentName('วรนุช มูลเหลา'))
 assert.notEqual(normalizeEmployeePaymentName('นาย ภูธเรศ ภาวจันทึก'), normalizeEmployeePaymentName('นาย ภูธเรศ ภาวจันถึก'))
 
 const balance = calculateEmployeeMoneyBalance([
@@ -44,11 +43,6 @@ assert.deepEqual(calculatePayrollOffsetPreview({
 })
 
 const migration = readFileSync('supabase/migrations/20260826231000_employee_money_ledger.sql', 'utf8')
-const backfill = readFileSync('supabase/migrations/20260826231500_employee_money_legacy_backfill.sql', 'utf8')
-const dailyAdvanceReconcile = readFileSync('supabase/migrations/20260826235253_reconcile_daily_employee_advance_routing.sql', 'utf8')
-const dailyAdvanceDestinationFix = readFileSync('supabase/migrations/20260826235415_fix_daily_employee_advance_destination.sql', 'utf8')
-const projectionScope = readFileSync('supabase/migrations/20260827004227_reconcile_employee_money_projection_scope.sql', 'utf8')
-const projectionContractFix = readFileSync('supabase/migrations/20260827004553_fix_projection_reversal_contract.sql', 'utf8')
 for (const marker of [
   'employee_money_ledger_entries',
   'employee_money_ledger_audit',
@@ -64,23 +58,10 @@ for (const marker of [
 ]) assert.match(migration, new RegExp(marker), `migration should contain ${marker}`)
 assert.doesNotMatch(migration, /delete\s+from\s+public\.employee_money_ledger_entries/i)
 assert.match(migration, /revoke\s+insert\s*,\s*update\s*,\s*delete[\s\S]+employee_money_ledger_entries/i)
-assert.match(backfill, /employee_money_legacy_candidates/i)
-assert.match(backfill, /expense_type = 'advance'/i)
-assert.match(backfill, /expense_type = 'labor' and review_status = 'confirmed'/i)
-assert.match(backfill, /project_employee_money_source/i)
-assert.doesNotMatch(backfill, /employee_payrolls|employee_payroll_lines|delete\s+from/i)
-assert.match(dailyAdvanceReconcile, /payroll_eligible_until/)
-assert.match(dailyAdvanceReconcile, /employee_money_review_queue/)
-assert.match(dailyAdvanceReconcile, /target_decision => target_decision/)
-assert.doesNotMatch(dailyAdvanceReconcile, /for source_row in|with confirmed_sources as/)
-assert.doesNotMatch(dailyAdvanceReconcile, /delete\s+from/i)
-assert.match(dailyAdvanceDestinationFix, /next_destination = ''advance_finance''/)
-assert.match(projectionScope, /after insert on public\.employee_money_ledger_entries/i)
-assert.match(projectionScope, /financial_transaction_id=new\.financial_transaction_id/i)
-assert.match(projectionScope, /allocation_id is null/i)
-assert.match(projectionContractFix, /entry_status='reversed'/i)
-assert.match(projectionContractFix, /replaced_by_entry_id/i)
-assert.match(projectionContractFix, /employee_money_ledger_audit/i)
-assert.doesNotMatch(projectionContractFix, /delete\s+from/i)
+assert.match(migration, /allocation:'\s*\|\|\s*target_allocation_id[\s\S]+:v/)
+assert.match(migration, /ignored_already_projected/)
+assert.match(migration, /allocation_version_replaced/)
+assert.match(migration, /entry\.financial_transaction_id\s*=\s*transaction\.id/)
+assert.match(migration, /event_key\s*=\s*target_event_key[\s\S]+version_conflict/)
 
 console.log('employee money ledger contract and math: PASS')
