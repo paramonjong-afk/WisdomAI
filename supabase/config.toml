@@ -28,5 +28,7 @@ verify_jwt = false
 [functions.image-storage-optimizer]
 verify_jwt = false
 
+[functions.storage-consistency-worker]
+
 [functions.chat-attachment-upload]
 verify_jwt = false
