@@ -741,3 +741,5 @@
 - ปลายทาง: เพิ่มรายการจาก `storage_integrity_issues` เข้า `/system-health` > Incident และ Error พร้อมเลขอ้างอิง, owner, fingerprint และวันเวลาพบ
 - Verification: storage scan contract, UI contract, targeted ESLint, typecheck และ build ผ่าน; Local browser เปิด route ได้ แต่ไม่มี authenticated session ของ origin Local จึงไม่อ้างว่า UAT สิทธิ์ผ่าน
 - Recovery/Rollback: revert UI commit ได้โดยข้อมูล scan/issue ยังอยู่; ปิดสิทธิ์ RPC หากต้องหยุด scan และให้ Storage/Platform ตรวจ 370 รายการก่อน repair ใด ๆ
+
+> UI-MOBILE-TOUCH-20260906 done (6/9/2569): PR #36 / 5ca4845 deployed. Tests, lint and build passed. Authenticated smoke at 319/768px passed: 44px touch targets, no overflow, full-screen mobile drawer. No migration/data/scope change. Rollback: revert PR #36.
