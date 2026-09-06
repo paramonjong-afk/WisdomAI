@@ -2,7 +2,11 @@
 
 ```mermaid
 flowchart TD
-  A[LINE Intake] --> C[Omni Intake Source Registry]
+  A[LINE Intake] --> B{Document or media?}
+  B -->|image/file| S[Security gate: signature, MIME, size, PDF active content]
+  S -->|rejected| R[security_rejected audit\nOmni source dismissed\nfilter tasks cancelled]
+  S -->|accepted| C[Omni Intake Source Registry]
+  B -->|audio/video/text| C
   B[Web Chat Intake] --> C
   C --> D[Conversation Analyzer: type / intent / summary / confidence]
   D --> E{ซ้ำกับอีกช่องทางหรือไม่}
@@ -20,7 +24,7 @@ flowchart TD
 
 ## วัตถุประสงค์
 
-ทำให้ LINE และ Web Chat เป็นได้ทั้งขาเข้าและขาออก โดยใช้ config กลางตัดสินเส้นทาง ไม่ให้ระบบผูกตายกับ LINE และลดปัญหา LINE เต็ม 3,000 ด้วยการย้ายงานภายในไป Web Chat/Queue เป็นหลัก
+ทำให้ LINE และ Web Chat เป็นได้ทั้งขาเข้าและขาออก โดยใช้ config กลางตัดสินเส้นทาง ไม่ให้ระบบผูกตายกับ LINE และลดปัญหา LINE เต็ม 3,000 ด้วยการย้ายงานภายในไป Web Chat/Queue เป็นหลัก ไฟล์ภาพและเอกสารผ่านด่านความปลอดภัยก่อนเข้าสู่ Omni source/queue ส่วนเสียงและวิดีโอใช้ flow เดิม
 
 ## Inputs
 
@@ -33,6 +37,7 @@ flowchart TD
 - `omni_intake_sources`: ทะเบียนกลางของข้อความ/ไฟล์ทุกช่องทาง พร้อม summary, type, intent, confidence และ dedupe status
 - `omni_filter_tasks`: งานให้ Filter ตรวจซ้ำ/ยืนยันปลายทาง
 - `omni_channel_routes`: config ว่าช่องทางไหนรับเข้า/ส่งออกไป Web Chat, LINE, queue-only หรือไม่ส่ง
+- ด่านเอกสาร: ตรวจ magic bytes/MIME/ขนาด และ PDF active content ก่อน hash, Storage, OCR หรือ Omni queue; ไฟล์ไม่ผ่านบันทึก `security_rejected`, dismiss source และยกเลิก filter task
 - `omni_outtake_delivery_events`: ledger สำหรับ outtake ในระยะถัดไป
 
 ## States
@@ -52,6 +57,7 @@ flowchart TD
 ## Integrations
 
 - LINE → trigger `omni_register_line_message_trigger`
+- LINE document rejection → `omni_intake_sources.filter_status=dismissed`, `outtake_status=suppressed`, `omni_filter_tasks.task_status=cancelled`
 - Web Chat → trigger `omni_register_chat_message_trigger`
 - Analyzer → `omni_analyze_conversation`
 - Dedupe + queue → `omni_register_source`
@@ -86,6 +92,7 @@ flowchart TD
 - Migration: `202608220002_omni_channel_intake_outtake.sql`
 - Verification: migration contract test, Supabase schema/trigger verification, lint, build และตรวจ Flow Registry
 - Rollback: drop trigger/table ชุด `omni_*`; ไม่ลบ LINE/Web Chat/Document Flow เดิม และไม่กระทบ HR Chat event stream
+- Security gate rollback: revert gate code; ไม่ลบข้อความ, source หรือ audit ที่บันทึกไว้
 
 ### v1.1 — 22/8/2569
 

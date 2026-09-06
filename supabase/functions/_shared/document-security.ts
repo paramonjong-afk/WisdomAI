@@ -7,6 +7,7 @@ export type DocumentSecurityDecision = {
 const MAX_IMAGE_BYTES = 50 * 1024 * 1024
 const MAX_PDF_BYTES = 100 * 1024 * 1024
 const text = (bytes: Uint8Array) => new TextDecoder('latin1').decode(bytes)
+const normalizedPdfText = (bytes: Uint8Array) => text(bytes).replace(/#([0-9a-f]{2})/gi, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
 
 function detectedType(bytes: Uint8Array) {
   const header = text(bytes.subarray(0, 32))
@@ -36,7 +37,7 @@ export function inspectDocumentSecurity(bytes: Uint8Array, declaredMime: string 
   if (bytes.byteLength > (type === 'pdf' ? MAX_PDF_BYTES : MAX_IMAGE_BYTES)) {
     return { accepted: false, reason: 'FILE_TOO_LARGE', detectedType: type }
   }
-  if (type === 'pdf' && /\/Encrypt\b|\/(?:JavaScript|JS|EmbeddedFile|Launch|RichMedia)\b/i.test(text(bytes))) {
+  if (type === 'pdf' && /\/Encrypt\b|\/(?:JavaScript|JS|EmbeddedFile|Launch|RichMedia)\b/i.test(normalizedPdfText(bytes))) {
     return { accepted: false, reason: 'PDF_ACTIVE_CONTENT_OR_ENCRYPTION', detectedType: type }
   }
   return { accepted: true, reason: null, detectedType: type }
