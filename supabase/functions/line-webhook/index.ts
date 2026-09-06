@@ -2,6 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 import { ImageMagick, initializeImageMagick, MagickFormat } from 'npm:@imagemagick/magick-wasm@^0'
 import { sendLinePush, type LinePriority } from '../_shared/line-quota.ts'
 import { describeLineWebhookEvent, safeWebhookEventList } from '../_shared/line-webhook-intake.ts'
+import { inspectDocumentSecurity } from '../_shared/document-security.ts'
 import { lineEmployeeIntakeBundleKey } from '../_shared/line-employee-intake.ts'
 import { parseLineAttendanceCommand } from './attendance-command.ts'
 
@@ -1982,6 +1983,16 @@ async function processMessage(event: LineEvent, companyId: string): Promise<'pro
     if (!response.ok) throw new Error(`LINE content download failed: ${response.status}`)
     const bytes = await response.arrayBuffer()
     const contentType = response.headers.get('content-type') ?? 'application/octet-stream'
+    const security = inspectDocumentSecurity(new Uint8Array(bytes), contentType)
+    if (!security.accepted) {
+      await updateIngestion(event.webhookEventId, {
+        attachment_status: 'failed',
+        processing_stage: 'security_rejected',
+        error_message: security.reason,
+      })
+      await replyLine(event.replyToken, [{ type: 'text', text: `ไฟล์นี้ไม่ผ่านด่านความปลอดภัย (${security.reason}) กรุณาตรวจไฟล์แล้วส่งใหม่\nรหัสตรวจสอบ: ${event.webhookEventId.slice(-8)}` }])
+      return 'processed'
+    }
     const contentHash = await sha256Hex(bytes)
     const { data: duplicateCandidates, error: duplicateAttachmentError } = await supabase
       .from('line_attachments')

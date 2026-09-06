@@ -6,6 +6,25 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-06 — Intake Security Gate v1.1
+
+```mermaid
+flowchart LR
+  A[LINE file download] --> B[Signature and MIME check]
+  B --> C{Safe and within size limit?}
+  C -->|No| D[security_rejected + audit reason]
+  C -->|Yes| E[Hash and dedupe]
+  E --> F[Optimize / OCR / route]
+```
+
+- **เหตุผล:** กันไฟล์ปลอม ไฟล์ใหญ่เกินกำหนด และ PDF ที่มี encryption/active content ก่อนเข้าสู่การประมวลผล
+- **ผลกระทบ:** `supabase/functions/_shared/document-security.ts` และ LINE webhook; ไฟล์ไม่ผ่านหยุดก่อน hash/optimizer/Storage และบันทึก `security_rejected` พร้อมเหตุผล
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** `test:document-security`, typecheck และ targeted ESLint ผ่าน; ช่องทาง Telegram/Web/API และ authenticated Production UAT ยังต้องผ่าน PR แยก
+- **สิทธิ์/เจ้าของ:** ใช้สิทธิ์ Intake เดิม; Platform/Security เป็นเจ้าของ policy และ Audit
+- **Failure/Retry:** ไม่ retry ไฟล์ที่ signature/MIME ไม่ตรงหรือมี active content; ผู้ส่งต้องแก้ไฟล์และส่งใหม่โดยใช้ webhook event ใหม่
+- **Rollback:** revert PR ของ gate โดยไม่ลบ object หรือข้อมูลย้อนหลัง
+
 ## 2026-09-06 - Advance Holders invalid activity-date presentation guard
 
 ```mermaid
