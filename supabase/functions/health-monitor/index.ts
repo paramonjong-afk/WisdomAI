@@ -196,14 +196,16 @@ Deno.serve(async (request) => {
     const blockedHours = 2
     const rateLimitMinutes = 60
     const cutoffIso = new Date(Date.now() - blockedHours * 3_600_000).toISOString()
-    const selectCols = 'work_key,title,category,risk,detail,production_status,attempt_count,blocked_since,company_id'
-    const [{ data: byAttempts, error: attemptsError }, { data: byDuration, error: durationError }] = await Promise.all([
+    const selectCols = 'work_key,title,category,risk,detail,status,production_status,approval_status,attempt_count,blocked_since,updated_at,company_id'
+    const [{ data: byAttempts, error: attemptsError }, { data: byDuration, error: durationError }, { data: byApproval, error: approvalError }] = await Promise.all([
       admin.from('system_work_items').select(selectCols).eq('status', 'blocked').gte('attempt_count', maxAttempts),
       admin.from('system_work_items').select(selectCols).eq('status', 'blocked').lt('blocked_since', cutoffIso),
+      admin.from('system_work_items').select(selectCols).eq('status', 'review').eq('approval_status', 'pending')
+        .ilike('production_status', '%awaiting_approval%').lt('updated_at', cutoffIso),
     ])
-    if (attemptsError || durationError) return json({ error: (attemptsError ?? durationError)?.message }, 500)
+    if (attemptsError || durationError || approvalError) return json({ error: (attemptsError ?? durationError ?? approvalError)?.message }, 500)
     const seen = new Set<string>()
-    const escalations = [...(byAttempts ?? []), ...(byDuration ?? [])].filter(item => {
+    const escalations = [...(byAttempts ?? []), ...(byDuration ?? []), ...(byApproval ?? [])].filter(item => {
       if (seen.has(item.work_key)) return false
       seen.add(item.work_key)
       return true
@@ -218,11 +220,15 @@ Deno.serve(async (request) => {
         .eq('notification_type', 'work_escalation_alert').like('destination', 'telegram:%')
         .gte('created_at', since(rateLimitMinutes)).ilike('message', `%${item.work_key}%`).limit(1).maybeSingle()
       if (recent) { skipped += 1; continue }
-      const capped = item.attempt_count >= maxAttempts
-      const reason = capped
+      const awaitingApproval = item.status === 'review' && item.approval_status === 'pending'
+      const capped = !awaitingApproval && item.attempt_count >= maxAttempts
+      const reason = awaitingApproval
+        ? `รออนุมัตินานเกิน ${blockedHours} ชม.`
+        : capped
         ? `ลองซ้ำครบ ${item.attempt_count} ครั้งแล้วยังไม่ผ่าน (เกินขีดจำกัด ${maxAttempts} ครั้ง)`
         : `ค้างสถานะ "ติดปัญหา" นานเกิน ${blockedHours} ชม.`
-      const blockedForHours = item.blocked_since ? Math.round((Date.now() - new Date(item.blocked_since).getTime()) / 3_600_000) : null
+      const ageSince = item.blocked_since ?? (awaitingApproval ? item.updated_at : null)
+      const blockedForHours = ageSince ? Math.round((Date.now() - new Date(ageSince).getTime()) / 3_600_000) : null
       const text = [
         `🆘 <b>งานค้าง ต้องการคนตัดสินใจ: ${escapeHtml(item.work_key)}</b>`,
         escapeHtml(item.title),
@@ -232,11 +238,17 @@ Deno.serve(async (request) => {
         `Production: ${escapeHtml(item.production_status)}`,
         escapeHtml(item.detail || '-'),
         '',
-        capped
+        awaitingApproval
+          ? 'กรุณาตรวจสอบและกด อนุมัติ หรือ ไม่อนุมัติ'
+          : capped
           ? 'ระบบ Auto จะไม่ลองงานนี้ซ้ำอีกจนกว่าจะมีคนแก้ต้นเหตุแล้วสั่ง reset_system_work_item_retry'
           : 'กรุณาตรวจสอบและตัดสินใจว่าจะแก้ไข หรือรีเซ็ตให้ลองใหม่',
       ].filter(Boolean).join('\n')
-      const delivery = await recordAdminNotification('work_escalation_alert', null, text, item.company_id ?? null)
+      const replyMarkup = awaitingApproval ? { inline_keyboard: [[
+        { text: '✅ อนุมัติ', callback_data: `work:approve:${item.work_key}` },
+        { text: '⛔ ไม่อนุมัติ', callback_data: `work:reject:${item.work_key}` },
+      ]] } : undefined
+      const delivery = await recordAdminNotification('work_escalation_alert', null, text, item.company_id ?? null, replyMarkup)
       sent += delivery.sent
       failed += delivery.failed
     }
@@ -450,13 +462,19 @@ Deno.serve(async (request) => {
         }
       }),
       check('line_pipeline', 'รับและวิเคราะห์ LINE', 'LINE', async () => {
+        const { data: recovered, error: recoveryError } = await admin.rpc('recover_stale_line_ingestion_events', {
+          target_age_minutes: 15,
+          target_limit: 500,
+          target_company_id: actorCompanyId,
+        })
+        if (recoveryError) throw recoveryError
         let failedQuery=admin.from('line_ingestion_events').select('webhook_event_id', { count: 'exact', head: true }).eq('processing_status','failed').gte('received_at',since(15))
         let stalledQuery=admin.from('line_ingestion_events').select('webhook_event_id', { count: 'exact', head: true }).in('processing_status',['received','processing']).lt('received_at',since(15))
         if(actorCompanyId){failedQuery=failedQuery.eq('company_id',actorCompanyId);stalledQuery=stalledQuery.eq('company_id',actorCompanyId)}
         const [{ count: failed, error }, { count: stalled, error: stalledError }] = await Promise.all([failedQuery, stalledQuery])
         if (error || stalledError) throw error ?? stalledError
         const status: Status = (stalled ?? 0) >= 10 ? 'critical' : (failed ?? 0) || (stalled ?? 0) ? 'warning' : 'healthy'
-        return { status, message: failed || stalled ? `คิวล้มเหลว ${failed ?? 0} · เกิน SLA 15 นาที ${stalled ?? 0}` : 'ไม่พบคิวเกิน SLA', metadata: { failed_15m: failed ?? 0, stalled_over_15m: stalled ?? 0, queue_sla_minutes: 15 } }
+        return { status, message: failed || stalled ? `คิวล้มเหลว ${failed ?? 0} · เกิน SLA 15 นาที ${stalled ?? 0}` : 'ไม่พบคิวเกิน SLA', metadata: { failed_15m: failed ?? 0, stalled_over_15m: stalled ?? 0, recovered_stale_events: recovered ?? 0, queue_sla_minutes: 15 } }
       }),
       check('client_performance', 'ประสิทธิภาพ API และหน้าเว็บ', 'Web/API', async () => {
         let query=admin.from('app_activity_logs').select('event_type,severity,metadata,created_at').gte('created_at',since(15)).order('created_at',{ascending:false}).limit(200)
