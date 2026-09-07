@@ -23,6 +23,27 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-07 - FILTER-001 canonical Filter Flow orchestrator v1.0
+
+```mermaid
+flowchart LR
+  A[Intake source + preview] --> B[Filter ledger state]
+  B --> C{Validation gates}
+  C -->|correction| D[Human Review]
+  C -->|pass| E[Accounting queue]
+  E --> F[Approval gate]
+  F -->|approved| G[Posting gateway]
+  B --> H[Versioned event + append-only audit]
+```
+
+- **Scope:** Canonical Filter state/transition contract on existing `document_flow_items`, `document_flow_events`, Intake ID, source preview and Accounting approval boundaries; no migration, posting, or business-data mutation.
+- **States:** `received_from_intake`, `validating`, `needs_correction`, `ready_for_accounting`, `awaiting_approval`, `posting`, `posted`, `rejected`, `failed`, and `dead_letter`, mapped to existing ledger states without changing the database enum.
+- **Permissions:** company-scoped authenticated read; manager/admin transition RPC; raw/OCR/source and prior Audit remain immutable; cross-tenant access fails closed.
+- **Idempotency/retry:** expected version plus event key; duplicate event returns the prior result; retry/dead-letter preserve the original Intake/source and audit history.
+- **Dependencies:** FILTER-002 rule pack, FILTER-003 confidence/reconciliation, FILTER-004 duplicate matching, FILTER-006 correction room, FILTER-007 approval UX, FILTER-008 Posting gateway, and existing Intake/Accounting Flow documents.
+- **Verification/rollback:** contract fixtures, transition/version/permission/idempotency/retry tests, typecheck, lint, build, PR migration gates and authenticated queue/audit smoke; rollback is a source/PR revert with no data rollback.
+- **Owner:** Filter Flow / Platform; Accounting and Posting remain owners of their approval and transaction gates.
+
 ## 2026-09-07 — System Data Access Phase 1
 
 ```mermaid
