@@ -23,6 +23,27 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-06 — Intake Security Gate v1.3
+
+```mermaid
+flowchart LR
+  A[LINE / Telegram file] --> B[Signature and MIME check]
+  W[Web Chat multipart upload] --> T[Trusted chat-attachment-upload]
+  T --> B
+  B --> C{Safe and within size limit?}
+  C -->|No| D[security_rejected + audit reason + queue suppression]
+  C -->|Yes| E[Hash and dedupe]
+  E --> F[Optimize / OCR / route]
+```
+
+- **เหตุผล:** กันไฟล์ปลอม ไฟล์ใหญ่เกินกำหนด และ PDF ที่มี encryption/active content ก่อนเข้าสู่การประมวลผล
+- **ผลกระทบ:** `supabase/functions/_shared/document-security.ts`, LINE/Telegram webhook, `chat-attachment-upload`, Web Chat และ Omni trigger; ไฟล์ไม่ผ่านหยุดก่อน downstream queue และ Web Chat client เขียน file message/Storage ตรงไม่ได้
+- **Migration:** `202609060002_trusted_chat_attachment_upload.sql`
+- **การตรวจสอบ:** `test:document-security`, multichannel/Web Chat contract, typecheck, lint, build, migration verification และ authenticated Production UAT หน้า Document Flow Center revision `708fc24` ผ่าน; rejected-file mutation UAT ไม่ทำใน Production
+- **สิทธิ์/เจ้าของ:** ใช้สิทธิ์ Intake เดิม; Platform/Security เป็นเจ้าของ policy และ Audit
+- **Failure/Retry:** ไม่ retry ไฟล์ที่ signature/MIME ไม่ตรงหรือมี active content; ผู้ส่งต้องแก้ไฟล์และส่งใหม่โดยใช้ webhook event ใหม่
+- **Rollback:** revert PR ของ gate โดยไม่ลบ object หรือข้อมูลย้อนหลัง
+
 ## 2026-09-06 - Advance Holders invalid activity-date presentation guard
 
 ```mermaid

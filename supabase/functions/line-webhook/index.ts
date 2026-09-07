@@ -2,6 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 import { ImageMagick, initializeImageMagick, MagickFormat } from 'npm:@imagemagick/magick-wasm@^0'
 import { sendLinePush, type LinePriority } from '../_shared/line-quota.ts'
 import { describeLineWebhookEvent, safeWebhookEventList } from '../_shared/line-webhook-intake.ts'
+import { inspectDocumentSecurity } from '../_shared/document-security.ts'
 import { lineEmployeeIntakeBundleKey } from '../_shared/line-employee-intake.ts'
 import { parseLineAttendanceCommand } from './attendance-command.ts'
 
@@ -27,6 +28,34 @@ type IngestionUpdate = {
   output_id?: string | null
   error_message?: string | null
   processed_at?: string | null
+}
+
+async function suppressRejectedOmniSource(messageId: string, reason: string) {
+  const { data: sources, error: sourceError } = await supabase
+    .from('omni_intake_sources')
+    .select('id, analysis_payload')
+    .eq('line_message_id', messageId)
+  if (sourceError) throw sourceError
+  const sourceIds = (sources ?? []).map((source) => source.id)
+  if (sourceIds.length === 0) return
+  const { error: sourceUpdateError } = await supabase
+    .from('omni_intake_sources')
+    .update({
+      filter_status: 'dismissed',
+      outtake_status: 'suppressed',
+      analysis_payload: {
+        ...((sources?.[0]?.analysis_payload ?? {}) as Record<string, unknown>),
+        security: { status: 'rejected', reason },
+      },
+    })
+    .in('id', sourceIds)
+  if (sourceUpdateError) throw sourceUpdateError
+  const { error: taskUpdateError } = await supabase
+    .from('omni_filter_tasks')
+    .update({ task_status: 'cancelled' })
+    .in('source_id', sourceIds)
+    .eq('task_status', 'queued')
+  if (taskUpdateError) throw taskUpdateError
 }
 
 type WebhookIntakeStatus = 'signature_rejected'|'payload_rejected'|'verified_empty'|'received'|'tenant_resolved'|'quarantined'|'processed'|'skipped'|'failed'
@@ -1846,7 +1875,7 @@ async function handleAttendancePostback(event: LineEvent) {
   return true
 }
 
-async function processMessage(event: LineEvent, companyId: string): Promise<'processed' | 'skipped_duplicate' | 'handled_error'> {
+async function processMessage(event: LineEvent, companyId: string): Promise<'processed' | 'skipped_duplicate' | 'handled_error' | 'security_rejected'> {
   const message = event.message!
   const groupId = event.source.groupId ?? event.source.roomId ?? null
   const userId = event.source.userId ?? null
@@ -1982,6 +2011,20 @@ async function processMessage(event: LineEvent, companyId: string): Promise<'pro
     if (!response.ok) throw new Error(`LINE content download failed: ${response.status}`)
     const bytes = await response.arrayBuffer()
     const contentType = response.headers.get('content-type') ?? 'application/octet-stream'
+    const isDocumentAttachment = message.type === 'image' || message.type === 'file'
+    if (isDocumentAttachment) {
+      const security = inspectDocumentSecurity(new Uint8Array(bytes), contentType)
+      if (!security.accepted) {
+        await suppressRejectedOmniSource(saved.id, security.reason ?? 'DOCUMENT_SECURITY_REJECTED')
+        await updateIngestion(event.webhookEventId, {
+          attachment_status: 'failed',
+          processing_stage: 'security_rejected',
+          error_message: security.reason,
+        })
+        await replyLine(event.replyToken, [{ type: 'text', text: `ไฟล์นี้ไม่ผ่านด่านความปลอดภัย (${security.reason}) กรุณาตรวจไฟล์แล้วส่งใหม่\nรหัสตรวจสอบ: ${event.webhookEventId.slice(-8)}` }])
+        return 'security_rejected'
+      }
+    }
     const contentHash = await sha256Hex(bytes)
     const { data: duplicateCandidates, error: duplicateAttachmentError } = await supabase
       .from('line_attachments')
@@ -2477,7 +2520,14 @@ Deno.serve(async (request) => {
               processed_at: new Date().toISOString(),
             })
           }
-          finalIntakeStatus=outcome==='processed'?'processed':outcome==='skipped_duplicate'?'skipped':'failed'
+          if (outcome === 'security_rejected') {
+            await updateIngestion(event.webhookEventId, {
+              processing_status: 'failed',
+              processing_stage: 'security_rejected',
+              processed_at: new Date().toISOString(),
+            })
+          }
+          finalIntakeStatus=outcome==='processed'?'processed':outcome==='skipped_duplicate'?'skipped':outcome==='security_rejected'?'failed':'failed'
         } else if (event.type === 'unsend' && event.unsend) {
           await supabase.from('line_messages')
             .update({ is_unsent: true, text_content: null })
