@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty false",
+    "test:accounting-reader-policy": "node --experimental-strip-types scripts/accounting-document-reader-policy.test.ts",
     "lint": "eslint .",
     "test:workforce": "node --experimental-strip-types scripts/workforce-calculation.test.ts",
     "test:auth-routing": "node --experimental-strip-types scripts/auth-routing.test.ts",
