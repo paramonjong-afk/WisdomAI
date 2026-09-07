@@ -743,3 +743,5 @@
 - Recovery/Rollback: revert UI commit ได้โดยข้อมูล scan/issue ยังอยู่; ปิดสิทธิ์ RPC หากต้องหยุด scan และให้ Storage/Platform ตรวจ 370 รายการก่อน repair ใด ๆ
 
 > UI-MOBILE-TOUCH-20260906 done (6/9/2569): PR #36 / 5ca4845 deployed. Tests, lint and build passed. Authenticated smoke at 319/768px passed: 44px touch targets, no overflow, full-screen mobile drawer. No migration/data/scope change. Rollback: revert PR #36.
+
+> SYS-PERF-002 done (7/9/2569): `/work-command-center` LCP optimization merged in PR #61 / `5047d56`. Initial list now loads only summary fields; full `detail`/`evidence` and the latest 100 timeline events load when a row is opened. Existing realtime, RPC, RLS, audit, and data visibility are preserved. Contract test, typecheck, targeted lint, local build, GitHub migration verification, main typecheck/lint/build, Cloudflare handoff, Production HTTP 200, and `release.json` revision parity passed. No migration or business data mutation. Rollback: revert PR #61; no database recovery required.
