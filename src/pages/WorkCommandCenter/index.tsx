@@ -45,6 +45,7 @@ type Item = {
   created_at: string;
   updated_at: string;
 };
+type WorkItemDetail = Pick<Item, "detail" | "evidence">;
 type Event = {
   id: number;
   event_type: string;
@@ -118,6 +119,7 @@ export function WorkCommandCenterPage() {
   const [rows, setRows] = useState<Item[]>([]),
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState("");
+  const [detailBusy, setDetailBusy] = useState(false);
   const [view, setView] = useState<View>("active"),
     [createOpen, setCreateOpen] = useState(false),
     [selected, setSelected] = useState<Item | null>(null),
@@ -132,7 +134,7 @@ export function WorkCommandCenterPage() {
     const { data, error } = await supabase
       .from("system_work_items")
       .select(
-        "work_key,title,category,status,progress,risk,detail,production_status,owner,evidence,current_step,heartbeat_at,lease_expires_at,created_at,updated_at",
+        "work_key,title,category,status,progress,risk,production_status,owner,current_step,heartbeat_at,lease_expires_at,created_at,updated_at",
       )
       .order("updated_at", { ascending: false });
     if (data) {
@@ -150,11 +152,11 @@ export function WorkCommandCenterPage() {
           );
         return unchanged ? current : next;
       });
-      setSelected((current) =>
-        current
-          ? next.find((item) => item.work_key === current.work_key) ?? null
-          : null,
-      );
+      setSelected((current) => {
+        if (!current) return null;
+        const refreshed = next.find((item) => item.work_key === current.work_key);
+        return refreshed ? { ...current, ...refreshed } : null;
+      });
     }
     if (error) setNotice(userError(error));
     if (!silent) setBusy(false);
@@ -203,16 +205,32 @@ export function WorkCommandCenterPage() {
   const openDetail = async (item: Item) => {
     setSelected(item);
     setEvents([]);
-    const { data, error } = await supabase
-      .from("system_work_item_events")
-      .select(
-        "id,event_type,old_status,new_status,old_progress,new_progress,note,created_at",
-      )
-      .eq("work_key", item.work_key)
-      .order("created_at", { ascending: false })
-      .limit(100);
-    if (data) setEvents(data as Event[]);
+    setDetailBusy(true);
+    const [detailResult, eventsResult] = await Promise.all([
+      supabase
+        .from("system_work_items")
+        .select("detail,evidence")
+        .eq("work_key", item.work_key)
+        .maybeSingle(),
+      supabase
+        .from("system_work_item_events")
+        .select(
+          "id,event_type,old_status,new_status,old_progress,new_progress,note,created_at",
+        )
+        .eq("work_key", item.work_key)
+        .order("created_at", { ascending: false })
+        .limit(100),
+    ]);
+    if (detailResult.data) {
+      const detail = detailResult.data as WorkItemDetail;
+      setSelected((current) =>
+        current?.work_key === item.work_key ? { ...current, ...detail } : current,
+      );
+    }
+    if (eventsResult.data) setEvents(eventsResult.data as Event[]);
+    const error = detailResult.error ?? eventsResult.error;
     if (error) setNotice(userError(error));
+    setDetailBusy(false);
   };
   const create = async () => {
     if (title.trim().length < 3) {
@@ -407,7 +425,7 @@ export function WorkCommandCenterPage() {
         getRowId={(r) => r.work_key}
         onRowClick={(r) => void openDetail(r)}
         getSearchText={(r) =>
-          `${r.work_key} ${r.title} ${r.detail ?? ""} ${r.owner ?? ""} ${r.status}`
+          `${r.work_key} ${r.title} ${r.current_step ?? ""} ${r.owner ?? ""} ${r.status}`
         }
         searchLabel="ค้นหาเลขงาน งาน ผู้รับผิดชอบ หรือสถานะ"
         emptyText={busy ? "กำลังโหลด..." : "ไม่มีงานในสถานะนี้"}
@@ -616,9 +634,18 @@ export function WorkCommandCenterPage() {
             <Box>
               <Typography variant="subtitle2">ขั้นตอนล่าสุด</Typography>
               <Typography>
-                {selected.current_step || selected.detail || "ยังไม่ระบุ"}
+                {selected.current_step || "ยังไม่ระบุ"}
               </Typography>
             </Box>
+            {detailBusy && <LinearProgress aria-label="กำลังโหลดรายละเอียด" />}
+            {selected.detail && (
+              <Box>
+                <Typography variant="subtitle2">รายละเอียดงาน</Typography>
+                <Typography sx={{ whiteSpace: "pre-wrap" }}>
+                  {selected.detail}
+                </Typography>
+              </Box>
+            )}
             <Box>
               <Typography variant="subtitle2">ผู้รับผิดชอบ</Typography>
               <Typography>{selected.owner || "ยังไม่มอบหมาย"}</Typography>

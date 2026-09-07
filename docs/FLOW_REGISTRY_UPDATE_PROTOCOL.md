@@ -23,6 +23,15 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-07 — Work Command Center performance v1.1
+
+- **เหตุผล:** `/work-command-center` มี LCP 5,488 ms เพราะ query รายการส่ง `detail` และ `evidence` ขนาดใหญ่ทุกแถวตั้งแต่เปิดหน้า
+- **ผลกระทบ:** ตารางใช้ lightweight projection; ข้อมูลเต็มและ Timeline ยังโหลดครบเมื่อเปิด Drawer; realtime, RPC, RLS และ Audit เดิมไม่เปลี่ยน
+- **Flow document:** `docs/WORK_COMMAND_CENTER_FLOW.md` (มี Mermaid เป็นส่วนแรก)
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** Work Command Center contract, typecheck, lint, build และ authenticated runtime smoke พร้อมวัด LCP/Network หลัง deploy
+- **Rollback:** revert UI commit; ข้อมูล `system_work_items`, detail/evidence และ event history ไม่ถูกแก้ไข
+
 ## 2026-09-06 — Intake Security Gate v1.3
 
 ```mermaid
@@ -928,6 +937,29 @@ flowchart LR
 - **Failure/Retry/Audit:** interactive targets remain at least 44px through 768px and on coarse pointers; business mutation retry and Audit continue through each module's existing flow.
 - **Owner/Migration/Verification/Rollback:** Design System / Platform; no migration; verify responsive contract, typecheck, lint, build, 320/768/desktop viewports and authenticated Production pages; rollback by reverting the shared theme/test/docs commit.
 
+### System Health Monitor and LINE Stale Recovery v1.0 (7/9/2569)
+
+```mermaid
+flowchart LR
+  E[LINE event] --> Q{received/processing > 15 min?}
+  Q -->|Yes| R[Bounded recovery RPC]
+  R --> F[failed + stale_recovered]
+  F --> A[Retain raw evidence and audit path]
+  Q -->|No| P[Normal pipeline]
+  F --> H[Health Monitor]
+  P --> H
+  H --> I{New failures?}
+  I -->|Yes| S[Open/continue SYS-004 incident]
+  I -->|No| C[Resolve incident and reconcile SYS-004]
+```
+
+- **เหตุผล:** ป้องกัน LINE ingestion ที่ orphan ค้าง `received/processing` จากข้อมูลเก่าทำให้ Health Monitor เปิด incident และวนสถานะ `SYS-004` ซ้ำ โดยไม่ลบ Raw หรือสร้างรายการซ้ำ
+- **ผลกระทบ:** `health-monitor`, `line_ingestion_events`, System Error Center และ `SYS-004`; รายการเกิน SLA จะถูกทำเครื่องหมาย `failed/stale_recovered` พร้อมเหตุผล
+- **Migration:** `20260907044505_recover_stale_line_ingestion_events.sql`; เพิ่ม RPC แบบ service-role, จำกัด batch และ row lock
+- **การตรวจสอบ:** recovery contract, typecheck, lint, build, migration replay/dry-run/apply และ authenticated Health Monitor/LINE smoke
+- **Failure/Retry/Audit:** ถ้า recovery ล้มเหลว สถานะเดิมจะคงอยู่และ incident ไม่ถูกซ่อน; การ reprocess ใช้หลักฐาน LINE เดิมและต้อง idempotent
+- **Rollback:** ปิดการเรียก recovery และย้อน migration/function; รายการที่กู้แล้วคงเป็น failed ที่ตรวจย้อนหลังและ reprocess ได้
+
 ### Cross-Channel Work Approval v1.1 (6/9/2569)
 
 ```mermaid
@@ -950,3 +982,7 @@ flowchart LR
 - **Owner/Migration/Verification/Rollback:** Platform / Accounting; migration `202609070001_cross_channel_work_approval.sql`; verify migration replay, TypeScript, ESLint, build, PR checks and authenticated Web/Telegram smoke; rollback by reverting UI/functions and disabling the new RPC/trigger while retaining approval/audit rows.
 
 - Storage Retention / Trash / Restore / Purge v1.0 (7/9/2569): registered `docs/STORAGE_RETENTION_FLOW.md` for the existing `storage-retention-worker` and lifecycle RPCs. The documented path requires a dry-run, bounded batch, reference/legal-hold guards, seven-day trash, pre-expiry restore, purge, idempotent audit and reclaimed-byte reporting. Production migration `202608160024_storage_retention_lifecycle` and Edge Function `storage-retention-worker` were inspected; no new migration or data mutation was introduced. Rollback removes the documentation/registry entry while preserving lifecycle metadata, objects and audit history.
+
+- Storage Quota / Backup / Restore Drill v1.0 (7/9/2569): added `docs/STORAGE_QUOTA_BACKUP_RESTORE_FLOW.md` with quota thresholds, deduplicated alerting, immutable backup manifest and isolated restore verification. The Supabase Free plan has no PITR and no approved external backup destination/credential is configured, so no backup/restore readiness is claimed and no live data was changed. Rollback removes the documentation/registry entry only.
+
+- Original Quarantine / Chain of Custody v1.0 (7/9/2569): added `docs/ORIGINAL_CHAIN_OF_CUSTODY_FLOW.md` for private quarantine, immutable originals, SHA-256 provenance, derivative separation, legal hold and retention approval. Existing metadata was inspected; no migration, policy, object or business row was changed. Any schema backfill or retention-policy change remains a separately reviewed task.

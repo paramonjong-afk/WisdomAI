@@ -153,3 +153,5 @@ flowchart TD
 - รายการ `needs_review`, `needs_information` และ `duplicate` ต้องไม่เปิดให้ลงบัญชี แม้หลักฐานจะมีชื่อหรือยอดครบ
 - Raw, OCR, Source, Document ID, Message ID และ Audit ไม่ถูกลบ เพื่อให้ตรวจย้อนหลังได้ แต่ไม่ถือเป็น Master/Operational data อีกชุด
 - หน้า Accounting Pending Queue และรายงานเงินสำรองต้องไม่สร้าง fallback logic ของตนเอง หากยังไม่มี Canonical ให้แสดงว่า `ยังไม่ยืนยัน` เท่านั้น
+
+| v1.3 | 7/9/2569 | จำกัดการอ่าน accounting documents/lines/drafts ให้ tenant ปัจจุบันและผู้ตรวจบัญชี/ผู้จัดการ/Admin; ยกเลิก policy อ่านแบบกว้าง | ไม่แตะ raw/source และไม่เปลี่ยนเส้นทางงาน | `20260907090000_accounting_document_reader_policy.sql` | local RLS contract, typecheck/lint/build ก่อน PR | revert เฉพาะ policy migration ได้ โดยไม่ลบข้อมูล |
