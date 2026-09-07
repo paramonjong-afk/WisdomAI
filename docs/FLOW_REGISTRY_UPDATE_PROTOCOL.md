@@ -1019,3 +1019,18 @@ flowchart LR
 - Original Quarantine / Chain of Custody v1.1 (7/9/2569): recorded the Admin-approved default retention, legal-hold, quarantine, derivative and quarterly controlled-recovery policy in `docs/ORIGINAL_CHAIN_OF_CUSTODY_FLOW.md`. Documentation/control update only; no object, row, migration or runtime retention action was performed.
 
 - Release Parity / Safe Redirect v1.3 (7/9/2569): Cloudflare Pages is now the canonical Production target; Vercel is Preview/Parity only. Smart Entry keeps Vercel unavailable when its revision is stale or rate-limited and continues through Cloudflare, while preserving the existing health/revision checks.
+## 2026-09-07 — Filter Orchestrator Runtime Contract v1.0
+
+```mermaid
+flowchart LR
+  A[Intake action] --> B[Canonical preflight]
+  B --> C[Document Flow RPC]
+  C --> D[State/room update]
+  D --> E[Append-only audit]
+```
+
+- **Reason:** QA found that FILTER-001's proposed contract was not imported by a runtime path and disagreed with the deployed RPC.
+- **Impact:** `documentFlowGateway.transitionWithContract` and Intake Room now use the same action names and client-visible state rules as `transition_document_flow_item`; server-side tenant, role, approval, version, idempotency, and audit checks remain mandatory.
+- **Migration:** None. The existing RPC remains the data authority.
+- **Verification:** `test:filter-runtime-contract` compares the action set and enforcement markers with the migration and confirms the runtime imports.
+- **Rollback:** Revert the application contract commit only; no records, sources, or audits are deleted.

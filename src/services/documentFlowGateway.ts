@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase'
+import { evaluateDocumentFlowTransition, type DocumentFlowAction, type DocumentFlowTransitionContext } from './filterFlowContract'
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const queryChunkSize = 100
@@ -446,6 +447,23 @@ export const documentFlowGateway = {
       target_event_key: input.eventKey,
       target_note: input.note ?? null,
     })
+  },
+
+  async transitionWithContract(input: {
+    itemId: string
+    action: DocumentFlowAction
+    expectedVersion: number
+    eventKey: string
+    context: Omit<DocumentFlowTransitionContext, 'eventKey'>
+    note?: string | null
+  }) {
+    const decision = evaluateDocumentFlowTransition(input.action, { ...input.context, eventKey: input.eventKey })
+    if (!decision.allowed) {
+      return { data: null, error: new Error(decision.reason ?? 'workflow_transition_not_allowed') }
+    }
+    // The RPC independently checks company scope, manager/admin role, document
+    // confirmation, optimistic version, idempotency, and appends the audit row.
+    return this.transition(input)
   },
 
   async route(input: {

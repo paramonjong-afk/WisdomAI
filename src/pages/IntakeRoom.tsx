@@ -513,11 +513,17 @@ export function IntakeRoomPanel({
         companyId: currentCompany?.company_id,
         request,
         operation: async () => {
-          const result = await documentFlowGateway.transition({
+          const result = await documentFlowGateway.transitionWithContract({
             itemId: item.id,
             action,
             expectedVersion: item.version,
             eventKey: `intake_room:${action}:${item.id}:${Date.now()}:${crypto.randomUUID()}`,
+            context: {
+              currentFlow: item.current_flow,
+              state: item.state,
+              issueCodes: item.issue_codes,
+              routeTarget: item.route_target,
+            },
             note,
           })
           if (result.error) {
