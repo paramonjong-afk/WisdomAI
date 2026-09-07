@@ -5,7 +5,8 @@ const admin=createClient(Deno.env.get('SUPABASE_URL')??'',Deno.env.get('SUPABASE
 const expectedSecret=Deno.env.get('STORAGE_CONSISTENCY_WORKER_SECRET')
 const json=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json'}})
 const MAX_SCAN_RECORDS=10_000
-const INCIDENT_BATCH_SIZE=10
+// Keep enough parallelism to finish the incident writes within the platform timeout.
+const INCIDENT_BATCH_SIZE=50
 
 async function listObjects(bucket:string,prefix=''):Promise<StoredObject[]> {
   const result:StoredObject[]=[]
