@@ -51,6 +51,8 @@ assert.match(migration, /as restrictive for select to authenticated/)
 assert.match(integration, /set local role authenticated/)
 assert.match(integration, /set local role anon/)
 assert.match(integration, /set local role service_role/)
+assert.match(integration, /pg_isready/)
+assert.match(integration, /--dbname=\$\{dbUrl\}/)
 assert.match(integration, /rollback;/)
 assert.match(workflow, /line-attachment-tenant-isolation\.integration\.test\.mjs --assume-ready/)
 

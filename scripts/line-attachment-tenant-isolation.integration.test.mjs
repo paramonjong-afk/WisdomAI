@@ -18,8 +18,10 @@ if (!assumeReady) {
 }
 
 const envOutput = run('supabase', ['status', '-o', 'env'])
-const dbUrl = envOutput.match(/^DB_URL=(.*)$/m)?.[1]?.trim()
-assert.ok(dbUrl, 'supabase status must expose DB_URL')
+const rawDbUrl = envOutput.match(/^DB_URL=(.*)$/m)?.[1]?.trim()
+const dbUrl = rawDbUrl?.replace(/^['"]|['"]$/g, '')
+assert.ok(dbUrl && /^postgres(?:ql)?:\/\//.test(dbUrl), 'supabase status must expose a PostgreSQL DB_URL')
+run('pg_isready', [`--dbname=${dbUrl}`])
 
 const sql = String.raw`
 begin;
@@ -148,7 +150,7 @@ const dir = mkdtempSync(join(tmpdir(), 'doc005-rls-'))
 const sqlPath = join(dir, 'tenant-isolation.sql')
 writeFileSync(sqlPath, sql, 'utf8')
 try {
-  run('psql', [dbUrl, '-X', '-v', 'ON_ERROR_STOP=1', '-f', sqlPath])
+  run('psql', [`--dbname=${dbUrl}`, '-X', '-v', 'ON_ERROR_STOP=1', '-f', sqlPath])
 } finally {
   rmSync(dir, { recursive: true, force: true })
 }
