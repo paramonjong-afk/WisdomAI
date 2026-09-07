@@ -105,6 +105,9 @@ begin
     (gen_random_uuid(),'line-attachments',company_b::text||'/blobs/b.jpg','{}');
   create temporary table rls_harness_rows(company_a uuid,company_b uuid,user_a uuid,user_b uuid) on commit drop;
   insert into rls_harness_rows values(company_a,company_b,user_a,user_b);
+  -- RLS assertions run as database roles, so grant only this transaction's
+  -- temporary context table; no persistent grant or Production privilege is changed.
+  grant select on rls_harness_rows to authenticated, anon;
 end $$;
 
 -- JWT context A: own-company metadata, blob and Storage object are visible.
