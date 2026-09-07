@@ -928,6 +928,29 @@ flowchart LR
 - **Failure/Retry/Audit:** interactive targets remain at least 44px through 768px and on coarse pointers; business mutation retry and Audit continue through each module's existing flow.
 - **Owner/Migration/Verification/Rollback:** Design System / Platform; no migration; verify responsive contract, typecheck, lint, build, 320/768/desktop viewports and authenticated Production pages; rollback by reverting the shared theme/test/docs commit.
 
+### System Health Monitor and LINE Stale Recovery v1.0 (7/9/2569)
+
+```mermaid
+flowchart LR
+  E[LINE event] --> Q{received/processing > 15 min?}
+  Q -->|Yes| R[Bounded recovery RPC]
+  R --> F[failed + stale_recovered]
+  F --> A[Retain raw evidence and audit path]
+  Q -->|No| P[Normal pipeline]
+  F --> H[Health Monitor]
+  P --> H
+  H --> I{New failures?}
+  I -->|Yes| S[Open/continue SYS-004 incident]
+  I -->|No| C[Resolve incident and reconcile SYS-004]
+```
+
+- **เหตุผล:** ป้องกัน LINE ingestion ที่ orphan ค้าง `received/processing` จากข้อมูลเก่าทำให้ Health Monitor เปิด incident และวนสถานะ `SYS-004` ซ้ำ โดยไม่ลบ Raw หรือสร้างรายการซ้ำ
+- **ผลกระทบ:** `health-monitor`, `line_ingestion_events`, System Error Center และ `SYS-004`; รายการเกิน SLA จะถูกทำเครื่องหมาย `failed/stale_recovered` พร้อมเหตุผล
+- **Migration:** `20260907044505_recover_stale_line_ingestion_events.sql`; เพิ่ม RPC แบบ service-role, จำกัด batch และ row lock
+- **การตรวจสอบ:** recovery contract, typecheck, lint, build, migration replay/dry-run/apply และ authenticated Health Monitor/LINE smoke
+- **Failure/Retry/Audit:** ถ้า recovery ล้มเหลว สถานะเดิมจะคงอยู่และ incident ไม่ถูกซ่อน; การ reprocess ใช้หลักฐาน LINE เดิมและต้อง idempotent
+- **Rollback:** ปิดการเรียก recovery และย้อน migration/function; รายการที่กู้แล้วคงเป็น failed ที่ตรวจย้อนหลังและ reprocess ได้
+
 ### Cross-Channel Work Approval v1.1 (6/9/2569)
 
 ```mermaid

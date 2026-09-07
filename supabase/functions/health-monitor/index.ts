@@ -450,13 +450,19 @@ Deno.serve(async (request) => {
         }
       }),
       check('line_pipeline', 'รับและวิเคราะห์ LINE', 'LINE', async () => {
+        const { data: recovered, error: recoveryError } = await admin.rpc('recover_stale_line_ingestion_events', {
+          target_age_minutes: 15,
+          target_limit: 500,
+          target_company_id: actorCompanyId,
+        })
+        if (recoveryError) throw recoveryError
         let failedQuery=admin.from('line_ingestion_events').select('webhook_event_id', { count: 'exact', head: true }).eq('processing_status','failed').gte('received_at',since(15))
         let stalledQuery=admin.from('line_ingestion_events').select('webhook_event_id', { count: 'exact', head: true }).in('processing_status',['received','processing']).lt('received_at',since(15))
         if(actorCompanyId){failedQuery=failedQuery.eq('company_id',actorCompanyId);stalledQuery=stalledQuery.eq('company_id',actorCompanyId)}
         const [{ count: failed, error }, { count: stalled, error: stalledError }] = await Promise.all([failedQuery, stalledQuery])
         if (error || stalledError) throw error ?? stalledError
         const status: Status = (stalled ?? 0) >= 10 ? 'critical' : (failed ?? 0) || (stalled ?? 0) ? 'warning' : 'healthy'
-        return { status, message: failed || stalled ? `คิวล้มเหลว ${failed ?? 0} · เกิน SLA 15 นาที ${stalled ?? 0}` : 'ไม่พบคิวเกิน SLA', metadata: { failed_15m: failed ?? 0, stalled_over_15m: stalled ?? 0, queue_sla_minutes: 15 } }
+        return { status, message: failed || stalled ? `คิวล้มเหลว ${failed ?? 0} · เกิน SLA 15 นาที ${stalled ?? 0}` : 'ไม่พบคิวเกิน SLA', metadata: { failed_15m: failed ?? 0, stalled_over_15m: stalled ?? 0, recovered_stale_events: recovered ?? 0, queue_sla_minutes: 15 } }
       }),
       check('client_performance', 'ประสิทธิภาพ API และหน้าเว็บ', 'Web/API', async () => {
         let query=admin.from('app_activity_logs').select('event_type,severity,metadata,created_at').gte('created_at',since(15)).order('created_at',{ascending:false}).limit(200)
