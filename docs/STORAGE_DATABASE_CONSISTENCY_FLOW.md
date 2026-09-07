@@ -14,11 +14,11 @@ flowchart TD
 
 ## Purpose
 
-The `storage-consistency-worker` compares the private `line-attachments` bucket with `line_attachment_blobs`, document-set page counts, thumbnail references, content hashes, and the required `{company_id}/...` namespace. The response records checked counts, findings by type, repair counts, incident create/update counts, and unresolved findings.
+The `storage-consistency-worker` compares the private `line-attachments` bucket with `line_attachment_blobs`, document-set page counts, thumbnail references, content hashes, and the required `{company_id}/...` namespace. The response records checked counts, findings by type, repair counts, incident create/update/failure counts with failure reasons, and unresolved findings.
 
 ## Inputs and outputs
 
-The worker accepts a POST body with `action: scan`, optional `batch_limit`, and optional `verify_hashes`. The platform JWT gate is intentionally disabled for this service-to-service worker, and the worker requires the `STORAGE_CONSISTENCY_WORKER_SECRET` header as its custom authentication gate. It returns a bounded, read-only consistency report and upserts tenant-scoped incidents through the existing RPC in batches of fifty, preserving bounded database concurrency for large finding sets while completing within the platform idle timeout.
+The worker accepts a POST body with `action: scan`, optional `batch_limit`, and optional `verify_hashes`. The platform JWT gate is intentionally disabled for this service-to-service worker, and the worker requires the `STORAGE_CONSISTENCY_WORKER_SECRET` header as its custom authentication gate. It returns a bounded, read-only consistency report and upserts tenant-scoped incidents through the existing RPC in batches of fifty, retrying each failed RPC up to three times with backoff and preserving bounded database concurrency for large finding sets while completing within the platform idle timeout.
 
 ## States, roles, and integrations
 
