@@ -59,6 +59,10 @@ flowchart TD
 sentinel หรือแถว orphan จะถูกแสดงเป็นหยุดผิดปกติ/ขาดการติดต่อแทน และไม่ถูกนับใน
 การ์ด “กำลังทำจริง”.
 
+หน้าจอ recompute `claimNow` ทุก 1 วินาที จึงเปลี่ยนจาก “กำลังทำจริง” เป็น
+“Worker ขาดการติดต่อ” หรือ “หยุดผิดปกติ” ได้เองเมื่อเวลาผ่านเส้น lease/heartbeat
+แม้ไม่มี realtime event ใหม่; การ refresh ข้อมูลจากฐานข้อมูลยังคงทำตามรอบเดิม.
+
 ## Failure, retry, and audit
 
 List/detail query failures stay visible with a retry action. Realtime refreshes
@@ -98,3 +102,12 @@ work item. Successful silent list refreshes clear stale list notices.
   `system_worker_runs`.
 - Migration: none. No work item or business data is changed by the UI.
 - Rollback: revert the UI/test/doc commit; claim and audit history remain intact.
+
+- Version: v1.4
+- Date: 2026-09-07
+- Rationale: recompute time-based claim expiry without waiting for a database or
+  realtime event.
+- Verification: fake-clock tests at the fresh-heartbeat, stale-heartbeat and
+  lease-expiry boundaries, plus typecheck, lint and build.
+- Migration: none. No work item or business data is changed by the timer.
+- Rollback: revert the UI/helper/test/doc commit; claim and audit history remain intact.

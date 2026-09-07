@@ -1018,6 +1018,14 @@ flowchart LR
 - **การตรวจสอบ:** targeted Work Command Center test, typecheck, lint, build และ read-only reconciliation กับ `system_worker_runs`
 - **Migration/Rollback:** ไม่มี migration และไม่มีการแก้ข้อมูล; revert UI/test/doc commit ได้โดยคง claim/audit เดิม
 
+### Work Command Center Time-Driven Claim Recompute v1.4 (7/9/2569)
+
+- **เหตุผล/ผลกระทบ:** ให้ป้ายสถานะและตัวนับเปลี่ยนตาม lease/heartbeat ที่หมดอายุ แม้ไม่มี realtime event ใหม่
+- **กติกา:** recompute `claimNow` ทุก 1 วินาที; ขอบเขต fresh heartbeat, stale heartbeat และ lease หมดอายุทดสอบด้วย fake clock
+- **Flow document:** `docs/WORK_COMMAND_CENTER_FLOW.md` อธิบาย timer recompute และเส้นทางหมดอายุ
+- **การตรวจสอบ:** `test:work-command-center`, `test:work-claim-status`, typecheck, lint และ build
+- **Migration/Rollback:** ไม่มี migration และไม่แก้ข้อมูล; revert UI/helper/test/doc commit ได้โดยคง claim/audit เดิม
+
 - Storage Retention / Trash / Restore / Purge v1.0 (7/9/2569): registered `docs/STORAGE_RETENTION_FLOW.md` for the existing `storage-retention-worker` and lifecycle RPCs. The documented path requires a dry-run, bounded batch, reference/legal-hold guards, seven-day trash, pre-expiry restore, purge, idempotent audit and reclaimed-byte reporting. Production migration `202608160024_storage_retention_lifecycle` and Edge Function `storage-retention-worker` were inspected; no new migration or data mutation was introduced. Rollback removes the documentation/registry entry while preserving lifecycle metadata, objects and audit history.
 
 - Storage Quota / Backup / Restore Drill v1.0 (7/9/2569): added `docs/STORAGE_QUOTA_BACKUP_RESTORE_FLOW.md` with quota thresholds, deduplicated alerting, immutable backup manifest and isolated restore verification. The Supabase Free plan has no PITR and no approved external backup destination/credential is configured, so no backup/restore readiness is claimed and no live data was changed. Rollback removes the documentation/registry entry only.

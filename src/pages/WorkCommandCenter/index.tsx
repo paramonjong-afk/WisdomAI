@@ -27,6 +27,10 @@ import { supabase } from "../../lib/supabase";
 import { userError } from "../../utils/userError";
 import { runWithMutationAttempt } from "../../utils/mutationAttemptRunner";
 import { shouldApplyDetailResponse } from "./detailRequestGuard";
+import {
+  hasActiveWorkerClaim,
+  workerClaimLabel,
+} from "../../services/workClaimStatus";
 
 type WorkStatus = "ready" | "doing" | "review" | "blocked" | "done";
 type Item = {
@@ -112,25 +116,6 @@ const productionLabel = (value: string) => {
 };
 const formatDate = (value: string | null) =>
   value ? new Date(value).toLocaleString("th-TH") : "-";
-const CLAIM_HEARTBEAT_MAX_AGE_MS = 10 * 60 * 1000;
-const hasActiveClaim = (item: Item, now = Date.now()) =>
-  item.status === "doing" &&
-  Boolean(item.worker_id) &&
-  Boolean(item.lease_expires_at) &&
-  new Date(item.lease_expires_at as string).getTime() > now &&
-  Boolean(item.heartbeat_at) &&
-  new Date(item.heartbeat_at as string).getTime() >= now - CLAIM_HEARTBEAT_MAX_AGE_MS;
-const hasExpiredLease = (item: Item, now = Date.now()) =>
-  item.status === "doing" &&
-  Boolean(item.lease_expires_at) &&
-  new Date(item.lease_expires_at as string).getTime() <= now;
-const claimStatusLabel = (item: Item) => {
-  if (hasActiveClaim(item)) return "กำลังทำจริง";
-  if (item.status !== "doing") return statusLabel[item.status];
-  if (hasExpiredLease(item) || item.worker_id) return "Worker ขาดการติดต่อ";
-  return "หยุดผิดปกติ — ไม่มี Active Claim";
-};
-
 export function WorkCommandCenterPage() {
   usePageTitle("ศูนย์สั่งงาน");
   const { currentCompany, profile, user } = useAuth();
@@ -139,6 +124,7 @@ export function WorkCommandCenterPage() {
     [notice, setNotice] = useState("");
   const [detailBusy, setDetailBusy] = useState(false);
   const [detailError, setDetailError] = useState("");
+  const [claimNow, setClaimNow] = useState(() => Date.now());
   const detailRequestId = useRef(0);
   const [view, setView] = useState<View>("active"),
     [createOpen, setCreateOpen] = useState(false),
@@ -181,6 +167,10 @@ export function WorkCommandCenterPage() {
     if (error) setNotice(userError(error));
     else if (silent) setNotice("");
     if (!silent) setBusy(false);
+  }, []);
+  useEffect(() => {
+    const timer = window.setInterval(() => setClaimNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -368,12 +358,12 @@ export function WorkCommandCenterPage() {
   const counts = useMemo(
     () => ({
       ready: rows.filter((r) => r.status === "ready").length,
-      doing: rows.filter((r) => hasActiveClaim(r)).length,
+      doing: rows.filter((r) => hasActiveWorkerClaim(r, claimNow)).length,
       review: rows.filter((r) => r.status === "review").length,
       blocked: rows.filter((r) => r.status === "blocked").length,
       done: rows.filter((r) => r.status === "done").length,
     }),
-    [rows],
+    [rows, claimNow],
   );
   const visibleRows = useMemo(
     () =>
@@ -382,9 +372,9 @@ export function WorkCommandCenterPage() {
         : view === "active"
           ? rows.filter((row) => row.status !== "done")
           : view === "doing"
-            ? rows.filter((row) => hasActiveClaim(row))
+            ? rows.filter((row) => hasActiveWorkerClaim(row, claimNow))
           : rows.filter((row) => row.status === view),
-    [rows, view],
+    [claimNow, rows, view],
   );
   const cards: [WorkStatus, string][] = [
     ["ready", "ต้องดำเนินการ"],
@@ -529,16 +519,16 @@ export function WorkCommandCenterPage() {
               <Chip
                 size="small"
                 color={
-                  hasActiveClaim(r)
+                  hasActiveWorkerClaim(r, claimNow)
                     ? "warning"
                     : r.status === "doing"
                       ? "error"
                       : statusColor[r.status]
                 }
-                label={claimStatusLabel(r)}
+                label={workerClaimLabel(r, statusLabel, claimNow)}
               />
             ),
-            exportValue: (r) => claimStatusLabel(r),
+            exportValue: (r) => workerClaimLabel(r, statusLabel, claimNow),
           },
           {
             id: "progress",
@@ -727,10 +717,10 @@ export function WorkCommandCenterPage() {
               </Typography>
             </Box>
             {selected.status === "doing" && (
-              <Alert severity={hasActiveClaim(selected) ? "info" : "error"}>
-                {hasActiveClaim(selected)
+              <Alert severity={hasActiveWorkerClaim(selected, claimNow) ? "info" : "error"}>
+                {hasActiveWorkerClaim(selected, claimNow)
                   ? "Worker กำลังทำงานและมี Active Claim"
-                  : claimStatusLabel(selected)}
+                  : workerClaimLabel(selected, statusLabel, claimNow)}
                 {selected.heartbeat_at &&
                   ` · heartbeat ล่าสุด ${formatDate(selected.heartbeat_at)}`}
                 {selected.lease_expires_at &&
