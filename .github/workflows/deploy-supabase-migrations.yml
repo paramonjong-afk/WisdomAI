@@ -102,6 +102,8 @@ jobs:
         run: |
           npm run test:supabase-deployment-workflows
           npm run test:migration-safety
+          npm run test:work-command-center
+          npm run test:work-claim-status
 
       - name: Guard against destructive SQL without explicit override
         env:
