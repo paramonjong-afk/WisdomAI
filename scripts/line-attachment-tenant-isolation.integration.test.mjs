@@ -153,7 +153,13 @@ begin
   select * into r from rls_harness_rows;
   set local role anon;
   perform set_config('request.jwt.claims',json_build_object('role','anon')::text,true);
-  if (select count(*) from public.line_messages) <> 0 then raise exception 'anonymous metadata read was allowed'; end if;
+  begin
+    if (select count(*) from public.line_messages) <> 0 then raise exception 'anonymous metadata read was allowed'; end if;
+  exception when insufficient_privilege then
+    -- No SELECT grant is also an expected secure outcome. Unexpected errors
+    -- are not swallowed and will still fail the harness.
+    null;
+  end;
   set local role authenticated;
   perform set_config('request.jwt.claim.sub',r.user_a::text,true);
   perform set_config('request.jwt.claims',json_build_object('role','authenticated','sub',r.user_a::text)::text,true);
