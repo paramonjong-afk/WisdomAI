@@ -45,6 +45,31 @@ flowchart LR
 - **Failure/Retry:** company ไม่ชัดเจนให้เก็บ raw และไม่สร้าง `duplicate_of`; retry ใช้ message/document idempotency เดิม; ห้ามเดาหรือ auto-clear historical cross-company links
 - **Rollback:** revert webhook/migration ก่อนเปิดช่องใหม่; เก็บ raw/blob/link/audit เดิมและไม่ทำ destructive repair
 
+## 2026-09-07 — DOC-INGEST-005 real RLS integration harness v1.1
+
+```mermaid
+flowchart LR
+  A[Throwaway local Supabase] --> B[Company A JWT]
+  A --> C[Company B JWT]
+  B --> D[Own metadata/blob/object allow]
+  C --> E[Own metadata/blob/object allow]
+  B --> F[Cross-company deny]
+  C --> F
+  G[Anonymous JWT] --> H[Deny]
+  I[Authenticated blob write] --> H
+  J[Service role write] --> K[Allow]
+  D --> L[Rollback fixture transaction]
+  E --> L
+  H --> L
+  K --> L
+```
+
+- **เหตุผล:** fixture เดิมตรวจ policy แบบ in-memory เท่านั้น จึงเพิ่ม executable integration harness ที่รันกับ Postgres/RLS จริงในฐานข้อมูล throwaway ของ Supabase CLI
+- **ผลกระทบ:** CI migration verification จะพิสูจน์ own-company allow, cross-company/anonymous deny และ service-role-only write โดยไม่แตะ Production หรือข้อมูลถาวร
+- **Migration:** ไม่มี; ใช้ migration replay ใน job เดิมและ rollback fixture ด้วย transaction
+- **การตรวจสอบ:** `test:line-attachment-tenant-isolation-integration` หลัง `supabase db reset`, พร้อม static fixture contract เดิม
+- **Rollback:** ลบ harness/workflow hook ได้โดยไม่กระทบ schema, raw, blob, link หรือ audit
+
 ## 2026-09-07 — System Data Access Phase 1
 
 ```mermaid

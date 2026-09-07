@@ -10,6 +10,8 @@ type Fixture = {
 
 const fixture = JSON.parse(readFileSync('scripts/fixtures/line-attachment-tenant-isolation.json', 'utf8')) as Fixture
 const migration = readFileSync('supabase/migrations/20260907130000_line_attachment_tenant_isolation.sql', 'utf8')
+const integration = readFileSync('scripts/line-attachment-tenant-isolation.integration.test.mjs', 'utf8')
+const workflow = readFileSync('.github/workflows/deploy-supabase-migrations.yml', 'utf8')
 
 assert.deepEqual(fixture.companies, ['company-a', 'company-b'])
 assert.equal(fixture.rows.length, 2)
@@ -46,5 +48,10 @@ assert.match(migration, /revoke all on table public\.line_attachment_blobs from 
 assert.match(migration, /revoke all on table public\.line_attachment_blobs from authenticated/)
 assert.match(migration, /line-attachments'::text/)
 assert.match(migration, /as restrictive for select to authenticated/)
+assert.match(integration, /set local role authenticated/)
+assert.match(integration, /set local role anon/)
+assert.match(integration, /set local role service_role/)
+assert.match(integration, /rollback;/)
+assert.match(workflow, /line-attachment-tenant-isolation\.integration\.test\.mjs --assume-ready/)
 
 console.log('line attachment tenant isolation fixture passed: own-company allow, cross-company deny, service-role-only blob writes')

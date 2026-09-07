@@ -1,0 +1,156 @@
+import assert from 'node:assert/strict'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { spawnSync } from 'node:child_process'
+
+const assumeReady = process.argv.includes('--assume-ready')
+const run = (command, args, options = {}) => {
+  const result = spawnSync(command, args, { encoding: 'utf8', stdio: 'pipe', ...options })
+  if (result.error) throw result.error
+  if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed\n${result.stdout}\n${result.stderr}`)
+  return result.stdout
+}
+
+if (!assumeReady) {
+  run('supabase', ['start'])
+  run('supabase', ['db', 'reset'])
+}
+
+const envOutput = run('supabase', ['status', '-o', 'env'])
+const dbUrl = envOutput.match(/^DB_URL=(.*)$/m)?.[1]?.trim()
+assert.ok(dbUrl, 'supabase status must expose DB_URL')
+
+const sql = String.raw`
+begin;
+set local statement_timeout = '30s';
+
+do $$
+declare
+  user_a uuid := gen_random_uuid();
+  user_b uuid := gen_random_uuid();
+begin
+  -- Local auth users are fixture-only and the transaction is rolled back below.
+  insert into auth.users(id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
+  values
+    (user_a,'authenticated','authenticated','rls-a@example.invalid','',now(),'{}','{}',now(),now()),
+    (user_b,'authenticated','authenticated','rls-b@example.invalid','',now(),'{}','{}',now(),now());
+  insert into public.profiles(id,full_name,email,role)
+  values (user_a,'RLS Harness A','rls-a@example.invalid','admin'),(user_b,'RLS Harness B','rls-b@example.invalid','admin');
+  create temporary table rls_harness_context(user_a uuid,user_b uuid) on commit drop;
+  insert into rls_harness_context values(user_a,user_b);
+end $$;
+
+do $$
+declare
+  company_a uuid := gen_random_uuid();
+  company_b uuid := gen_random_uuid();
+  user_a uuid;
+  user_b uuid;
+  message_a uuid := gen_random_uuid();
+  message_b uuid := gen_random_uuid();
+  attachment_a uuid := gen_random_uuid();
+  attachment_b uuid := gen_random_uuid();
+  blob_a uuid := gen_random_uuid();
+  blob_b uuid := gen_random_uuid();
+begin
+  select c.user_a, c.user_b into user_a, user_b from rls_harness_context c;
+  insert into public.companies(id,name,slug) values
+    (company_a,'RLS Harness A','rls-harness-a'),(company_b,'RLS Harness B','rls-harness-b');
+  insert into public.company_members(company_id,profile_id,company_role)
+  values (company_a,user_a,'company_admin'),(company_b,user_b,'company_admin');
+  insert into public.user_company_preferences(profile_id,active_company_id)
+  values (user_a,company_a),(user_b,company_b);
+  insert into public.line_messages(id,webhook_event_id,line_message_id,message_type,occurred_at,raw_event,company_id)
+  values
+    (message_a,'rls-harness-event-a','rls-harness-message-a','image',now(),'{}',company_a),
+    (message_b,'rls-harness-event-b','rls-harness-message-b','image',now(),'{}',company_b);
+  insert into public.line_attachment_blobs(id,company_id,content_sha256,storage_bucket,storage_path,content_type,size_bytes)
+  values
+    (blob_a,company_a,repeat('a',64),'line-attachments',company_a::text||'/a.jpg','image/jpeg',1),
+    (blob_b,company_b,repeat('b',64),'line-attachments',company_b::text||'/b.jpg','image/jpeg',1);
+  insert into public.line_attachments(id,message_id,storage_bucket,storage_path,content_type,size_bytes,company_id,blob_id)
+  values
+    (attachment_a,message_a,'line-attachments',company_a::text||'/a.jpg','image/jpeg',1,company_a,blob_a),
+    (attachment_b,message_b,'line-attachments',company_b::text||'/b.jpg','image/jpeg',1,company_b,blob_b);
+  insert into storage.objects(id,bucket_id,name,metadata)
+  values
+    (gen_random_uuid(),'line-attachments',company_a::text||'/a.jpg','{}'),
+    (gen_random_uuid(),'line-attachments',company_b::text||'/b.jpg','{}');
+  create temporary table rls_harness_rows(company_a uuid,company_b uuid,user_a uuid,user_b uuid) on commit drop;
+  insert into rls_harness_rows values(company_a,company_b,user_a,user_b);
+end $$;
+
+-- JWT context A: own-company metadata, blob and Storage object are visible.
+do $$
+declare r record; c integer;
+begin
+  select * into r from rls_harness_rows;
+  set local role authenticated;
+  perform set_config('request.jwt.claim.sub',r.user_a::text,true);
+  perform set_config('request.jwt.claims',json_build_object('role','authenticated','sub',r.user_a::text)::text,true);
+  select count(*) into c from public.line_messages where company_id=r.company_a;
+  if c <> 1 then raise exception 'own-company message read expected 1, got %',c; end if;
+  select count(*) into c from public.line_messages where company_id=r.company_b;
+  if c <> 0 then raise exception 'cross-company message read expected 0, got %',c; end if;
+  select count(*) into c from public.line_attachments where company_id=r.company_a;
+  if c <> 1 then raise exception 'own-company attachment read expected 1, got %',c; end if;
+  select count(*) into c from public.line_attachment_blobs where company_id=r.company_a;
+  if c <> 1 then raise exception 'own-company blob read expected 1, got %',c; end if;
+  select count(*) into c from storage.objects where bucket_id='line-attachments' and name like r.company_a::text||'/%';
+  if c <> 1 then raise exception 'own-company Storage read expected 1, got %',c; end if;
+  select count(*) into c from storage.objects where bucket_id='line-attachments' and name like r.company_b::text||'/%';
+  if c <> 0 then raise exception 'cross-company Storage read expected 0, got %',c; end if;
+end $$;
+
+-- JWT context B: reciprocal isolation is enforced.
+do $$
+declare r record; c integer;
+begin
+  select * into r from rls_harness_rows;
+  set local role authenticated;
+  perform set_config('request.jwt.claim.sub',r.user_b::text,true);
+  perform set_config('request.jwt.claims',json_build_object('role','authenticated','sub',r.user_b::text)::text,true);
+  select count(*) into c from public.line_messages where company_id=r.company_b;
+  if c <> 1 then raise exception 'company B own read expected 1, got %',c; end if;
+  select count(*) into c from public.line_messages where company_id=r.company_a;
+  if c <> 0 then raise exception 'company B cross read expected 0, got %',c; end if;
+end $$;
+
+-- Anonymous reads are denied, authenticated writes are denied, service-role writes work.
+do $$
+declare r record; denied boolean := false; service_count integer;
+begin
+  select * into r from rls_harness_rows;
+  set local role anon;
+  perform set_config('request.jwt.claims',json_build_object('role','anon')::text,true);
+  if (select count(*) from public.line_messages) <> 0 then raise exception 'anonymous metadata read was allowed'; end if;
+  set local role authenticated;
+  perform set_config('request.jwt.claim.sub',r.user_a::text,true);
+  perform set_config('request.jwt.claims',json_build_object('role','authenticated','sub',r.user_a::text)::text,true);
+  begin
+    insert into public.line_attachment_blobs(company_id,content_sha256,storage_path)
+    values (r.company_a,repeat('c',64),r.company_a::text||'/forbidden.jpg');
+  exception when others then denied := true;
+  end;
+  if not denied then raise exception 'authenticated blob write was allowed'; end if;
+  set local role service_role;
+  insert into public.line_attachment_blobs(company_id,content_sha256,storage_path)
+  values (r.company_a,repeat('d',64),r.company_a::text||'/service.jpg');
+  select count(*) into service_count from public.line_attachment_blobs where storage_path=r.company_a::text||'/service.jpg';
+  if service_count <> 1 then raise exception 'service-role blob write did not persist'; end if;
+end $$;
+
+rollback;
+`
+
+const dir = mkdtempSync(join(tmpdir(), 'doc005-rls-'))
+const sqlPath = join(dir, 'tenant-isolation.sql')
+writeFileSync(sqlPath, sql, 'utf8')
+try {
+  run('psql', [dbUrl, '-X', '-v', 'ON_ERROR_STOP=1', '-f', sqlPath])
+} finally {
+  rmSync(dir, { recursive: true, force: true })
+}
+
+console.log('line attachment RLS integration harness passed: two companies, own allow, cross deny, anonymous deny, service-role write')
