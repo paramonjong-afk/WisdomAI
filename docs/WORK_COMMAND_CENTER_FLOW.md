@@ -7,7 +7,8 @@ flowchart LR
   C --> D[Realtime update or manual refresh]
   D --> B
   C --> E[User clicks a row]
-  E --> F[Load full detail/evidence + timeline]
+  E --> F[Load full detail/evidence + timeline with request identity]
+  F -. stale response or closed Drawer .-> X[Discard stale response]
   F --> G[Drawer displays operational context and actions]
   G --> H[Approval/create mutation through RPC]
   H --> I[Audit/event ledger and refreshed list]
@@ -46,6 +47,12 @@ are debounced and repeat the lightweight list query; opening a row performs a
 separate full-detail query. Existing event/audit records are not changed or
 discarded. The Work Command Center owner is Platform Operations.
 
+Each Drawer open receives a monotonic request identity. Only the latest open
+may update detail, evidence, timeline, loading, or error state; responses from
+an earlier row or a closed Drawer are discarded. Detail failures are shown
+separately from list errors and can be retried without changing the selected
+work item. Successful silent list refreshes clear stale list notices.
+
 ## Change record
 
 - Version: v1.1
@@ -55,3 +62,10 @@ discarded. The Work Command Center owner is Platform Operations.
 - Migration: none.
 - Rollback: revert the UI commit; database records and audit history are
   unaffected.
+
+- Version: v1.2
+- Date: 2026-09-07
+- Rationale: prevent stale Drawer responses and make detail recovery explicit.
+- Migration: none.
+- Rollback: revert the UI/test/doc commit; database records and audit history
+  are unaffected.
