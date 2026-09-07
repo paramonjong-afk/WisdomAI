@@ -23,6 +23,15 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-07 — Work Command Center performance v1.1
+
+- **เหตุผล:** `/work-command-center` มี LCP 5,488 ms เพราะ query รายการส่ง `detail` และ `evidence` ขนาดใหญ่ทุกแถวตั้งแต่เปิดหน้า
+- **ผลกระทบ:** ตารางใช้ lightweight projection; ข้อมูลเต็มและ Timeline ยังโหลดครบเมื่อเปิด Drawer; realtime, RPC, RLS และ Audit เดิมไม่เปลี่ยน
+- **Flow document:** `docs/WORK_COMMAND_CENTER_FLOW.md` (มี Mermaid เป็นส่วนแรก)
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** Work Command Center contract, typecheck, lint, build และ authenticated runtime smoke พร้อมวัด LCP/Network หลัง deploy
+- **Rollback:** revert UI commit; ข้อมูล `system_work_items`, detail/evidence และ event history ไม่ถูกแก้ไข
+
 ## 2026-09-06 — Intake Security Gate v1.3
 
 ```mermaid

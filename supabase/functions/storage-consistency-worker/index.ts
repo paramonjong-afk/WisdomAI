@@ -7,6 +7,9 @@ const json=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,
 const MAX_SCAN_RECORDS=10_000
 // Keep enough parallelism to finish the incident writes within the platform timeout.
 const INCIDENT_BATCH_SIZE=50
+const INCIDENT_RETRY_LIMIT=3
+
+const sleep=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms))
 
 async function listObjects(bucket:string,prefix=''):Promise<StoredObject[]> {
   const result:StoredObject[]=[]
@@ -77,23 +80,29 @@ Deno.serve(async request=>{
   const documentSets=(setRows??[]).map(row=>({...row,actual_page_count:actualCounts[row.id]??0}))
   const findings=await scanStorageConsistency({blobs,objects,documentSets})
   let incidentsCreated=0,incidentsUpdated=0,failed=0
+  const failedReasons:Record<string,number>={}
   for(let offset=0;offset<findings.length;offset+=INCIDENT_BATCH_SIZE){
     const batch=findings.slice(offset,offset+INCIDENT_BATCH_SIZE)
     const results=await Promise.all(batch.map(async finding=>{
-      if(finding.companyId==='unknown')return {kind:'failed' as const}
-      const {data,error}=await admin.rpc('upsert_system_error_event',{
-        target_company_id:finding.companyId,target_fingerprint:finding.fingerprint,target_correlation_key:finding.fingerprint,
-        target_source:'storage_consistency_worker',target_title:`Storage consistency: ${finding.kind}`,
-        target_message:JSON.stringify(finding.evidence),target_module:'document_storage',target_severity:'critical',target_metadata:finding.evidence,
-      })
-      if(error)return {kind:'failed' as const}
-      return Number(data?.occurrence_count??1)>1 ? {kind:'updated' as const} : {kind:'created' as const}
+      if(finding.companyId==='unknown')return {kind:'failed' as const,reason:'unknown_company'}
+      let lastError='rpc_failed'
+      for(let attempt=0;attempt<INCIDENT_RETRY_LIMIT;attempt++){
+        const {data,error}=await admin.rpc('upsert_system_error_event',{
+          target_company_id:finding.companyId,target_fingerprint:finding.fingerprint,target_correlation_key:finding.fingerprint,
+          target_source:'storage_consistency_worker',target_title:`Storage consistency: ${finding.kind}`,
+          target_message:JSON.stringify(finding.evidence),target_module:'document_storage',target_severity:'critical',target_metadata:finding.evidence,
+        })
+        if(!error)return Number(data?.occurrence_count??1)>1 ? {kind:'updated' as const} : {kind:'created' as const}
+        lastError=error.message||'rpc_failed'
+        if(attempt<INCIDENT_RETRY_LIMIT-1)await sleep(150*(attempt+1))
+      }
+      return {kind:'failed' as const,reason:lastError.slice(0,160)}
     }))
     for(const result of results){
-      if(result.kind==='failed')failed+=1
+      if(result.kind==='failed'){failed+=1;failedReasons[result.reason]=(failedReasons[result.reason]??0)+1}
       else if(result.kind==='updated')incidentsUpdated+=1
       else incidentsCreated+=1
     }
   }
-  return json({action:'scan',dry_run:false,before:{checked_blobs:blobs.length,checked_objects:objects.length,checked_document_sets:documentSets.length},findings:summarizeFindings(findings),safe_repairs:{attempted:0,completed:0,reason:'no_lossless_object_repair_available'},incidents:{created:incidentsCreated,updated:incidentsUpdated,failed},after:{unresolved_findings:findings.length},hash_verification:Boolean(body.verify_hashes),page_size:pageSize})
+  return json({action:'scan',dry_run:false,before:{checked_blobs:blobs.length,checked_objects:objects.length,checked_document_sets:documentSets.length},findings:summarizeFindings(findings),safe_repairs:{attempted:0,completed:0,reason:'no_lossless_object_repair_available'},incidents:{created:incidentsCreated,updated:incidentsUpdated,failed,failed_reasons:failedReasons},after:{unresolved_findings:findings.length},hash_verification:Boolean(body.verify_hashes),page_size:pageSize})
 })
