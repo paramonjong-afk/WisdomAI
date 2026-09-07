@@ -46,8 +46,7 @@ using (
   bucket_id <> all(array[
     'attendance-selfies'::text,
     'employee-workforce-documents'::text,
-    'employee-private-documents'::text,
-    'line-attachments'::text
+    'employee-private-documents'::text
   ])
   or (storage.foldername(name))[1] = auth.uid()::text
   or exists (

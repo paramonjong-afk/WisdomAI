@@ -83,16 +83,26 @@ begin
     (message_b,'rls-harness-event-b','rls-harness-message-b','image',now(),'{}',company_b);
   insert into public.line_attachment_blobs(id,company_id,content_sha256,storage_bucket,storage_path,content_type,size_bytes)
   values
-    (blob_a,company_a,repeat('a',64),'line-attachments',company_a::text||'/a.jpg','image/jpeg',1),
-    (blob_b,company_b,repeat('b',64),'line-attachments',company_b::text||'/b.jpg','image/jpeg',1);
+    (blob_a,company_a,repeat('a',64),'line-attachments',company_a::text||'/blobs/a.jpg','image/jpeg',1),
+    (blob_b,company_b,repeat('b',64),'line-attachments',company_b::text||'/blobs/b.jpg','image/jpeg',1);
   insert into public.line_attachments(id,message_id,storage_bucket,storage_path,content_type,size_bytes,company_id,blob_id)
   values
-    (attachment_a,message_a,'line-attachments',company_a::text||'/a.jpg','image/jpeg',1,company_a,blob_a),
-    (attachment_b,message_b,'line-attachments',company_b::text||'/b.jpg','image/jpeg',1,company_b,blob_b);
+    (attachment_a,message_a,'line-attachments',company_a::text||'/blobs/a.jpg','image/jpeg',1,company_a,blob_a),
+    (attachment_b,message_b,'line-attachments',company_b::text||'/blobs/b.jpg','image/jpeg',1,company_b,blob_b);
+  -- Storage preview access is intentionally coupled to the Document Flow
+  -- ledger and its department permission, not only to the attachment row.
+  insert into public.document_flow_department_members(company_id,profile_id,department)
+  values (company_a,user_a,'accounting'),(company_b,user_b,'accounting');
+  insert into public.document_flow_items(
+    company_id,intake_id,source_message_id,current_flow,current_room,state,
+    document_type,route_target,target_department,candidate_departments,sensitivity
+  ) values
+    (company_a,gen_random_uuid(),message_a,'intake','intake_waiting_room','received','transfer_slip','payment_verification','accounting',array['accounting'],'general'),
+    (company_b,gen_random_uuid(),message_b,'intake','intake_waiting_room','received','transfer_slip','payment_verification','accounting',array['accounting'],'general');
   insert into storage.objects(id,bucket_id,name,metadata)
   values
-    (gen_random_uuid(),'line-attachments',company_a::text||'/a.jpg','{}'),
-    (gen_random_uuid(),'line-attachments',company_b::text||'/b.jpg','{}');
+    (gen_random_uuid(),'line-attachments',company_a::text||'/blobs/a.jpg','{}'),
+    (gen_random_uuid(),'line-attachments',company_b::text||'/blobs/b.jpg','{}');
   create temporary table rls_harness_rows(company_a uuid,company_b uuid,user_a uuid,user_b uuid) on commit drop;
   insert into rls_harness_rows values(company_a,company_b,user_a,user_b);
 end $$;
