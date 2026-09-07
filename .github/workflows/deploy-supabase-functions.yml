@@ -51,5 +51,9 @@ jobs:
               _shared|.*) continue ;;
             esac
             echo "== Deploying $fn =="
-            supabase functions deploy "$fn" --project-ref "$SUPABASE_PROJECT_REF"
+            deploy_args=("$fn" "--project-ref" "$SUPABASE_PROJECT_REF")
+            if [ "$fn" = "storage-consistency-worker" ]; then
+              deploy_args+=("--no-verify-jwt")
+            fi
+            supabase functions deploy "${deploy_args[@]}"
           done
