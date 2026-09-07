@@ -347,24 +347,8 @@ export function DocumentFlowsPage() {
       return
     }
     const page = (response.data ?? { items: [], counts: {}, next_cursor: null }) as unknown as QueuePage
-    let flowItems = page.items ?? []
-    let finalCursor = page.next_cursor ?? null
-    // Counts and table rows must be derived from the same complete scope.  A
-    // single 100-row page previously made a tab show a real count but an empty
-    // local category when its rows were on a later page.
-    if (!append) {
-      while (finalCursor && flowItems.length < 2000) {
-        const nextResponse = await documentFlowGateway.loadQueuePage(
-          { updatedAt: finalCursor.updated_at, id: finalCursor.id }, 100,
-          flow === 'filter' ? 'filter' : flow === 'task_types' ? 'posting' : null,
-          globalScope,
-        )
-        if (nextResponse.error) { setError(`โหลดรายการหน้าถัดไปไม่สำเร็จ: ${userError(nextResponse.error)}`); break }
-        const nextPage = (nextResponse.data ?? { items: [], next_cursor: null }) as unknown as QueuePage
-        flowItems = [...flowItems, ...(nextPage.items ?? []).filter((item) => !flowItems.some((loaded) => loaded.id === item.id))]
-        finalCursor = nextPage.next_cursor ?? null
-      }
-    }
+    const flowItems = page.items ?? []
+    const finalCursor = page.next_cursor ?? null
     setItems((current) => append ? [...current, ...flowItems.filter((item) => !current.some((loaded) => loaded.id === item.id))] : flowItems)
     setOmniTasks([])
     setCounts((current) => ({

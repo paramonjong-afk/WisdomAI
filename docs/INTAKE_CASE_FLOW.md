@@ -148,6 +148,12 @@ flowchart LR
 - RPC/Storage exception ทุกแบบต้องแสดงข้อความผิดพลาดใน Drawer; ไม่ปล่อยให้ Drawer ว่างโดยไม่ทราบสาเหตุ
 - Signed URL อายุ 10 นาที และไม่บันทึกลงฐานข้อมูลหรือ URL ของหน้า
 
+## System Data Access Phase 1 — 7/9/2569
+
+- Document Flow Intake uses the central queue RPC and keyset cursor; the browser receives at most 100 lightweight rows per request and server counts from the same tenant scope.
+- Employee Intake preview and document evidence remain item-level lazy reads. Existing approve/reject, route, permission and Audit paths are unchanged.
+- Rollback is a UI/gateway revert and RPC revoke; source messages, files, intake cases and Audit remain intact.
+
 ## Change record
 
 | Version | วันที่ | เหตุผล/ผลกระทบ | Migration | การย้อนกลับ |

@@ -23,6 +23,22 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-07 — System Data Access Phase 1
+
+```mermaid
+flowchart LR
+  A[Document Flow / AccountingDocuments] --> B[Company-scoped Gateway RPC]
+  B --> C[Cursor page <= 100 + server counts]
+  C --> D[Lightweight queue UI]
+  D --> E[Lazy Drawer detail and existing mutation Audit]
+```
+
+- **เหตุผล:** ป้องกัน Browser โหลดคิวจำนวนมากและสร้างชุด ID ขนาดใหญ่ใน Document Flow intake และ AccountingDocuments
+- **ผลกระทบ:** เพิ่ม `accounting_document_queue_page`, เปลี่ยนหน้า AccountingDocuments เป็น projection หน้าแรกไม่เกิน 100 รายการ และหยุดการ preload Document Flow ถึง 2,000 รายการ; สิทธิ์บริษัท/การแก้ไข/หลักฐานเดิมไม่เปลี่ยน
+- **Migration:** `20260907120000_system_data_access_phase1.sql`
+- **Verification:** migration safety, targeted Document Flow/Accounting tests, typecheck, lint, build และ authenticated Production smoke ตาม release flow
+- **Rollback:** revert UI/gateway และ revoke RPC ใหม่; ข้อมูลเอกสาร, งานปลายทาง, Audit และรายละเอียดเดิมไม่ถูกลบ
+
 ## 2026-09-07 — Work Command Center performance v1.1
 
 - **เหตุผล:** `/work-command-center` มี LCP 5,488 ms เพราะ query รายการส่ง `detail` และ `evidence` ขนาดใหญ่ทุกแถวตั้งแต่เปิดหน้า
