@@ -120,6 +120,8 @@
 - แสดงข้อความสาเหตุและสิ่งที่ผู้ใช้ต้องทำ; retry แบบ exponential/idempotent; dead-letter มีปุ่มส่งใหม่และเปิด Incident
 - Dashboard แสดงค้างตาม stage, อายุงาน, error fingerprint, attempts และปลายทางที่สร้างแล้ว
 
+การตรวจรับ v1.1 (7/9/2569): migration มี transition `retry`/`recover`/`dead_letter` พร้อมห้อง dead-letter และ UI Intake มี action ที่ใช้ event key/idempotency เดิม; contract test `test:intake-retry-dead-letter` ตรวจครบโดยไม่แก้ข้อมูล Production
+
 ## ลำดับดำเนินการ
 
 1. Critical: 001, 003, 004, 009, 011, 013
