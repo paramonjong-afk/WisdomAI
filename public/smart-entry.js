@@ -1,6 +1,6 @@
 export const SMART_ENTRY_TARGETS = [
-  { id: 'vercel', label: 'ระบบหลัก', origin: 'https://wisdomai-react.vercel.app' },
-  { id: 'cloudflare', label: 'ระบบสำรอง', origin: 'https://wisdomai.pages.dev' },
+  { id: 'cloudflare', label: 'ระบบหลัก', origin: 'https://wisdomai.pages.dev' },
+  { id: 'vercel', label: 'ระบบ Preview', origin: 'https://wisdomai-react.vercel.app' },
 ]
 
 const releaseScriptTimeoutMs = 1800
@@ -103,7 +103,7 @@ const renderManualTarget = (result) => {
   }
   link.href = link.dataset.href ?? ''
   link.removeAttribute('aria-disabled')
-  link.textContent = result.id === 'vercel' ? 'เข้าระบบหลัก' : 'เข้าระบบสำรอง'
+  link.textContent = result.id === 'cloudflare' ? 'เข้าระบบหลัก' : 'เข้า Preview'
 }
 
 export const runSmartEntry = async () => {
@@ -114,10 +114,10 @@ export const runSmartEntry = async () => {
   status.textContent = 'กำลังทดสอบระบบหลักและระบบสำรอง…'
 
   const results = await Promise.all(SMART_ENTRY_TARGETS.map((target) => probeTarget(target)))
-  const primary = results.find((result) => result.id === 'vercel') ?? null
+  const primary = results.find((result) => result.id === 'cloudflare') ?? null
   const scopedResults = results.map((result) => {
     if (!result.release) return { ...result, available: false, releaseState: 'unknown' }
-    if (result.id === 'vercel') return { ...result, releaseState: 'current' }
+    if (result.id === 'cloudflare') return { ...result, releaseState: 'current' }
     return isMatchingRelease(primary, result)
       ? { ...result, releaseState: 'current' }
       : { ...result, available: false, releaseState: 'stale' }

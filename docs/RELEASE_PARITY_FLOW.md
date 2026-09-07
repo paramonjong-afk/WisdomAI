@@ -29,7 +29,7 @@ flowchart TD
 
 ## Purpose
 
-รักษาให้ Vercel Production เป็นระบบหลักและ Cloudflare Pages เป็นระบบสำรองที่ใช้ได้เฉพาะเมื่อ frontend artifact มาจาก Git revision เดียวกัน ผู้ใช้จึงไม่ถูกพาไปใช้หน้าเก่าแม้ Cloudflare จะตอบเร็วกว่า
+รักษาให้ Cloudflare Pages เป็น Production หลักและ Vercel เป็น Preview/Parity ที่ใช้ได้เฉพาะเมื่อ frontend artifact มาจาก Git revision เดียวกัน ผู้ใช้จึงไม่ถูกพาไปใช้หน้าเก่าหาก Preview ล้าหรือถูกจำกัดโควตา
 
 ## Inputs, outputs and states
 
@@ -46,15 +46,15 @@ flowchart TD
 ## Integrations
 
 - Vite สร้าง `release.json` และ `release.js` พร้อม bundle ทุกครั้ง
-- Vercel รับ deployment จาก `main`; Cloudflare Pages ต้อง deploy artifact/revision เดียวกัน
+- Cloudflare Pages รับ Production จาก `main`; Vercel รับ Preview/Parity จาก commit เดียวกัน
 - `public/_headers` ป้องกัน Cloudflare cache ของ manifest เพื่อให้ Smart Entry เห็น revision ล่าสุด
 - Release Freshness Guard อ่าน `release.json` แบบ `no-store` เมื่อเริ่มแอป, กลับจาก bfcache, กลับมาออนไลน์ และเมื่อกลับเข้าหน้าหลังช่วงตรวจขั้นต่ำ
 
 ## Failure, retry and recovery
 
 - Smart Entry ตรวจ health 3 รอบและอ่าน `release.js` จากทั้งสอง host
-- ถ้า Cloudflare ไม่มี Release ID หรือ revision ไม่ตรง Vercel: สถานะ `stale`/`unknown`, ไม่ถูกเลือกอัตโนมัติและปิดลิงก์เลือกเอง
-- ถ้า Vercel ตอบได้แต่ Cloudflare stale: ใช้ Vercel เท่านั้น
+- ถ้า Cloudflare ไม่มี Release ID: สถานะ `unknown`, หยุดการนำเข้าระบบและแสดงปุ่มลองใหม่
+- ถ้า Vercel ตอบไม่ได้/ถูกจำกัดโควตา/ล้ากว่า: ใช้ Cloudflare ต่อ และปิด Preview อัตโนมัติ
 - ถ้าไม่มี host ที่ผ่านเงื่อนไข: แสดงปุ่มลองใหม่ ไม่ redirect วน และต้องแก้ deployment ก่อนเปิด fallback
 - ถ้า runtime revision ไม่ตรง manifest ขณะอยู่หน้า Login/Reset Password: ใส่ `__release=<revision>` แล้วใช้ `location.replace` เพื่อโหลด HTML/JavaScript ล่าสุด; `sessionStorage` จำกัดการ refresh ซ้ำของ revision เดียวภายใน 2 นาที
 - ถ้าพบรุ่นใหม่ขณะผู้ใช้ทำงาน: ห้ามรีเฟรชอัตโนมัติ ให้เก็บ revision ที่รออัปเดตใน `sessionStorage` และแสดง `มีรุ่นใหม่ · อัปเดตเมื่อพร้อม`; ผู้ใช้ต้องยืนยัน `บันทึกแล้ว อัปเดตตอนนี้` จึงโหลดหน้าใหม่
@@ -76,7 +76,7 @@ flowchart TD
 - Smart Entry และ Freshness Guard เก็บผลตรวจ/refresh guard เฉพาะใน `sessionStorage`: เวลา, host, latency, revision, parity state และปลายทางที่เลือก
 - `session_start` และ `page_view` บันทึก `release_revision`/`release_host` เพื่อแยกปัญหา runtime เก่าโดยไม่เก็บชื่อไฟล์หรือข้อมูลธุรกิจ
 - ไม่มีการส่งข้อมูลส่วนบุคคลหรือ secret ออกไปในการตรวจ
-- **Owner:** Platform / Release Management Owner
+- **Owner:** Platform / Release Management Owner; Cloudflare เป็น Production canonical
 
 ## Change record
 
