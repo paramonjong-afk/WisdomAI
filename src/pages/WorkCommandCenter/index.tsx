@@ -44,6 +44,8 @@ type Item = {
   lease_expires_at: string | null;
   created_at: string;
   updated_at: string;
+  approval_status?: string | null;
+  company_id?: string | null;
 };
 type WorkItemDetail = Pick<Item, "detail" | "evidence">;
 type Event = {
@@ -314,6 +316,25 @@ export function WorkCommandCenterPage() {
       setNotice(error instanceof Error ? error.message : userError(error));
     }
     setBusy(false);
+  };
+  const sendApprovalNotice = async () => {
+    if (!selected) return;
+    setBusy(true);
+    setNotice("");
+    try {
+      const { data, error } = await supabase.functions.invoke("health-monitor", {
+        body: { action: "send_work_approval", work_key: selected.work_key },
+      });
+      if (error) throw error;
+      const result = data as { status?: string } | null;
+      setNotice(result?.status === "rate_limited"
+        ? "งานนี้เพิ่งส่งแจ้งเตือนไปแล้ว ระบบกันการส่งซ้ำไว้ 5 นาที"
+        : `ส่งแจ้งเตือนเฉพาะ ${selected.work_key} แล้ว`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : userError(error));
+    } finally {
+      setBusy(false);
+    }
   };
   const counts = useMemo(
     () => ({
@@ -694,6 +715,13 @@ export function WorkCommandCenterPage() {
                   onClick={() => void decide(false)}
                 >
                   ไม่อนุมัติ
+                </Button>
+                <Button
+                  variant="outlined"
+                  disabled={busy}
+                  onClick={() => void sendApprovalNotice()}
+                >
+                  ส่งแจ้งเตือนเฉพาะงานนี้
                 </Button>
               </Stack>
             )}
