@@ -43,6 +43,7 @@ type Item = {
   current_step: string | null;
   heartbeat_at: string | null;
   lease_expires_at: string | null;
+  worker_id: string | null;
   created_at: string;
   updated_at: string;
   approval_status?: string | null;
@@ -111,10 +112,24 @@ const productionLabel = (value: string) => {
 };
 const formatDate = (value: string | null) =>
   value ? new Date(value).toLocaleString("th-TH") : "-";
-const hasExpiredLease = (item: Item) =>
+const CLAIM_HEARTBEAT_MAX_AGE_MS = 10 * 60 * 1000;
+const hasActiveClaim = (item: Item, now = Date.now()) =>
+  item.status === "doing" &&
+  Boolean(item.worker_id) &&
+  Boolean(item.lease_expires_at) &&
+  new Date(item.lease_expires_at as string).getTime() > now &&
+  Boolean(item.heartbeat_at) &&
+  new Date(item.heartbeat_at as string).getTime() >= now - CLAIM_HEARTBEAT_MAX_AGE_MS;
+const hasExpiredLease = (item: Item, now = Date.now()) =>
   item.status === "doing" &&
   Boolean(item.lease_expires_at) &&
-  new Date(item.lease_expires_at as string).getTime() <= Date.now();
+  new Date(item.lease_expires_at as string).getTime() <= now;
+const claimStatusLabel = (item: Item) => {
+  if (hasActiveClaim(item)) return "กำลังทำจริง";
+  if (item.status !== "doing") return statusLabel[item.status];
+  if (hasExpiredLease(item) || item.worker_id) return "Worker ขาดการติดต่อ";
+  return "หยุดผิดปกติ — ไม่มี Active Claim";
+};
 
 export function WorkCommandCenterPage() {
   usePageTitle("ศูนย์สั่งงาน");
@@ -139,7 +154,7 @@ export function WorkCommandCenterPage() {
     const { data, error } = await supabase
       .from("system_work_items")
       .select(
-        "work_key,title,category,status,progress,risk,production_status,owner,current_step,heartbeat_at,lease_expires_at,created_at,updated_at",
+        "work_key,title,category,status,progress,risk,production_status,owner,current_step,worker_id,heartbeat_at,lease_expires_at,created_at,updated_at",
       )
       .order("updated_at", { ascending: false });
     if (data) {
@@ -353,7 +368,7 @@ export function WorkCommandCenterPage() {
   const counts = useMemo(
     () => ({
       ready: rows.filter((r) => r.status === "ready").length,
-      doing: rows.filter((r) => r.status === "doing").length,
+      doing: rows.filter((r) => hasActiveClaim(r)).length,
       review: rows.filter((r) => r.status === "review").length,
       blocked: rows.filter((r) => r.status === "blocked").length,
       done: rows.filter((r) => r.status === "done").length,
@@ -366,12 +381,14 @@ export function WorkCommandCenterPage() {
         ? rows
         : view === "active"
           ? rows.filter((row) => row.status !== "done")
+          : view === "doing"
+            ? rows.filter((row) => hasActiveClaim(row))
           : rows.filter((row) => row.status === view),
     [rows, view],
   );
   const cards: [WorkStatus, string][] = [
     ["ready", "ต้องดำเนินการ"],
-    ["doing", "กำลังทำ"],
+    ["doing", "กำลังทำจริง"],
     ["review", "รอตรวจ/อนุมัติ"],
     ["blocked", "ติดปัญหา"],
   ];
@@ -511,11 +528,17 @@ export function WorkCommandCenterPage() {
             render: (r) => (
               <Chip
                 size="small"
-                color={hasExpiredLease(r) ? "error" : statusColor[r.status]}
-                label={hasExpiredLease(r) ? "Worker ขาดการติดต่อ" : statusLabel[r.status]}
+                color={
+                  hasActiveClaim(r)
+                    ? "warning"
+                    : r.status === "doing"
+                      ? "error"
+                      : statusColor[r.status]
+                }
+                label={claimStatusLabel(r)}
               />
             ),
-            exportValue: (r) => statusLabel[r.status],
+            exportValue: (r) => claimStatusLabel(r),
           },
           {
             id: "progress",
@@ -703,12 +726,13 @@ export function WorkCommandCenterPage() {
                 {productionLabel(selected.production_status)}
               </Typography>
             </Box>
-            {selected.heartbeat_at && (
-              <Alert severity={hasExpiredLease(selected) ? "error" : "info"}>
-                {hasExpiredLease(selected)
-                  ? "Worker ขาดการติดต่อ — lease หมดอายุแล้ว"
-                  : "Worker กำลังทำงาน"}
-                {` · heartbeat ล่าสุด ${formatDate(selected.heartbeat_at)}`}
+            {selected.status === "doing" && (
+              <Alert severity={hasActiveClaim(selected) ? "info" : "error"}>
+                {hasActiveClaim(selected)
+                  ? "Worker กำลังทำงานและมี Active Claim"
+                  : claimStatusLabel(selected)}
+                {selected.heartbeat_at &&
+                  ` · heartbeat ล่าสุด ${formatDate(selected.heartbeat_at)}`}
                 {selected.lease_expires_at &&
                   ` · lease ถึง ${formatDate(selected.lease_expires_at)}`}
               </Alert>

@@ -40,6 +40,25 @@ context and existing RLS/RPC permissions remain authoritative. The UI never
 updates `system_work_items` directly; create and approval actions use the
 existing RPCs and mutation-attempt audit path.
 
+## Active Claim semantics
+
+```mermaid
+flowchart TD
+  D[status = doing] --> W{worker_id exists?}
+  W -- no --> O[หยุดผิดปกติ: ไม่มี Active Claim]
+  W -- yes --> L{lease ยังไม่หมด?}
+  L -- no --> S[Worker ขาดการติดต่อ]
+  L -- yes --> H{heartbeat สดภายใน 10 นาที?}
+  H -- no --> S
+  H -- yes --> A[กำลังทำจริง: Active Claim]
+```
+
+`กำลังทำจริง` จะแสดงเฉพาะเมื่อมี `worker_id`, `lease_expires_at` ยังไม่หมด
+และ `heartbeat_at` สดไม่เกิน 10 นาทีจากเวลาปัจจุบัน การมี `status=doing`
+เพียงอย่างเดียวไม่ถือว่าเป็น Active Claim; งานอย่าง `SYS-004` ที่เป็น monitoring
+sentinel หรือแถว orphan จะถูกแสดงเป็นหยุดผิดปกติ/ขาดการติดต่อแทน และไม่ถูกนับใน
+การ์ด “กำลังทำจริง”.
+
 ## Failure, retry, and audit
 
 List/detail query failures stay visible with a retry action. Realtime refreshes
@@ -69,3 +88,13 @@ work item. Successful silent list refreshes clear stale list notices.
 - Migration: none.
 - Rollback: revert the UI/test/doc commit; database records and audit history
   are unaffected.
+
+- Version: v1.3
+- Date: 2026-09-07
+- Rationale: distinguish the persisted `doing` state from a live worker claim so
+  stale/orphan rows cannot be presented as actively running.
+- Verification: targeted Work Command Center test, typecheck, lint, build and
+  read-only query of `worker_id`, `heartbeat_at`, `lease_expires_at` and
+  `system_worker_runs`.
+- Migration: none. No work item or business data is changed by the UI.
+- Rollback: revert the UI/test/doc commit; claim and audit history remain intact.

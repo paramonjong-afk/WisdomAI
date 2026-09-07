@@ -1010,6 +1010,14 @@ flowchart LR
 - **การตรวจสอบ:** Work Command Center action test, deterministic drawer regression contract, typecheck, targeted lint, build; authenticated runtime interaction timing ยังต้องตรวจในหน้า Production
 - **Migration/Rollback:** ไม่มี migration; revert UI/test/doc commit ได้โดยไม่เปลี่ยน work item, approval หรือ audit เดิม
 
+### Work Command Center Active Claim Semantics v1.3 (7/9/2569)
+
+- **เหตุผล/ผลกระทบ:** แยกสถานะที่บันทึกว่า `doing` ออกจาก Worker ที่กำลังทำจริง เพื่อไม่ให้ orphan/stale work item เช่น `SYS-004` ถูกแสดงว่ากำลังทำอยู่
+- **กติกา:** Active Claim ต้องมี `worker_id`, `lease_expires_at` ยังไม่หมด และ `heartbeat_at` สดภายใน 10 นาที; ถ้าไม่ครบจะแสดง `หยุดผิดปกติ — ไม่มี Active Claim` หรือ `Worker ขาดการติดต่อ`
+- **Flow document:** `docs/WORK_COMMAND_CENTER_FLOW.md` เพิ่มกราฟิกและคำอธิบาย Active Claim semantics
+- **การตรวจสอบ:** targeted Work Command Center test, typecheck, lint, build และ read-only reconciliation กับ `system_worker_runs`
+- **Migration/Rollback:** ไม่มี migration และไม่มีการแก้ข้อมูล; revert UI/test/doc commit ได้โดยคง claim/audit เดิม
+
 - Storage Retention / Trash / Restore / Purge v1.0 (7/9/2569): registered `docs/STORAGE_RETENTION_FLOW.md` for the existing `storage-retention-worker` and lifecycle RPCs. The documented path requires a dry-run, bounded batch, reference/legal-hold guards, seven-day trash, pre-expiry restore, purge, idempotent audit and reclaimed-byte reporting. Production migration `202608160024_storage_retention_lifecycle` and Edge Function `storage-retention-worker` were inspected; no new migration or data mutation was introduced. Rollback removes the documentation/registry entry while preserving lifecycle metadata, objects and audit history.
 
 - Storage Quota / Backup / Restore Drill v1.0 (7/9/2569): added `docs/STORAGE_QUOTA_BACKUP_RESTORE_FLOW.md` with quota thresholds, deduplicated alerting, immutable backup manifest and isolated restore verification. The Supabase Free plan has no PITR and no approved external backup destination/credential is configured, so no backup/restore readiness is claimed and no live data was changed. Rollback removes the documentation/registry entry only.
