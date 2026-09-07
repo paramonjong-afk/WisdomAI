@@ -62,4 +62,5 @@ Approval เก็บผู้ขอ เวลา ผู้ตัดสินใ
 | Version | Date | Rationale | Migration | Verification | Rollback |
 |---|---|---|---|---|---|
 | v1.0 | 7/9/2569 | ใช้ approval record เดียวระหว่าง Web Chat และ Telegram พร้อมกันการกดซ้ำ | `202609070001_cross_channel_work_approval.sql` | migration dry-run/apply, RPC/idempotency/permission tests, typecheck, lint, build และ authenticated Web/Telegram smoke | ปิด trigger/RPC/UI ใหม่และคง approval/audit ไว้เพื่ออ่านย้อนหลัง; revert frontend โดยไม่ลบ work item เดิม |
+| v1.2 | 7/9/2569 | ให้ผู้ดูแลส่งแจ้งเตือนของงานที่เปิดดูอยู่เพียงรายการเดียวจากศูนย์สั่งงาน โดยไม่เรียก bulk escalation | ไม่มี schema migration; `src/pages/WorkCommandCenter/index.tsx` | targeted UI contract, typecheck, lint, build และ authenticated runtime smoke | ซ่อนปุ่มเฉพาะงาน; approval, notification และ audit เดิมคงอยู่ |
 
