@@ -26,6 +26,7 @@ import { usePageTitle } from "../../hooks/usePageTitle";
 import { supabase } from "../../lib/supabase";
 import { userError } from "../../utils/userError";
 import { runWithMutationAttempt } from "../../utils/mutationAttemptRunner";
+import { shouldApplyDetailResponse } from "./detailRequestGuard";
 
 type WorkStatus = "ready" | "doing" | "review" | "blocked" | "done";
 type Item = {
@@ -228,7 +229,7 @@ export function WorkCommandCenterPage() {
         .order("created_at", { ascending: false })
         .limit(100),
     ]);
-    if (requestId !== detailRequestId.current) return;
+    if (!shouldApplyDetailResponse(requestId, detailRequestId.current)) return;
     if (detailResult.data) {
       const detail = detailResult.data as WorkItemDetail;
       setSelected((current) =>
