@@ -1,0 +1,50 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+
+type Fixture = {
+  companies: string[]
+  rows: Array<{ id: string; company_id: string; message_id: string; storage_path: string }>
+  blobs: Array<{ id: string; company_id: string; storage_path: string }>
+  storage: Array<{ bucket_id: string; name: string; company_id: string }>
+}
+
+const fixture = JSON.parse(readFileSync('scripts/fixtures/line-attachment-tenant-isolation.json', 'utf8')) as Fixture
+const migration = readFileSync('supabase/migrations/20260907130000_line_attachment_tenant_isolation.sql', 'utf8')
+
+assert.deepEqual(fixture.companies, ['company-a', 'company-b'])
+assert.equal(fixture.rows.length, 2)
+assert.equal(fixture.blobs.length, 2)
+assert.equal(fixture.storage.length, 2)
+
+const canReadCompanyRow = (activeCompany: string | null, rowCompany: string) => (
+  activeCompany !== null && activeCompany === rowCompany
+)
+const canReadStorage = (activeCompany: string | null, object: Fixture['storage'][number]) => (
+  object.bucket_id === 'line-attachments' && canReadCompanyRow(activeCompany, object.company_id)
+)
+const canWriteBlob = (role: 'anon' | 'authenticated' | 'service_role') => role === 'service_role'
+
+// Positive: a member of the active company can read its metadata, blob and object.
+assert.equal(canReadCompanyRow('company-a', fixture.rows[0].company_id), true)
+assert.equal(canReadCompanyRow('company-a', fixture.blobs[0].company_id), true)
+assert.equal(canReadStorage('company-a', fixture.storage[0]), true)
+
+// Negative: the same session cannot read another company's metadata, blob or object.
+assert.equal(canReadCompanyRow('company-a', fixture.rows[1].company_id), false)
+assert.equal(canReadCompanyRow('company-a', fixture.blobs[1].company_id), false)
+assert.equal(canReadStorage('company-a', fixture.storage[1]), false)
+assert.equal(canReadCompanyRow(null, fixture.rows[0].company_id), false)
+
+// Writes are service-role only; this fixture intentionally does not mutate a database.
+assert.equal(canWriteBlob('service_role'), true)
+assert.equal(canWriteBlob('authenticated'), false)
+assert.equal(canWriteBlob('anon'), false)
+
+assert.match(migration, /alter table public\.line_attachment_blobs enable row level security/)
+assert.match(migration, /using \(company_id = public\.current_company_id\(\)\)/)
+assert.match(migration, /revoke all on table public\.line_attachment_blobs from anon/)
+assert.match(migration, /revoke all on table public\.line_attachment_blobs from authenticated/)
+assert.match(migration, /line-attachments'::text/)
+assert.match(migration, /as restrictive for select to authenticated/)
+
+console.log('line attachment tenant isolation fixture passed: own-company allow, cross-company deny, service-role-only blob writes')
