@@ -69,3 +69,18 @@ work item. Successful silent list refreshes clear stale list notices.
 - Migration: none.
 - Rollback: revert the UI/test/doc commit; database records and audit history
   are unaffected.
+
+- Version: v1.3
+- Date: 2026-09-07
+- Rationale: make stalled approvals and blank worker completions recoverable
+  without allowing a user or worker to bypass the approved scope.
+- Migration: `20260907130000_control_plane_stall_recovery.sql`.
+- Operational path: ready -> submit for review -> one approval record ->
+  approved ready -> atomic claim -> claimed outcome -> completed, blocked, or
+  no_output outcome. A manager can reconcile only an approved, fingerprint-
+  matching, lease-free item; retry counts are retained and capped items still
+  require the explicit retry-reset path.
+- Verification: targeted contract test, typecheck, lint, build, migration CI,
+  and authenticated Drawer smoke after release.
+- Rollback: revert the source change in a corrective PR. Retain worker
+  outcomes and audit records; do not delete or rewrite prior work history.

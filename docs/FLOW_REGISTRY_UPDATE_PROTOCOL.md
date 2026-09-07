@@ -23,6 +23,26 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-07 — Control-plane stall recovery and worker outcomes
+
+```mermaid
+flowchart LR
+  A[Ready work item] --> B[Submit for review with reason]
+  B --> C[One pending approval]
+  C --> D[Approved scope fingerprint]
+  D --> E[Atomic claim with lease and retry cap]
+  E --> F[Worker outcome with reason]
+  F -->|completed| G[Done + Audit]
+  F -->|blocked or no_output| H[Visible Control Center recovery state]
+  H --> I[Manager reconciles only matching approved scope]
+```
+
+- **Reason:** prevent approved work from being stranded by stale production status, abandoned leases, or a worker that exits with no usable message.
+- **Impact:** `system_work_items`, `system_worker_runs`, Work Command Center, the automation worker and the local runner now retain a terminal outcome and reason. Recovery cannot reset attempts, change business data, or bypass company/role/fingerprint/lease checks.
+- **Migration:** `20260907130000_control_plane_stall_recovery.sql`.
+- **Verification:** targeted contract, typecheck, lint, build, PR migration checks, then authenticated Production Drawer/recovery smoke after deployment.
+- **Rollback:** corrective source revert only; keep existing outcomes, approvals and audit rows for investigation.
+
 ## 2026-09-07 — System Data Access Phase 1
 
 ```mermaid

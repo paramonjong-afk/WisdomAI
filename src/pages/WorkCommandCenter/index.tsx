@@ -46,6 +46,11 @@ type Item = {
   created_at: string;
   updated_at: string;
   approval_status?: string | null;
+  approval_fingerprint?: string | null;
+  attempt_count?: number | null;
+  worker_outcome?: string | null;
+  worker_outcome_reason?: string | null;
+  worker_outcome_at?: string | null;
   company_id?: string | null;
 };
 type WorkItemDetail = Pick<Item, "detail" | "evidence">;
@@ -139,7 +144,7 @@ export function WorkCommandCenterPage() {
     const { data, error } = await supabase
       .from("system_work_items")
       .select(
-        "work_key,title,category,status,progress,risk,production_status,owner,current_step,heartbeat_at,lease_expires_at,created_at,updated_at",
+        "work_key,title,category,status,progress,risk,production_status,owner,current_step,heartbeat_at,lease_expires_at,approval_status,approval_fingerprint,attempt_count,worker_outcome,worker_outcome_reason,worker_outcome_at,created_at,updated_at",
       )
       .order("updated_at", { ascending: false });
     if (data) {
@@ -349,6 +354,41 @@ export function WorkCommandCenterPage() {
     } finally {
       setBusy(false);
     }
+  };
+  const submitForReview = async () => {
+    if (!selected) return;
+    const reason = window.prompt(`ส่ง ${selected.work_key} เข้าตรวจอนุมัติ\nระบุเหตุผลเพื่อบันทึก Audit`)?.trim();
+    if (!reason) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.rpc("submit_system_work_item_for_review", {
+        target_work_key: selected.work_key,
+        target_reason: reason,
+      });
+      if (error) throw error;
+      setNotice(`ส่ง ${selected.work_key} เข้าตรวจอนุมัติและบันทึก Audit แล้ว`);
+      await load();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : userError(error));
+    } finally { setBusy(false); }
+  };
+  const reconcileApprovedExecution = async () => {
+    if (!selected?.approval_fingerprint) return;
+    const reason = window.prompt(`กู้สถานะการดำเนินการ ${selected.work_key}\nยืนยันว่า scope เดิมผ่านอนุมัติแล้ว และระบุเหตุผล`)?.trim();
+    if (!reason) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.rpc("reconcile_approved_system_work_item_execution", {
+        target_work_key: selected.work_key,
+        target_approval_fingerprint: selected.approval_fingerprint,
+        target_reason: reason,
+      });
+      if (error) throw error;
+      setNotice(`กู้สถานะ ${selected.work_key} แล้ว โดยยังคง retry budget และ Audit เดิม`);
+      await load();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : userError(error));
+    } finally { setBusy(false); }
   };
   const counts = useMemo(
     () => ({
@@ -703,6 +743,19 @@ export function WorkCommandCenterPage() {
                 {productionLabel(selected.production_status)}
               </Typography>
             </Box>
+            <Box>
+              <Typography variant="subtitle2">ผลลัพธ์ worker ล่าสุด</Typography>
+              <Typography>
+                {selected.worker_outcome
+                  ? `${selected.worker_outcome} · ${selected.worker_outcome_reason || "ไม่มีเหตุผลจาก worker"}`
+                  : "ยังไม่มีผลลัพธ์ worker"}
+              </Typography>
+              {selected.worker_outcome_at && (
+                <Typography variant="caption" color="text.secondary">
+                  {formatDate(selected.worker_outcome_at)}
+                </Typography>
+              )}
+            </Box>
             {selected.heartbeat_at && (
               <Alert severity={hasExpiredLease(selected) ? "error" : "info"}>
                 {hasExpiredLease(selected)
@@ -750,6 +803,17 @@ export function WorkCommandCenterPage() {
                   ส่งแจ้งเตือนเฉพาะงานนี้
                 </Button>
               </Stack>
+            )}
+            {selected.status === "ready" && !selected.approval_status && (
+              <Button variant="contained" disabled={busy} onClick={() => void submitForReview()}>
+                ส่งตรวจอนุมัติ
+              </Button>
+            )}
+            {(["ready", "blocked"] as WorkStatus[]).includes(selected.status) &&
+              selected.approval_status === "approved" && selected.approval_fingerprint && (
+              <Button variant="outlined" disabled={busy} onClick={() => void reconcileApprovedExecution()}>
+                กู้สถานะงานที่อนุมัติแล้ว
+              </Button>
             )}
             <Divider />
             <Typography variant="h6">Timeline และ Audit</Typography>

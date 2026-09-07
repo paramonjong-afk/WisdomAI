@@ -7,8 +7,9 @@ const expectedSecret = Deno.env.get('AUTOMATION_WORKER_SECRET')
 const headers = { 'content-type': 'application/json; charset=utf-8' }
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers })
 
+type WorkerOutcome = 'acknowledged'|'claimed'|'blocked'|'completed'|'no_output'
 type Body = {
-  action?: 'status'|'claim'|'heartbeat'|'finish'|'retry_runner_failure'|'inspect_line_voice_uat'|'complete_line_voice_uat'|'approve_review'|'start_specific'|'reset_retry'
+  action?: 'status'|'claim'|'heartbeat'|'finish'|'retry_runner_failure'|'inspect_line_voice_uat'|'complete_line_voice_uat'|'start_specific'|'reset_retry'
   worker_id?: string
   work_key?: string
   run_id?: string
@@ -18,6 +19,8 @@ type Body = {
   evidence?: string
   production_status?: string
   error_fingerprint?: string
+  outcome?: WorkerOutcome
+  outcome_reason?: string
   lease_minutes?: number
 }
 
@@ -32,8 +35,8 @@ Deno.serve(async request => {
 
   if (body.action === 'status') {
     const [{ data: items, error: itemError }, { data: runs, error: runError }] = await Promise.all([
-      admin.from('system_work_items').select('work_key,title,status,progress,risk,production_status,approval_status,approval_scope,approved_at,approval_channel,worker_id,heartbeat_at,lease_expires_at,current_step,updated_at').order('work_key'),
-      admin.from('system_worker_runs').select('id,work_key,worker_id,status,current_step,progress,started_at,heartbeat_at,finished_at').eq('status','running').order('started_at'),
+      admin.from('system_work_items').select('work_key,title,status,progress,risk,production_status,approval_status,approval_scope,approved_at,approval_channel,worker_id,heartbeat_at,lease_expires_at,current_step,attempt_count,error_fingerprint,worker_outcome,worker_outcome_reason,worker_outcome_at,updated_at').order('work_key'),
+      admin.from('system_worker_runs').select('id,work_key,worker_id,status,current_step,progress,outcome,outcome_reason,started_at,heartbeat_at,finished_at').order('started_at', { ascending: false }).limit(100),
     ])
     if (itemError || runError) return json({ error: (itemError ?? runError)?.message }, 500)
     const counts = (items ?? []).reduce<Record<string,number>>((sum, item) => {
@@ -111,18 +114,6 @@ Deno.serve(async request => {
     return json({ updated: data === true, work_key: workKey })
   }
 
-  if (body.action === 'approve_review') {
-    const workKey = String(body.work_key || '').trim().slice(0, 80)
-    if (!workKey) return json({ error: 'work_key_required' }, 400)
-    const { data, error } = await admin.from('system_work_items').update({
-      status: 'ready', production_status: 'approved_for_execution',
-      approval_channel: 'automation_worker_admin',
-      evidence: 'Approved explicitly by the system administrator for execution.', updated_at: new Date().toISOString(),
-    }).eq('work_key', workKey).eq('status', 'review').select('work_key').maybeSingle()
-    if (error) return json({ error: error.message }, 500)
-    return json({ updated: Boolean(data), work_key: data?.work_key ?? null })
-  }
-
   if (body.action === 'start_specific') {
     const workKey = String(body.work_key || '').trim().slice(0, 80)
     if (!workKey) return json({ error: 'work_key_required' }, 400)
@@ -146,11 +137,16 @@ Deno.serve(async request => {
     return json({ updated: data === true })
   }
   if (body.action === 'finish') {
+    if (!body.outcome || !body.outcome_reason?.trim()) {
+      return json({ error: 'terminal_outcome_and_reason_required' }, 400)
+    }
     const { data, error } = await admin.rpc('finish_system_work_item', {
       target_run: body.run_id,target_worker: workerId,target_status: body.status,
       target_progress: Math.min(100,Math.max(0,Number(body.progress)||0)),
       target_evidence: String(body.evidence || ''),target_production_status: body.production_status || null,
       target_error_fingerprint: body.error_fingerprint || null,
+      target_outcome: body.outcome,
+      target_outcome_reason: body.outcome_reason.trim().slice(0, 1000),
     })
     if (error) return json({ error: error.message }, 500)
     return json({ updated: data === true })
