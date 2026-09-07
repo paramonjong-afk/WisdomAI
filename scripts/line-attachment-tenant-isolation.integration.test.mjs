@@ -59,10 +59,24 @@ begin
   select c.user_a, c.user_b into user_a, user_b from rls_harness_context c;
   insert into public.companies(id,name,slug) values
     (company_a,'RLS Harness A','rls-harness-a'),(company_b,'RLS Harness B','rls-harness-b');
+  -- Bootstrap memberships through the same platform-admin gate used by the
+  -- application; do not bypass the trigger with a disabled constraint.
+  set local role service_role;
+  perform set_config('request.jwt.claim.sub',user_a::text,true);
+  perform set_config('request.jwt.claims',json_build_object('role','service_role','sub',user_a::text)::text,true);
+  perform set_config('app.platform_company_bootstrap','on',true);
   insert into public.company_members(company_id,profile_id,company_role)
-  values (company_a,user_a,'company_admin'),(company_b,user_b,'company_admin');
+  values (company_a,user_a,'company_admin');
+  perform set_config('request.jwt.claim.sub',user_b::text,true);
+  perform set_config('request.jwt.claims',json_build_object('role','service_role','sub',user_b::text)::text,true);
+  insert into public.company_members(company_id,profile_id,company_role)
+  values (company_b,user_b,'company_admin');
   insert into public.user_company_preferences(profile_id,active_company_id)
   values (user_a,company_a),(user_b,company_b);
+  -- Service-role fixture writes are intentionally context-free; assertions
+  -- below reintroduce each authenticated JWT explicitly.
+  perform set_config('request.jwt.claim.sub','',true);
+  perform set_config('request.jwt.claims',json_build_object('role','service_role')::text,true);
   insert into public.line_messages(id,webhook_event_id,line_message_id,message_type,occurred_at,raw_event,company_id)
   values
     (message_a,'rls-harness-event-a','rls-harness-message-a','image',now(),'{}',company_a),
