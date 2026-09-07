@@ -5,6 +5,7 @@ const admin=createClient(Deno.env.get('SUPABASE_URL')??'',Deno.env.get('SUPABASE
 const expectedSecret=Deno.env.get('STORAGE_CONSISTENCY_WORKER_SECRET')
 const json=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json'}})
 const MAX_SCAN_RECORDS=10_000
+const INCIDENT_BATCH_SIZE=10
 
 async function listObjects(bucket:string,prefix=''):Promise<StoredObject[]> {
   const result:StoredObject[]=[]
@@ -75,16 +76,23 @@ Deno.serve(async request=>{
   const documentSets=(setRows??[]).map(row=>({...row,actual_page_count:actualCounts[row.id]??0}))
   const findings=await scanStorageConsistency({blobs,objects,documentSets})
   let incidentsCreated=0,incidentsUpdated=0,failed=0
-  for(const finding of findings){
-    if(finding.companyId==='unknown'){ failed+=1; continue }
-    const {data,error}=await admin.rpc('upsert_system_error_event',{
-      target_company_id:finding.companyId,target_fingerprint:finding.fingerprint,target_correlation_key:finding.fingerprint,
-      target_source:'storage_consistency_worker',target_title:`Storage consistency: ${finding.kind}`,
-      target_message:JSON.stringify(finding.evidence),target_module:'document_storage',target_severity:'critical',target_metadata:finding.evidence,
-    })
-    if(error)failed+=1
-    else if(Number(data?.occurrence_count??1)>1)incidentsUpdated+=1
-    else incidentsCreated+=1
+  for(let offset=0;offset<findings.length;offset+=INCIDENT_BATCH_SIZE){
+    const batch=findings.slice(offset,offset+INCIDENT_BATCH_SIZE)
+    const results=await Promise.all(batch.map(async finding=>{
+      if(finding.companyId==='unknown')return {kind:'failed' as const}
+      const {data,error}=await admin.rpc('upsert_system_error_event',{
+        target_company_id:finding.companyId,target_fingerprint:finding.fingerprint,target_correlation_key:finding.fingerprint,
+        target_source:'storage_consistency_worker',target_title:`Storage consistency: ${finding.kind}`,
+        target_message:JSON.stringify(finding.evidence),target_module:'document_storage',target_severity:'critical',target_metadata:finding.evidence,
+      })
+      if(error)return {kind:'failed' as const}
+      return Number(data?.occurrence_count??1)>1 ? {kind:'updated' as const} : {kind:'created' as const}
+    }))
+    for(const result of results){
+      if(result.kind==='failed')failed+=1
+      else if(result.kind==='updated')incidentsUpdated+=1
+      else incidentsCreated+=1
+    }
   }
   return json({action:'scan',dry_run:false,before:{checked_blobs:blobs.length,checked_objects:objects.length,checked_document_sets:documentSets.length},findings:summarizeFindings(findings),safe_repairs:{attempted:0,completed:0,reason:'no_lossless_object_repair_available'},incidents:{created:incidentsCreated,updated:incidentsUpdated,failed},after:{unresolved_findings:findings.length},hash_verification:Boolean(body.verify_hashes),page_size:pageSize})
 })
