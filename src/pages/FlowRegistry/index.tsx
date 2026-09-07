@@ -85,6 +85,15 @@ const accountingFlows = [
 
 const systemFlows = [
   {
+    title: 'Work Command Center / Worker Progress',
+    version: 'Work Command v1.0 · 7/9/2569',
+    icon: <WorkHistoryOutlinedIcon color="primary" />,
+    summary: 'คิวกลางแสดงว่า Worker รับงาน กำลังทำ ติดปัญหา เสร็จ หรือไม่มีผลลัพธ์จริงจาก lease/heartbeat โดยอ่านข้อมูลเดิมเท่านั้น',
+    bullets: ['อ่านจาก docs/WORK_COMMAND_CENTER_FLOW.md', 'ใช้ system_work_items เป็นสถานะปัจจุบันและ system_worker_runs เป็นหลักฐานการทำงานล่าสุด', 'งาน doing ที่ heartbeat เกิน 10 นาทีหรือ lease หมดอายุจะแจ้งให้ตรวจ recovery ก่อนสั่งซ้ำ', 'Drawer แสดง Worker, ขั้นตอน, progress, heartbeat, lease, run และ Audit ตาม RLS เดิม'],
+    path: '/work-command-center',
+    action: 'เปิดศูนย์สั่งงาน',
+  },
+  {
     title: 'Notification Center',
     version: 'Notification Center v1.3 · 29/8/2569',
     icon: <NotificationsNoneOutlinedIcon color="primary" />,
