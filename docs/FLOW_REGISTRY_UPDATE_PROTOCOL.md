@@ -23,6 +23,28 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-07 — LINE attachment tenant isolation and duplicate-link containment v1.0 (DOC-INGEST-005)
+
+```mermaid
+flowchart LR
+  A[LINE attachment + company context] --> B{Company established?}
+  B -->|No| C[Store raw logical attachment; no duplicate_of link]
+  B -->|Yes| D[Hash and search same-company candidates only]
+  D --> E{Completed same-company match?}
+  E -->|Yes| F[Link duplicate_of; reuse same-company physical blob]
+  E -->|No| G[Create logical row + company-scoped blob]
+  H[Authenticated read] --> I[Active company + document-flow policy]
+  J[Service role webhook] --> K[Blob write/update]
+```
+
+- **เหตุผล:** ปิดช่อง logical duplicate ที่ข้ามบริษัทและการอ่าน metadata/blob โดยตรงที่กว้างเกินไป โดยไม่แก้หรือล้างลิงก์ย้อนหลัง 251 รายการ
+- **ผลกระทบ:** `supabase/functions/line-webhook/index.ts`, `202609070001_line_attachment_tenant_isolation.sql`, `scripts/line-attachment-blob-dedupe.test.ts`, และเอกสาร Storage/Intake; Raw/object เดิมไม่ถูกเขียนทับ
+- **Migration:** ต้องผ่าน PR verification, local migration replay, RLS negative/positive fixtures และ review ก่อน Production
+- **การตรวจสอบ:** duplicate candidate company predicate, table grant/policy contract, same-company positive/cross-company negative read fixtures, typecheck, targeted lint/build, authenticated Storage/Intake smoke
+- **สิทธิ์/เจ้าของ:** Platform/Security เป็นเจ้าของ policy; Intake เป็นเจ้าของ routing/duplicate decision; service role เท่านั้นเขียน blob/LINE ingestion
+- **Failure/Retry:** company ไม่ชัดเจนให้เก็บ raw และไม่สร้าง `duplicate_of`; retry ใช้ message/document idempotency เดิม; ห้ามเดาหรือ auto-clear historical cross-company links
+- **Rollback:** revert webhook/migration ก่อนเปิดช่องใหม่; เก็บ raw/blob/link/audit เดิมและไม่ทำ destructive repair
+
 ## 2026-09-07 — System Data Access Phase 1
 
 ```mermaid

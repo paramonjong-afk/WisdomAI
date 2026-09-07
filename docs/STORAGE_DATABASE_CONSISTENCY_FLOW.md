@@ -41,3 +41,11 @@ There is currently no lossless automatic object repair. A tenant owner must revi
 - Migration: none.
 - Verification: pure scanner fault-injection test, lint, build, GitHub workflow, deployed function listing, authenticated page smoke, and a secret-authenticated scan when the production secret is available.
 - Rollback: revert the release commit; the function is then absent/disabled and existing Storage objects remain untouched.
+
+## DOC-INGEST-005 containment — 2026-09-07
+
+- Production evidence found 251 historical cross-company logical duplicate links and permissive direct reads on LINE metadata/blob tables. Historical links are excluded from this change and are not cleared automatically.
+- New duplicate candidate lookup is company-scoped; if company context is unavailable, no `duplicate_of` link is created. Physical blob reuse remains `(company_id, content_sha256)` scoped.
+- Authenticated reads of LINE metadata and physical blobs require the active company; anonymous/table DML is revoked and blob writes remain service-role only. The broad LINE Storage path is excluded from the tenant restrictive policy so document-flow authorization is effective.
+- Migration `20260907130000_line_attachment_tenant_isolation.sql` is PR/local-gates only and has not been applied to Production in this task.
+
