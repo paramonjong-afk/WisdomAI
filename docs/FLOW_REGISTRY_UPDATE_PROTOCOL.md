@@ -1034,3 +1034,20 @@ flowchart LR
 - **Migration:** None. The existing RPC remains the data authority.
 - **Verification:** `test:filter-runtime-contract` compares the action set and enforcement markers with the migration and confirms the runtime imports.
 - **Rollback:** Revert the application contract commit only; no records, sources, or audits are deleted.
+
+## 2026-09-07 — Intake Duplicate-State Preflight/UI v1.1
+
+```mermaid
+flowchart LR
+  A[Queue row: duplicate_state] --> B[Intake mapping]
+  B --> C[Queue/Drawer warning]
+  C --> D{duplicate?}
+  D -->|yes| E[Block route_filter preflight]
+  D -->|no| F[Existing transition contract]
+```
+
+- **Reason:** QA found the server-side `duplicate_state` guard was not carried into Intake UI context, so the visible queue action could appear available even though the RPC would reject it.
+- **Impact:** Intake queue filtering, Drawer messaging, action disabled state, and client preflight now use the same persisted duplicate marker; no routing, permissions, or data model changes.
+- **Migration:** None.
+- **Verification:** `test:filter-runtime-contract`, typecheck, targeted lint, build; no Production mutation or deployment.
+- **Rollback:** Revert the application/test/documentation commit; existing duplicate rows and audit history remain unchanged.

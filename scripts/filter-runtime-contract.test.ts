@@ -10,6 +10,7 @@ const base = { currentFlow: 'intake', state: 'received', eventKey: 'event-1' }
 
 assert.equal(evaluateDocumentFlowTransition('route_filter', base).allowed, true)
 assert.equal(evaluateDocumentFlowTransition('route_filter', { ...base, issueCodes: ['missing_vendor'] }).reason, 'workflow_intake_quality_not_passed')
+assert.equal(evaluateDocumentFlowTransition('route_filter', { ...base, duplicateState: 'duplicate' }).reason, 'workflow_intake_quality_not_passed')
 assert.equal(evaluateDocumentFlowTransition('retry', base).allowed, false)
 assert.equal(evaluateDocumentFlowTransition('retry', { ...base, state: 'rejected' }).nextState, 'validating')
 assert.equal(evaluateDocumentFlowTransition('recover', { ...base, state: 'dismissed', currentFlow: 'filter' }).nextState, 'awaiting_classification')
@@ -26,5 +27,9 @@ for (const invariant of ['public.is_platform_admin()', 'public.current_company_i
 assert.match(gateway, /evaluateDocumentFlowTransition/)
 assert.match(gateway, /transitionWithContract/)
 assert.match(intakeRoom, /transitionWithContract/)
+assert.match(intakeRoom, /duplicate_state\?: string \| null/)
+assert.match(intakeRoom, /duplicateState: item\.duplicate_state/)
+assert.match(intakeRoom, /item\.duplicate_state === 'duplicate'/)
+assert.match(intakeRoom, /selectedItem\.duplicate_state === 'duplicate'/)
 
 console.log('filter runtime contract checks passed')

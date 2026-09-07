@@ -32,6 +32,7 @@ type IntakeFlowItem = {
   vendor_name: string | null
   confidence: number | null
   issue_codes: string[] | null
+  duplicate_state?: string | null
   last_error: string | null
   total_amount: number | null
   projects: { name: string } | null
@@ -75,6 +76,7 @@ type RawDocumentFlowRow = {
   vendor_name: string | null
   confidence: number | null
   issue_codes: string[] | null
+  duplicate_state?: string | null
   last_error: string | null
   total_amount: number | null
   projects: RawProjects
@@ -422,6 +424,7 @@ export function IntakeRoomPanel({
         vendor_name: typedRow.vendor_name,
         confidence: typedRow.confidence,
         issue_codes: typedRow.issue_codes,
+        duplicate_state: typedRow.duplicate_state ?? null,
         last_error: typedRow.last_error,
         total_amount: typedRow.total_amount,
         projects: projectRecord && 'name' in projectRecord ? { name: String(projectRecord.name) } : null,
@@ -453,6 +456,7 @@ export function IntakeRoomPanel({
       vendor_name: item.candidate_name,
       confidence: null,
       issue_codes: item.missing_fields?.length ? ['hr_information_missing'] : [],
+      duplicate_state: null,
       last_error: item.status === 'failed' ? 'HR intake failed' : null,
       total_amount: null,
       projects: null,
@@ -481,7 +485,7 @@ export function IntakeRoomPanel({
       if (queueView === 'quality') return item.current_room.includes('low_quality') || issue.includes('quality') || issue.includes('confidence')
       if (queueView === 'unreadable') return item.current_room.includes('unreadable') || issue.includes('unreadable') || issue.includes('missing_content')
       if (queueView === 'missing') return issue.includes('missing') || issue.includes('needs_information') || item.state === 'information_required'
-      if (queueView === 'duplicate') return item.current_room.includes('duplicate') || item.state === 'duplicate_hold' || issue.includes('duplicate')
+      if (queueView === 'duplicate') return item.current_room.includes('duplicate') || item.state === 'duplicate_hold' || item.duplicate_state === 'duplicate' || issue.includes('duplicate')
       return ['failed', 'rejected'].includes(item.state) || Boolean(item.last_error)
     }
     return items.filter((item) => matchesQueueView(item)
@@ -522,6 +526,7 @@ export function IntakeRoomPanel({
               currentFlow: item.current_flow,
               state: item.state,
               issueCodes: item.issue_codes,
+              duplicateState: item.duplicate_state,
               routeTarget: item.route_target,
             },
             note,
@@ -854,7 +859,7 @@ export function IntakeRoomPanel({
                 Retry
               </MenuItem>
               <MenuItem
-                disabled={actionMenuRow.current_flow !== 'intake' || (actionMenuRow.issue_codes?.length ?? 0) > 0 || actionMenuRow.state === 'duplicate_hold'}
+                disabled={actionMenuRow.current_flow !== 'intake' || (actionMenuRow.issue_codes?.length ?? 0) > 0 || actionMenuRow.state === 'duplicate_hold' || actionMenuRow.duplicate_state === 'duplicate'}
                 onClick={() => { closeActionMenu(); void workflowTransition(actionMenuRow, 'route_filter', 'ยืนยันผ่าน Intake และส่งเข้า Filter') }}
               >
                 ส่งเข้า Filter
@@ -878,7 +883,7 @@ export function IntakeRoomPanel({
         {selectedItem && <Stack spacing={2}>
           <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'start' }}><div><Typography variant="overline" color="text.secondary">ตรวจรับข้อมูลเข้า</Typography><Typography variant="h5" sx={{ fontWeight: 800 }}>{selectedItem.document_type === 'hr_employee_document' ? 'เอกสาร HR' : routeTargetLabels[selectedItem.route_target ?? ''] ?? 'เอกสารรับเข้า'}</Typography></div><Chip color={classifyQueueState(selectedItem).color} label={classifyQueueState(selectedItem).label} /></Stack>
           <Divider />
-          <Stack spacing={1}><Typography variant="caption" color="text.secondary">เส้นทางและผู้ส่ง</Typography><Typography>{selectedItem.source_entry_point}</Typography><Typography variant="caption" color="text.secondary">เวลารับเข้า</Typography><Typography>{selectedItem.source_received_at ? new Date(selectedItem.source_received_at).toLocaleString('th-TH') : 'ไม่ระบุ'}</Typography><Typography variant="caption" color="text.secondary">ผลคุณภาพ / Issue</Typography><Stack direction="row" spacing={.5} useFlexGap sx={{ flexWrap: 'wrap' }}>{issueInfo(selectedItem.issue_codes).length ? issueInfo(selectedItem.issue_codes).map((issue) => <Chip key={issue.label} size="small" color={issue.level} label={issue.label} />) : <Chip size="small" color="success" label="ผ่านการตรวจเบื้องต้น" />}</Stack></Stack>
+          <Stack spacing={1}><Typography variant="caption" color="text.secondary">เส้นทางและผู้ส่ง</Typography><Typography>{selectedItem.source_entry_point}</Typography><Typography variant="caption" color="text.secondary">เวลารับเข้า</Typography><Typography>{selectedItem.source_received_at ? new Date(selectedItem.source_received_at).toLocaleString('th-TH') : 'ไม่ระบุ'}</Typography><Typography variant="caption" color="text.secondary">ผลคุณภาพ / Issue</Typography><Stack direction="row" spacing={.5} useFlexGap sx={{ flexWrap: 'wrap' }}>{issueInfo(selectedItem.issue_codes).length ? issueInfo(selectedItem.issue_codes).map((issue) => <Chip key={issue.label} size="small" color={issue.level} label={issue.label} />) : <Chip size="small" color="success" label="ผ่านการตรวจเบื้องต้น" />}</Stack>{selectedItem.duplicate_state === 'duplicate' && <Alert severity="warning">รายการนี้ถูกระบุว่าซ้ำ จึงยังส่งเข้า Filter ไม่ได้ ต้องตรวจและเลือกต้นฉบับก่อน</Alert>}</Stack>
           {selectedItem.document_type === 'transfer_slip' && <Stack spacing={.75}><Divider /><Typography variant="subtitle2" sx={{ fontWeight: 800 }}>ข้อมูลธุรกรรมสลิป</Typography><Typography variant="caption" color="text.secondary">ผู้โอน / ธนาคารต้นทาง / บัญชีต้นทาง</Typography><Typography>{[selectedItem.transfer_parties?.sender_name, selectedItem.transfer_parties?.sender_bank_name, selectedItem.transfer_parties?.sender_account_last4 ? `•••• ${selectedItem.transfer_parties.sender_account_last4}` : null].filter(Boolean).join(' · ') || 'ยังอ่านไม่ได้'}</Typography><Typography variant="caption" color="text.secondary">ผู้รับ / ธนาคารปลายทาง / บัญชีปลายทาง</Typography><Typography>{[selectedItem.transfer_parties?.recipient_name, selectedItem.transfer_parties?.recipient_bank_name, selectedItem.transfer_parties?.recipient_account_last4 ? `•••• ${selectedItem.transfer_parties.recipient_account_last4}` : null].filter(Boolean).join(' · ') || 'ยังอ่านไม่ได้'}</Typography><Typography variant="caption" color="text.secondary">วันเวลาโอน / เลขอ้างอิง / ความมั่นใจคู่โอน</Typography><Typography>{selectedItem.transfer_parties?.transfer_at ? new Date(selectedItem.transfer_parties.transfer_at).toLocaleString('th-TH') : 'ไม่ระบุ'} · {selectedItem.transfer_parties?.bank_reference ?? 'ไม่ระบุ'} · {selectedItem.transfer_parties?.payment_party_confidence == null ? '-' : `${(selectedItem.transfer_parties.payment_party_confidence * 100).toFixed(0)}%`}</Typography></Stack>}
           {selectedItem.document_type === 'cheque_payment' && <Stack spacing={.75}><Divider /><Typography variant="subtitle2" sx={{ fontWeight: 800 }}>ข้อมูลเช็คสั่งจ่าย</Typography><Typography variant="caption" color="text.secondary">ผู้สั่งจ่าย / ผู้รับเงิน</Typography><Typography>{[selectedItem.cheque_evidence?.cheque_drawer_name, selectedItem.cheque_evidence?.cheque_payee_name].filter(Boolean).join(' → ') || 'ยังอ่านผู้สั่งจ่ายหรือผู้รับเงินไม่ได้'}</Typography><Typography variant="caption" color="text.secondary">ธนาคาร / บัญชี / เลขที่เช็ค</Typography><Typography>{[selectedItem.cheque_evidence?.cheque_bank_name, selectedItem.cheque_evidence?.cheque_account_last4 ? `•••• ${selectedItem.cheque_evidence.cheque_account_last4}` : null, selectedItem.cheque_evidence?.cheque_number ? `เลขที่ ${selectedItem.cheque_evidence.cheque_number}` : null].filter(Boolean).join(' · ') || 'ยังอ่านข้อมูลเช็คไม่ได้'}</Typography><Typography variant="caption" color="text.secondary">วันที่ / ยอด / การจับคู่ / ความมั่นใจ</Typography><Typography>{selectedItem.cheque_evidence?.cheque_issued_on ? new Date(`${selectedItem.cheque_evidence.cheque_issued_on}T00:00:00`).toLocaleDateString('th-TH') : 'ไม่ระบุ'} · {selectedItem.cheque_evidence?.amount_total == null ? 'ไม่ระบุยอด' : `฿${selectedItem.cheque_evidence.amount_total.toLocaleString('th-TH')}`} · {selectedItem.cheque_evidence?.cheque_match_status === 'matched' ? `จับคู่แล้ว (${selectedItem.cheque_evidence.cheque_matched_entity_type ?? 'ทะเบียนกลาง'})` : selectedItem.cheque_evidence?.cheque_match_status === 'duplicate' ? 'รายการซ้ำ' : 'รอตรวจจับคู่'} · {selectedItem.cheque_evidence?.cheque_extraction_confidence == null ? '-' : `${(selectedItem.cheque_evidence.cheque_extraction_confidence * 100).toFixed(0)}%`}</Typography><Alert severity={selectedItem.cheque_evidence?.cheque_match_status === 'matched' ? 'success' : 'warning'}>{selectedItem.cheque_evidence?.cheque_match_status === 'duplicate' ? 'ระบบประทับรายการซ้ำแล้ว รายการนี้จะไม่ถูกส่งต่อ' : 'ตรวจชื่อผู้รับเงินกับทะเบียนกลางก่อนยืนยันผ่าน Intake'}</Alert></Stack>}
           <Button variant="outlined" onClick={() => void openSourcePreview(selectedItem)}>เปิดรูป/เอกสารต้นฉบับ</Button>
@@ -888,7 +893,7 @@ export function IntakeRoomPanel({
             {previewFiles[previewIndex].contentType?.startsWith('image/') ? <Box component="img" src={previewFiles[previewIndex].url} alt="ไฟล์ต้นฉบับ" sx={{ width: '100%', maxHeight: 500, objectFit: 'contain', borderRadius: 1, bgcolor: 'grey.100' }} /> : <Box component="iframe" title="ไฟล์ต้นฉบับ" src={previewFiles[previewIndex].url} sx={{ width: '100%', height: 420, border: 0, borderRadius: 1 }} />}
           </>}
           <TextField label="หมายเหตุการดำเนินการ" multiline minRows={2} value={drawerNote} onChange={(event) => setDrawerNote(event.target.value)} />
-          {selectedItem.source === 'document_flow' && <><Button variant="contained" disabled={actionLoading || selectedItem.current_flow !== 'intake' || (selectedItem.issue_codes?.length ?? 0) > 0 || selectedItem.state === 'duplicate_hold'} onClick={() => void workflowTransition(selectedItem, 'route_filter', drawerNote || 'ยืนยันผ่าน Intake และส่งเข้า Filter').then((ok) => { if (ok) setSelectedItem(null) })}>ยืนยันผ่าน Intake และส่งเข้า Filter</Button><Typography variant="caption" color="text.secondary">หากมีปัญหา คุณภาพต่ำ หรือเอกสารซ้ำ ต้องแก้หรือเลือกต้นฉบับก่อนจึงจะส่งต่อได้</Typography></>}
+          {selectedItem.source === 'document_flow' && <><Button variant="contained" disabled={actionLoading || selectedItem.current_flow !== 'intake' || (selectedItem.issue_codes?.length ?? 0) > 0 || selectedItem.state === 'duplicate_hold' || selectedItem.duplicate_state === 'duplicate'} onClick={() => void workflowTransition(selectedItem, 'route_filter', drawerNote || 'ยืนยันผ่าน Intake และส่งเข้า Filter').then((ok) => { if (ok) setSelectedItem(null) })}>ยืนยันผ่าน Intake และส่งเข้า Filter</Button><Typography variant="caption" color="text.secondary">หากมีปัญหา คุณภาพต่ำ หรือเอกสารซ้ำ ต้องแก้หรือเลือกต้นฉบับก่อนจึงจะส่งต่อได้</Typography></>}
           {selectedItem.source === 'employee_intake' && <Stack spacing={1}>
             {!['approved','cancelled'].includes(selectedItem.state) && <Button variant="outlined" disabled={actionLoading} onClick={() => void employeeIntakeTransition(selectedItem, 'create_preboarding')}>สร้างประวัติพนักงานเบื้องต้น</Button>}
             <Button variant="contained" disabled={actionLoading || selectedItem.state !== 'pending_review'} onClick={() => void employeeIntakeTransition(selectedItem, 'approve').then((ok) => { if (ok) setSelectedItem(null) })}>ยืนยันข้อมูลครบและส่งเข้า Onboarding</Button>

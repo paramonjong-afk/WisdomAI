@@ -20,7 +20,7 @@ The client contract gives the Intake UI the same transition vocabulary and basic
 
 - Input: document-flow item, requested action, expected version, non-empty event key, and optional action note.
 - Actions: `route_filter`, `request_classification`, `request_correction`, `ready_posting`, `approve`, `reject`, `retry`, `dead_letter`, and `recover`.
-- Output: a rejected preflight without a write, or the RPC result with a new version and an audit event.
+- Output: a rejected preflight without a write, or the RPC result with a new version and an audit event. Intake passes the persisted `duplicate_state` into preflight so duplicate records are blocked consistently in the queue, Drawer, and RPC path.
 - `retry` only accepts `failed` or `rejected`; `recover` only accepts `dismissed`. No client action invents `gateway_posted` or `gateway_failed` states.
 
 ## Roles, ownership, and integrations
@@ -41,3 +41,4 @@ The client contract gives the Intake UI the same transition vocabulary and basic
 | Version | Date | Rationale | Impact | Migration | Verification | Rollback |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1.0 | 2026-09-07 | Close FILTER-001 runtime gap found by QA. | Intake action availability now imports the canonical contract. | None; existing RPC is unchanged. | `test:filter-runtime-contract`, typecheck, lint, build. | Revert this UI/service/test/documentation commit; the RPC and existing records remain unchanged. |
+| 1.1 | 2026-09-07 | Prevent duplicate records from appearing routable when the queue row has `duplicate_state=duplicate`. | Intake maps the source field, filters duplicate view correctly, shows a Drawer warning, and blocks route preflight/action before the existing RPC guard. | None; existing RPC remains authoritative. | Duplicate-state contract regression, typecheck, lint, build. | Revert the UI/test/documentation commit; no business records change. |
