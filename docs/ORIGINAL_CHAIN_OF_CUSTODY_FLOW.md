@@ -33,6 +33,25 @@ Existing `line_attachments`/`line_attachment_blobs` already carry hash, tenant, 
 
 ## Change record
 
+## Approved retention and recovery policy
+
+The Admin-approved default policy is:
+
+- Financial slips and accounting originals: retain for 7 years from the end of the accounting period; never overwrite the original.
+- General originals: retain for 2 years unless a longer legal or contractual period applies.
+- Quarantine or unreadable uploads: retain for 30 days with the validation failure reason and audit trail.
+- Thumbnails and regenerated derivatives: retain for 90 days; they may be deleted and recreated from the original.
+- Legal hold: indefinite retention until an Admin/Compliance owner records a release decision.
+- Recovery drill: quarterly, to an encrypted temporary location; verify SHA-256, record the audit event, then securely remove the temporary copy.
+
+Retention Worker may delete only expired records with no legal hold. Every preview, download, recovery, release, and deletion remains append-only in Audit. These defaults are operational controls; tax/accounting exceptions still take precedence.
+
+### v1.1 — 7/9/2569
+
+- Rationale: record the Admin-approved retention, legal-hold, and controlled recovery defaults so the custody flow can be operated consistently.
+- Verification: Production schema and Storage object/hash integrity were checked read-only; no business or evidence data was changed.
+- Rollback: revert this policy section and registry version; existing originals and audit history remain unchanged.
+
 ### v1.0 — 7/9/2569
 
 - Rationale: close the DOC-INGEST-003 Flow Registry gap and make original evidence/retention rules explicit.
