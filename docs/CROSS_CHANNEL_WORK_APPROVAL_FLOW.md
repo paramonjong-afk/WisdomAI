@@ -13,6 +13,9 @@ flowchart LR
   I --> K[Audit decision channel, actor, reason, time]
   I --> L[Web Chat result message]
   G --> M[Retry-safe error / no duplicate decision]
+  K --> N[Event history loop detector]
+  N -->|review -> ready -> doing -> review| O[Control Center warning + fingerprinted escalation]
+  O --> P[Human resolves scope or execution blocker]
 ```
 
 # Cross-Channel Work Approval Flow
@@ -52,6 +55,7 @@ flowchart LR
 - unique partial index กัน pending ซ้ำ
 - row lock และเงื่อนไขสถานะกัน race ระหว่าง Telegram/Web Chat
 - หากงานไม่อยู่ `review` หรือ approval ถูกตัดสินใจแล้ว จะไม่เปลี่ยนสถานะซ้ำ
+- Health Monitor อ่าน event history ย้อนหลัง 24 ชั่วโมงเพื่อตรวจ `review -> ready -> doing -> review` และแจ้งก่อน retry cap; fingerprint ของรอบล่าสุดทำให้ไม่แจ้งซ้ำสำหรับ loop เดิม
 
 ## Audit and owner
 
@@ -63,4 +67,5 @@ Approval เก็บผู้ขอ เวลา ผู้ตัดสินใ
 |---|---|---|---|---|---|
 | v1.0 | 7/9/2569 | ใช้ approval record เดียวระหว่าง Web Chat และ Telegram พร้อมกันการกดซ้ำ | `202609070001_cross_channel_work_approval.sql` | migration dry-run/apply, RPC/idempotency/permission tests, typecheck, lint, build และ authenticated Web/Telegram smoke | ปิด trigger/RPC/UI ใหม่และคง approval/audit ไว้เพื่ออ่านย้อนหลัง; revert frontend โดยไม่ลบ work item เดิม |
 | v1.2 | 7/9/2569 | ให้ผู้ดูแลส่งแจ้งเตือนของงานที่เปิดดูอยู่เพียงรายการเดียวจากศูนย์สั่งงาน โดยไม่เรียก bulk escalation | ไม่มี schema migration; `src/pages/WorkCommandCenter/index.tsx` | targeted UI contract, typecheck, lint, build และ authenticated runtime smoke | ซ่อนปุ่มเฉพาะงาน; approval, notification และ audit เดิมคงอยู่ |
+| v1.3 | 7/9/2569 | ตรวจ approval loop จาก event ledger ก่อน retry cap และแสดงรอบ/เหตุผลใน Control Center | ไม่มี migration; `health-monitor`, Work Command Center detector | sequence, dedupe, UI contract, typecheck, lint, build และ authenticated smoke | revert detector source โดยเก็บ event/notification/audit เดิม |
 

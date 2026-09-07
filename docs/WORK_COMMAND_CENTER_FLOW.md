@@ -53,6 +53,14 @@ an earlier row or a closed Drawer are discarded. Detail failures are shown
 separately from list errors and can be retried without changing the selected
 work item. Successful silent list refreshes clear stale list notices.
 
+## Approval loop detection
+
+The Drawer reads the existing, company-scoped `system_work_item_events` history
+and detects `review -> ready -> doing -> review`. A completed cycle is shown
+with its approval-round count, latest occurrence, and next safe action.
+Repeated review reminders alone do not create a false loop. This detector is
+read-only; approval, retry and business-record permissions are unchanged.
+
 ## Change record
 
 - Version: v1.1
@@ -69,3 +77,13 @@ work item. Successful silent list refreshes clear stale list notices.
 - Migration: none.
 - Rollback: revert the UI/test/doc commit; database records and audit history
   are unaffected.
+
+- Version: v1.3
+- Date: 2026-09-07
+- Rationale: surface approval loops before the worker retry cap hides the
+  operational problem.
+- Migration: none; the detector reads the existing event ledger.
+- Verification: deterministic sequence regression, monitor dedupe contract,
+  typecheck, lint, build, and authenticated Drawer smoke after release.
+- Rollback: revert the detector/UI source only. Existing events,
+  notifications, approvals and work items remain intact.

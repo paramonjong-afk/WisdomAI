@@ -23,6 +23,25 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-07 — Approval loop detection before retry cap
+
+```mermaid
+flowchart LR
+  A[Review] --> B[Approved ready]
+  B --> C[Worker doing]
+  C --> D{Returns to review?}
+  D -->|Yes| E[Event-loop fingerprint]
+  E --> F[Control Center warning]
+  E --> G[One Health Monitor escalation]
+  F --> H[Human resolves scope or worker blocker]
+```
+
+- **Reason:** retry counts and `blocked_since` do not catch a task that keeps returning to approval before it reaches a retry cap.
+- **Impact:** read-only analysis of the existing event ledger; the monitor sends one fingerprinted notification per newly observed loop and the Drawer shows rounds, latest time and next action.
+- **Migration:** none.
+- **Verification:** deterministic loop/non-loop fixtures, duplicate-notification contract, typecheck, lint, build and authenticated Drawer smoke after release.
+- **Rollback:** revert source-only change; retain all work-item events and notification records.
+
 ## 2026-09-07 — System Data Access Phase 1
 
 ```mermaid

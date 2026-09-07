@@ -27,6 +27,7 @@ import { supabase } from "../../lib/supabase";
 import { userError } from "../../utils/userError";
 import { runWithMutationAttempt } from "../../utils/mutationAttemptRunner";
 import { shouldApplyDetailResponse } from "./detailRequestGuard";
+import { detectApprovalLoop } from "./approvalLoop";
 
 type WorkStatus = "ready" | "doing" | "review" | "blocked" | "done";
 type Item = {
@@ -375,6 +376,10 @@ export function WorkCommandCenterPage() {
     ["review", "รอตรวจ/อนุมัติ"],
     ["blocked", "ติดปัญหา"],
   ];
+  const approvalLoop = useMemo(
+    () => (selected ? detectApprovalLoop(selected.work_key, events) : null),
+    [events, selected],
+  );
 
   return (
     <Stack spacing={2.5}>
@@ -711,6 +716,16 @@ export function WorkCommandCenterPage() {
                 {` · heartbeat ล่าสุด ${formatDate(selected.heartbeat_at)}`}
                 {selected.lease_expires_at &&
                   ` · lease ถึง ${formatDate(selected.lease_expires_at)}`}
+              </Alert>
+            )}
+            {approvalLoop?.detected && (
+              <Alert severity="warning">
+                <Typography sx={{ fontWeight: 700 }}>
+                  ตรวจพบ Approval loop {approvalLoop.rounds} รอบ
+                </Typography>
+                <Typography variant="body2">
+                  รอบล่าสุด {formatDate(approvalLoop.lastDetectedAt)} · {approvalLoop.nextAction}
+                </Typography>
               </Alert>
             )}
             {selected.evidence && (
