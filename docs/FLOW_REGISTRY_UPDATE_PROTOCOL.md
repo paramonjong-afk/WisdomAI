@@ -981,6 +981,12 @@ flowchart LR
 - **Failure/Retry/Audit:** RPC decisions are idempotent; an existing pending approval retries Web Chat delivery only when its approval message is absent; actor, channel, reason and timestamps are retained; cross-company actors are rejected.
 - **Owner/Migration/Verification/Rollback:** Platform / Accounting; migration `202609070001_cross_channel_work_approval.sql`; verify migration replay, TypeScript, ESLint, build, PR checks and authenticated Web/Telegram smoke; rollback by reverting UI/functions and disabling the new RPC/trigger while retaining approval/audit rows.
 
+### Targeted Work Approval Notification v1.2 (7/9/2569)
+
+- **เหตุผล/ผลกระทบ:** เพิ่มปุ่มใน Drawer `/work-command-center` เพื่อส่งแจ้งเตือนเฉพาะ `work_key` ที่กำลังตรวจ ไม่กระตุ้น bulk escalation และไม่สร้างงาน/ยอดใหม่
+- **สิทธิ์/การตรวจสอบ:** ใช้ Admin/Manager session และ `health-monitor` action เดิม; งานต้องอยู่ `review`; ตรวจ targeted contract, typecheck, lint, build และ runtime smoke
+- **Rollback:** ซ่อนปุ่มหรือย้อนหน้า โดยคง approval, notification และ audit history เดิม
+
 - Storage Retention / Trash / Restore / Purge v1.0 (7/9/2569): registered `docs/STORAGE_RETENTION_FLOW.md` for the existing `storage-retention-worker` and lifecycle RPCs. The documented path requires a dry-run, bounded batch, reference/legal-hold guards, seven-day trash, pre-expiry restore, purge, idempotent audit and reclaimed-byte reporting. Production migration `202608160024_storage_retention_lifecycle` and Edge Function `storage-retention-worker` were inspected; no new migration or data mutation was introduced. Rollback removes the documentation/registry entry while preserving lifecycle metadata, objects and audit history.
 
 - Storage Quota / Backup / Restore Drill v1.0 (7/9/2569): added `docs/STORAGE_QUOTA_BACKUP_RESTORE_FLOW.md` with quota thresholds, deduplicated alerting, immutable backup manifest and isolated restore verification. The Supabase Free plan has no PITR and no approved external backup destination/credential is configured, so no backup/restore readiness is claimed and no live data was changed. Rollback removes the documentation/registry entry only.

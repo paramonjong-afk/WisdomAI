@@ -19,6 +19,7 @@
     "test:line-quota": "node --experimental-strip-types scripts/line-quota.test.ts",
     "test:health-status-report": "node --experimental-strip-types scripts/health-status-report.test.ts",
     "test:health-work-escalation-actions": "node --experimental-strip-types scripts/health-work-escalation-actions.test.ts",
+    "test:work-command-center-targeted-notice": "node --experimental-strip-types scripts/work-command-center-targeted-notice.test.ts",
     "test:health-monitor-tenant": "node --experimental-strip-types scripts/health-monitor-tenant.test.ts",
     "test:line-group-company": "node --experimental-strip-types scripts/line-group-company-mapping.test.ts",
     "test:line-group-assignment-approval": "node --experimental-strip-types scripts/line-group-assignment-approval.test.ts",
