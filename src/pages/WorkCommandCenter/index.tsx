@@ -18,7 +18,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "../../components/PageHeader";
 import { StandardDataTable } from "../../components/StandardDataTable";
 import { useAuth } from "../../hooks/useAuth";
@@ -122,6 +122,8 @@ export function WorkCommandCenterPage() {
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState("");
   const [detailBusy, setDetailBusy] = useState(false);
+  const [detailError, setDetailError] = useState("");
+  const detailRequestId = useRef(0);
   const [view, setView] = useState<View>("active"),
     [createOpen, setCreateOpen] = useState(false),
     [selected, setSelected] = useState<Item | null>(null),
@@ -161,6 +163,7 @@ export function WorkCommandCenterPage() {
       });
     }
     if (error) setNotice(userError(error));
+    else if (silent) setNotice("");
     if (!silent) setBusy(false);
   }, []);
   useEffect(() => {
@@ -205,8 +208,10 @@ export function WorkCommandCenterPage() {
     };
   }, [load]);
   const openDetail = async (item: Item) => {
+    const requestId = ++detailRequestId.current;
     setSelected(item);
     setEvents([]);
+    setDetailError("");
     setDetailBusy(true);
     const [detailResult, eventsResult] = await Promise.all([
       supabase
@@ -223,15 +228,23 @@ export function WorkCommandCenterPage() {
         .order("created_at", { ascending: false })
         .limit(100),
     ]);
+    if (requestId !== detailRequestId.current) return;
     if (detailResult.data) {
       const detail = detailResult.data as WorkItemDetail;
       setSelected((current) =>
         current?.work_key === item.work_key ? { ...current, ...detail } : current,
       );
     }
-    if (eventsResult.data) setEvents(eventsResult.data as Event[]);
+    setEvents(eventsResult.data ? (eventsResult.data as Event[]) : []);
     const error = detailResult.error ?? eventsResult.error;
-    if (error) setNotice(userError(error));
+    if (error) setDetailError(userError(error));
+    setDetailBusy(false);
+  };
+  const closeDetail = () => {
+    detailRequestId.current += 1;
+    setSelected(null);
+    setEvents([]);
+    setDetailError("");
     setDetailBusy(false);
   };
   const create = async () => {
@@ -619,7 +632,7 @@ export function WorkCommandCenterPage() {
       <Drawer
         anchor="right"
         open={Boolean(selected)}
-        onClose={() => setSelected(null)}
+        onClose={closeDetail}
         slotProps={{ paper: { sx: { width: { xs: "100%", sm: 580 }, p: 3 } } }}
       >
         {selected && (
@@ -629,7 +642,7 @@ export function WorkCommandCenterPage() {
                 <Typography variant="overline">{selected.work_key}</Typography>
                 <Typography variant="h5">{selected.title}</Typography>
               </Box>
-              <IconButton onClick={() => setSelected(null)}>
+              <IconButton onClick={closeDetail}>
                 <CloseRoundedIcon />
               </IconButton>
             </Stack>
@@ -659,6 +672,18 @@ export function WorkCommandCenterPage() {
               </Typography>
             </Box>
             {detailBusy && <LinearProgress aria-label="กำลังโหลดรายละเอียด" />}
+            {detailError && (
+              <Alert
+                severity="error"
+                action={
+                  <Button color="inherit" size="small" onClick={() => void openDetail(selected)}>
+                    ลองใหม่
+                  </Button>
+                }
+              >
+                โหลดรายละเอียดไม่สำเร็จ: {detailError}
+              </Alert>
+            )}
             {selected.detail && (
               <Box>
                 <Typography variant="subtitle2">รายละเอียดงาน</Typography>

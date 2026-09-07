@@ -987,6 +987,13 @@ flowchart LR
 - **สิทธิ์/การตรวจสอบ:** ใช้ Admin/Manager session และ `health-monitor` action เดิม; งานต้องอยู่ `review`; ตรวจ targeted contract, typecheck, lint, build และ runtime smoke
 - **Rollback:** ซ่อนปุ่มหรือย้อนหน้า โดยคง approval, notification และ audit history เดิม
 
+### Work Command Center Drawer Regression v1.2 (7/9/2569)
+
+- **เหตุผล/ผลกระทบ:** ป้องกัน response ของ Drawer แถวเก่าทับแถวใหม่หรือกลับมาเขียน state หลังปิด Drawer; แยก loading/error ของ detail และเพิ่ม Retry เฉพาะรายละเอียด โดยไม่แตะ Web chart/pagination หรือ approval behavior
+- **Flow document:** `docs/WORK_COMMAND_CENTER_FLOW.md` เพิ่ม request identity, stale-response discard และ recovery lane
+- **การตรวจสอบ:** Work Command Center action test, deterministic drawer regression contract, typecheck, targeted lint, build; authenticated runtime interaction timing ยังต้องตรวจในหน้า Production
+- **Migration/Rollback:** ไม่มี migration; revert UI/test/doc commit ได้โดยไม่เปลี่ยน work item, approval หรือ audit เดิม
+
 - Storage Retention / Trash / Restore / Purge v1.0 (7/9/2569): registered `docs/STORAGE_RETENTION_FLOW.md` for the existing `storage-retention-worker` and lifecycle RPCs. The documented path requires a dry-run, bounded batch, reference/legal-hold guards, seven-day trash, pre-expiry restore, purge, idempotent audit and reclaimed-byte reporting. Production migration `202608160024_storage_retention_lifecycle` and Edge Function `storage-retention-worker` were inspected; no new migration or data mutation was introduced. Rollback removes the documentation/registry entry while preserving lifecycle metadata, objects and audit history.
 
 - Storage Quota / Backup / Restore Drill v1.0 (7/9/2569): added `docs/STORAGE_QUOTA_BACKUP_RESTORE_FLOW.md` with quota thresholds, deduplicated alerting, immutable backup manifest and isolated restore verification. The Supabase Free plan has no PITR and no approved external backup destination/credential is configured, so no backup/restore readiness is claimed and no live data was changed. Rollback removes the documentation/registry entry only.
