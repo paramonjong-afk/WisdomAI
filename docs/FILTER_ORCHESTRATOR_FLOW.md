@@ -25,6 +25,7 @@ The client contract gives the Intake UI the same transition vocabulary and basic
 
 ## Roles, ownership, and integrations
 
+- **Accountable owner:** Accounting Admin/Manager owns the business decision to route, correct, approve, reject, retry, and recover a document-flow item. Platform Integration owns the Intake-to-Filter client contract, gateway integration, retry/observability, and audit error contract.
 - Any screen may run the local preflight, but only the RPC permits a platform admin or manager in the item company.
 - The RPC verifies a confirmed accounting document before `ready_posting`; it records the approver only for `approve`.
 - `document_flow_events` is the audit destination and `event_key` is the idempotency key. Duplicate events return the existing item rather than creating another transition.

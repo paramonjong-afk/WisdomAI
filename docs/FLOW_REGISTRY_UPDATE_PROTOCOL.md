@@ -1031,6 +1031,7 @@ flowchart LR
 
 - **Reason:** QA found that FILTER-001's proposed contract was not imported by a runtime path and disagreed with the deployed RPC.
 - **Impact:** `documentFlowGateway.transitionWithContract` and Intake Room now use the same action names and client-visible state rules as `transition_document_flow_item`; server-side tenant, role, approval, version, idempotency, and audit checks remain mandatory.
+- **Owner:** Accounting Admin/Manager owns the business workflow; Platform Integration owns the runtime contract, gateway, and audit/retry observability.
 - **Migration:** None. The existing RPC remains the data authority.
 - **Verification:** `test:filter-runtime-contract` compares the action set and enforcement markers with the migration and confirms the runtime imports.
 - **Rollback:** Revert the application contract commit only; no records, sources, or audits are deleted.
