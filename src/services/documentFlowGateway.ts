@@ -161,7 +161,7 @@ export const documentFlowGateway = {
   async loadIntakeQueue(filters: DocumentFlowScope = {}) {
     // Use the central queue RPC so source_received_at falls back to the
     // original line message timestamp exactly like the tab count query.
-    const page = await this.loadQueuePage(null, 2000, 'intake', filters)
+    const page = await this.loadQueuePage(null, 100, 'intake', filters)
     const documentQuery = { data: page.data?.items ?? [], error: page.error }
     const { from: start, to: end } = dateRange(filters.date)
 
@@ -170,7 +170,7 @@ export const documentFlowGateway = {
       .select('id,channel,external_chat_id,external_user_id,purpose,status,candidate_name,missing_fields,document_count,source_started_at,created_at,updated_at')
       .in('status', activeEmployeeIntakeStatuses)
       .order('updated_at', { ascending: false })
-      .limit(2000)
+      .limit(100)
     if (filters?.channel && ['line', 'telegram', 'web_chat'].includes(filters.channel)) employeeQuery = employeeQuery.eq('channel', filters.channel)
     if (filters?.channel === 'unknown') employeeQuery = employeeQuery.limit(0)
     if (start && end) employeeQuery = employeeQuery.gte('source_started_at', start).lt('source_started_at', new Date(end).toISOString())

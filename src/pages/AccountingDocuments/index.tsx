@@ -215,18 +215,18 @@ export function AccountingDocumentsPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true); setError(null)
-    const [documentResult, inventoryResult, projectInventoryResult, productPriceResult, actualPriceResult, projectResult, siteResult, categoryResult, vendorResult] = await Promise.all([
-      supabase.from('accounting_documents').select(`id,source_message_id,document_set_id,page_number,document_type,document_purpose,classification_source,review_draft,document_number,document_date,vendor_name,total_amount,status,posting_status,created_at,project_id,site_id,cost_center_code,wbs_code,contract_reference,recognition_date,projects(name),line_messages!accounting_documents_source_message_id_fkey(line_senders(display_name),line_groups(display_name))`).neq('document_type', 'transfer_slip').order('created_at', { ascending: false }).limit(1000),
+    const [documentPageResult, inventoryResult, projectInventoryResult, productPriceResult, actualPriceResult, projectResult, siteResult, categoryResult, vendorResult] = await Promise.all([
+      supabase.rpc('accounting_document_queue_page', { target_limit: 100, target_before_created_at: null, target_before_id: null }),
       supabase.from('inventory_balances').select('id,name,product_code,unit,item_kind,balance_quantity,average_unit_cost').order('name'),
       supabase.from('inventory_project_balances').select('inventory_item_id,project_id,location_id,name,product_code,unit,location_name,balance_quantity,average_unit_cost').order('name'),
-      supabase.from('quotation_price_references').select('id,document_id,project_id,vendor_name,product_code,description,quantity,unit,unit_price,effective_unit_price,currency,observed_at,valid_until,decision_status').order('observed_at', { ascending: false }).limit(5000),
-      supabase.from('vendor_product_prices').select('id,document_id,observed_at,quantity,unit,stated_unit_price,effective_unit_price,currency,price_basis,inventory_items(name,product_code),vendors(name)').eq('price_basis','actual').order('observed_at',{ascending:false}).limit(5000),
+      supabase.from('quotation_price_references').select('id,document_id,project_id,vendor_name,product_code,description,quantity,unit,unit_price,effective_unit_price,currency,observed_at,valid_until,decision_status').order('observed_at', { ascending: false }).limit(100),
+      supabase.from('vendor_product_prices').select('id,document_id,observed_at,quantity,unit,stated_unit_price,effective_unit_price,currency,price_basis,inventory_items(name,product_code),vendors(name)').eq('price_basis','actual').order('observed_at',{ascending:false}).limit(100),
       supabase.from('projects').select('id,name,code').eq('status', 'active').order('name'),
       supabase.from('project_sites').select('id,project_id,name').eq('active', true).order('name'),
       supabase.from('accounting_cost_categories').select('id,parent_id,code,name_th,default_account_code,default_account_name').eq('active', true).order('sort_order'),
       supabase.from('vendors').select('id,name,tax_id,phone').order('name'),
     ])
-    const firstError = [documentResult.error, inventoryResult.error, projectInventoryResult.error, productPriceResult.error, actualPriceResult.error, projectResult.error, siteResult.error, categoryResult.error, vendorResult.error].find(Boolean)
+    const firstError = [documentPageResult.error, inventoryResult.error, projectInventoryResult.error, productPriceResult.error, actualPriceResult.error, projectResult.error, siteResult.error, categoryResult.error, vendorResult.error].find(Boolean)
     if (firstError) setError(userError(firstError))
     // Transfer slips are intentionally not accounting_documents until reviewed. Read the
     // accounting destination queue separately so pending work is visible without duplicating
@@ -237,7 +237,7 @@ export function AccountingDocumentsPage() {
       .eq('department', 'accounting')
       .in('status', ['queued', 'claimed', 'completed', 'returned', 'recheck_required'])
       .order('created_at', { ascending: false })
-      .limit(1000)
+      .limit(100)
     if (taskError) setError(current => current ?? userError(taskError))
     const taskList = (taskRows ?? []) as Array<{ id: string; item_id: string; status: string; created_at: string }>
     const itemIds = [...new Set(taskList.map(row => row.item_id).filter(Boolean))]
@@ -265,7 +265,8 @@ export function AccountingDocumentsPage() {
       })
     }
     setPendingSlips(pending)
-    setDocuments((documentResult.data ?? []) as unknown as AccountingDocument[])
+    const documentPage = (documentPageResult.data ?? { items: [] }) as { items?: unknown[] }
+    setDocuments((documentPage.items ?? []) as AccountingDocument[])
     setInventory((inventoryResult.data ?? []) as InventoryBalance[])
     setProjectInventory((projectInventoryResult.data ?? []) as unknown as ProjectInventoryBalance[])
     const quotationPrices=(productPriceResult.data??[]).map(item=>({...item,id:`quotation-${item.id}`})) as ProductPriceReference[]
@@ -373,7 +374,7 @@ export function AccountingDocumentsPage() {
     } else { setReceiptCandidates([]); setPoCandidates([]) }
     if(effectiveDocumentType==='billing_note'){
       const [deliveryNotes,existingLinks]=await Promise.all([
-        supabase.from('accounting_documents').select('id,source_message_id,document_type,document_number,document_date,vendor_name,total_amount').in('document_type',['delivery_note','goods_receipt']).eq('status','confirmed').order('created_at',{ascending:false}).limit(300),
+        supabase.from('accounting_documents').select('id,source_message_id,document_type,document_number,document_date,vendor_name,total_amount').in('document_type',['delivery_note','goods_receipt']).eq('status','confirmed').order('created_at',{ascending:false}).limit(100),
         supabase.from('billing_delivery_note_links').select('billing_document_id,delivery_note_document_id'),
       ])
       if(deliveryNotes.error||existingLinks.error){setError(deliveryNotes.error?userError(deliveryNotes.error):existingLinks.error?userError(existingLinks.error):'โหลดใบส่งของไม่สำเร็จ');return}

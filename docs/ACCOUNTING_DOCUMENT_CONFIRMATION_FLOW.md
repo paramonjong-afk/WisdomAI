@@ -145,6 +145,13 @@ flowchart TD
 | v1.5 | 26/8/2569 | สลิปหนึ่งใบอาจแบ่งหลายวัตถุประสงค์/หลายโครงการ และการใช้เงินหลายใบต้องย้อนกลับถึงกองเงินต้นทางได้ | แยก Transfer Fact กับ Allocation, เพิ่ม Root/Parent Lineage, balance gate และ multi-destination routing แบบ idempotent | `20260826220000_transfer_slip_money_allocations_v2.sql` | allocation/lineage contracts, migration dry-run, lint/typecheck/build และ authenticated Accounting Drawer smoke | ปิด RPC/UI v2 แล้วกลับใช้ RPC v1; เก็บ Allocation/Root/Parent/Audit ที่เกิดแล้วเพื่อ recovery ห้ามลบ Raw/OCR |
 | v1.6 | 26/8/2569 | แยกบัญชีบุคคลผู้จ่ายจากร้านค้าจริง ป้องกันการจับคู่ด้วยชื่ออย่างเดียว และค้างรายการคลุมเครือก่อนยืนยัน | เพิ่ม Vendor Match/บัญชี alias, ด่าน DB และช่องจับคู่ใน Drawer; ไม่แก้ Raw/OCR/Source | `20260826044252_transfer_slip_vendor_payment_matching.sql`, `20260826044610_revoke_transfer_slip_vendor_match_trigger_execute.sql` | matching contract, schema/RLS review, typecheck/lint/build และ Accounting Drawer smoke | ปิด trigger/RPC/controls; คง lineage, source, match และ Audit เดิม |
 | v1.7 | 26/8/2569 | ให้สลิปค่าแรง/เงินเบิกล่วงหน้าที่ชื่อช่างรายวันตรงทะเบียนมีบัญชีพักก่อน Payroll และรองรับแก้ย้อนหลังโดยไม่ลบหลักฐาน | เพิ่ม exact-name/alias gate, Match Queue, Employee Money Ledger, append-only adjustment และหน้า Summary ใน Advance Settlements | `20260826231000_employee_money_ledger.sql`, `20260826231500_employee_money_legacy_backfill.sql` | name/duplicate/date/math/adjustment contracts, typecheck/lint/build และ authenticated Advance smoke | ปิด projection trigger/RPC และซ่อน Summary; เก็บ Source/Ledger/Audit เพื่อ recovery และไม่เปลี่ยน Payroll เดิม |
+## System Data Access Phase 1 — 7/9/2569
+
+- Queue input is read through the company-scoped `accounting_document_queue_page` RPC with keyset cursor `(created_at,id)`, server counts, and a maximum page size of 100.
+- The queue projection excludes document lines, evidence, and mutation payloads. Those remain lazy and load only when the user opens the existing Drawer.
+- Accounting Pending slips retain the existing read-only destination/task flow and must be migrated to the same server-side queue pattern before a later phase expands this domain.
+- Failure/retry remains the existing visible error and retry path; no document status or Audit event is changed by paging.
+
 ## Canonical Operational Truth v1
 
 - ทุก Module ต้องอ่านสลิปโอนเงินผ่าน `transfer_slip_operational_truth_v1` เป็นแหล่งข้อมูลใช้งานจริงเพียงจุดเดียว
