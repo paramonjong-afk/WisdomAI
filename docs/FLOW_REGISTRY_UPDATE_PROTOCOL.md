@@ -992,3 +992,7 @@ flowchart LR
 - Storage Quota / Backup / Restore Drill v1.0 (7/9/2569): added `docs/STORAGE_QUOTA_BACKUP_RESTORE_FLOW.md` with quota thresholds, deduplicated alerting, immutable backup manifest and isolated restore verification. The Supabase Free plan has no PITR and no approved external backup destination/credential is configured, so no backup/restore readiness is claimed and no live data was changed. Rollback removes the documentation/registry entry only.
 
 - Original Quarantine / Chain of Custody v1.0 (7/9/2569): added `docs/ORIGINAL_CHAIN_OF_CUSTODY_FLOW.md` for private quarantine, immutable originals, SHA-256 provenance, derivative separation, legal hold and retention approval. Existing metadata was inspected; no migration, policy, object or business row was changed. Any schema backfill or retention-policy change remains a separately reviewed task.
+
+- Original Quarantine / Chain of Custody v1.1 (7/9/2569): recorded the Admin-approved default retention, legal-hold, quarantine, derivative and quarterly controlled-recovery policy in `docs/ORIGINAL_CHAIN_OF_CUSTODY_FLOW.md`. Documentation/control update only; no object, row, migration or runtime retention action was performed.
+
+- Release Parity / Safe Redirect v1.3 (7/9/2569): Cloudflare Pages is now the canonical Production target; Vercel is Preview/Parity only. Smart Entry keeps Vercel unavailable when its revision is stale or rate-limited and continues through Cloudflare, while preserving the existing health/revision checks.
