@@ -30,7 +30,10 @@ assert.throws(() => assertAuthenticatedCliSetup(functionsWorkflow.replace(
 for (const contract of [
   'workflow_call:',
   'supabase/setup-cli@v1',
-  'supabase functions deploy "$fn" --project-ref "$SUPABASE_PROJECT_REF"',
+  'deploy_args=("$fn" "--project-ref" "$SUPABASE_PROJECT_REF")',
+  'if [ "$fn" = "storage-consistency-worker" ]; then',
+  'deploy_args+=("--no-verify-jwt")',
+  'supabase functions deploy "${deploy_args[@]}"',
   'SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}',
   'SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}',
 ]) assert.ok(functionsWorkflow.includes(contract), `missing functions workflow contract: ${contract}`)

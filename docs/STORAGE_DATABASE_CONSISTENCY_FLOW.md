@@ -18,7 +18,7 @@ The `storage-consistency-worker` compares the private `line-attachments` bucket 
 
 ## Inputs and outputs
 
-The worker accepts a POST body with `action: scan`, optional `batch_limit`, and optional `verify_hashes`. It requires the `STORAGE_CONSISTENCY_WORKER_SECRET` header. It returns a bounded, read-only consistency report and upserts tenant-scoped incidents through the existing RPC.
+The worker accepts a POST body with `action: scan`, optional `batch_limit`, and optional `verify_hashes`. The platform JWT gate is intentionally disabled for this service-to-service worker, and the worker requires the `STORAGE_CONSISTENCY_WORKER_SECRET` header as its custom authentication gate. It returns a bounded, read-only consistency report and upserts tenant-scoped incidents through the existing RPC in batches of ten, preserving bounded database concurrency for large finding sets.
 
 ## States, roles, and integrations
 
