@@ -371,13 +371,12 @@ export function SystemHealthPage(){
           reason,
           evidence: `${action.approved ? 'อนุมัติ' : 'ไม่อนุมัติ'}ผ่าน Web: ${reason}`,
           actor: profile.id,
-        }, async () => await supabase.from('system_work_items').update({
-          status:action.approved?'ready':'blocked',
-          production_status:action.approved?'approved_for_execution':'rejected_by_admin',
-          evidence:`${action.approved?'อนุมัติ':'ไม่อนุมัติ'}ผ่าน Web: ${reason}`,
-          updated_by:profile.id,
-          updated_at:new Date().toISOString(),
-        }).eq('work_key',action.item.id).eq('status','review'))
+        }, async () => await supabase.rpc('decide_system_work_item_approval',{
+          target_work_key:action.item.id,
+          target_decision:action.approved?'approve':'reject',
+          target_reason:reason,
+          target_channel:'web',
+        }))
         : runAttempt('resolve_system_error',{
           action: action.status,
           error_id: action.row.sourceId,

@@ -143,6 +143,41 @@ async function recordAdminNotification(type: string, incidentId: string | null, 
   return { sent, failed, missing: false }
 }
 
+async function sendPendingWorkApprovals(companyId: string | null) {
+  let query = admin.from('system_work_items')
+    .select('work_key,title,status,progress,risk,detail,production_status,company_id')
+    .eq('status', 'review')
+    .ilike('production_status', '%awaiting_approval%')
+  query = companyId ? query.eq('company_id', companyId) : query.is('company_id', null)
+  const { data: items, error } = await query
+  if (error) throw error
+  let sent = 0
+  for (const item of items ?? []) {
+    const { error: requestError } = await admin.rpc('request_system_work_item_approval', {
+      target_work_key: item.work_key,
+      target_reason: 'คำขออัตโนมัติจากรอบตรวจ Health Monitor',
+    })
+    if (requestError && !/already|pending/i.test(requestError.message)) continue
+    const { data: recent } = await admin.from('health_monitor_notifications').select('id')
+      .eq('company_id', item.company_id ?? companyId)
+      .eq('notification_type', 'work_approval_requested')
+      .like('destination', 'telegram:%')
+      .gte('created_at', since(5))
+      .ilike('message', `%${item.work_key}%`)
+      .limit(1)
+      .maybeSingle()
+    if (recent) continue
+    const text = `🔐 <b>ขออนุมัติงาน ${escapeHtml(item.work_key)}</b>\n${escapeHtml(item.title)}\nความเสี่ยง: ${escapeHtml(item.risk)}\nความคืบหน้า: ${item.progress}%\nProduction: ${escapeHtml(item.production_status)}\n${escapeHtml(item.detail || '-')}\n\nผู้ดูแลระบบกรุณาตัดสินใจ`
+    const replyMarkup = { inline_keyboard: [[
+      { text: '✅ อนุมัติ', callback_data: `work:approve:${item.work_key}` },
+      { text: '⛔ ไม่อนุมัติ', callback_data: `work:reject:${item.work_key}` },
+    ]] }
+    const delivery = await recordAdminNotification('work_approval_requested', null, text, item.company_id ?? companyId, replyMarkup)
+    if (delivery.sent) sent += delivery.sent
+  }
+  return sent
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
@@ -247,6 +282,13 @@ Deno.serve(async (request) => {
     if (itemError) return json({ error: itemError.message }, 500)
     if (!item) return json({ error: `ไม่พบงาน ${workKey}` }, 404)
     if (item.status !== 'review') return json({ error: `งาน ${workKey} ไม่ได้อยู่ในสถานะรอตรวจ` }, 409)
+    const { error: requestError } = await admin.rpc('request_system_work_item_approval', {
+      target_work_key: item.work_key,
+      target_reason: 'สร้างคำขออนุมัติข้ามช่องทางจาก Health Monitor',
+    })
+    if (requestError && !/already|pending/i.test(requestError.message)) {
+      return json({ error: `สร้างคำขออนุมัติกลางไม่สำเร็จ: ${requestError.message}` }, 500)
+    }
     const { data: recent } = await admin.from('health_monitor_notifications').select('id')
       .eq('company_id', item.company_id ?? actorCompanyId)
       .eq('notification_type', 'work_approval_requested').like('destination', 'telegram:%')
@@ -604,7 +646,8 @@ Deno.serve(async (request) => {
       await recordAdminNotification('daily_summary', null,
         `📊 สรุป WisdomAI ประจำวัน\nปกติ: ${counts.healthy}\nเฝ้าระวัง: ${counts.warning}\nวิกฤต: ${counts.critical}\nผู้รับผิดชอบ: ${settings.responsible_name || 'ยังไม่กำหนด'}`,actorCompanyId)
     }
-    return json({ status: 'completed', run_id: run.id, counts, results })
+    const approvalNotificationsSent = await sendPendingWorkApprovals(actorCompanyId)
+    return json({ status: 'completed', run_id: run.id, counts, approval_notifications_sent: approvalNotificationsSent, results })
   } catch (error) {
     await admin.from('health_monitor_runs').update({ status: 'failed', finished_at: new Date().toISOString(), error_message: error instanceof Error ? error.message : String(error) }).eq('id', run.id)
     return json({ error: error instanceof Error ? error.message : String(error) }, 500)
