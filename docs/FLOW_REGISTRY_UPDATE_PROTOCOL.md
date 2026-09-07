@@ -927,3 +927,24 @@ flowchart LR
 - **Roles/Permissions/Integration:** every role keeps the same permission-filtered actions and company/project scope as Desktop; no query, RPC, storage or route contract changes.
 - **Failure/Retry/Audit:** interactive targets remain at least 44px through 768px and on coarse pointers; business mutation retry and Audit continue through each module's existing flow.
 - **Owner/Migration/Verification/Rollback:** Design System / Platform; no migration; verify responsive contract, typecheck, lint, build, 320/768/desktop viewports and authenticated Production pages; rollback by reverting the shared theme/test/docs commit.
+
+### Cross-Channel Work Approval v1.1 (6/9/2569)
+
+```mermaid
+flowchart LR
+  W[Work item: review + awaiting approval] --> R[Approval RPC creates or reuses one pending record]
+  R --> C[Web Chat notification]
+  R --> T[Telegram notification]
+  C --> D[Web Chat decision]
+  T --> D
+  D --> V[Validate approver and company scope]
+  V --> S[Atomic decision RPC]
+  S --> A[Update work item + audit]
+  S --> O[Result message and idempotent already-decided response]
+  R -. retry if delivery missing .-> C
+```
+
+- **Input/Output/State:** `system_work_items` in `review` with `awaiting_approval` creates one pending `system_work_item_approvals` row; Web Chat and Telegram return the same approved/rejected state and audit details.
+- **Roles/Permissions/Integration:** Admin/Manager scope is checked by the RPC; Telegram passes the verified actor profile and company membership is checked again server-side; Web Chat uses the authenticated session; no Raw/OCR data is overwritten.
+- **Failure/Retry/Audit:** RPC decisions are idempotent; an existing pending approval retries Web Chat delivery only when its approval message is absent; actor, channel, reason and timestamps are retained; cross-company actors are rejected.
+- **Owner/Migration/Verification/Rollback:** Platform / Accounting; migration `202609070001_cross_channel_work_approval.sql`; verify migration replay, TypeScript, ESLint, build, PR checks and authenticated Web/Telegram smoke; rollback by reverting UI/functions and disabling the new RPC/trigger while retaining approval/audit rows.
