@@ -7,12 +7,14 @@ import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
 import { userError } from '../../utils/userError'
 import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
+import { resolveApprovalState } from '../../services/workApprovalState'
+import type { ApprovalLedgerRow } from '../../services/workApprovalState'
 
 type Leave={id:string;reason:string;starts_at:string;ends_at:string;profiles:{full_name:string|null;email:string|null}|null;leave_types:{name_th:string}|null}
 type Correction={id:string;reason:string;requested_clock_in_at:string|null;requested_clock_out_at:string|null;profiles:{full_name:string|null;email:string|null}|null}
 type Claim={id:string;claim_number:string;description:string;net_amount:number;contractor_contracts:{contractor_vendors:{legal_name:string}|null}|null}
 type AttendanceReview={id:string;clock_in_at:string;clock_out_at:string|null;clock_in_distance_meters:number|null;clock_out_distance_meters:number|null;clock_in_accuracy_meters:number|null;clock_out_accuracy_meters:number|null;review_reason:string|null;review_category:string|null;profiles:{full_name:string|null;email:string|null}|null;project_sites:{name:string;projects:{name:string}|null}|null}
-type WorkApproval={work_key:string;title:string;status:string;progress:number;risk:string;detail:string|null;evidence:string|null;approval_scope:string|null;approval_fingerprint:string|null;production_status:string;updated_at:string}
+type WorkApproval={work_key:string;title:string;status:string;progress:number;risk:string;detail:string|null;evidence:string|null;approval_scope:string|null;approval_fingerprint:string|null;production_status:string;updated_at:string;approval_status:string|null;approval?:ApprovalLedgerRow|null}
 const name=(profile:{full_name:string|null;email:string|null}|null)=>profile?.full_name||profile?.email||'ไม่ทราบชื่อ'
 
 export function ApprovalsPage(){
@@ -25,15 +27,17 @@ export function ApprovalsPage(){
   const load=useCallback(async()=>{
     if(!canManage)return
     setLoading(true);setError('')
-    const [w,l,c,cl,a]=await Promise.all([
-      supabase.from('system_work_items').select('work_key,title,status,progress,risk,detail,evidence,approval_scope,approval_fingerprint,production_status,updated_at').eq('approval_status','pending').in('status',['ready','doing','review','blocked']).order('updated_at',{ascending:false}).limit(200),
+    const [w,ledger,l,c,cl,a]=await Promise.all([
+      supabase.from('system_work_items').select('work_key,title,status,progress,risk,detail,evidence,approval_scope,approval_fingerprint,production_status,updated_at,approval_status').in('status',['ready','doing','review','blocked']).order('updated_at',{ascending:false}).limit(200),
+      supabase.from('system_work_item_approvals').select('work_key,status,decision_channel,decision_reason,decision_by,decided_at,created_at,updated_at').order('updated_at',{ascending:false}).limit(500),
       supabase.from('employee_leave_requests').select('id,reason,starts_at,ends_at,profiles!employee_leave_requests_profile_id_fkey(full_name,email),leave_types(name_th)').in('status',['pending','late_notice','needs_evidence']).order('created_at').limit(200),
       supabase.from('attendance_correction_requests').select('id,reason,requested_clock_in_at,requested_clock_out_at,profiles!attendance_correction_requests_profile_id_fkey(full_name,email)').eq('status','pending').order('created_at').limit(200),
       supabase.from('contractor_payment_claims').select('id,claim_number,description,net_amount,contractor_contracts(contractor_vendors(legal_name))').eq('status','submitted').order('created_at').limit(200),
       supabase.from('attendance_sessions').select('id,clock_in_at,clock_out_at,clock_in_distance_meters,clock_out_distance_meters,clock_in_accuracy_meters,clock_out_accuracy_meters,review_reason,review_category,profiles!attendance_sessions_profile_id_fkey(full_name,email),project_sites(name,projects(name))').eq('status','needs_review').order('review_requested_at',{ascending:false}).limit(200),
     ])
-    const first=[w,l,c,cl,a].find((item)=>item.error)?.error;if(first)setError('โหลดรายการอนุมัติบางส่วนไม่สำเร็จ')
-    setWorkApprovals((w.data??[]) as WorkApproval[])
+    const first=[w,ledger,l,c,cl,a].find((item)=>item.error)?.error;if(first)setError('โหลดรายการอนุมัติบางส่วนไม่สำเร็จ')
+    const ledgerRows=(ledger.data??[]) as ApprovalLedgerRow[]; const all=(w.data??[]) as WorkApproval[]
+    setWorkApprovals(all.map(row=>({...row,approval:resolveApprovalState(row.approval_status,ledgerRows,row.work_key).latest})).filter(row=>resolveApprovalState(row.approval_status,ledgerRows,row.work_key).status==='pending'))
     setLeaves((l.data??[]) as unknown as Leave[]);setCorrections((c.data??[]) as unknown as Correction[]);setClaims((cl.data??[]) as unknown as Claim[]);setAttendanceReviews((a.data??[]) as unknown as AttendanceReview[]);setLoading(false)
   },[canManage])
   useEffect(()=>{const timer=window.setTimeout(()=>void load(),0);return()=>window.clearTimeout(timer)},[load])
@@ -60,6 +64,7 @@ export function ApprovalsPage(){
   }
   const reviewGps=(id:string,action:'approve'|'reject'|'request_more')=>run(()=>supabase.rpc('review_gps_attendance',{target_session_id:id,review_action:action,review_note:reviewNote.trim()||null,review_source:'web',source_line_group_id:null,source_line_user_id:null}),action==='approve'?'อนุมัติรายการ GPS แล้ว':action==='reject'?'ปฏิเสธรายการแล้ว':'ส่งคำขอข้อมูลเพิ่มแล้ว')
   const decideWork=(row:WorkApproval,approved:boolean)=>run(async()=>{
+    if(row.approval?.status!=='pending') return {error:{message:'รายการนี้ถูกตัดสินแล้ว กรุณาโหลดข้อมูลใหม่'}}
     const result=await supabase.rpc('decide_system_work_item_approval',{target_work_key:row.work_key,target_decision:approved?'approve':'reject',target_reason:reviewNote.trim()||null})
     if(result.error)return result
     return {error:null}

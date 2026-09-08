@@ -31,6 +31,8 @@ import {
   hasActiveWorkerClaim,
   workerClaimLabel,
 } from "../../services/workClaimStatus";
+import { resolveApprovalState } from "../../services/workApprovalState";
+import type { ApprovalLedgerRow } from "../../services/workApprovalState";
 
 type WorkStatus = "ready" | "doing" | "review" | "blocked" | "done";
 type Item = {
@@ -52,6 +54,7 @@ type Item = {
   updated_at: string;
   approval_status?: string | null;
   company_id?: string | null;
+  approval_state?: ReturnType<typeof resolveApprovalState>;
 };
 type WorkItemDetail = Pick<Item, "detail" | "evidence">;
 type Event = {
@@ -137,14 +140,15 @@ export function WorkCommandCenterPage() {
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setBusy(true);
-    const { data, error } = await supabase
+    const [{ data, error }, ledgerResult] = await Promise.all([supabase
       .from("system_work_items")
       .select(
-        "work_key,title,category,status,progress,risk,production_status,owner,current_step,worker_id,heartbeat_at,lease_expires_at,created_at,updated_at",
+        "work_key,title,category,status,progress,risk,production_status,owner,current_step,worker_id,heartbeat_at,lease_expires_at,created_at,updated_at,approval_status",
       )
-      .order("updated_at", { ascending: false });
+      .order("updated_at", { ascending: false }), supabase.from("system_work_item_approvals").select("work_key,status,decision_channel,decision_reason,decision_by,decided_at,created_at,updated_at").order("updated_at", { ascending: false }).limit(500)]);
     if (data) {
-      const next = data as Item[];
+      const ledger = (ledgerResult.data ?? []) as ApprovalLedgerRow[];
+      const next = (data as Item[]).map(item => ({ ...item, approval_state: resolveApprovalState(item.approval_status, ledger, item.work_key) }));
       setRows((current) => {
         const unchanged =
           current.length === next.length &&
@@ -299,6 +303,10 @@ export function WorkCommandCenterPage() {
   };
   const decide = async (approved: boolean) => {
     if (!selected) return;
+    if (selected.approval_state?.latest && selected.approval_state.latest.status !== "pending") {
+      setNotice(`รายการนี้ถูกตัดสินแล้วผ่าน ${selected.approval_state.latest.decision_channel ?? "อีกช่องทาง"}`);
+      return;
+    }
     const reason = window
       .prompt(
         `${approved ? "อนุมัติ" : "ไม่อนุมัติ"} ${selected.work_key}\nกรุณาระบุเหตุผลเพื่อบันทึก Audit`,
@@ -716,6 +724,12 @@ export function WorkCommandCenterPage() {
                 {productionLabel(selected.production_status)}
               </Typography>
             </Box>
+            {selected.approval_state && selected.approval_state.status !== "none" && (
+              <Alert severity={selected.approval_state.status === "pending" ? "warning" : selected.approval_state.status === "approved" ? "success" : "error"}>
+                Approval: {selected.approval_state.status} · {selected.approval_state.nextGate}
+                {selected.approval_state.latest?.decision_channel && ` · ผ่าน ${selected.approval_state.latest.decision_channel}`}
+              </Alert>
+            )}
             {selected.status === "doing" && (
               <Alert severity={hasActiveWorkerClaim(selected, claimNow) ? "info" : "error"}>
                 {hasActiveWorkerClaim(selected, claimNow)
@@ -738,7 +752,7 @@ export function WorkCommandCenterPage() {
                 </Paper>
               </Box>
             )}
-            {selected.status === "review" && (
+            {selected.status === "review" && selected.approval_state?.status === "pending" && (
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
                 <Button
                   variant="contained"

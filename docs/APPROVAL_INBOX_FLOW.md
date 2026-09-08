@@ -52,3 +52,4 @@ recovered in its source room. Owner: Platform Operations.
 - Verification: inbox contract, existing approval contracts, typecheck, lint,
   build and authenticated role smoke.
 - Rollback: remove the inbox tab; source records and Audit remain unchanged.
+<!-- Approval state is reconciled read-only from the latest ledger row; the item mirror is fallback only. -->
