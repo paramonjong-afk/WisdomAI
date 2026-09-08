@@ -1033,8 +1033,8 @@ flowchart LR
   H -->|No| J[Set minimum retain-until]
 ```
 
-- Scope: additive tenant-scoped recovery grants/audit, hash-verified one-time private signed delivery (maximum 15 minutes), and evidence-only retention metadata backfill. Raw/OCR/object bytes are never overwritten, moved, or deleted.
+- Scope: additive tenant-scoped recovery grants/audit, visible recovery action from System Health problem evidence, hash-verified one-time private signed delivery (maximum 15 minutes), and evidence-only retention metadata backfill. Raw/OCR/object bytes are never overwritten, moved, or deleted.
 - Migration: `20260908090000_document_original_custody_controls.sql`.
 - Permissions: Admin/platform admin, company manager, and accounting/document-operations membership only; private attachments are company-scoped by RLS.
-- Integration/failure: `document-original-recovery` authenticates and rechecks tenant scope, verifies SHA-256 before signing, consumes the grant once and fails closed on missing/mismatched/expired evidence or concurrent reuse.
+- Integration/failure: `document-original-recovery` authenticates and rechecks tenant scope, verifies SHA-256 and its Audit write before signing, consumes the grant once and fails closed on missing/mismatched/expired/revoked evidence or concurrent reuse. Requests serialize per attachment; the backfill writes the stronger approved seven-year financial/two-year general retention dates, which exceed the A/B/C minimum floor.
 - Verification/rollback: PostgreSQL custody contract plus migration safety checks, typecheck/lint/build and Preview authenticated recovery smoke; revoke new RPC grants/disable the Edge Function or revert the task branch without changing existing originals/lifecycle history.

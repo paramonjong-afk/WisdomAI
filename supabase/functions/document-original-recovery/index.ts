@@ -35,16 +35,18 @@ Deno.serve(async (request) => {
   if (downloadError || !source) return out({ error: 'Original could not be read', error_code: 'ORIGINAL_READ_FAILED' }, 502)
   const actualHash = hex(await crypto.subtle.digest('SHA-256', await source.arrayBuffer()))
   if (actualHash.toLowerCase() !== grant.content_sha256.toLowerCase()) {
-    await admin.from('document_original_recovery_audit').insert({
+    const { error: mismatchAuditError } = await admin.from('document_original_recovery_audit').upsert({
       company_id: grant.company_id, grant_id: grant.id, event_key: 'hash_mismatch', actor_id: auth.user.id,
       event_data: { expected_sha256: grant.content_sha256, actual_sha256: actualHash },
-    })
+    }, { onConflict: 'grant_id,event_key', ignoreDuplicates: true })
+    if (mismatchAuditError) return out({ error: 'Integrity failure could not be audited', error_code: 'AUDIT_WRITE_FAILED' }, 500)
     return out({ error: 'Original integrity verification failed', error_code: 'HASH_MISMATCH' }, 409)
   }
-  await admin.from('document_original_recovery_audit').upsert({
+  const { error: verifiedAuditError } = await admin.from('document_original_recovery_audit').upsert({
     company_id: grant.company_id, grant_id: grant.id, event_key: 'hash_verified', actor_id: auth.user.id,
     event_data: { content_sha256: actualHash },
   }, { onConflict: 'grant_id,event_key', ignoreDuplicates: true })
+  if (verifiedAuditError) return out({ error: 'Integrity verification could not be audited', error_code: 'AUDIT_WRITE_FAILED' }, 500)
 
   const seconds = Math.max(1, Math.min(900, Math.floor((new Date(grant.expires_at).getTime() - Date.now()) / 1000)))
   const { data: signed, error: signedError } = await admin.storage.from(grant.storage_bucket).createSignedUrl(grant.storage_path, seconds)

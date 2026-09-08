@@ -75,7 +75,7 @@ declare company uuid := public.current_company_id(); attachment public.line_atta
 begin
   if company is null or not public.is_document_operations(company) then raise exception 'document_operations_permission_required'; end if;
   if nullif(btrim(target_reason),'') is null or length(btrim(target_reason)) not between 5 and 500 then raise exception 'recovery_reason_length_invalid'; end if;
-  select * into attachment from public.line_attachments where id=target_attachment_id and company_id=company;
+  select * into attachment from public.line_attachments where id=target_attachment_id and company_id=company for update;
   if attachment.id is null then raise exception 'attachment_not_found'; end if;
   update public.document_original_recovery_grants grant_row
   set status='expired'
@@ -116,7 +116,11 @@ begin
   set status=target_decision, approved_by=case when target_decision='approved' then auth.uid() else approved_by end,
       approved_at=case when target_decision='approved' then now() else approved_at end,
       expires_at=case when target_decision='approved' then now()+interval '15 minutes' else expires_at end
-  where id=target_grant_id and company_id=company and status='pending' and expires_at>now()
+  where id=target_grant_id and company_id=company
+    and (
+      (target_decision in ('approved','rejected') and status='pending' and expires_at>now())
+      or (target_decision='revoked' and status in ('pending','approved'))
+    )
   returning * into result;
   if result.id is null then raise exception 'recovery_grant_not_pending_or_expired'; end if;
   insert into public.document_original_recovery_audit(company_id,grant_id,event_key,actor_id,event_data)
@@ -188,7 +192,10 @@ begin
     limit least(greatest(target_limit,1),5000)
   loop
     if row_item.retain_until is null and row_item.retention_class in ('financial','temporary','work_evidence') then
-      retain_date := row_item.created_at::date + case when row_item.retention_class='financial' then 30 else 7 end;
+      retain_date := case
+        when row_item.retention_class='financial' then (date_trunc('year',row_item.created_at) + interval '8 years - 1 day')::date
+        else (row_item.created_at + interval '2 years')::date
+      end;
       update public.line_attachments set retain_until=retain_date where id=row_item.id and retain_until is null;
       get diagnostics affected = row_count;
       updated:=updated+affected;

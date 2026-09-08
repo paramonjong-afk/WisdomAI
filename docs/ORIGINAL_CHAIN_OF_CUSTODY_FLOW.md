@@ -28,7 +28,7 @@ The original is the evidence source. It is stored in a private tenant-scoped loc
 
 ## Required metadata
 
-Record SHA-256, tenant/company, uploader, channel, received time, storage bucket/path, content type, size, retention class, retain-until date, legal-hold state, and immutable audit events. Financial originals retain at least 30 days; general originals at least 7 days, subject to legal hold and approved policy.
+Record SHA-256, tenant/company, uploader, channel, received time, storage bucket/path, content type, size, retention class, retain-until date, legal-hold state, and immutable audit events. The A/B/C backfill floor is at least 30 days for financial and 7 days for general evidence; the stronger approved operating policy below governs the written retain-until date: financial originals through seven years after the accounting-period year end and general originals for two years. Legal hold always wins.
 
 ## Roles and failure handling
 
@@ -56,8 +56,8 @@ Retention Worker may delete only expired records with no legal hold. Every previ
 ### v1.2 — 8/9/2569
 
 - Rationale: add tenant-scoped, short-lived recovery grants and an evidence-only retention metadata backfill path without changing raw objects.
-- Verification: migration is additive; recovery requests/decisions/consumption are append-only audited and restricted to Admin/Manager/Document Operations roles.
-- Integration/failure: `document-original-recovery` authenticates the caller, rechecks tenant/role through RLS, verifies the stored bytes against SHA-256, creates a private HTTPS signed URL no longer than the approved grant, then consumes the grant once. Missing objects/hashes, mismatches, expired grants and concurrent reuse fail closed without returning the URL.
+- Verification: migration is additive; recovery requests/decisions/revocation/consumption are append-only audited and restricted to Admin/Manager/Document Operations roles. Concurrent requests serialize on the attachment and return the same open grant.
+- Visible action/integration/failure: System Health → ทะเบียนปัญหา → “กู้ต้นฉบับอย่างปลอดภัย” requires a reason, records request and Admin approval, then calls `document-original-recovery`. The function authenticates the caller, rechecks tenant/role through RLS, verifies the stored bytes and Audit write against SHA-256, creates a private HTTPS signed URL no longer than the approved grant, then consumes the grant once. Missing objects/hashes, audit failures, mismatches, expired/revoked grants and concurrent reuse fail closed without returning the URL.
 - Rollback: revoke the new RPC grants and disable the migration; existing originals, hashes, and lifecycle state remain unchanged.
 
 ### v1.1 — 7/9/2569

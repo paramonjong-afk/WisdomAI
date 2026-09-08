@@ -5,6 +5,7 @@ import { PGlite } from '@electric-sql/pglite';
 
 const migration = fs.readFileSync(path.join(process.cwd(), 'supabase/migrations/20260908090000_document_original_custody_controls.sql'), 'utf8');
 const recoveryFunction = fs.readFileSync(path.join(process.cwd(), 'supabase/functions/document-original-recovery/index.ts'), 'utf8');
+const systemHealthPage = fs.readFileSync(path.join(process.cwd(), 'src/pages/SystemHealth/index.tsx'), 'utf8');
 assert.match(migration, /create table if not exists public\.document_original_recovery_grants/);
 assert.match(migration, /check \(expires_at <= coalesce\(approved_at, created_at\) \+ interval '15 minutes'\)/);
 assert.match(migration, /request_document_original_recovery/);
@@ -19,6 +20,8 @@ assert.match(migration, /missing_integrity_metadata/);
 assert.match(migration, /retention_class in \('financial','temporary','work_evidence'\)/);
 assert.match(migration, /get diagnostics affected = row_count/);
 assert.match(migration, /status=target_decision/);
+assert.match(migration, /for update/);
+assert.match(migration, /target_decision='revoked' and status in \('pending','approved'\)/);
 assert.doesNotMatch(migration, /delete from public\.line_attachments/i);
 assert.doesNotMatch(migration, /truncate\s+public\.line_/i);
 assert.doesNotMatch(migration, /drop table\s+public\.line_/i);
@@ -26,7 +29,13 @@ assert.match(recoveryFunction, /auth\.getUser\(bearer\)/);
 assert.match(recoveryFunction, /crypto\.subtle\.digest\('SHA-256'/);
 assert.match(recoveryFunction, /createSignedUrl\(grant\.storage_path, seconds\)/);
 assert.match(recoveryFunction, /consume_document_original_recovery/);
+assert.match(recoveryFunction, /if \(mismatchAuditError\).*AUDIT_WRITE_FAILED/);
+assert.match(recoveryFunction, /if \(verifiedAuditError\).*AUDIT_WRITE_FAILED/);
 assert.doesNotMatch(recoveryFunction, /signed_url[\s\S]{0,160}(insert|upsert)/i);
+assert.match(systemHealthPage, /request_document_original_recovery/);
+assert.match(systemHealthPage, /decide_document_original_recovery/);
+assert.match(systemHealthPage, /functions\.invoke\('document-original-recovery'/);
+assert.match(systemHealthPage, /อนุมัติและกู้ต้นฉบับ/);
 
 const db = new PGlite();
 await db.exec(`
@@ -93,8 +102,8 @@ assert.deepEqual(firstBackfill.rows, [{ updated_count: 2, exception_count: 1 }])
 const secondBackfill = await db.query(`select * from public.backfill_document_custody_metadata(10)`);
 assert.deepEqual(secondBackfill.rows, [{ updated_count: 0, exception_count: 0 }]);
 const retention = await db.query(`select id,retain_until from public.line_attachments order by id`);
-assert.equal(retention.rows[0].retain_until.toISOString().slice(0,10), '2026-10-01');
-assert.equal(retention.rows[1].retain_until.toISOString().slice(0,10), '2026-09-09');
+assert.equal(retention.rows[0].retain_until.toISOString().slice(0,10), '2033-12-31');
+assert.equal(retention.rows[1].retain_until.toISOString().slice(0,10), '2028-09-02');
 assert.equal(retention.rows[2].retain_until, null);
 
 const firstRequest = await db.query(`select (public.request_document_original_recovery('00000000-0000-0000-0000-000000000021','Quarterly recovery verification')).id id`);
@@ -106,11 +115,21 @@ await db.query(`select public.decide_document_original_recovery($1,'approved')`,
 const consumed = await db.query(`select * from public.consume_document_original_recovery($1)`, [grantId]);
 assert.equal(consumed.rows.length, 1);
 await assert.rejects(db.query(`select * from public.consume_document_original_recovery($1)`, [grantId]), /recovery_grant_not_approved_or_expired/);
+const concurrentRequests = await Promise.all([
+  db.query(`select (public.request_document_original_recovery('00000000-0000-0000-0000-000000000023','Concurrent recovery verification')).id id`),
+  db.query(`select (public.request_document_original_recovery('00000000-0000-0000-0000-000000000023','Concurrent recovery verification')).id id`),
+]);
+assert.equal(concurrentRequests[0].rows[0].id, concurrentRequests[1].rows[0].id);
+const revokedGrant = concurrentRequests[0].rows[0].id;
+await db.query(`select public.decide_document_original_recovery($1,'approved')`, [revokedGrant]);
+await db.query(`select public.decide_document_original_recovery($1,'revoked')`, [revokedGrant]);
+await assert.rejects(db.query(`select * from public.consume_document_original_recovery($1)`, [revokedGrant]), /recovery_grant_not_approved_or_expired/);
 const audit = await db.query(`select event_key,count(*)::int count from public.document_original_recovery_audit group by event_key order by event_key`);
 assert.deepEqual(audit.rows, [
-  { event_key: 'approved', count: 1 },
+  { event_key: 'approved', count: 2 },
   { event_key: 'consumed', count: 1 },
-  { event_key: 'requested', count: 1 },
+  { event_key: 'requested', count: 2 },
+  { event_key: 'revoked', count: 1 },
 ]);
 await db.close();
 console.log('document-custody-controls: PASS');
