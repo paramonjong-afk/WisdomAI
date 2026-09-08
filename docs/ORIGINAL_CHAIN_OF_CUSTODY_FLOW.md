@@ -11,8 +11,15 @@ flowchart TD
   G --> H{QA and legal hold?}
   H -->|hold or financial retention| I[Retain original; deny overwrite/delete]
   H -->|QA complete and retention expired| J[Send to approved retention worker]
-  I --> K[Audit preview/download/restore]
+  I --> K[Admin requests short-lived recovery grant]
   J --> K
+  K --> L{Admin approval and tenant scope?}
+  L -->|no| M[Reject/expire; append audit]
+  L -->|yes| N[Verify SHA-256; create private signed access up to 15 minutes]
+  N --> O[Consume once; append recovery audit]
+  P[Evidence-only metadata backfill] --> Q{Missing metadata?}
+  Q -->|yes| R[Create custody exception; no object mutation]
+  Q -->|no| S[Set minimum retain-until only when absent]
 ```
 
 ## Scope
@@ -45,6 +52,13 @@ The Admin-approved default policy is:
 - Recovery drill: quarterly, to an encrypted temporary location; verify SHA-256, record the audit event, then securely remove the temporary copy.
 
 Retention Worker may delete only expired records with no legal hold. Every preview, download, recovery, release, and deletion remains append-only in Audit. These defaults are operational controls; tax/accounting exceptions still take precedence.
+
+### v1.2 — 8/9/2569
+
+- Rationale: add tenant-scoped, short-lived recovery grants and an evidence-only retention metadata backfill path without changing raw objects.
+- Verification: migration is additive; recovery requests/decisions/consumption are append-only audited and restricted to Admin/Manager/Document Operations roles.
+- Integration/failure: `document-original-recovery` authenticates the caller, rechecks tenant/role through RLS, verifies the stored bytes against SHA-256, creates a private HTTPS signed URL no longer than the approved grant, then consumes the grant once. Missing objects/hashes, mismatches, expired grants and concurrent reuse fail closed without returning the URL.
+- Rollback: revoke the new RPC grants and disable the migration; existing originals, hashes, and lifecycle state remain unchanged.
 
 ### v1.1 — 7/9/2569
 
