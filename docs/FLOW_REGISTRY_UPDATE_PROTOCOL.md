@@ -1012,3 +1012,5 @@ flowchart LR
 - Original Quarantine / Chain of Custody v1.1 (7/9/2569): recorded the Admin-approved default retention, legal-hold, quarantine, derivative and quarterly controlled-recovery policy in `docs/ORIGINAL_CHAIN_OF_CUSTODY_FLOW.md`. Documentation/control update only; no object, row, migration or runtime retention action was performed.
 
 - Release Parity / Safe Redirect v1.3 (7/9/2569): Cloudflare Pages is now the canonical Production target; Vercel is Preview/Parity only. Smart Entry keeps Vercel unavailable when its revision is stale or rate-limited and continues through Cloudflare, while preserving the existing health/revision checks.
+
+- Posting Final Validation Contract v1.0 (8/9/2569): registered the non-authoritative preflight in `src/services/postingValidation.ts` and `docs/ACCOUNTING_DOCUMENT_CONFIRMATION_FLOW.md`. It checks canonical truth, duplicate, version, period, document/line/tax totals, debit-credit balance, remaining PO/receipt/balance, event key, and role/company context without guessing company-specific limits or chart of accounts. No migration, posting, merge, or deployment was performed.

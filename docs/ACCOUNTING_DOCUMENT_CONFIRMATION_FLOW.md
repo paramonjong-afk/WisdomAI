@@ -161,4 +161,21 @@ flowchart TD
 - Raw, OCR, Source, Document ID, Message ID และ Audit ไม่ถูกลบ เพื่อให้ตรวจย้อนหลังได้ แต่ไม่ถือเป็น Master/Operational data อีกชุด
 - หน้า Accounting Pending Queue และรายงานเงินสำรองต้องไม่สร้าง fallback logic ของตนเอง หากยังไม่มี Canonical ให้แสดงว่า `ยังไม่ยืนยัน` เท่านั้น
 
+## Posting Final Validation Contract
+
+```mermaid
+flowchart LR
+  A[Filter-passed document] --> B[Canonical truth + postable gate]
+  B --> C[Version + event key + role/company]
+  C --> D[Period + document/line/tax totals]
+  D --> E[Debit = credit + PO/receipt/balance remaining]
+  E -->|pass| F[Existing posting RPC + append audit]
+  E -->|fail| G[Keep pending with blocker and retry reason]
+```
+
+- `validatePosting` is a client-visible preflight only; the server RPC remains the authorization and transaction authority.
+- Duplicate, non-confirmed, non-postable, stale-version, locked-period, imbalance, overage, and insufficient-balance records cannot pass the preflight.
+- No company-specific credit limit or chart-of-accounts mapping is assumed. Those remain policy inputs for the posting RPC/owner decision.
+- The event key is the idempotency key; retries reuse the same business command key and never create a second posting.
+
 | v1.3 | 7/9/2569 | จำกัดการอ่าน accounting documents/lines/drafts ให้ tenant ปัจจุบันและผู้ตรวจบัญชี/ผู้จัดการ/Admin; ยกเลิก policy อ่านแบบกว้าง | ไม่แตะ raw/source และไม่เปลี่ยนเส้นทางงาน | `20260907090000_accounting_document_reader_policy.sql` | local RLS contract, typecheck/lint/build ก่อน PR | revert เฉพาะ policy migration ได้ โดยไม่ลบข้อมูล |
