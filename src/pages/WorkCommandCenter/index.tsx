@@ -781,7 +781,11 @@ export function WorkCommandCenterPage() {
                   }}
                 >
                   <Typography sx={{ fontWeight: 700 }}>
-                    {event.event_type === "created" ? "สร้างงาน" : "อัปเดตงาน"}{" "}
+                    {event.event_type === "created"
+                      ? "สร้างงาน"
+                      : event.event_type === "approval_loop_detected"
+                        ? "ตรวจพบ Approval loop"
+                        : "อัปเดตงาน"}{" "}
                     · {formatDate(event.created_at)}
                   </Typography>
                   <Typography variant="body2">

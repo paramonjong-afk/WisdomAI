@@ -32,15 +32,15 @@ flowchart LR
   C --> D{Returns to review?}
   D -->|Yes| E[Event-loop fingerprint]
   E --> F[Control Center warning]
-  E --> G[One Health Monitor escalation]
+  E --> G[Reserve one per-room alert + append evidence]
   F --> H[Human resolves scope or worker blocker]
 ```
 
 - **Reason:** retry counts and `blocked_since` do not catch a task that keeps returning to approval before it reaches a retry cap.
-- **Impact:** read-only analysis of the existing event ledger; the monitor sends one fingerprinted notification per newly observed loop and the Drawer shows rounds, latest time and next action.
-- **Migration:** none.
-- **Verification:** deterministic loop/non-loop fixtures, duplicate-notification contract, typecheck, lint, build and authenticated Drawer smoke after release.
-- **Rollback:** revert source-only change; retain all work-item events and notification records.
+- **Impact:** one shared detector reads the existing event ledger in the monitor and Drawer. A loop creates no business transition: the monitor reserves a fingerprinted alert per Telegram room and appends one `approval_loop_detected` evidence event containing rounds, timestamp and delivery outcome. The Drawer shows the same rounds, latest time and safe next action.
+- **Migration:** `20260908093000_approval_loop_notification_evidence.sql` extends the notification-type constraint, adds a per-destination `dedupe_key`, and prevents duplicate loop-evidence rows by fingerprint.
+- **Verification:** deterministic loop/non-loop fixtures, notification/evidence and duplicate-reservation contract, typecheck, lint, build and authenticated monitor/Drawer smoke after release.
+- **Rollback:** revert monitor/UI source if needed; retain notification and work-item evidence. The migration is additive and must not be rolled back by deleting audit rows.
 
 ## 2026-09-07 — System Data Access Phase 1
 

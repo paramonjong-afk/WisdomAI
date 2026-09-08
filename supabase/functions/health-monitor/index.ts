@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { detectApprovalLoop } from '../_shared/approval-loop.ts'
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!
 const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -118,29 +119,68 @@ async function telegramChats(companyId?: string | null) {
   return data ?? []
 }
 
-async function recordAdminNotification(type: string, incidentId: string | null, message: string, companyId?: string | null, replyMarkup?: unknown) {
+async function recordAdminNotification(type: string, incidentId: string | null, message: string, companyId?: string | null, replyMarkup?: unknown, dedupeKey?: string | null) {
   const chats = await telegramChats(companyId)
   if (!chats.length) return { sent: 0, failed: 0, missing: true }
   let sent = 0
   let failed = 0
   for (const chat of chats) {
+    const destination = `telegram:${chat.telegram_chat_id}`
+    let notificationId: string | null = null
+    if (dedupeKey) {
+      const { data: reservation, error: reservationError } = await admin.from('health_monitor_notifications').insert({
+        company_id: companyId ?? chat.company_id ?? null,
+        notification_type: type,
+        incident_id: incidentId,
+        destination,
+        status: 'skipped',
+        message,
+        dedupe_key: dedupeKey,
+      }).select('id').maybeSingle()
+      if (reservationError?.code === '23505') continue
+      if (reservationError) throw new Error(`Cannot reserve monitor notification: ${reservationError.message}`)
+      notificationId = reservation?.id ?? null
+    }
     const delivery = await sendTelegram(chat.telegram_chat_id, message, replyMarkup)
     if (delivery.status === 'sent') sent += 1
     else {
       failed += 1
       if (delivery.terminal) await deactivateTelegramChat(chat.telegram_chat_id, delivery.error)
     }
-    await admin.from('health_monitor_notifications').insert({
+    const notification = {
       company_id: companyId ?? chat.company_id ?? null,
       notification_type: type,
       incident_id: incidentId,
-      destination: `telegram:${chat.telegram_chat_id}`,
+      destination,
       status: delivery.status,
       message,
       error_message: delivery.error,
-    })
+      ...(dedupeKey ? { dedupe_key: dedupeKey } : {}),
+    }
+    const { error: auditError } = notificationId
+      ? await admin.from('health_monitor_notifications').update(notification).eq('id', notificationId)
+      : await admin.from('health_monitor_notifications').insert(notification)
+    if (auditError) throw new Error(`Cannot record monitor notification: ${auditError.message}`)
   }
   return { sent, failed, missing: false }
+}
+
+async function recordApprovalLoopEvidence(item: { work_key: string; company_id: string | null }, loop: ApprovalLoop, delivery: { sent: number; failed: number; missing: boolean }) {
+  const note = [
+    `fingerprint=${loop.fingerprint}`,
+    `rounds=${loop.rounds}`,
+    `detected_at=${loop.last_detected_at}`,
+    `telegram_sent=${delivery.sent}`,
+    `telegram_failed=${delivery.failed}`,
+    `telegram_destination_missing=${delivery.missing}`,
+  ].join('; ')
+  const { error } = await admin.from('system_work_item_events').insert({
+    work_key: item.work_key,
+    company_id: item.company_id,
+    event_type: 'approval_loop_detected',
+    note,
+  })
+  if (error?.code !== '23505' && error) throw new Error(`Cannot record approval-loop evidence: ${error.message}`)
 }
 
 async function sendPendingWorkApprovals(companyId: string | null) {
@@ -178,11 +218,10 @@ async function sendPendingWorkApprovals(companyId: string | null) {
   return sent
 }
 
-type WorkEvent = { id: number; work_key: string; old_status: string | null; new_status: string | null; created_at: string }
 type ApprovalLoop = { work_key: string; rounds: number; last_detected_at: string; fingerprint: string }
 
-function detectApprovalLoops(events: WorkEvent[]) {
-  const byWorkKey = new Map<string, WorkEvent[]>()
+function detectApprovalLoops(events: Array<{ id: number; work_key: string; old_status: string | null; new_status: string | null; created_at: string }>) {
+  const byWorkKey = new Map<string, Array<{ id: number; work_key: string; old_status: string | null; new_status: string | null; created_at: string }>>()
   for (const event of events) {
     const group = byWorkKey.get(event.work_key) ?? []
     group.push(event)
@@ -190,20 +229,10 @@ function detectApprovalLoops(events: WorkEvent[]) {
   }
   const loops: ApprovalLoop[] = []
   for (const [workKey, history] of byWorkKey) {
-    let phase = 0
-    let rounds = 0
-    let lastDetectedAt = ''
-    for (const event of history.sort((left, right) => left.created_at.localeCompare(right.created_at))) {
-      if (!event.new_status || event.old_status === event.new_status) continue
-      if (event.new_status === 'review') {
-        if (phase === 3) { rounds += 1; lastDetectedAt = event.created_at }
-        phase = 1
-      } else if (event.new_status === 'ready' && phase === 1) phase = 2
-      else if (event.new_status === 'doing' && phase === 2) phase = 3
-    }
-    if (rounds && lastDetectedAt) loops.push({
-      work_key: workKey, rounds, last_detected_at: lastDetectedAt,
-      fingerprint: `approval-loop:${workKey}:${rounds}:${lastDetectedAt}`,
+    const detection = detectApprovalLoop(workKey, history)
+    if (detection.detected && detection.lastDetectedAt && detection.fingerprint) loops.push({
+      work_key: workKey, rounds: detection.rounds, last_detected_at: detection.lastDetectedAt,
+      fingerprint: detection.fingerprint,
     })
   }
   return loops
@@ -237,7 +266,7 @@ Deno.serve(async (request) => {
         .gte('created_at', since(24 * 60)).order('created_at', { ascending: false }).limit(1000),
     ])
     if (attemptsError || durationError || approvalError || eventsError) return json({ error: (attemptsError ?? durationError ?? approvalError ?? eventsError)?.message }, 500)
-    const approvalLoops = detectApprovalLoops((recentEvents ?? []) as WorkEvent[])
+    const approvalLoops = detectApprovalLoops((recentEvents ?? []) as Array<{ id: number; work_key: string; old_status: string | null; new_status: string | null; created_at: string }>)
     const loopKeys = approvalLoops.map(loop => loop.work_key)
     const { data: loopItems, error: loopItemsError } = loopKeys.length
       ? await admin.from('system_work_items').select(selectCols).in('work_key', loopKeys)
@@ -295,7 +324,15 @@ Deno.serve(async (request) => {
         { text: '✅ อนุมัติ', callback_data: `work:approve:${item.work_key}` },
         { text: '⛔ ไม่อนุมัติ', callback_data: `work:reject:${item.work_key}` },
       ]] } : undefined
-      const delivery = await recordAdminNotification(notificationType, null, text, item.company_id ?? null, replyMarkup)
+      const delivery = await recordAdminNotification(
+        notificationType,
+        null,
+        text,
+        item.company_id ?? null,
+        replyMarkup,
+        loop ? loop.fingerprint : null,
+      )
+      if (loop) await recordApprovalLoopEvidence(item, loop, delivery)
       sent += delivery.sent
       failed += delivery.failed
     }

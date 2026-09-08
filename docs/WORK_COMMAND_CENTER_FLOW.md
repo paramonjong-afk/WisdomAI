@@ -58,8 +58,12 @@ work item. Successful silent list refreshes clear stale list notices.
 The Drawer reads the existing, company-scoped `system_work_item_events` history
 and detects `review -> ready -> doing -> review`. A completed cycle is shown
 with its approval-round count, latest occurrence, and next safe action.
-Repeated review reminders alone do not create a false loop. This detector is
-read-only; approval, retry and business-record permissions are unchanged.
+Repeated review reminders alone do not create a false loop. The monitor writes
+one append-only `approval_loop_detected` event with the loop fingerprint,
+round count and Telegram delivery result; the Drawer can therefore show the
+same evidence without changing approval, retry or business-record permissions.
+Telegram delivery is reserved by a per-destination dedupe key before it is
+sent, so overlapping monitor runs do not create duplicate alerts.
 
 ## Change record
 
@@ -87,3 +91,16 @@ read-only; approval, retry and business-record permissions are unchanged.
   typecheck, lint, build, and authenticated Drawer smoke after release.
 - Rollback: revert the detector/UI source only. Existing events,
   notifications, approvals and work items remain intact.
+
+- Version: v1.4
+- Date: 2026-09-08
+- Rationale: make approval-loop alerts durable and observable. The older
+  notification type constraint rejected work-item notification types, which
+  could leave delivery without audit evidence.
+- Migration: `20260908093000_approval_loop_notification_evidence.sql` adds the
+  allowed types, per-destination dedupe key and append-only loop-evidence
+  index.
+- Verification: loop sequence, reminder negative case, notification/evidence
+  contract, typecheck, lint, build and authenticated monitor/Drawer smoke.
+- Rollback: deploy the prior monitor/UI only if needed; retain notification
+  and event evidence. Do not delete existing audit rows.
