@@ -1019,3 +1019,19 @@ flowchart LR
 - Original Quarantine / Chain of Custody v1.1 (7/9/2569): recorded the Admin-approved default retention, legal-hold, quarantine, derivative and quarterly controlled-recovery policy in `docs/ORIGINAL_CHAIN_OF_CUSTODY_FLOW.md`. Documentation/control update only; no object, row, migration or runtime retention action was performed.
 
 - Release Parity / Safe Redirect v1.3 (7/9/2569): Cloudflare Pages is now the canonical Production target; Vercel is Preview/Parity only. Smart Entry keeps Vercel unavailable when its revision is stale or rate-limited and continues through Cloudflare, while preserving the existing health/revision checks.
+
+### SYS-004 Monitoring Sentinel Recovery v1.0 (8/9/2569)
+
+```mermaid
+flowchart TD
+  S[SYS-004 monitoring sentinel] --> H[Health Monitor updates incident/evidence]
+  H --> D{Generic claim or stale recovery?}
+  D -->|yes| X[Exclude monitoring_active records]
+  D -->|no| A[Keep doing without worker lease]
+  X --> R[No requeue and no retry storm]
+  A --> R
+```
+
+- **เหตุผล/ผลกระทบ:** แยก `SYS-004` ซึ่งเป็น monitoring sentinel ออกจาก generic worker claim และ stale recovery เพื่อหยุด retry/claim loop; ไม่เปลี่ยน incident, ข้อมูลธุรกิจ, สิทธิ์ หรือการแจ้งเตือน.
+- **Migration:** `20260907143902_protect_monitoring_sentinel_work_items.sql` ผ่าน PR/CI เท่านั้น.
+- **Verification/Rollback:** SQL contract, migration replay, worker/health tests, lint/typecheck/build และ Production read-only verification; rollback ด้วยการ revert PR โดยคง monitoring/audit history.
