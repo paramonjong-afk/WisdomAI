@@ -37,6 +37,7 @@
     "test:system-performance-standard": "node --experimental-strip-types scripts/system-performance-standard.test.ts",
     "test:platform-company": "node --experimental-strip-types scripts/platform-admin-company-access.test.ts",
     "test:work-command-center": "node --experimental-strip-types scripts/work-command-center.test.ts",
+    "test:approval-inbox": "node --experimental-strip-types scripts/approval-inbox.test.ts",
     "test:work-claim-status": "node --experimental-strip-types scripts/work-claim-status.test.ts",
     "test:telegram-stale-chat": "node --experimental-strip-types scripts/telegram-stale-chat.test.ts",
     "test:automation-claim": "node --experimental-strip-types scripts/automation-claim.test.ts",

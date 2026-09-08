@@ -1035,3 +1035,18 @@ flowchart LR
 - Original Quarantine / Chain of Custody v1.1 (7/9/2569): recorded the Admin-approved default retention, legal-hold, quarantine, derivative and quarterly controlled-recovery policy in `docs/ORIGINAL_CHAIN_OF_CUSTODY_FLOW.md`. Documentation/control update only; no object, row, migration or runtime retention action was performed.
 
 - Release Parity / Safe Redirect v1.3 (7/9/2569): Cloudflare Pages is now the canonical Production target; Vercel is Preview/Parity only. Smart Entry keeps Vercel unavailable when its revision is stale or rate-limited and continues through Cloudflare, while preserving the existing health/revision checks.
+
+### Central Approval Inbox v1.0 (8/9/2569)
+
+```mermaid
+flowchart TD
+  Q[Pending system_work_items] --> I[Authenticated Approval Inbox]
+  I --> B[Business/policy decision via existing RPC]
+  I --> H[Host/sandbox waiting item with source-room handoff]
+  B --> A[Mutation attempt and Audit]
+  H --> A
+```
+
+- **เหตุผล/ผลกระทบ:** รวมคำขออนุมัติงาน/นโยบายไว้ใน `/approvals` พร้อม `work_key`, scope, risk, evidence และผลตัดสิน; host/sandbox แสดงข้อจำกัด API ตามจริงโดยไม่สร้างปุ่มอนุมัติปลอม.
+- **สิทธิ์/Failure/Retry/Audit:** ใช้ Admin/Manager, RLS และ `decide_system_work_item_approval` เดิม; การตัดสินใจผ่าน mutation-attempt/Audit เดิมและ retry query เดิม; ไม่มี remembered approval หรือ auto-allow กว้าง.
+- **Migration/Verification/Rollback:** ไม่มี migration; verify inbox contract, approval contracts, typecheck/lint/build และ authenticated smoke; rollback ด้วยการถอดแท็บโดยไม่เปลี่ยน source records หรือ Audit.
