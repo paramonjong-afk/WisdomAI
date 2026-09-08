@@ -1041,3 +1041,19 @@ flowchart LR
 - **เหตุผล/ผลกระทบ:** หน้า `/work-command-center` แสดงสถานะ Worker จาก `system_work_items` และประวัติ `system_worker_runs` จริง พร้อมผลลัพธ์ที่อ่านง่าย: รับเข้าแล้ว รอ Worker, กำลังทำ, ติดปัญหา, เสร็จแล้ว หรือไม่มีผลลัพธ์จาก Worker; ไม่มีการสร้างสถานะจำลองหรือแก้ข้อมูลธุรกิจ.
 - **สิทธิ์/Failure/Retry/Audit:** ใช้ RLS เดิมของ Work Item/Worker Run; heartbeat เกิน 10 นาทีหรือ lease หมดอายุจะแสดงคำเตือนและให้ตรวจ recovery ก่อนสั่งซ้ำ; Drawer อ่าน Audit และหลักฐาน run ตามสิทธิ์เดิม.
 - **Migration/Verification/Rollback:** ไม่มี migration; verify targeted contracts, typecheck, lint, build และ authenticated runtime smoke หลัง release; rollback ด้วยการ revert UI/docs/test commit โดย queue, lease, run และ Audit เดิมไม่เปลี่ยน.
+
+### Work Command Center / Active Claim integration v1.1 (8/9/2569)
+
+```mermaid
+flowchart LR
+  I[system_work_items: worker_id, heartbeat, lease] --> P[Shared Active Claim predicate]
+  T[One-second local clock] --> P
+  P -->|valid| A[Active count, tab and Worker Progress]
+  P -->|expired or stale| R[Recovery guidance and Worker run audit]
+  A --> D[Read-only Drawer]
+  R --> D
+```
+
+- **เหตุผล/ผลกระทบ:** ใช้ Active Claim predicate ชุดเดียวกับ Worker Progress เพื่อให้ count, tab, chip และ Drawer เปลี่ยนตาม heartbeat/lease จริงโดยไม่สร้าง helper ซ้ำหรือเขียนข้อมูลกลับฐานข้อมูล.
+- **สิทธิ์/Failure/Retry/Audit:** สิทธิ์, RLS, RPC และ Audit เดิมคงเดิม; claim หมดอายุหรือ heartbeat เก่าจะแสดง recovery guidance และประวัติ Worker run ตามสิทธิ์.
+- **Migration/Verification/Rollback:** ไม่มี migration; verify fake-clock claim test, Worker Progress/Work Command contracts, typecheck, lint, build และ authenticated runtime smoke หลัง release; rollback ด้วยการ revert helper/UI/docs/test commit โดย queue, lease, run และ Audit เดิมไม่เปลี่ยน.

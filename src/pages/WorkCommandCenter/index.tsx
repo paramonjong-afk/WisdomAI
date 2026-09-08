@@ -26,6 +26,11 @@ import { usePageTitle } from "../../hooks/usePageTitle";
 import { supabase } from "../../lib/supabase";
 import { userError } from "../../utils/userError";
 import { runWithMutationAttempt } from "../../utils/mutationAttemptRunner";
+import {
+  CLAIM_HEARTBEAT_MAX_AGE_MS,
+  hasActiveWorkerClaim,
+  workerClaimLabel,
+} from "../../services/workClaimStatus";
 import { shouldApplyDetailResponse } from "./detailRequestGuard";
 
 type WorkStatus = "ready" | "doing" | "review" | "blocked" | "done";
@@ -124,22 +129,21 @@ const productionLabel = (value: string) => {
 };
 const formatDate = (value: string | null) =>
   value ? new Date(value).toLocaleString("th-TH") : "-";
-const hasExpiredLease = (item: Item) =>
+const hasStaleHeartbeat = (item: Item, now: number) =>
   item.status === "doing" &&
-  Boolean(item.lease_expires_at) &&
-  new Date(item.lease_expires_at as string).getTime() <= Date.now();
-const hasStaleHeartbeat = (item: Item) => item.status === "doing" && (!item.heartbeat_at || Date.now() - new Date(item.heartbeat_at).getTime() > 10 * 60_000);
-const leaseLabel = (value: string | null) => {
+  (!item.heartbeat_at ||
+    new Date(item.heartbeat_at).getTime() < now - CLAIM_HEARTBEAT_MAX_AGE_MS);
+const leaseLabel = (value: string | null, now: number) => {
   if (!value) return "ยังไม่มี lease";
-  const minutes = Math.ceil((new Date(value).getTime() - Date.now()) / 60_000);
+  const minutes = Math.ceil((new Date(value).getTime() - now) / 60_000);
   return minutes <= 0 ? "lease หมดอายุ" : `เหลือ ${minutes} นาที`;
 };
 type WorkerOutcome = "acknowledged" | "claimed" | "blocked" | "completed" | "no_output";
-const workerOutcome = (item: Item): { value: WorkerOutcome; label: string; reason: string; nextAction: string } => {
+const workerOutcome = (item: Item, now: number): { value: WorkerOutcome; label: string; reason: string; nextAction: string } => {
   if (item.status === "done") return { value: "completed", label: "เสร็จแล้ว", reason: "งานปิดจากคิวกลางแล้ว", nextAction: "อ่านหลักฐานและ Audit ก่อนเริ่มงานใหม่" };
   if (item.status === "blocked") return { value: "blocked", label: "ติดปัญหา", reason: item.current_step || "มี blocker ที่ต้องตรวจ", nextAction: "เปิดรายละเอียดและแก้ blocker ตามหลักฐาน" };
   if (item.status === "ready") return { value: "acknowledged", label: "รับเข้าแล้ว รอ Worker", reason: "คำสั่งอยู่คิวกลาง แต่ยังไม่มี Worker ถือ lease", nextAction: "รอ Worker รับงานหรือเริ่มแบบระบุงาน" };
-  if (!item.worker_id || hasExpiredLease(item) || hasStaleHeartbeat(item)) return { value: "no_output", label: "ไม่มีผลลัพธ์จาก Worker", reason: hasStaleHeartbeat(item) ? "heartbeat เกิน 10 นาที" : "ไม่มี Worker หรือ lease ที่ยังใช้งาน", nextAction: "ตรวจ worker run และ recovery ก่อนลองใหม่" };
+  if (!hasActiveWorkerClaim(item, now)) return { value: "no_output", label: "ไม่มีผลลัพธ์จาก Worker", reason: hasStaleHeartbeat(item, now) ? "heartbeat เกิน 10 นาที" : "ไม่มี Worker หรือ lease ที่ยังใช้งาน", nextAction: "ตรวจ worker run และ recovery ก่อนลองใหม่" };
   return { value: "claimed", label: "Worker กำลังทำงาน", reason: item.current_step || "Worker รับงานแล้ว", nextAction: "ติดตาม heartbeat และผลลัพธ์ในรายละเอียด" };
 };
 const workerOutcomeColor = (outcome: WorkerOutcome): "error" | "warning" | "success" | "info" =>
@@ -153,6 +157,7 @@ export function WorkCommandCenterPage() {
     [notice, setNotice] = useState("");
   const [detailBusy, setDetailBusy] = useState(false);
   const [detailError, setDetailError] = useState("");
+  const [claimNow, setClaimNow] = useState(() => Date.now());
   const detailRequestId = useRef(0);
   const pendingRefreshRef = useRef(false);
   const [view, setView] = useState<View>("active"),
@@ -205,6 +210,10 @@ export function WorkCommandCenterPage() {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+  useEffect(() => {
+    const timer = window.setInterval(() => setClaimNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
   useEffect(() => {
     const flushAfterCopy = () => {
       if (!pendingRefreshRef.current || document.getSelection()?.toString()) return;
@@ -410,12 +419,12 @@ export function WorkCommandCenterPage() {
   const counts = useMemo(
     () => ({
       ready: rows.filter((r) => r.status === "ready").length,
-      doing: rows.filter((r) => r.status === "doing").length,
+      doing: rows.filter((r) => hasActiveWorkerClaim(r, claimNow)).length,
       review: rows.filter((r) => r.status === "review").length,
       blocked: rows.filter((r) => r.status === "blocked").length,
       done: rows.filter((r) => r.status === "done").length,
     }),
-    [rows],
+    [rows, claimNow],
   );
   const visibleRows = useMemo(
     () =>
@@ -423,12 +432,14 @@ export function WorkCommandCenterPage() {
         ? rows
         : view === "active"
           ? rows.filter((row) => row.status !== "done")
-          : rows.filter((row) => row.status === view),
-    [rows, view],
+          : view === "doing"
+            ? rows.filter((row) => hasActiveWorkerClaim(row, claimNow))
+            : rows.filter((row) => row.status === view),
+    [claimNow, rows, view],
   );
   const cards: [WorkStatus, string][] = [
     ["ready", "ต้องดำเนินการ"],
-    ["doing", "กำลังทำ"],
+    ["doing", "กำลังทำจริง"],
     ["review", "รอตรวจ/อนุมัติ"],
     ["blocked", "ติดปัญหา"],
   ];
@@ -568,8 +579,8 @@ export function WorkCommandCenterPage() {
             render: (r) => (
               <Chip
                 size="small"
-                color={hasExpiredLease(r) ? "error" : statusColor[r.status]}
-                label={hasExpiredLease(r) ? "Worker ขาดการติดต่อ" : statusLabel[r.status]}
+                color={hasActiveWorkerClaim(r, claimNow) ? "warning" : r.status === "doing" ? "error" : statusColor[r.status]}
+                label={workerClaimLabel(r, statusLabel, claimNow)}
               />
             ),
             exportValue: (r) => statusLabel[r.status],
@@ -579,11 +590,11 @@ export function WorkCommandCenterPage() {
             label: "Worker / ผลลัพธ์",
             minWidth: 210,
             render: (r) => {
-              const outcome = workerOutcome(r);
+              const outcome = workerOutcome(r, claimNow);
               const color = workerOutcomeColor(outcome.value);
-              return <Box><Chip size="small" color={color} label={outcome.label} /><Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>{r.worker_id || "ยังไม่มี Worker"}{r.status === "doing" ? ` · ${leaseLabel(r.lease_expires_at)}` : ""}</Typography></Box>;
+              return <Box><Chip size="small" color={color} label={outcome.label} /><Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>{r.worker_id || "ยังไม่มี Worker"}{r.status === "doing" ? ` · ${leaseLabel(r.lease_expires_at, claimNow)}` : ""}</Typography></Box>;
             },
-            exportValue: (r) => `${workerOutcome(r).label} · ${r.worker_id || ""}`,
+            exportValue: (r) => `${workerOutcome(r, claimNow).label} · ${r.worker_id || ""}`,
           },
           {
             id: "progress",
@@ -741,14 +752,14 @@ export function WorkCommandCenterPage() {
               </Typography>
             </Box>
             {(() => {
-              const outcome = workerOutcome(selected);
+              const outcome = workerOutcome(selected, claimNow);
               const color = workerOutcomeColor(outcome.value);
               return <Paper variant="outlined" sx={{ p: 1.5 }}>
                 <Typography variant="subtitle2">สถานะ Worker จริง</Typography>
                 <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mt: 1, alignItems: { sm: "center" } }}><Chip color={color} label={outcome.label} /><Typography variant="body2">{selected.worker_id || "ยังไม่มี Worker ถือ lease"}</Typography></Stack>
-                <Typography variant="body2" sx={{ mt: 1 }}>Progress {selected.progress}% · heartbeat {formatDate(selected.heartbeat_at)} · {leaseLabel(selected.lease_expires_at)}</Typography>
+                <Typography variant="body2" sx={{ mt: 1 }}>Progress {selected.progress}% · heartbeat {formatDate(selected.heartbeat_at)} · {leaseLabel(selected.lease_expires_at, claimNow)}</Typography>
                 <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>เหตุผล: {outcome.reason} · ถัดไป: {outcome.nextAction}</Typography>
-                {hasStaleHeartbeat(selected) && <Alert severity="warning" sx={{ mt: 1 }}>Worker ยังไม่ยืนยันความคืบหน้าเกิน 10 นาที โปรดตรวจ run ก่อนสั่งซ้ำ</Alert>}
+                {hasStaleHeartbeat(selected, claimNow) && <Alert severity="warning" sx={{ mt: 1 }}>Worker ยังไม่ยืนยันความคืบหน้าเกิน 10 นาที โปรดตรวจ run ก่อนสั่งซ้ำ</Alert>}
               </Paper>;
             })()}
             <Box>
@@ -806,10 +817,10 @@ export function WorkCommandCenterPage() {
               </Typography>
             </Box>
             {selected.heartbeat_at && (
-              <Alert severity={hasExpiredLease(selected) ? "error" : "info"}>
-                {hasExpiredLease(selected)
-                  ? "Worker ขาดการติดต่อ — lease หมดอายุแล้ว"
-                  : "Worker กำลังทำงาน"}
+              <Alert severity={hasActiveWorkerClaim(selected, claimNow) ? "info" : "error"}>
+                {hasActiveWorkerClaim(selected, claimNow)
+                  ? "Worker กำลังทำงานและมี Active Claim"
+                  : workerClaimLabel(selected, statusLabel, claimNow)}
                 {` · heartbeat ล่าสุด ${formatDate(selected.heartbeat_at)}`}
                 {selected.lease_expires_at &&
                   ` · lease ถึง ${formatDate(selected.lease_expires_at)}`}

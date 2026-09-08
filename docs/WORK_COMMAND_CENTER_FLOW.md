@@ -104,3 +104,16 @@ selected work item. Successful silent list refreshes clear stale list notices.
   after release.
 - Rollback: revert the UI/docs/test commit; queue, lease, run, and audit data
   remain unchanged.
+
+- Version: v1.4
+- Date: 2026-09-08
+- Rationale: share the Active Claim predicate with the Worker Progress UI so a
+  live lease or heartbeat expiry cannot leave the command center showing a
+  worker as active.
+- Impact: the active count, active tab, status chip, and Worker outcome refresh
+  once per second from existing read-only queue fields; no role, RLS, RPC,
+  schema, or business-data mutation changes.
+- Verification: deterministic fake-clock claim tests, Worker progress and Work
+  Command contracts, typecheck, lint, build, then authenticated runtime smoke.
+- Rollback: revert the shared helper and UI integration; queue, lease, run, and
+  audit records remain unchanged.
