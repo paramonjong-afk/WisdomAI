@@ -1049,5 +1049,5 @@ flowchart LR
 - **Reason:** QA found the server-side `duplicate_state` guard was not carried into Intake UI context, so the visible queue action could appear available even though the RPC would reject it.
 - **Impact:** Intake queue filtering, Drawer messaging, action disabled state, and client preflight now use the same persisted duplicate marker; no routing, permissions, or data model changes.
 - **Migration:** None.
-- **Verification:** `test:filter-runtime-contract`, typecheck, targeted lint, build; no Production mutation or deployment.
+- **Verification:** `test:filter-runtime-contract`, `test:document-flow-filter-consistency`, typecheck, targeted lint, build; no Production mutation or deployment.
 - **Rollback:** Revert the application/test/documentation commit; existing duplicate rows and audit history remain unchanged.
