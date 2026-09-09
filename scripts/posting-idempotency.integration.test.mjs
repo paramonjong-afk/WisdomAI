@@ -20,15 +20,23 @@ assert.match(dbUrl ?? '', /^postgres(?:ql)?:\/\//, 'Supabase status must expose 
 const sql = `
 begin;
 set local role service_role;
-select public.reserve_posting_operation(gen_random_uuid(),'integration-posting-key','accounting');
-select public.reserve_posting_operation((select company_id from public.posting_operations order by created_at desc limit 1),'integration-posting-key','accounting');
+do $$ declare company_id uuid := gen_random_uuid(); begin
+  insert into public.companies(id,name,slug) values (company_id,'Posting Harness','posting-harness');
+  perform set_config('app.posting_harness_company',company_id::text,true);
+end $$;
+select public.reserve_posting_operation(current_setting('app.posting_harness_company')::uuid,'integration-posting-key','accounting');
+select public.reserve_posting_operation(current_setting('app.posting_harness_company')::uuid,'integration-posting-key','accounting');
+insert into public.posting_operation_events(operation_id,company_id,event_key,event_type,to_status,payload)
+select id,company_id,'integration-posting:reserved','reserved','reserved','{"source":"harness"}'::jsonb
+from public.posting_operations where company_id=current_setting('app.posting_harness_company')::uuid and idempotency_key='integration-posting-key';
 do $$ declare c int; enabled boolean; privileged boolean; begin
   select relrowsecurity into enabled from pg_class where oid='public.posting_operations'::regclass;
   if not enabled then raise exception 'posting_operations_rls_disabled'; end if;
   select has_function_privilege('service_role','public.reserve_posting_operation(uuid,text,text,uuid,uuid)','execute') into privileged;
   if not privileged then raise exception 'service_role_execute_missing'; end if;
-  select count(*) into c from public.posting_operations where idempotency_key='integration-posting-key';
+  select count(*) into c from public.posting_operations where company_id=current_setting('app.posting_harness_company')::uuid and idempotency_key='integration-posting-key';
   if c <> 1 then raise exception 'idempotency_duplicate:%',c; end if;
+  if (select count(*) from public.posting_operation_events where event_key='integration-posting:reserved') <> 1 then raise exception 'audit_event_missing'; end if;
 end $$;
 rollback;
 `
