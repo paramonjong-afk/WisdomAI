@@ -23,6 +23,15 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-09 — Posting Idempotency and Recovery v1.0
+
+- **เหตุผล:** เพิ่มด่านกลางกันการกดซ้ำ/refresh/timeout/partial failure ก่อน Posting Gateway
+- **ผลกระทบ:** เพิ่ม `posting_operations`, append-only `posting_operation_events` และ service-role reservation RPC; ไม่สร้างหรือแก้ Accounting/AP/Stock/PO โดยตรง
+- **Flow document:** `docs/POSTING_IDEMPOTENCY_RECOVERY_FLOW.md` (มี Mermaid เป็นส่วนแรก)
+- **Migration:** `202609090001_posting_idempotency_recovery.sql`
+- **การตรวจสอบ:** idempotency contract, migration replay, RLS/permission, retry/dead-letter/compensation และ Posting gateway integration
+- **Rollback:** revoke reservation RPC/ปิด gateway ใหม่ โดยเก็บ operation/event ledger เพื่อ recovery
+
 ## 2026-09-07 — System Data Access Phase 1
 
 ```mermaid
