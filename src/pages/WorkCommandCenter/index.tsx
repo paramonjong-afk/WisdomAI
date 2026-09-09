@@ -33,6 +33,7 @@ import {
 } from "../../services/workClaimStatus";
 import { resolveApprovalState } from "../../services/workApprovalState";
 import type { ApprovalLedgerRow } from "../../services/workApprovalState";
+import { displayProgress, workLane } from "../../services/workBacklogProjection";
 
 type WorkStatus = "ready" | "doing" | "review" | "blocked" | "done";
 type Item = {
@@ -500,7 +501,7 @@ export function WorkCommandCenterPage() {
                 </Typography>
                 <LinearProgress
                   variant="determinate"
-                  value={r.progress}
+                  value={displayProgress(r.status, r.progress)}
                   color={
                     r.status === "blocked"
                       ? "error"
@@ -541,7 +542,7 @@ export function WorkCommandCenterPage() {
           {
             id: "progress",
             label: "ความก้าวหน้า",
-            render: (r) => `${r.progress}%`,
+            render: (r) => `${displayProgress(r.status, r.progress)}% · ${workLane(r.status, r.production_status, r.approval_state?.status)}`,
             exportValue: (r) => r.progress,
           },
           {

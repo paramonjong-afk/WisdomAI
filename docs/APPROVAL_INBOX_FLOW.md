@@ -10,6 +10,12 @@ flowchart LR
   X --> A
 ```
 
+The queue is a read-only projection of the latest approval ledger plus the
+work-item mirror fallback. It keeps accepted work visible through QA, PR/CI,
+release smoke and completion; non-Done progress is capped at 95% and internal
+control/QA records are represented as child work rather than a new business
+promise.
+
 # Central Approval Inbox Flow
 
 ## Purpose

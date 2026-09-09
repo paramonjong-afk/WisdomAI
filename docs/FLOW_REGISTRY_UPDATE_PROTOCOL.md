@@ -1050,3 +1050,9 @@ flowchart TD
 - **เหตุผล/ผลกระทบ:** รวมคำขออนุมัติงาน/นโยบายไว้ใน `/approvals` พร้อม `work_key`, scope, risk, evidence และผลตัดสิน; host/sandbox แสดงข้อจำกัด API ตามจริงโดยไม่สร้างปุ่มอนุมัติปลอม.
 - **สิทธิ์/Failure/Retry/Audit:** ใช้ Admin/Manager, RLS และ `decide_system_work_item_approval` เดิม; การตัดสินใจผ่าน mutation-attempt/Audit เดิมและ retry query เดิม; ไม่มี remembered approval หรือ auto-allow กว้าง.
 - **Migration/Verification/Rollback:** ไม่มี migration; verify inbox contract, approval contracts, typecheck/lint/build และ authenticated smoke; rollback ด้วยการถอดแท็บโดยไม่เปลี่ยน source records หรือ Audit.
+## 2026-09-09 — WCC approval backlog visibility P1
+
+Updated Approval Inbox and Work Command Center to retain accepted work through
+QA/PR/CI/release gates, reconcile the latest approval ledger, cap non-Done
+progress at 95%, and treat internal control records as supporting work. No
+schema or data migration.

@@ -111,3 +111,11 @@ work item. Successful silent list refreshes clear stale list notices.
   lease-expiry boundaries, plus typecheck, lint and build.
 - Migration: none. No work item or business data is changed by the timer.
 - Rollback: revert the UI/helper/test/doc commit; claim and audit history remain intact.
+
+- Version: v1.5
+- Date: 2026-09-09
+- Rationale: keep accepted business work visible through QA/release gates and
+  prevent non-Done items from appearing complete.
+- Migration: none. The projection is read-only and preserves all source rows.
+- Verification: backlog projection tests, typecheck and build.
+- Rollback: revert the projection/UI commit; source work and audit history remain intact.

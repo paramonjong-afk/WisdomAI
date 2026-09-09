@@ -8,13 +8,14 @@ import { supabase } from '../../lib/supabase'
 import { userError } from '../../utils/userError'
 import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
 import { resolveApprovalState } from '../../services/workApprovalState'
+import type { ApprovalState } from '../../services/workApprovalState'
 import type { ApprovalLedgerRow } from '../../services/workApprovalState'
 
 type Leave={id:string;reason:string;starts_at:string;ends_at:string;profiles:{full_name:string|null;email:string|null}|null;leave_types:{name_th:string}|null}
 type Correction={id:string;reason:string;requested_clock_in_at:string|null;requested_clock_out_at:string|null;profiles:{full_name:string|null;email:string|null}|null}
 type Claim={id:string;claim_number:string;description:string;net_amount:number;contractor_contracts:{contractor_vendors:{legal_name:string}|null}|null}
 type AttendanceReview={id:string;clock_in_at:string;clock_out_at:string|null;clock_in_distance_meters:number|null;clock_out_distance_meters:number|null;clock_in_accuracy_meters:number|null;clock_out_accuracy_meters:number|null;review_reason:string|null;review_category:string|null;profiles:{full_name:string|null;email:string|null}|null;project_sites:{name:string;projects:{name:string}|null}|null}
-type WorkApproval={work_key:string;title:string;status:string;progress:number;risk:string;detail:string|null;evidence:string|null;approval_scope:string|null;approval_fingerprint:string|null;production_status:string;updated_at:string;approval_status:string|null;approval?:ApprovalLedgerRow|null}
+type WorkApproval={work_key:string;title:string;status:string;progress:number;risk:string;detail:string|null;evidence:string|null;approval_scope:string|null;approval_fingerprint:string|null;production_status:string;updated_at:string;approval_status:string|null;approval?:ApprovalLedgerRow|null;approvalState?:ApprovalState}
 const name=(profile:{full_name:string|null;email:string|null}|null)=>profile?.full_name||profile?.email||'ไม่ทราบชื่อ'
 
 export function ApprovalsPage(){
@@ -37,7 +38,7 @@ export function ApprovalsPage(){
     ])
     const first=[w,ledger,l,c,cl,a].find((item)=>item.error)?.error;if(first)setError('โหลดรายการอนุมัติบางส่วนไม่สำเร็จ')
     const ledgerRows=(ledger.data??[]) as ApprovalLedgerRow[]; const all=(w.data??[]) as WorkApproval[]
-    setWorkApprovals(all.map(row=>({...row,approval:resolveApprovalState(row.approval_status,ledgerRows,row.work_key).latest})).filter(row=>resolveApprovalState(row.approval_status,ledgerRows,row.work_key).status==='pending'))
+    setWorkApprovals(all.map(row=>{const approvalState=resolveApprovalState(row.approval_status,ledgerRows,row.work_key);return {...row,approval:approvalState.latest,approvalState}}))
     setLeaves((l.data??[]) as unknown as Leave[]);setCorrections((c.data??[]) as unknown as Correction[]);setClaims((cl.data??[]) as unknown as Claim[]);setAttendanceReviews((a.data??[]) as unknown as AttendanceReview[]);setLoading(false)
   },[canManage])
   useEffect(()=>{const timer=window.setTimeout(()=>void load(),0);return()=>window.clearTimeout(timer)},[load])
@@ -64,7 +65,7 @@ export function ApprovalsPage(){
   }
   const reviewGps=(id:string,action:'approve'|'reject'|'request_more')=>run(()=>supabase.rpc('review_gps_attendance',{target_session_id:id,review_action:action,review_note:reviewNote.trim()||null,review_source:'web',source_line_group_id:null,source_line_user_id:null}),action==='approve'?'อนุมัติรายการ GPS แล้ว':action==='reject'?'ปฏิเสธรายการแล้ว':'ส่งคำขอข้อมูลเพิ่มแล้ว')
   const decideWork=(row:WorkApproval,approved:boolean)=>run(async()=>{
-    if(row.approval?.status!=='pending') return {error:{message:'รายการนี้ถูกตัดสินแล้ว กรุณาโหลดข้อมูลใหม่'}}
+    if(row.approvalState?.status!=='pending') return {error:{message:'รายการนี้ถูกตัดสินแล้ว กรุณาโหลดข้อมูลใหม่'}}
     const result=await supabase.rpc('decide_system_work_item_approval',{target_work_key:row.work_key,target_decision:approved?'approve':'reject',target_reason:reviewNote.trim()||null})
     if(result.error)return result
     return {error:null}
