@@ -90,8 +90,8 @@ begin
     values (user_a,company_a),(user_b,company_b),(user_c,company_a);
   -- Service-role fixture writes are intentionally context-free; assertions
   -- below reintroduce each authenticated JWT explicitly.
-  perform set_config('request.jwt.claim.sub',user_c::text,true);
-  perform set_config('request.jwt.claims',json_build_object('role','service_role','sub',user_c::text)::text,true);
+  perform set_config('request.jwt.claim.sub','',true);
+  perform set_config('request.jwt.claims',json_build_object('role','service_role')::text,true);
   insert into public.line_messages(id,webhook_event_id,line_message_id,message_type,occurred_at,raw_event,company_id)
   values
     (message_a,'rls-harness-event-a','rls-harness-message-a','image',now(),'{}',company_a),
