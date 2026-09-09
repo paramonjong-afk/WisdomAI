@@ -19,12 +19,13 @@ const dbUrl = env.match(/^DB_URL=(.*)$/m)?.[1]?.trim().replace(/^['"]|['"]$/g, '
 assert.match(dbUrl ?? '', /^postgres(?:ql)?:\/\//, 'Supabase status must expose DB_URL')
 const sql = `
 begin;
-set local role service_role;
+set local role postgres;
 do $$ declare company_id uuid; begin
   select id into company_id from public.companies limit 1;
   if company_id is null then
     raise exception 'missing_company_seed';
   end if;
+  set local role service_role;
   perform set_config('app.posting_harness_company',company_id::text,true);
 end $$;
 select public.reserve_posting_operation(current_setting('app.posting_harness_company')::uuid,'integration-posting-key','accounting');
