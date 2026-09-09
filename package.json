@@ -167,6 +167,7 @@
     "test:web-chat-operational-core": "node --experimental-strip-types scripts/web-chat-operational-core.test.ts",
     "test:flow-registry-dashboard": "node --experimental-strip-types scripts/flow-registry-dashboard.test.ts",
     "test:notification-center": "node --experimental-strip-types scripts/notification-center.test.ts",
+    "test:posting-idempotency": "node --experimental-strip-types scripts/posting-idempotency.test.ts",
     "test:master-data-candidate-review": "node --experimental-strip-types scripts/master-data-candidate-review.test.ts",
     "test:master-data-project-gate": "node --experimental-strip-types scripts/master-data-project-first-gate.test.ts",
     "test:master-data-review-step": "node --experimental-strip-types scripts/master-data-review-step-ux.test.ts",
