@@ -80,16 +80,18 @@ begin
   perform set_config('request.jwt.claims',json_build_object('role','service_role','sub',user_b::text)::text,true);
   insert into public.company_members(company_id,profile_id,company_role)
   values (company_b,user_b,'company_admin');
-  perform set_config('request.jwt.claim.sub',user_c::text,true);
-  perform set_config('request.jwt.claims',json_build_object('role','service_role','sub',user_c::text)::text,true);
+  -- Membership management must be performed by the existing company admin;
+  -- an employee must not be able to add their own membership through a fixture.
+  perform set_config('request.jwt.claim.sub',user_a::text,true);
+  perform set_config('request.jwt.claims',json_build_object('role','service_role','sub',user_a::text)::text,true);
   insert into public.company_members(company_id,profile_id,company_role)
-  values (company_a,user_c,'employee');
+    values (company_a,user_c,'employee');
   insert into public.user_company_preferences(profile_id,active_company_id)
-  values (user_a,company_a),(user_b,company_b),(user_c,company_a);
+    values (user_a,company_a),(user_b,company_b),(user_c,company_a);
   -- Service-role fixture writes are intentionally context-free; assertions
   -- below reintroduce each authenticated JWT explicitly.
-  perform set_config('request.jwt.claim.sub','',true);
-  perform set_config('request.jwt.claims',json_build_object('role','service_role')::text,true);
+  perform set_config('request.jwt.claim.sub',user_c::text,true);
+  perform set_config('request.jwt.claims',json_build_object('role','service_role','sub',user_c::text)::text,true);
   insert into public.line_messages(id,webhook_event_id,line_message_id,message_type,occurred_at,raw_event,company_id)
   values
     (message_a,'rls-harness-event-a','rls-harness-message-a','image',now(),'{}',company_a),
