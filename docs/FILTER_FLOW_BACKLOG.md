@@ -1,3 +1,15 @@
+```mermaid
+flowchart LR
+  A[Intake ID + OCR fields] --> B[Filter rule pack]
+  B --> C[Field confidence schema]
+  C --> D[Financial reconciliation]
+  D --> E{ผ่าน tolerance และ confidence?}
+  E -->|ผ่าน| F[ส่งห้องรอบันทึกบัญชี]
+  E -->|ไม่ผ่าน| G[ห้องรอแก้ไข]
+  E -->|ไม่มี authority| H[Decision gate]
+  F --> I[Posting Flow อนุมัติภายหลัง]
+```
+
 # Filter Flow — Flow ที่ 2
 
 Filter Flow คือชั้นตรวจสอบเชิงลึกหลังเอกสารถูกคัดแยกจาก Intake Flow แล้ว ทำหน้าที่ตรวจตามกฎเฉพาะประเภท สร้างมุมมองข้อมูลทุกมิติ และส่งเฉพาะเอกสารที่ผ่านเกณฑ์ไปยัง Posting Flow หรือ “ห้องรอบันทึกบัญชี” โดยยังไม่สร้างธุรกรรมบัญชี เจ้าหนี้ Stock หรือ PO จนกว่าผู้ใช้อนุมัติ
@@ -39,7 +51,14 @@ Threshold ต้องปรับแยกตามชนิดและข้�
 
 ### FILTER-003 — Field Confidence และ Financial Reconciliation
 
-เก็บ confidence รายช่อง ตรวจผู้ขาย/ภาษี/วันที่/เลขเอกสาร/รายการ/จำนวน/หน่วย/ราคา/ส่วนลด/VAT/WHT/ยอดสุทธิ และแสดงค่าที่ไม่ลงตัวเป็นภาษาไทย
+เก็บ confidence รายช่องผ่าน `FILTER_FINANCIAL_FIELDS` และตรวจผู้ขาย/ภาษี/วันที่/เลขเอกสาร/รายการ/จำนวน/หน่วย/ราคา/ส่วนลด/VAT/WHT/ยอดสุทธิ โดย `reconcileFilterFinancialDocument` เป็น pure contract ไม่เขียนฐานข้อมูลและไม่สร้าง journal
+
+- ค่าเริ่มต้น tolerance คือ 0.01 บาท และ confidence สำคัญคือ 0.90; ทั้งสองค่ารับจาก config ได้ แต่ยังไม่มีค่า authority เฉพาะบริษัท จึงต้องส่ง `decision_required` แทนการเดา
+- รองรับ VAT `exclusive`, `inclusive`, `none`, ส่วนลด, WHT เมื่อมีอัตรา, rounding รายบรรทัด และตรวจ debit-credit balance
+- Output เป็น `pass`, `needs_review` หรือ `decision_required`; mismatch แสดงข้อความภาษาไทยพร้อมยอดคาดหวัง ยอดพบ และส่วนต่าง
+- สิทธิ์: Filter/Accounting reviewer อ่านผลได้; การปรับค่า threshold ต้องเป็น versioned rule-pack โดยผู้มีอำนาจตาม FILTER-002; งานนี้ไม่อนุมัติหรือ post บัญชี
+- Failure/retry: validation ซ้ำได้แบบ read-only; แก้เอกสารต้องสร้าง version/audit ใน FILTER-006; ไม่มีการ retry เพื่อกลบ mismatch
+- Rollback: ถอดการเรียก contract/ซ่อนผล reconciliation ได้ โดยไม่ลบ OCR, source, audit หรือ ledger
 
 ### FILTER-004 — Duplicate และ Document Matching
 

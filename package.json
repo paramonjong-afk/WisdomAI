@@ -65,6 +65,8 @@
     "test:accounting-vendor-type-edit-mode": "node --experimental-strip-types scripts/accounting-vendor-type-edit-mode.test.ts",
     "test:accounting-confirm-action-feedback": "node --experimental-strip-types scripts/accounting-confirm-action-feedback.test.ts",
     "test:embedded-vat-accounting-balance": "node --experimental-strip-types scripts/embedded-vat-accounting-balance.test.ts",
+    "test:filter-financial-reconciliation": "node --experimental-strip-types scripts/filter-financial-reconciliation.test.ts",
+    "test:filter-flow-backlog": "node --experimental-strip-types scripts/filter-flow-backlog.test.ts",
     "test:quotation-purchase": "node --experimental-strip-types scripts/quotation-purchase-workflow.test.ts",
     "test:quotation-confirmation": "node --experimental-strip-types scripts/quotation-review-confirmation.test.ts",
     "test:goods-receipt-stock": "node --experimental-strip-types scripts/goods-receipt-stock-review.test.ts",

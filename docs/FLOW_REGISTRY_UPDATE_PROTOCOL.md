@@ -50,6 +50,26 @@ flowchart LR
 
 ## 2026-09-06 — Intake Security Gate v1.3
 
+## 2026-09-09 — FILTER-003 Field Confidence and Financial Reconciliation v1.0
+
+```mermaid
+flowchart LR
+  A[OCR/Filter fields] --> B[Confidence schema]
+  B --> C[VAT/WHT/discount/rounding math]
+  C --> D{Tolerance + debit-credit gate}
+  D -->|ผ่าน| E[รออนุมัติบัญชี]
+  D -->|ไม่ผ่าน| F[รอแก้ไข]
+  D -->|ไม่มี authority| G[Decision required]
+```
+
+- **เหตุผล:** FILTER-003 เดิมระบุเพียงเป้าหมาย แต่ไม่มี contract กลางสำหรับ confidence รายช่องและสมการการเงิน
+- **ผลกระทบ:** เพิ่ม pure validation ที่ Filter ใช้ตรวจและแสดงผล ไม่สร้าง posting ไม่แก้ OCR/source และไม่แตะ POSTING-007/FILTER-008
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** VAT รวม/แยก, rounding, WHT, discount, debit-credit mismatch, confidence ต่ำ/ขาด และ invalid tolerance
+- **สิทธิ์/เจ้าของ:** Filter reviewer อ่านผล; ผู้มีอำนาจ rule-pack เป็นผู้ตัดสิน threshold เฉพาะบริษัท; Posting owner ยังเป็นเจ้าของการลงบัญชี
+- **Failure/Retry:** mismatch เข้า `needs_review`, ไม่มี authority เข้า `decision_required`; retry เป็น read-only และห้ามกลบข้อมูลเดิม
+- **Rollback:** ถอด contract จาก Filter หรือ revert ไฟล์ utility/test/docs โดยคง source/audit/ledger เดิม
+
 ```mermaid
 flowchart LR
   A[LINE / Telegram file] --> B[Signature and MIME check]
