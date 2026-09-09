@@ -57,6 +57,8 @@ for (const contract of [
   'ALLOW-DESTRUCTIVE-MIGRATION',
   'node scripts/migration-safety-guard.mjs "$MIGRATION_BASE"',
   'node scripts/migration-safety-guard.test.mjs',
+  'npm run test:work-command-center',
+  'npm run test:work-claim-status',
   'needs: apply-migrations',
   'uses: ./.github/workflows/deploy-supabase-functions.yml',
   "- 'supabase/functions/**'",
