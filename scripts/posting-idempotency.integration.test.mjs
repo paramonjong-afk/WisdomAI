@@ -3,6 +3,10 @@ import { spawnSync } from 'node:child_process'
 
 const assumeReady = process.argv.includes('--assume-ready')
 const run = (command, args, options = {}) => {
+  if (command === 'supabase' && !process.env.SUPABASE_CLI_BIN) {
+    command = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+    args = ['--yes', 'supabase', ...args]
+  }
   const result = spawnSync(command, args, { encoding: 'utf8', stdio: 'pipe', ...options })
   if (result.error) throw result.error
   assert.equal(result.status, 0, `${command} ${args.join(' ')} failed\n${result.stdout}\n${result.stderr}`)

@@ -11,6 +11,9 @@ on:
       - 'scripts/sales-expense-postgres-runtime.test.mjs'
       - 'scripts/sql/sales-expense-accounting-*.sql'
       - 'scripts/sales-expense-accounting.test.ts'
+      - 'scripts/posting-idempotency.integration.test.mjs'
+      - 'scripts/posting-idempotency.test.ts'
+      - 'supabase/migrations/202609090001_posting_idempotency_recovery.sql'
       - 'src/pages/ProjectControls/**'
       - 'src/services/salesExpenseAccounting.ts'
       - 'supabase/migrations/20260831040817_sales_expense_accounting_workflow.sql'
@@ -22,6 +25,9 @@ on:
       - 'scripts/sales-expense-postgres-runtime.test.mjs'
       - 'scripts/sql/sales-expense-accounting-*.sql'
       - 'scripts/sales-expense-accounting.test.ts'
+      - 'scripts/posting-idempotency.integration.test.mjs'
+      - 'scripts/posting-idempotency.test.ts'
+      - 'supabase/migrations/202609090001_posting_idempotency_recovery.sql'
       - 'src/pages/ProjectControls/**'
       - 'src/services/salesExpenseAccounting.ts'
       - 'supabase/migrations/20260831040817_sales_expense_accounting_workflow.sql'
@@ -84,3 +90,22 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  posting-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Start isolated Supabase runtime
+        run: npx --yes supabase start
+      - name: Reset isolated schema
+        run: npx --yes supabase db reset
+      - name: Run posting idempotency/authenticated recovery harness
+        run: npm run test:posting-idempotency-integration
