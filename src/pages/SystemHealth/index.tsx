@@ -21,6 +21,7 @@ type Check={check_key:string;name_th:string;module:string;status:HealthStatus;me
 type Incident={id:string;check_key:string;severity:'warning'|'critical';title:string;status:'open'|'resolved';message:string|null;started_at:string;resolved_at:string|null}
 type ErrorEvent={id:string;fingerprint:string;severity:'warning'|'error'|'critical';status:'open'|'monitoring'|'resolved'|'dismissed';title:string;message:string|null;affected_module:string|null;occurrence_count:number;system_occurrence_count:number;user_report_count:number;first_seen_at:string;last_seen_at:string;resolution_reason:string|null;resolved_at:string|null;last_evidence_message_id:string|null}
 type ErrorEvidence={messageId:string;attachmentId:string;bucket:string;path:string;contentType:string|null}
+type RecoveryGrant={id:string}
 type ErrorStatistics={open_incidents:number;critical_open:number;incidents_24h:number;incidents_7d:number;system_occurrences:number;user_confirmations:number;repeated_incidents:number;affected_modules:number;generated_at:string|null}
 type ImageStorageRow={retention_class:'temporary'|'work_evidence'|'system_error'|'financial'|'audit';file_count:number;stored_bytes:number;reclaimable_duplicate_bytes:number;oldest_file_at:string|null;newest_file_at:string|null}
 type ImageOptimizationProgress={total_images:number;optimized_images:number;kept_original_images:number;failed_images:number;pending_images:number;storage_bytes_saved:number;last_optimized_at:string|null}
@@ -148,6 +149,8 @@ export function SystemHealthPage(){
   const [selectedCheck,setSelectedCheck]=useState<Check|null>(null)
   const [errorEvidence,setErrorEvidence]=useState<Record<string,ErrorEvidence[]>>({})
   const [evidencePreview,setEvidencePreview]=useState<{urls:string[];reference:string}|null>(null)
+  const [recoveryAction,setRecoveryAction]=useState<{row:ProblemRow;evidence:ErrorEvidence[]}|null>(null)
+  const [recoveryReason,setRecoveryReason]=useState('')
   const [imageStorageRows,setImageStorageRows]=useState<ImageStorageRow[]>([])
   const [imageOptimization,setImageOptimization]=useState<ImageOptimizationProgress|null>(null)
   const [storageIntegrityIssues,setStorageIntegrityIssues]=useState<StorageIntegrityIssue[]>([])
@@ -397,11 +400,39 @@ export function SystemHealthPage(){
   const openErrorEvidence=async(row:ProblemRow)=>{
     const evidence=errorEvidence[row.sourceId]??[]
     if(!evidence.length)return
+    setRecoveryAction({row,evidence});setRecoveryReason('')
+  }
+  const recoverErrorEvidence=async()=>{
+    if(!recoveryAction||recoveryReason.trim().length<5)return
     setBusy(true);setMessage('')
-    const signed=await Promise.all(evidence.map(item=>supabase.storage.from(item.bucket).createSignedUrl(item.path,600)))
-    const firstError=signed.find(item=>item.error)?.error
-    if(firstError)setMessage(`เปิดรูปหลักฐานไม่สำเร็จ: ${userError(firstError)}`)
-    else setEvidencePreview({urls:signed.flatMap(item=>item.data?[item.data.signedUrl]:[]),reference:row.reference})
+    const urls:string[]=[]
+    try{
+      const {data:sessionData,error:sessionError}=await supabase.auth.refreshSession()
+      if(sessionError)throw sessionError
+      const accessToken=sessionData.session?.access_token
+      if(!accessToken)throw new Error('Session หมดอายุ กรุณาเข้าสู่ระบบใหม่')
+      for(const item of recoveryAction.evidence){
+        const requested=await supabase.rpc('request_document_original_recovery',{target_attachment_id:item.attachmentId,target_reason:recoveryReason.trim()})
+        if(requested.error)throw requested.error
+        const grant=(Array.isArray(requested.data)?requested.data[0]:requested.data) as RecoveryGrant|null
+        if(!grant?.id)throw new Error('ระบบไม่ได้ส่งเลขอ้างอิงการกู้ต้นฉบับกลับมา')
+        const approved=await supabase.rpc('decide_document_original_recovery',{target_grant_id:grant.id,target_decision:'approved'})
+        if(approved.error)throw approved.error
+        const recovered=await supabase.functions.invoke('document-original-recovery',{
+          body:{grantId:grant.id},headers:{Authorization:`Bearer ${accessToken}`},
+        })
+        if(recovered.error)throw recovered.error
+        const signedUrl=(recovered.data as {signed_url?:string}|null)?.signed_url
+        if(!signedUrl)throw new Error('ระบบไม่ได้ส่งลิงก์กู้ต้นฉบับกลับมา')
+        urls.push(signedUrl)
+      }
+      setEvidencePreview({urls,reference:recoveryAction.row.reference})
+      setRecoveryAction(null);setRecoveryReason('')
+      setMessage('ตรวจ SHA-256 และเปิดสิทธิ์กู้ต้นฉบับชั่วคราวแล้ว ระบบบันทึก Audit ครบถ้วน')
+    }catch(error){
+      setMessage(`กู้ต้นฉบับไม่สำเร็จ: ${userError(error)}`)
+      if(urls.length)setEvidencePreview({urls,reference:recoveryAction.row.reference})
+    }
     setBusy(false)
   }
   const completedRuns=runs.filter(run=>run.status==='completed')
@@ -576,7 +607,7 @@ export function SystemHealthPage(){
       {id:'first',label:'เริ่มพบ',minWidth:170,render:row=>formatDate(row.firstSeen),exportValue:row=>formatDate(row.firstSeen),sortValue:row=>new Date(row.firstSeen).getTime()},
       {id:'updated',label:'อัปเดตล่าสุด',minWidth:170,render:row=>formatDate(row.lastSeen),exportValue:row=>formatDate(row.lastSeen),sortValue:row=>new Date(row.lastSeen).getTime()},
       {id:'resolution',label:'ผลการแก้ไข',minWidth:280,render:row=>row.resolution||'ยังไม่ปิดปัญหา',exportValue:row=>row.resolution||'ยังไม่ปิดปัญหา'},
-      {id:'actions',label:'จัดการ',minWidth:260,render:row=>row.source==='error'?<Stack direction="row" spacing={1} useFlexGap sx={{flexWrap:'wrap'}}>{(errorEvidence[row.sourceId]?.length??0)>0&&<Button size="small" variant="outlined" onClick={()=>void openErrorEvidence(row)}>ดูรูปหลักฐาน ({errorEvidence[row.sourceId].length})</Button>}{profile?.role==='admin'&&row.status!=='resolved'&&<><Button size="small" onClick={()=>void resolveError(row,'resolved')}>แก้ไขแล้ว</Button><Button size="small" color="inherit" onClick={()=>void resolveError(row,'dismissed')}>ไม่ใช่ปัญหา</Button></>}</Stack>:'-'},
+      {id:'actions',label:'จัดการ',minWidth:260,render:row=>row.source==='error'?<Stack direction="row" spacing={1} useFlexGap sx={{flexWrap:'wrap'}}>{(errorEvidence[row.sourceId]?.length??0)>0&&['admin','manager'].includes(profile?.role??'')&&<Button size="small" variant="outlined" onClick={()=>void openErrorEvidence(row)}>กู้ต้นฉบับอย่างปลอดภัย ({errorEvidence[row.sourceId].length})</Button>}{profile?.role==='admin'&&row.status!=='resolved'&&<><Button size="small" onClick={()=>void resolveError(row,'resolved')}>แก้ไขแล้ว</Button><Button size="small" color="inherit" onClick={()=>void resolveError(row,'dismissed')}>ไม่ใช่ปัญหา</Button></>}</Stack>:'-'},
     ]}/>
     </Stack></Box>
     <Box sx={{display:mainTab==='logs'?'block':'none'}}><Stack spacing={3}><Typography variant="h6">ประวัติการสื่อสาร</Typography>
@@ -604,6 +635,14 @@ export function SystemHealthPage(){
     <Dialog open={Boolean(evidencePreview)} onClose={()=>setEvidencePreview(null)} maxWidth="lg" fullWidth>
       <DialogTitle>รูปผู้ใช้แจ้ง Error ระบบ · {evidencePreview?.reference}</DialogTitle>
       <DialogContent>{evidencePreview&&<Stack spacing={2}>{evidencePreview.urls.map((url,index)=><Box key={url} component="img" src={url} alt={`หลักฐาน ${evidencePreview.reference} รูปที่ ${index+1}`} sx={{display:'block',maxWidth:'100%',maxHeight:'75vh',mx:'auto',objectFit:'contain'}}/>)}</Stack>}</DialogContent>
+    </Dialog>
+    <Dialog open={Boolean(recoveryAction)} onClose={busy?undefined:()=>setRecoveryAction(null)} maxWidth="sm" fullWidth>
+      <DialogTitle>ขออนุมัติกู้ต้นฉบับ · {recoveryAction?.row.reference}</DialogTitle>
+      <DialogContent><Stack spacing={2} sx={{pt:1}}>
+        <Alert severity="warning">ระบบจะตรวจ SHA-256 ก่อนเปิดลิงก์ส่วนตัวไม่เกิน 15 นาที ใช้สิทธิ์ได้ครั้งเดียว และบันทึกผู้ดำเนินการไว้ใน Audit</Alert>
+        <TextField autoFocus required multiline minRows={3} label="เหตุผลที่ต้องกู้ต้นฉบับ" value={recoveryReason} onChange={event=>setRecoveryReason(event.target.value)} slotProps={{htmlInput:{maxLength:500}}} helperText={`${recoveryReason.length}/500 ตัวอักษร · อย่างน้อย 5 ตัวอักษร`}/>
+        <Stack direction="row" spacing={1} sx={{justifyContent:'flex-end'}}><Button disabled={busy} onClick={()=>setRecoveryAction(null)}>ยกเลิก</Button><Button variant="contained" disabled={busy||recoveryReason.trim().length<5} onClick={()=>void recoverErrorEvidence()}>อนุมัติและกู้ต้นฉบับ</Button></Stack>
+      </Stack></DialogContent>
     </Dialog>
     <Dialog open={Boolean(auditAction)} onClose={busy?undefined:()=>setAuditAction(null)} maxWidth="sm" fullWidth>
       <DialogTitle>{auditAction?.kind==='work'
