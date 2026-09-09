@@ -48,6 +48,29 @@ flowchart LR
 - **การตรวจสอบ:** Work Command Center contract, typecheck, lint, build และ authenticated runtime smoke พร้อมวัด LCP/Network หลัง deploy
 - **Rollback:** revert UI commit; ข้อมูล `system_work_items`, detail/evidence และ event history ไม่ถูกแก้ไข
 
+## 2026-09-09 — Work Command Center continuous dispatch v1.3
+
+```mermaid
+flowchart LR
+  A[Health Monitor] --> B{Fresh worker lease exists?}
+  B -->|Yes| C[Normal worker ownership]
+  B -->|No| D[Idempotent Dispatch Intent + Audit]
+  D --> E{State}
+  E -->|Approved ready| F[worker_claim]
+  E -->|Review| G[explicit_approval]
+  E -->|Blocked| H[root_cause_and_controlled_retry]
+  F --> I[Work Command Center Drawer]
+  G --> I
+  H --> I
+```
+
+- **เหตุผล:** ปิดช่องว่างที่ไม่มี Worker สดแต่มีงานทำต่อได้ โดยแสดง owner, gate, next action และ SLA ที่ตรวจสอบย้อนหลังได้
+- **ผลกระทบ:** เพิ่ม `system_work_dispatch_intents`; Health Monitor สร้างเฉพาะ intent ที่ idempotent และหน้า `/work-command-center` แสดง intent ในตาราง/Drawer. ไม่สร้าง task ธุรกิจ, ไม่อนุมัติ, ไม่ retry และไม่ส่งข้อความภายนอกเอง
+- **สิทธิ์และ Audit:** RLS เปิด, client อ่านตาม parent work item เท่านั้นและเขียนไม่ได้; การสร้าง/เปลี่ยน/supersede intent ลง `system_work_item_events`
+- **Migration:** `20260909114055_work_command_center_continuous_dispatch.sql`
+- **Verification:** contract tests ของ zero-active, handoff, approval gate, RLS/audit; typecheck, lint, build และ release-gated runtime smoke
+- **Rollback:** revert code เพื่อหยุดสร้าง intent ใหม่ โดยไม่ลบ `system_work_items` หรือ Audit เดิม
+
 ## 2026-09-06 — Intake Security Gate v1.3
 
 ```mermaid
