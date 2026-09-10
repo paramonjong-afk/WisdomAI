@@ -95,6 +95,29 @@ flowchart LR
 - **การตรวจสอบ:** Work Command Center contract, typecheck, lint, build และ authenticated runtime smoke พร้อมวัด LCP/Network หลัง deploy
 - **Rollback:** revert UI commit; ข้อมูล `system_work_items`, detail/evidence และ event history ไม่ถูกแก้ไข
 
+## 2026-09-09 — Work Command Center continuous dispatch v1.3
+
+```mermaid
+flowchart LR
+  A[Health Monitor] --> B{Fresh worker lease exists?}
+  B -->|Yes| C[Normal worker ownership]
+  B -->|No| D[Idempotent Dispatch Intent + Audit]
+  D --> E{State}
+  E -->|Approved ready| F[worker_claim]
+  E -->|Review| G[explicit_approval]
+  E -->|Blocked| H[root_cause_and_controlled_retry]
+  F --> I[Work Command Center Drawer]
+  G --> I
+  H --> I
+```
+
+- **เหตุผล:** ปิดช่องว่างที่ไม่มี Worker สดแต่มีงานทำต่อได้ โดยแสดง owner, gate, next action และ SLA ที่ตรวจสอบย้อนหลังได้
+- **ผลกระทบ:** เพิ่ม `system_work_dispatch_intents`; Health Monitor สร้างเฉพาะ intent ที่ idempotent และหน้า `/work-command-center` แสดง intent ในตาราง/Drawer. ไม่สร้าง task ธุรกิจ, ไม่อนุมัติ, ไม่ retry และไม่ส่งข้อความภายนอกเอง
+- **สิทธิ์และ Audit:** RLS เปิด, client อ่านตาม parent work item เท่านั้นและเขียนไม่ได้; การสร้าง/เปลี่ยน/supersede intent ลง `system_work_item_events`
+- **Migration:** `20260909114055_work_command_center_continuous_dispatch.sql`
+- **Verification:** contract tests ของ zero-active, handoff, approval gate, RLS/audit; typecheck, lint, build และ release-gated runtime smoke
+- **Rollback:** revert code เพื่อหยุดสร้าง intent ใหม่ โดยไม่ลบ `system_work_items` หรือ Audit เดิม
+
 ## 2026-09-06 — Intake Security Gate v1.3
 
 ```mermaid
@@ -1066,3 +1089,22 @@ flowchart LR
 - Original Quarantine / Chain of Custody v1.1 (7/9/2569): recorded the Admin-approved default retention, legal-hold, quarantine, derivative and quarterly controlled-recovery policy in `docs/ORIGINAL_CHAIN_OF_CUSTODY_FLOW.md`. Documentation/control update only; no object, row, migration or runtime retention action was performed.
 
 - Release Parity / Safe Redirect v1.3 (7/9/2569): Cloudflare Pages is now the canonical Production target; Vercel is Preview/Parity only. Smart Entry keeps Vercel unavailable when its revision is stale or rate-limited and continues through Cloudflare, while preserving the existing health/revision checks.
+# 2026-09-08 — DOC-INGEST-003 original evidence recovery controls v1.2
+
+```mermaid
+flowchart LR
+  A[Private tenant original] --> B[Recovery request]
+  B --> C{Admin/Document Operations approval?}
+  C -->|No| D[Expire/reject + audit]
+  C -->|Yes| E[Short-lived one-time recovery]
+  E --> F[Hash verification + audit]
+  G[Metadata backfill] --> H{Missing evidence metadata?}
+  H -->|Yes| I[Custody exception]
+  H -->|No| J[Set minimum retain-until]
+```
+
+- Scope: additive tenant-scoped recovery grants/audit, visible recovery action from System Health problem evidence, hash-verified one-time private signed delivery (maximum 15 minutes), and evidence-only retention metadata backfill. Raw/OCR/object bytes are never overwritten, moved, or deleted.
+- Migration: `20260908090000_document_original_custody_controls.sql`.
+- Permissions: Admin/platform admin, company manager, and accounting/document-operations membership only; private attachments are company-scoped by RLS.
+- Integration/failure: `document-original-recovery` authenticates and rechecks tenant scope, verifies SHA-256 and its Audit write before signing, consumes the grant once and fails closed on missing/mismatched/expired/revoked evidence or concurrent reuse. Requests serialize per attachment; the backfill writes the stronger approved seven-year financial/two-year general retention dates, which exceed the A/B/C minimum floor.
+- Verification/rollback: PostgreSQL custody contract plus migration safety checks, typecheck/lint/build and Preview authenticated recovery smoke; revoke new RPC grants/disable the Edge Function or revert the task branch without changing existing originals/lifecycle history.
