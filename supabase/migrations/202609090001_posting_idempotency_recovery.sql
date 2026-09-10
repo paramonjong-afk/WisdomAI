@@ -80,3 +80,5 @@ $$;
 
 revoke all on function public.reserve_posting_operation(uuid,text,text,uuid,uuid) from public, anon, authenticated;
 grant execute on function public.reserve_posting_operation(uuid,text,text,uuid,uuid) to service_role;
+
+grant select on public.posting_operations, public.posting_operation_events to service_role;
