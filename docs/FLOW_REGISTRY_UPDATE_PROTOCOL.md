@@ -23,6 +23,53 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-07 — LINE attachment tenant isolation and duplicate-link containment v1.0 (DOC-INGEST-005)
+
+```mermaid
+flowchart LR
+  A[LINE attachment + company context] --> B{Company established?}
+  B -->|No| C[Store raw logical attachment; no duplicate_of link]
+  B -->|Yes| D[Hash and search same-company candidates only]
+  D --> E{Completed same-company match?}
+  E -->|Yes| F[Link duplicate_of; reuse same-company physical blob]
+  E -->|No| G[Create logical row + company-scoped blob]
+  H[Authenticated read] --> I[Active company + document-flow policy]
+  J[Service role webhook] --> K[Blob write/update]
+```
+
+- **เหตุผล:** ปิดช่อง logical duplicate ที่ข้ามบริษัทและการอ่าน metadata/blob โดยตรงที่กว้างเกินไป โดยไม่แก้หรือล้างลิงก์ย้อนหลัง 251 รายการ
+- **ผลกระทบ:** `supabase/functions/line-webhook/index.ts`, `202609070001_line_attachment_tenant_isolation.sql`, `scripts/line-attachment-blob-dedupe.test.ts`, และเอกสาร Storage/Intake; Raw/object เดิมไม่ถูกเขียนทับ
+- **Migration:** ต้องผ่าน PR verification, local migration replay, RLS negative/positive fixtures และ review ก่อน Production
+- **การตรวจสอบ:** duplicate candidate company predicate, table grant/policy contract, same-company positive/cross-company negative read fixtures, typecheck, targeted lint/build, authenticated Storage/Intake smoke
+- **สิทธิ์/เจ้าของ:** Platform/Security เป็นเจ้าของ policy; Intake เป็นเจ้าของ routing/duplicate decision; service role เท่านั้นเขียน blob/LINE ingestion
+- **Failure/Retry:** company ไม่ชัดเจนให้เก็บ raw และไม่สร้าง `duplicate_of`; retry ใช้ message/document idempotency เดิม; ห้ามเดาหรือ auto-clear historical cross-company links
+- **Rollback:** revert webhook/migration ก่อนเปิดช่องใหม่; เก็บ raw/blob/link/audit เดิมและไม่ทำ destructive repair
+
+## 2026-09-07 — DOC-INGEST-005 real RLS integration harness v1.1
+
+```mermaid
+flowchart LR
+  A[Throwaway local Supabase] --> B[Company A JWT]
+  A --> C[Company B JWT]
+  B --> D[Own metadata/blob/object allow]
+  C --> E[Own metadata/blob/object allow]
+  B --> F[Cross-company deny]
+  C --> F
+  G[Anonymous JWT] --> H[Deny]
+  I[Authenticated blob write] --> H
+  J[Service role write] --> K[Allow]
+  D --> L[Rollback fixture transaction]
+  E --> L
+  H --> L
+  K --> L
+```
+
+- **เหตุผล:** fixture เดิมตรวจ policy แบบ in-memory เท่านั้น จึงเพิ่ม executable integration harness ที่รันกับ Postgres/RLS จริงในฐานข้อมูล throwaway ของ Supabase CLI
+- **ผลกระทบ:** CI migration verification จะพิสูจน์ own-company allow, cross-company/anonymous deny และ service-role-only write โดยไม่แตะ Production หรือข้อมูลถาวร
+- **Migration:** ไม่มี; ใช้ migration replay ใน job เดิมและ rollback fixture ด้วย transaction
+- **การตรวจสอบ:** `test:line-attachment-tenant-isolation-integration` หลัง `supabase db reset`, พร้อม static fixture contract เดิม
+- **Rollback:** ลบ harness/workflow hook ได้โดยไม่กระทบ schema, raw, blob, link หรือ audit
+
 ## 2026-09-07 — System Data Access Phase 1
 
 ```mermaid

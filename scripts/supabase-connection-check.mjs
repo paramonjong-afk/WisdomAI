@@ -63,6 +63,7 @@ export async function checkConnection(env, request = fetch, localVersions = null
           return { ...report, management: 'unexpected_history_response' }
         }
         report.remote_migration_count = body.length
+        report.remote_migration_versions = body.map(row => String(row.version))
         if (localVersions !== null) {
           try {
             Object.assign(report, reconcileVersions(localVersions, body.map(row => String(row.version))))

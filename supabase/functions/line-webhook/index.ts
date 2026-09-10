@@ -2028,7 +2028,8 @@ async function processMessage(event: LineEvent, companyId: string): Promise<'pro
     const contentHash = await sha256Hex(bytes)
     const { data: duplicateCandidates, error: duplicateAttachmentError } = await supabase
       .from('line_attachments')
-      .select('id, message_id')
+      .select('id, message_id, company_id')
+      .eq('company_id', companyId)
       .eq('content_sha256', contentHash)
       .neq('message_id', saved.id)
       .order('created_at', { ascending: true })

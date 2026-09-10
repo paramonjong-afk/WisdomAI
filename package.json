@@ -27,6 +27,8 @@
     "test:line-webhook-intake": "node --experimental-strip-types scripts/line-webhook-intake.test.ts",
     "test:line-accounting-document-sets": "node --experimental-strip-types scripts/line-accounting-document-sets.test.ts",
     "test:line-attachment-dedupe": "node --experimental-strip-types scripts/line-attachment-blob-dedupe.test.ts",
+    "test:line-attachment-tenant-isolation": "node --experimental-strip-types scripts/line-attachment-tenant-isolation.test.ts",
+    "test:line-attachment-tenant-isolation-integration": "node scripts/line-attachment-tenant-isolation.integration.test.mjs",
     "test:line-account-tenant": "node --experimental-strip-types scripts/line-account-tenant.test.ts",
     "test:workforce-readiness-health": "node --experimental-strip-types scripts/workforce-readiness-health.test.ts",
     "test:health-attendance-warning": "node --experimental-strip-types scripts/health-attendance-warning.test.ts",
