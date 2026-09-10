@@ -9,6 +9,7 @@ const safeReport = {
   management: 'read_verified_history_not_reconciled',
   apply_authorized: false,
   remote_only_versions: [],
+  remote_migration_versions: [...REVERSIONED_CORRECTION_VERSIONS],
   historical_local_only_versions: [...HISTORICAL_BASELINE_ALLOWLIST],
   future_local_only_versions: [...REVERSIONED_CORRECTION_VERSIONS, '20260901090000'],
 }
@@ -38,7 +39,11 @@ for (const unsafe of [
   { ...safeReport, remote_only_versions: ['20260801000000'] },
   { ...safeReport, historical_local_only_versions: ['20260830070000'] },
   { ...safeReport, historical_local_only_versions: [...HISTORICAL_BASELINE_ALLOWLIST, '20260830070000'] },
-  { ...safeReport, future_local_only_versions: REVERSIONED_CORRECTION_VERSIONS.slice(1) },
+  {
+    ...safeReport,
+    remote_migration_versions: REVERSIONED_CORRECTION_VERSIONS.slice(1),
+    future_local_only_versions: [],
+  },
 ]) assert.throws(() => validateHistoricalDryRun(unsafe))
 
 console.log('Historical baseline guard passed: one baseline, future corrections, remote drift rejection, apply denied')
