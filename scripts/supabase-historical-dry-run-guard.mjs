@@ -4,6 +4,7 @@ import { checkConnection } from './supabase-connection-check.mjs'
 
 export const HISTORICAL_BASELINE_ALLOWLIST = [
   '20260907130000',
+  '202609090001',
 ]
 
 export const REVERSIONED_CORRECTION_VERSIONS = [
