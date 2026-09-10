@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url'
 import { checkConnection } from './supabase-connection-check.mjs'
 
 export const HISTORICAL_BASELINE_ALLOWLIST = [
-  '20260825231054',
+  '20260907130000',
 ]
 
 export const REVERSIONED_CORRECTION_VERSIONS = [
