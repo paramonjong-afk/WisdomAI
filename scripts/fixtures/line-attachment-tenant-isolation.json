@@ -1,0 +1,15 @@
+{
+  "companies": ["company-a", "company-b"],
+  "rows": [
+    { "id": "attachment-a", "company_id": "company-a", "message_id": "message-a", "storage_path": "company-a/blobs/hash-a" },
+    { "id": "attachment-b", "company_id": "company-b", "message_id": "message-b", "storage_path": "company-b/blobs/hash-b" }
+  ],
+  "blobs": [
+    { "id": "blob-a", "company_id": "company-a", "storage_path": "company-a/blobs/hash-a" },
+    { "id": "blob-b", "company_id": "company-b", "storage_path": "company-b/blobs/hash-b" }
+  ],
+  "storage": [
+    { "bucket_id": "line-attachments", "name": "company-a/blobs/hash-a", "company_id": "company-a" },
+    { "bucket_id": "line-attachments", "name": "company-b/blobs/hash-b", "company_id": "company-b" }
+  ]
+}

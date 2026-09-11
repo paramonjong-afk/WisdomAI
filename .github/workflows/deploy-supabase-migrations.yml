@@ -102,6 +102,7 @@ jobs:
         run: |
           npm run test:supabase-deployment-workflows
           npm run test:migration-safety
+          npm run test:line-attachment-tenant-isolation
 
       - name: Guard against destructive SQL without explicit override
         env:
@@ -121,6 +122,9 @@ jobs:
           set -e
           supabase start
           supabase db reset
+
+      - name: Execute two-company LINE attachment RLS integration harness
+        run: node scripts/line-attachment-tenant-isolation.integration.test.mjs --assume-ready
 
       - name: Authorize exact historical baseline for dry-run only
         env:
