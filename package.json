@@ -39,6 +39,7 @@
     "test:system-performance-standard": "node --experimental-strip-types scripts/system-performance-standard.test.ts",
     "test:platform-company": "node --experimental-strip-types scripts/platform-admin-company-access.test.ts",
     "test:work-command-center": "node --experimental-strip-types scripts/work-command-center.test.ts",
+    "test:work-claim-status": "node --experimental-strip-types scripts/work-claim-status.test.ts",
     "test:work-command-worker-progress": "node --experimental-strip-types scripts/work-command-worker-progress.test.ts",
     "test:work-claim-status": "node --experimental-strip-types scripts/work-claim-status.test.ts",
     "test:work-continuous-dispatch": "node --experimental-strip-types scripts/work-continuous-dispatch.test.ts",

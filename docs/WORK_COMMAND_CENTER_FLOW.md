@@ -97,6 +97,29 @@ changes a work-item state, sends a new external notification, or retries a
 matching failure automatically. Review requires explicit approval; blocked work
 requires root-cause resolution before a controlled retry.
 
+## Active Claim semantics
+
+```mermaid
+flowchart TD
+  D[status = doing] --> W{worker_id exists?}
+  W -- no --> O[หยุดผิดปกติ: ไม่มี Active Claim]
+  W -- yes --> L{lease ยังไม่หมด?}
+  L -- no --> S[Worker ขาดการติดต่อ]
+  L -- yes --> H{heartbeat สดภายใน 10 นาที?}
+  H -- no --> S
+  H -- yes --> A[กำลังทำจริง: Active Claim]
+```
+
+`กำลังทำจริง` จะแสดงเฉพาะเมื่อมี `worker_id`, `lease_expires_at` ยังไม่หมด
+และ `heartbeat_at` สดไม่เกิน 10 นาทีจากเวลาปัจจุบัน การมี `status=doing`
+เพียงอย่างเดียวไม่ถือว่าเป็น Active Claim; งานอย่าง `SYS-004` ที่เป็น monitoring
+sentinel หรือแถว orphan จะถูกแสดงเป็นหยุดผิดปกติ/ขาดการติดต่อแทน และไม่ถูกนับใน
+การ์ด “กำลังทำจริง”.
+
+หน้าจอ recompute `claimNow` ทุก 1 วินาที จึงเปลี่ยนจาก “กำลังทำจริง” เป็น
+“Worker ขาดการติดต่อ” หรือ “หยุดผิดปกติ” ได้เองเมื่อเวลาผ่านเส้น lease/heartbeat
+แม้ไม่มี realtime event ใหม่; การ refresh ข้อมูลจากฐานข้อมูลยังคงทำตามรอบเดิม.
+
 ## Failure, retry, and audit
 
 List/detail query failures stay visible with a retry action. Realtime refreshes
@@ -135,6 +158,22 @@ and Health Monitor is the only writer.
 
 - Version: v1.3
 - Date: 2026-09-07
+- Rationale: distinguish the persisted `doing` state from a live worker claim so
+  stale/orphan rows cannot be presented as actively running.
+- Verification: targeted Work Command Center test, typecheck, lint, build and
+  read-only query of `worker_id`, `heartbeat_at`, `lease_expires_at` and
+  `system_worker_runs`.
+- Migration: none. No work item or business data is changed by the UI.
+- Rollback: revert the UI/test/doc commit; claim and audit history remain intact.
+
+- Version: v1.4
+- Date: 2026-09-07
+- Rationale: recompute time-based claim expiry without waiting for a database or
+  realtime event.
+- Verification: fake-clock tests at the fresh-heartbeat, stale-heartbeat and
+  lease-expiry boundaries, plus typecheck, lint and build.
+- Migration: none. No work item or business data is changed by the timer.
+- Rollback: revert the UI/helper/test/doc commit; claim and audit history remain intact.
 - Rationale: make Worker acknowledgement, active execution, stale/no-output,
   blocked, and completed outcomes visible from the real queue and run records.
 - Impact: read-only Worker progress/status UI, recent run evidence in the

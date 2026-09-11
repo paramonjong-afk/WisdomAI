@@ -29,6 +29,7 @@ import { runWithMutationAttempt } from "../../utils/mutationAttemptRunner";
 import {
   CLAIM_HEARTBEAT_MAX_AGE_MS,
   hasActiveWorkerClaim,
+  workerClaimLabel,
 } from "../../services/workClaimStatus";
 import { shouldApplyDetailResponse } from "./detailRequestGuard";
 
@@ -244,6 +245,10 @@ export function WorkCommandCenterPage() {
     if (error ?? intentsResult.error) setNotice(userError(error ?? intentsResult.error));
     else if (silent) setNotice("");
     if (!silent) setBusy(false);
+  }, []);
+  useEffect(() => {
+    const timer = window.setInterval(() => setClaimNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -512,7 +517,7 @@ export function WorkCommandCenterPage() {
           ? rows.filter((row) => row.status !== "done")
           : view === "doing"
             ? rows.filter((row) => hasActiveWorkerClaim(row, claimNow))
-            : rows.filter((row) => row.status === view),
+          : rows.filter((row) => row.status === view),
     [claimNow, rows, view],
   );
   const cards: [WorkStatus, string][] = [
@@ -688,7 +693,7 @@ export function WorkCommandCenterPage() {
                 label={claimStatusLabel(r)}
               />
             ),
-            exportValue: (r) => statusLabel[r.status],
+            exportValue: (r) => workerClaimLabel(r, statusLabel, claimNow),
           },
           {
             id: "worker",
@@ -937,19 +942,6 @@ export function WorkCommandCenterPage() {
               <Typography>
                 {productionLabel(selected.production_status)}
               </Typography>
-            </Box>
-            <Box>
-              <Typography variant="subtitle2">ผลลัพธ์ worker ล่าสุด</Typography>
-              <Typography>
-                {selected.worker_outcome
-                  ? `${selected.worker_outcome} · ${selected.worker_outcome_reason || "ไม่มีเหตุผลจาก worker"}`
-                  : "ยังไม่มีผลลัพธ์ worker"}
-              </Typography>
-              {selected.worker_outcome_at && (
-                <Typography variant="caption" color="text.secondary">
-                  {formatDate(selected.worker_outcome_at)}
-                </Typography>
-              )}
             </Box>
             {selected.status === "doing" && (
               <Alert severity={hasActiveClaim(selected) ? "info" : "error"}>
