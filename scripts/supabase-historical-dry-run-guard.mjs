@@ -3,7 +3,8 @@ import { pathToFileURL } from 'node:url'
 import { checkConnection } from './supabase-connection-check.mjs'
 
 export const HISTORICAL_BASELINE_ALLOWLIST = [
-  '202609090001',
+  '20260908093000',
+  '20260911140000',
 ]
 
 export const REVERSIONED_CORRECTION_VERSIONS = [
@@ -59,7 +60,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     .filter(file => file.endsWith('.sql'))
     .map(file => file.split('_')[0])
   const report = await checkConnection(process.env, fetch, versions)
-  console.error('DEBUG_REPORT:', JSON.stringify(report))
   try {
     console.log(JSON.stringify(validateHistoricalDryRun(report), null, 2))
   } catch (error) {
