@@ -42,6 +42,7 @@
     "test:work-continuous-dispatch": "node --experimental-strip-types scripts/work-continuous-dispatch.test.ts",
     "test:telegram-stale-chat": "node --experimental-strip-types scripts/telegram-stale-chat.test.ts",
     "test:automation-claim": "node --experimental-strip-types scripts/automation-claim.test.ts",
+    "test:sys004-monitoring-sentinel": "node --experimental-strip-types scripts/sys004-monitoring-sentinel.test.ts",
     "test:supabase-deployment-workflows": "node --experimental-strip-types scripts/supabase-deployment-workflows.test.ts",
     "check:supabase-connection": "node scripts/supabase-connection-check.mjs",
     "test:supabase-connection": "node scripts/supabase-connection-check.test.mjs",
