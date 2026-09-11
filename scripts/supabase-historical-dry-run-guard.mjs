@@ -59,6 +59,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     .filter(file => file.endsWith('.sql'))
     .map(file => file.split('_')[0])
   const report = await checkConnection(process.env, fetch, versions)
+  console.error('DEBUG_REPORT:', JSON.stringify(report))
   try {
     console.log(JSON.stringify(validateHistoricalDryRun(report), null, 2))
   } catch (error) {
