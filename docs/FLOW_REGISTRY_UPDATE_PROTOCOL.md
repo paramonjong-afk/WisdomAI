@@ -23,6 +23,80 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-07 — Control-plane stall recovery and worker outcomes
+
+```mermaid
+flowchart LR
+  A[Ready work item] --> B[Submit for review with reason]
+  B --> C[One pending approval]
+  C --> D[Approved scope fingerprint]
+  D --> E[Atomic claim with lease and retry cap]
+  E --> F[Worker outcome with reason]
+  F -->|completed| G[Done + Audit]
+  F -->|blocked or no_output| H[Visible Control Center recovery state]
+  H --> I[Manager reconciles only matching approved scope]
+```
+
+- **Reason:** prevent approved work from being stranded by stale production status, abandoned leases, or a worker that exits with no usable message.
+- **Impact:** `system_work_items`, `system_worker_runs`, Work Command Center, the automation worker and the local runner now retain a terminal outcome and reason. Recovery cannot reset attempts, change business data, or bypass company/role/fingerprint/lease checks.
+- **Migration:** `20260911160000_control_plane_stall_recovery.sql`.
+- **Verification:** targeted contract, typecheck, lint, build, PR migration checks, then authenticated Production Drawer/recovery smoke after deployment.
+- **Rollback:** corrective source revert only; keep existing outcomes, approvals and audit rows for investigation.
+## 2026-09-07 — LINE attachment tenant isolation and duplicate-link containment v1.0 (DOC-INGEST-005)
+
+```mermaid
+flowchart LR
+  A[LINE attachment + company context] --> B{Company established?}
+  B -->|No| C[Store raw logical attachment; no duplicate_of link]
+  B -->|Yes| D[Hash and search same-company candidates only]
+  D --> E{Completed same-company match?}
+  E -->|Yes| F[Link duplicate_of; reuse same-company physical blob]
+  E -->|No| G[Create logical row + company-scoped blob]
+  H[Authenticated read] --> I[Active company + document-flow policy]
+  J[Service role webhook] --> K[Blob write/update]
+```
+
+- **เหตุผล:** ปิดช่อง logical duplicate ที่ข้ามบริษัทและการอ่าน metadata/blob โดยตรงที่กว้างเกินไป โดยไม่แก้หรือล้างลิงก์ย้อนหลัง 251 รายการ
+- **ผลกระทบ:** `supabase/functions/line-webhook/index.ts`, `202609070001_line_attachment_tenant_isolation.sql`, `scripts/line-attachment-blob-dedupe.test.ts`, และเอกสาร Storage/Intake; Raw/object เดิมไม่ถูกเขียนทับ
+- **Migration:** ต้องผ่าน PR verification, local migration replay, RLS negative/positive fixtures และ review ก่อน Production
+- **การตรวจสอบ:** duplicate candidate company predicate, table grant/policy contract, same-company positive/cross-company negative read fixtures, typecheck, targeted lint/build, authenticated Storage/Intake smoke
+- **สิทธิ์/เจ้าของ:** Platform/Security เป็นเจ้าของ policy; Intake เป็นเจ้าของ routing/duplicate decision; service role เท่านั้นเขียน blob/LINE ingestion
+- **Failure/Retry:** company ไม่ชัดเจนให้เก็บ raw และไม่สร้าง `duplicate_of`; retry ใช้ message/document idempotency เดิม; ห้ามเดาหรือ auto-clear historical cross-company links
+- **Rollback:** revert webhook/migration ก่อนเปิดช่องใหม่; เก็บ raw/blob/link/audit เดิมและไม่ทำ destructive repair
+
+## 2026-09-07 — DOC-INGEST-005 real RLS integration harness v1.1
+
+```mermaid
+flowchart LR
+  A[Throwaway local Supabase] --> B[Company A JWT]
+  A --> C[Company B JWT]
+  B --> D[Own metadata/blob/object allow]
+  C --> E[Own metadata/blob/object allow]
+  B --> F[Cross-company deny]
+  C --> F
+  G[Anonymous JWT] --> H[Deny]
+  I[Authenticated blob write] --> H
+  J[Service role write] --> K[Allow]
+  D --> L[Rollback fixture transaction]
+  E --> L
+  H --> L
+  K --> L
+```
+
+- **เหตุผล:** fixture เดิมตรวจ policy แบบ in-memory เท่านั้น จึงเพิ่ม executable integration harness ที่รันกับ Postgres/RLS จริงในฐานข้อมูล throwaway ของ Supabase CLI
+- **ผลกระทบ:** CI migration verification จะพิสูจน์ own-company allow, cross-company/anonymous deny และ service-role-only write โดยไม่แตะ Production หรือข้อมูลถาวร
+- **Migration:** ไม่มี; ใช้ migration replay ใน job เดิมและ rollback fixture ด้วย transaction
+- **การตรวจสอบ:** `test:line-attachment-tenant-isolation-integration` หลัง `supabase db reset`, พร้อม static fixture contract เดิม
+- **Rollback:** ลบ harness/workflow hook ได้โดยไม่กระทบ schema, raw, blob, link หรือ audit
+## 2026-09-09 — Posting Idempotency and Recovery v1.0
+
+- **เหตุผล:** เพิ่มด่านกลางกันการกดซ้ำ/refresh/timeout/partial failure ก่อน Posting Gateway
+- **ผลกระทบ:** เพิ่ม `posting_operations`, append-only `posting_operation_events` และ service-role reservation RPC; ไม่สร้างหรือแก้ Accounting/AP/Stock/PO โดยตรง
+- **Flow document:** `docs/POSTING_IDEMPOTENCY_RECOVERY_FLOW.md` (มี Mermaid เป็นส่วนแรก)
+- **Migration:** `202609090001_posting_idempotency_recovery.sql`
+- **การตรวจสอบ:** idempotency contract, migration replay, RLS/permission, retry/dead-letter/compensation และ Posting gateway integration
+- **Rollback:** revoke reservation RPC/ปิด gateway ใหม่ โดยเก็บ operation/event ledger เพื่อ recovery
+
 ## 2026-09-07 — System Data Access Phase 1
 
 ```mermaid
@@ -47,6 +121,29 @@ flowchart LR
 - **Migration:** ไม่มี
 - **การตรวจสอบ:** Work Command Center contract, typecheck, lint, build และ authenticated runtime smoke พร้อมวัด LCP/Network หลัง deploy
 - **Rollback:** revert UI commit; ข้อมูล `system_work_items`, detail/evidence และ event history ไม่ถูกแก้ไข
+
+## 2026-09-09 — Work Command Center continuous dispatch v1.3
+
+```mermaid
+flowchart LR
+  A[Health Monitor] --> B{Fresh worker lease exists?}
+  B -->|Yes| C[Normal worker ownership]
+  B -->|No| D[Idempotent Dispatch Intent + Audit]
+  D --> E{State}
+  E -->|Approved ready| F[worker_claim]
+  E -->|Review| G[explicit_approval]
+  E -->|Blocked| H[root_cause_and_controlled_retry]
+  F --> I[Work Command Center Drawer]
+  G --> I
+  H --> I
+```
+
+- **เหตุผล:** ปิดช่องว่างที่ไม่มี Worker สดแต่มีงานทำต่อได้ โดยแสดง owner, gate, next action และ SLA ที่ตรวจสอบย้อนหลังได้
+- **ผลกระทบ:** เพิ่ม `system_work_dispatch_intents`; Health Monitor สร้างเฉพาะ intent ที่ idempotent และหน้า `/work-command-center` แสดง intent ในตาราง/Drawer. ไม่สร้าง task ธุรกิจ, ไม่อนุมัติ, ไม่ retry และไม่ส่งข้อความภายนอกเอง
+- **สิทธิ์และ Audit:** RLS เปิด, client อ่านตาม parent work item เท่านั้นและเขียนไม่ได้; การสร้าง/เปลี่ยน/supersede intent ลง `system_work_item_events`
+- **Migration:** `20260909114055_work_command_center_continuous_dispatch.sql`
+- **Verification:** contract tests ของ zero-active, handoff, approval gate, RLS/audit; typecheck, lint, build และ release-gated runtime smoke
+- **Rollback:** revert code เพื่อหยุดสร้าง intent ใหม่ โดยไม่ลบ `system_work_items` หรือ Audit เดิม
 
 ## 2026-09-06 — Intake Security Gate v1.3
 
@@ -1035,3 +1132,111 @@ flowchart LR
 - Original Quarantine / Chain of Custody v1.1 (7/9/2569): recorded the Admin-approved default retention, legal-hold, quarantine, derivative and quarterly controlled-recovery policy in `docs/ORIGINAL_CHAIN_OF_CUSTODY_FLOW.md`. Documentation/control update only; no object, row, migration or runtime retention action was performed.
 
 - Release Parity / Safe Redirect v1.3 (7/9/2569): Cloudflare Pages is now the canonical Production target; Vercel is Preview/Parity only. Smart Entry keeps Vercel unavailable when its revision is stale or rate-limited and continues through Cloudflare, while preserving the existing health/revision checks.
+
+### Work Command Center / Worker Progress v1.0 (7/9/2569)
+
+```mermaid
+flowchart LR
+  I[system_work_items] --> S{Current state}
+  S -->|ready| Q[รับเข้าแล้ว รอ Worker]
+  S -->|doing + fresh heartbeat/lease| A[Worker กำลังทำงาน]
+  S -->|doing + stale/missing worker| N[ไม่มีผลลัพธ์จาก Worker]
+  S -->|blocked/done| O[Outcome เดิม]
+  Q --> D[Work Command Drawer]
+  A --> D
+  N --> D
+  O --> D
+  R[system_worker_runs] --> D
+  E[system_work_item_events] --> D
+  D --> X[ตรวจ run/recovery หรือ Audit ก่อนสั่งซ้ำ]
+```
+
+- **เหตุผล/ผลกระทบ:** หน้า `/work-command-center` แสดงสถานะ Worker จาก `system_work_items` และประวัติ `system_worker_runs` จริง พร้อมผลลัพธ์ที่อ่านง่าย: รับเข้าแล้ว รอ Worker, กำลังทำ, ติดปัญหา, เสร็จแล้ว หรือไม่มีผลลัพธ์จาก Worker; ไม่มีการสร้างสถานะจำลองหรือแก้ข้อมูลธุรกิจ.
+- **สิทธิ์/Failure/Retry/Audit:** ใช้ RLS เดิมของ Work Item/Worker Run; heartbeat เกิน 10 นาทีหรือ lease หมดอายุจะแสดงคำเตือนและให้ตรวจ recovery ก่อนสั่งซ้ำ; Drawer อ่าน Audit และหลักฐาน run ตามสิทธิ์เดิม.
+- **Migration/Verification/Rollback:** ไม่มี migration; verify targeted contracts, typecheck, lint, build และ authenticated runtime smoke หลัง release; rollback ด้วยการ revert UI/docs/test commit โดย queue, lease, run และ Audit เดิมไม่เปลี่ยน.
+
+### Work Command Center / Active Claim integration v1.1 (8/9/2569)
+
+```mermaid
+flowchart LR
+  I[system_work_items: worker_id, heartbeat, lease] --> P[Shared Active Claim predicate]
+  T[One-second local clock] --> P
+  P -->|valid| A[Active count, tab and Worker Progress]
+  P -->|expired or stale| R[Recovery guidance and Worker run audit]
+  A --> D[Read-only Drawer]
+  R --> D
+```
+
+- **เหตุผล/ผลกระทบ:** ใช้ Active Claim predicate ชุดเดียวกับ Worker Progress เพื่อให้ count, tab, chip และ Drawer เปลี่ยนตาม heartbeat/lease จริงโดยไม่สร้าง helper ซ้ำหรือเขียนข้อมูลกลับฐานข้อมูล.
+- **สิทธิ์/Failure/Retry/Audit:** สิทธิ์, RLS, RPC และ Audit เดิมคงเดิม; claim หมดอายุหรือ heartbeat เก่าจะแสดง recovery guidance และประวัติ Worker run ตามสิทธิ์.
+- **Migration/Verification/Rollback:** ไม่มี migration; verify fake-clock claim test, Worker Progress/Work Command contracts, typecheck, lint, build และ authenticated runtime smoke หลัง release; rollback ด้วยการ revert helper/UI/docs/test commit โดย queue, lease, run และ Audit เดิมไม่เปลี่ยน.
+## 2026-09-07 — Filter Orchestrator Runtime Contract v1.0
+
+```mermaid
+flowchart LR
+  A[Intake action] --> B[Canonical preflight]
+  B --> C[Document Flow RPC]
+  C --> D[State/room update]
+  D --> E[Append-only audit]
+```
+
+- **Reason:** QA found that FILTER-001's proposed contract was not imported by a runtime path and disagreed with the deployed RPC.
+- **Impact:** `documentFlowGateway.transitionWithContract` and Intake Room now use the same action names and client-visible state rules as `transition_document_flow_item`; server-side tenant, role, approval, version, idempotency, and audit checks remain mandatory.
+- **Migration:** None. The existing RPC remains the data authority.
+- **Verification:** `test:filter-runtime-contract` compares the action set and enforcement markers with the migration and confirms the runtime imports.
+- **Rollback:** Revert the application contract commit only; no records, sources, or audits are deleted.
+
+## 2026-09-07 — Intake Duplicate-State Preflight/UI v1.1
+
+```mermaid
+flowchart LR
+  A[Queue row: duplicate_state] --> B[Intake mapping]
+  B --> C[Queue/Drawer warning]
+  C --> D{duplicate?}
+  D -->|yes| E[Block route_filter preflight]
+  D -->|no| F[Existing transition contract]
+```
+
+- **Reason:** QA found the server-side `duplicate_state` guard was not carried into Intake UI context, so the visible queue action could appear available even though the RPC would reject it.
+- **Impact:** Intake queue filtering, Drawer messaging, action disabled state, and client preflight now use the same persisted duplicate marker; no routing, permissions, or data model changes.
+- **Migration:** None.
+- **Verification:** `test:filter-runtime-contract`, `test:document-flow-filter-consistency`, typecheck, targeted lint, build; no Production mutation or deployment.
+- **Rollback:** Revert the application/test/documentation commit; existing duplicate rows and audit history remain unchanged.
+
+
+### SYS-004 Monitoring Sentinel Recovery v1.0 (8/9/2569)
+
+```mermaid
+flowchart TD
+  S[SYS-004 monitoring sentinel] --> H[Health Monitor updates incident/evidence]
+  H --> D{Generic claim or stale recovery?}
+  D -->|yes| X[Exclude monitoring_active records]
+  D -->|no| A[Keep doing without worker lease]
+  X --> R[No requeue and no retry storm]
+  A --> R
+```
+
+- **เหตุผล/ผลกระทบ:** แยก `SYS-004` ซึ่งเป็น monitoring sentinel ออกจาก generic worker claim และ stale recovery เพื่อหยุด retry/claim loop; ไม่เปลี่ยน incident, ข้อมูลธุรกิจ, สิทธิ์ หรือการแจ้งเตือน.
+- **Migration:** `20260907143902_protect_monitoring_sentinel_work_items.sql` ผ่าน PR/CI เท่านั้น.
+- **Verification/Rollback:** SQL contract, migration replay, worker/health tests, lint/typecheck/build และ Production read-only verification; rollback ด้วยการ revert PR โดยคง monitoring/audit history.
+
+# 2026-09-08 — DOC-INGEST-003 original evidence recovery controls v1.2
+
+```mermaid
+flowchart LR
+  A[Private tenant original] --> B[Recovery request]
+  B --> C{Admin/Document Operations approval?}
+  C -->|No| D[Expire/reject + audit]
+  C -->|Yes| E[Short-lived one-time recovery]
+  E --> F[Hash verification + audit]
+  G[Metadata backfill] --> H{Missing evidence metadata?}
+  H -->|Yes| I[Custody exception]
+  H -->|No| J[Set minimum retain-until]
+```
+
+- Scope: additive tenant-scoped recovery grants/audit, visible recovery action from System Health problem evidence, hash-verified one-time private signed delivery (maximum 15 minutes), and evidence-only retention metadata backfill. Raw/OCR/object bytes are never overwritten, moved, or deleted.
+- Migration: `20260908090000_document_original_custody_controls.sql`.
+- Permissions: Admin/platform admin, company manager, and accounting/document-operations membership only; private attachments are company-scoped by RLS.
+- Integration/failure: `document-original-recovery` authenticates and rechecks tenant scope, verifies SHA-256 and its Audit write before signing, consumes the grant once and fails closed on missing/mismatched/expired/revoked evidence or concurrent reuse. Requests serialize per attachment; the backfill writes the stronger approved seven-year financial/two-year general retention dates, which exceed the A/B/C minimum floor.
+- Verification/rollback: PostgreSQL custody contract plus migration safety checks, typecheck/lint/build and Preview authenticated recovery smoke; revoke new RPC grants/disable the Edge Function or revert the task branch without changing existing originals/lifecycle history.
+

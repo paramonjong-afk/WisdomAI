@@ -56,6 +56,13 @@
 - ใช้ perceptual hash ช่วยเตือนภาพเกือบซ้ำ โดยไม่ลบอัตโนมัติ
 - ผ่านเมื่อ resend ไม่กินพื้นที่ซ้ำ แต่ยังเห็นประวัติข้อความและสามารถผูกคนละงานได้
 
+#### Containment update — 7/9/2569
+
+- Production evidence: 2,631 logical attachments, 2,053 physical blobs, 554 existing duplicate links; 251 historical links cross company boundaries. These historic links remain unchanged for a separately approved review.
+- New behavior: duplicate candidate lookup is company-scoped and fails closed when company cannot be established. Physical blob reuse remains `(company_id, content_sha256)` scoped.
+- Access hardening: `line_messages`, `line_attachments`, and `line_attachment_blobs` use active-company read policies; anonymous/table DML is revoked and blob writes remain service-role only. The broad LINE Storage path is excluded from the tenant restrictive policy so document-flow authorization is effective.
+- Migration/verification: `20260907130000_line_attachment_tenant_isolation.sql`; PR/local gates only, no Production apply in this task. Required checks include cross-company negative/positive RLS fixtures, duplicate isolation contract, typecheck/lint/build and authenticated runtime smoke after deployment.
+
 ### DOC-INGEST-006 — ชุดเอกสารหลายหน้า
 
 - ใช้ group/sender/company/time window และรองรับ out-of-order/redelivery
@@ -137,3 +144,5 @@
 - รองรับ PDF name escape (`#XX`) และไม่ใช้ document gate กับเสียง/วิดีโอที่มี flow ของตัวเอง
 - Verification: document security, LINE, Omni, employee multichannel, Web Chat attachment tests, typecheck, lint, build และ authenticated Production smoke ผ่าน; ไม่มี migration
 - Rollback: revert PR ของ gate แล้วคง ingestion เดิมไว้; ไม่ลบไฟล์หรือข้อมูลย้อนหลัง
+
+

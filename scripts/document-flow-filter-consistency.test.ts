@@ -6,7 +6,7 @@ const center = readFileSync('src/pages/DocumentFlows/index.tsx', 'utf8')
 const fixture = readFileSync('scripts/fixtures/documentFlowLocalFixture.ts', 'utf8')
 
 assert.match(gateway, /T00:00:00\+07:00/)
-assert.match(gateway, /loadQueuePage\(null, 2000, 'intake'/)
+assert.match(gateway, /loadQueuePage\(null, 100, 'intake'/)
 assert.match(gateway, /source_received_at_fallback|source_received_at/) 
 assert.match(center, /activeGlobalFilterLabels/)
 assert.doesNotMatch(center, /local_test_data|LOCAL TEST DATA/)

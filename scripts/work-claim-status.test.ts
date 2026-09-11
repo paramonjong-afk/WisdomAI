@@ -31,7 +31,9 @@ assert.equal(
   "lease expiry boundary is inactive",
 );
 assert.equal(
-  workerClaimLabel({ ...base, worker_id: null }, { doing: "กำลังทำ" }, now),
-  "หยุดผิดปกติ — ไม่มี Active Claim",
+  workerClaimLabel({ ...base, worker_id: null }, { doing: "กำลังทำ" }, now), "หยุดผิดปกติ - ไม่มี Active Claim");
+assert.equal(
+  workerClaimLabel({ ...base, heartbeat_at: new Date(now - CLAIM_HEARTBEAT_MAX_AGE_MS - 1).toISOString() }, { doing: "กำลังทำ" }, now),
+  "Worker ขาดการติดต่อ",
 );
 console.log("Work claim status fake-clock boundaries passed");

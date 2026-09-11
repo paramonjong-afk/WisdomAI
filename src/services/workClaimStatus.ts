@@ -35,5 +35,5 @@ export const workerClaimLabel = (
   if (item.status !== "doing") return statusLabels[item.status] ?? item.status;
   if (hasExpiredWorkerLease(item, now) || item.worker_id)
     return "Worker ขาดการติดต่อ";
-  return "หยุดผิดปกติ — ไม่มี Active Claim";
+  return "หยุดผิดปกติ - ไม่มี Active Claim";
 };
