@@ -13,6 +13,9 @@ flowchart LR
   I --> K[Audit decision channel, actor, reason, time]
   I --> L[Web Chat result message]
   G --> M[Retry-safe error / no duplicate decision]
+  I --> N[Atomic worker claim]
+  N --> O[Terminal outcome: completed / blocked / no_output]
+  O --> P[Control Center Drawer + Audit]
 ```
 
 # Cross-Channel Work Approval Flow
@@ -30,8 +33,9 @@ flowchart LR
 ## States and actions
 
 - Approval: `pending` -> `approved` หรือ `rejected`
-- Work item: `review` -> `ready` เมื่ออนุมัติ หรือ `blocked` เมื่อไม่อนุมัติ
+- Work item: `ready` -> `review` เมื่อส่งขอตรวจ, `review` -> `ready` เมื่ออนุมัติ หรือ `blocked` เมื่อไม่อนุมัติ
 - การตัดสินใจครั้งที่สองเป็น no-op และคืน `already_decided` พร้อมช่องทางเดิม
+- งานที่อนุมัติแล้วแต่ `production_status` ค้าง จะกู้ได้เฉพาะ Admin/Manager ผ่าน RPC ที่ตรวจ role, company, approval fingerprint, lease, และ attempt cap; ไม่ reset retry budget และไม่แก้ scope/business record
 
 ## Roles and permissions
 
@@ -52,6 +56,7 @@ flowchart LR
 - unique partial index กัน pending ซ้ำ
 - row lock และเงื่อนไขสถานะกัน race ระหว่าง Telegram/Web Chat
 - หากงานไม่อยู่ `review` หรือ approval ถูกตัดสินใจแล้ว จะไม่เปลี่ยนสถานะซ้ำ
+- ทุก worker dispatch ต้องจบด้วย outcome พร้อมเหตุผล: `acknowledged`, `claimed`, `blocked`, `completed`, หรือ `no_output`; stale heartbeat ถูกบันทึกเป็น `no_output` ก่อนคืนคิว
 
 ## Audit and owner
 
@@ -63,4 +68,5 @@ Approval เก็บผู้ขอ เวลา ผู้ตัดสินใ
 |---|---|---|---|---|---|
 | v1.0 | 7/9/2569 | ใช้ approval record เดียวระหว่าง Web Chat และ Telegram พร้อมกันการกดซ้ำ | `202609070001_cross_channel_work_approval.sql` | migration dry-run/apply, RPC/idempotency/permission tests, typecheck, lint, build และ authenticated Web/Telegram smoke | ปิด trigger/RPC/UI ใหม่และคง approval/audit ไว้เพื่ออ่านย้อนหลัง; revert frontend โดยไม่ลบ work item เดิม |
 | v1.2 | 7/9/2569 | ให้ผู้ดูแลส่งแจ้งเตือนของงานที่เปิดดูอยู่เพียงรายการเดียวจากศูนย์สั่งงาน โดยไม่เรียก bulk escalation | ไม่มี schema migration; `src/pages/WorkCommandCenter/index.tsx` | targeted UI contract, typecheck, lint, build และ authenticated runtime smoke | ซ่อนปุ่มเฉพาะงาน; approval, notification และ audit เดิมคงอยู่ |
+| v1.3 | 7/9/2569 | ปิด approval/execution stall และบังคับ outcome ของ worker ทุกครั้ง | `20260907130000_control_plane_stall_recovery.sql`, `automation-worker`, local runner และ Control Center Drawer | contract, typecheck, lint, build, migration CI และ authenticated smoke | revert source ด้วย PR แก้ไข โดยเก็บ approval/outcome/audit เดิมไว้ |
 
