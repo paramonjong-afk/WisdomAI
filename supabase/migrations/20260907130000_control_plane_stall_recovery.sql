@@ -189,7 +189,8 @@ begin
     error_fingerprint=left(target_error_fingerprint,200),worker_id=null,heartbeat_at=null,lease_expires_at=null,current_step=null,
     worker_outcome=resolved_outcome,worker_outcome_reason=resolved_reason,worker_outcome_at=now(),
     blocked_since=case when target_status='blocked' then coalesce(item.blocked_since,now()) else null end,updated_at=now()
-  where item.work_key=target_key;
+    where item.work_key=target_key and item.worker_id=target_worker and item.status='doing';
+  if not found then return false; end if;
   return true;
 end $$;
 

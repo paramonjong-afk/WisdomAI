@@ -804,7 +804,7 @@ export function WorkCommandCenterPage() {
                 </Button>
               </Stack>
             )}
-            {selected.status === "ready" && !selected.approval_status && (
+            {selected.status === "ready" && selected.approval_status === "pending" && (
               <Button variant="contained" disabled={busy} onClick={() => void submitForReview()}>
                 ส่งตรวจอนุมัติ
               </Button>
