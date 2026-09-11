@@ -22,6 +22,21 @@ flowchart LR
   I --> J[Audit/event ledger and refreshed list]
   B -. query error .-> K[Visible error message and retry]
   F -. detail error .-> K
+  F --> G[Drawer displays operational context and actions]
+  G --> H[Approval/create mutation through RPC]
+  H --> I[Audit/event ledger and refreshed list]
+  K[Health Monitor] --> L{Fresh worker lease exists?}
+  L -->|Yes| M[Normal worker ownership]
+  L -->|No| N[Idempotent Dispatch Intent + Audit]
+  N --> O{Work state}
+  O -->|Approved ready| P[owner + worker_claim gate]
+  O -->|Review| Q[owner + explicit approval gate]
+  O -->|Blocked| R[owner + controlled-retry gate]
+  P --> G
+  Q --> G
+  R --> G
+  B -. query error .-> J[Visible error message and retry]
+  F -. detail error .-> J
 ```
 
 # Work Command Center Flow
@@ -46,6 +61,14 @@ the UI does not change business data.
   runs, and the latest 100 audit events for the selected work key.
 - **Mutation output:** existing RPC result, refreshed list, and audit/event
   record; this worker-progress UI adds no new mutation.
+  `system_work_dispatch_intents`, realtime changes, Health Monitor, and explicit
+  user actions.
+- **List output:** status counts and a paginated table of current work-item
+  summaries.
+- **Detail output:** full detail/evidence, worker lease state, the current
+  Dispatch Intent (owner, next gate, next action, SLA), and the latest 100 audit
+  events for the selected work key.
+- **Mutation output:** RPC result, refreshed list, and audit/event record.
 
 ## States, roles, and safety
 
@@ -61,6 +84,19 @@ never updates `system_work_items` directly; create and approval actions use the
 existing RPCs and mutation-attempt audit path. Realtime refresh waits while a
 user is selecting text so copied work information is not interrupted.
 
+`owner` is a routing assignment, not proof that a worker is running. A worker
+is active only when `worker_id`, an unexpired lease, and a heartbeat within ten
+minutes are all present. This reconciles the Active Claim semantics documented
+in `docs/SYSTEM_WORK_CLAIM_RECOVERY_FLOW.md` without changing claim or recovery
+behavior.
+
+When no `system_worker_runs` row has a fresh heartbeat, Health Monitor records
+at most one pending intent for each `(work_key, intent_kind)`. It only records
+the owner and required gate. It never starts business work, approves a request,
+changes a work-item state, sends a new external notification, or retries a
+matching failure automatically. Review requires explicit approval; blocked work
+requires root-cause resolution before a controlled retry.
+
 ## Failure, retry, and audit
 
 List/detail query failures stay visible with a retry action. Realtime refreshes
@@ -74,6 +110,11 @@ may update detail, evidence, timeline, worker runs, loading, or error state;
 responses from an earlier row or a closed Drawer are discarded. Detail failures
 are shown separately from list errors and can be retried without changing the
 selected work item. Successful silent list refreshes clear stale list notices.
+
+Dispatch-intent inserts, updates, and supersessions append a
+`system_work_item_events` record. RLS is enabled: authenticated users can only
+read intents for visible parent work items, clients have no write permission,
+and Health Monitor is the only writer.
 
 ## Change record
 
@@ -117,3 +158,23 @@ selected work item. Successful silent list refreshes clear stale list notices.
   Command contracts, typecheck, lint, build, then authenticated runtime smoke.
 - Rollback: revert the shared helper and UI integration; queue, lease, run, and
   audit records remain unchanged.
+- Rationale: make stalled approvals and blank worker completions recoverable
+  without allowing a user or worker to bypass the approved scope.
+- Migration: `20260907130000_control_plane_stall_recovery.sql`.
+- Operational path: ready -> submit for review -> one approval record ->
+  approved ready -> atomic claim -> claimed outcome -> completed, blocked, or
+  no_output outcome. A manager can reconcile only an approved, fingerprint-
+  matching, lease-free item; retry counts are retained and capped items still
+  require the explicit retry-reset path.
+- Verification: targeted contract test, typecheck, lint, build, migration CI,
+  and authenticated Drawer smoke after release.
+- Rollback: revert the source change in a corrective PR. Retain worker
+  outcomes and audit records; do not delete or rewrite prior work history.
+- Date: 2026-09-09
+- Rationale: eliminate silent Zero-Active periods by making the next owner,
+  gate, action, and SLA visible and durable when no worker has a fresh lease.
+- Migration: `20260909114055_work_command_center_continuous_dispatch.sql`.
+- Verification: contract tests cover idempotent dispatch intent, zero-active
+  worker detection, approval/retry gates, audit, RLS, typecheck, lint, and build.
+- Rollback: revert the Health Monitor/UI change and stop creating new intents.
+  Existing work items and audit records remain untouched.

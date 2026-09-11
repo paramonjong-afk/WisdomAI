@@ -178,6 +178,83 @@ async function sendPendingWorkApprovals(companyId: string | null) {
   return sent
 }
 
+type DispatchIntent = {
+  work_key: string
+  company_id: string | null
+  intent_kind: 'dispatch' | 'approval' | 'unblock'
+  owner: string
+  next_gate: string
+  next_action: string
+  sla_due_at: string
+}
+
+const dispatchSlaMinutes = (risk: string | null) => {
+  switch ((risk ?? '').toLowerCase()) {
+    case 'critical': return 15
+    case 'high': return 60
+    case 'medium': return 240
+    default: return 1_440
+  }
+}
+
+// This is a queue signal, not an executor. It records one actionable next step
+// per work item while all workers are absent, and deliberately never retries work.
+async function reconcileContinuousWorkDispatch(companyId: string | null) {
+  const activeCutoff = new Date(Date.now() - 10 * 60_000).toISOString()
+  const [{ data: activeRuns, error: activeRunsError }, { data: items, error: itemsError }] = await Promise.all([
+    admin.from('system_worker_runs').select('id').eq('status', 'running').gte('heartbeat_at', activeCutoff).limit(1),
+    (() => {
+      let query = admin.from('system_work_items')
+        .select('work_key,company_id,status,risk,owner,approval_status,production_status')
+        .in('status', ['ready', 'review', 'blocked'])
+      return companyId ? query.eq('company_id', companyId) : query.is('company_id', null)
+    })(),
+  ])
+  if (activeRunsError || itemsError) throw activeRunsError ?? itemsError
+  if (activeRuns?.length) return { state: 'active_worker_present', intents: 0 }
+
+  const intents: DispatchIntent[] = []
+  for (const item of items ?? []) {
+    const approvedReady = item.status === 'ready' && (
+      item.approval_status === 'approved' || item.production_status === 'approved_for_execution'
+    )
+    const slaDueAt = new Date(Date.now() + dispatchSlaMinutes(item.risk) * 60_000).toISOString()
+    if (approvedReady) {
+      intents.push({
+        work_key: item.work_key, company_id: item.company_id ?? companyId, intent_kind: 'dispatch',
+        owner: item.owner || 'Automation queue', next_gate: 'worker_claim',
+        next_action: 'Claim this approved item through the atomic worker-claim flow.', sla_due_at: slaDueAt,
+      })
+    } else if (item.status === 'review') {
+      intents.push({
+        work_key: item.work_key, company_id: item.company_id ?? companyId, intent_kind: 'approval',
+        owner: item.owner || 'Admin / module owner', next_gate: 'explicit_approval',
+        next_action: 'Approve or reject explicitly with an audit reason; no automatic approval is allowed.', sla_due_at: slaDueAt,
+      })
+    } else if (item.status === 'blocked') {
+      intents.push({
+        work_key: item.work_key, company_id: item.company_id ?? companyId, intent_kind: 'unblock',
+        owner: item.owner || 'Admin / module owner', next_gate: 'root_cause_and_controlled_retry',
+        next_action: 'Resolve the recorded blocker before an authorized controlled retry; do not auto-retry.', sla_due_at: slaDueAt,
+      })
+    }
+  }
+
+  for (const intent of intents) {
+    const { error: supersedeError } = await admin.from('system_work_dispatch_intents')
+      .update({ status: 'superseded', updated_at: new Date().toISOString() })
+      .eq('work_key', intent.work_key).eq('status', 'pending').neq('intent_kind', intent.intent_kind)
+    if (supersedeError) throw supersedeError
+  }
+  if (!intents.length) return { state: 'zero_active_no_actionable_items', intents: 0 }
+  const { error: intentError } = await admin.from('system_work_dispatch_intents').upsert(
+    intents.map((intent) => ({ ...intent, status: 'pending', detected_at: new Date().toISOString(), updated_at: new Date().toISOString() })),
+    { onConflict: 'work_key,intent_kind' },
+  )
+  if (intentError) throw intentError
+  return { state: 'zero_active_dispatch_intents_created', intents: intents.length }
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
@@ -665,7 +742,8 @@ Deno.serve(async (request) => {
         `📊 สรุป WisdomAI ประจำวัน\nปกติ: ${counts.healthy}\nเฝ้าระวัง: ${counts.warning}\nวิกฤต: ${counts.critical}\nผู้รับผิดชอบ: ${settings.responsible_name || 'ยังไม่กำหนด'}`,actorCompanyId)
     }
     const approvalNotificationsSent = await sendPendingWorkApprovals(actorCompanyId)
-    return json({ status: 'completed', run_id: run.id, counts, approval_notifications_sent: approvalNotificationsSent, results })
+    const dispatchReconciliation = await reconcileContinuousWorkDispatch(actorCompanyId)
+    return json({ status: 'completed', run_id: run.id, counts, approval_notifications_sent: approvalNotificationsSent, dispatch_reconciliation: dispatchReconciliation, results })
   } catch (error) {
     await admin.from('health_monitor_runs').update({ status: 'failed', finished_at: new Date().toISOString(), error_message: error instanceof Error ? error.message : String(error) }).eq('id', run.id)
     return json({ error: error instanceof Error ? error.message : String(error) }, 500)

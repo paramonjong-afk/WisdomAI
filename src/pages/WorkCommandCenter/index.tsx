@@ -29,7 +29,6 @@ import { runWithMutationAttempt } from "../../utils/mutationAttemptRunner";
 import {
   CLAIM_HEARTBEAT_MAX_AGE_MS,
   hasActiveWorkerClaim,
-  workerClaimLabel,
 } from "../../services/workClaimStatus";
 import { shouldApplyDetailResponse } from "./detailRequestGuard";
 
@@ -52,9 +51,23 @@ type Item = {
   created_at: string;
   updated_at: string;
   approval_status?: string | null;
+  approval_fingerprint?: string | null;
+  attempt_count?: number | null;
+  worker_outcome?: string | null;
+  worker_outcome_reason?: string | null;
+  worker_outcome_at?: string | null;
   company_id?: string | null;
 };
 type WorkItemDetail = Pick<Item, "detail" | "evidence">;
+type DispatchIntent = {
+  work_key: string;
+  intent_kind: "dispatch" | "approval" | "unblock";
+  status: "pending" | "superseded" | "completed";
+  owner: string;
+  next_gate: string;
+  next_action: string;
+  sla_due_at: string;
+};
 type Event = {
   id: number;
   event_type: string;
@@ -148,6 +161,22 @@ const workerOutcome = (item: Item, now: number): { value: WorkerOutcome; label: 
 };
 const workerOutcomeColor = (outcome: WorkerOutcome): "error" | "warning" | "success" | "info" =>
   outcome === "blocked" || outcome === "no_output" ? "error" : outcome === "claimed" ? "warning" : outcome === "completed" ? "success" : "info";
+const hasExpiredLease = (item: Item) =>
+  item.status === "doing" &&
+  Boolean(item.lease_expires_at) &&
+  new Date(item.lease_expires_at as string).getTime() <= Date.now();
+const hasActiveClaim = (item: Item) =>
+  item.status === "doing" &&
+  Boolean(item.worker_id) &&
+  Boolean(item.lease_expires_at && item.heartbeat_at) &&
+  new Date(item.lease_expires_at as string).getTime() > Date.now() &&
+  new Date(item.heartbeat_at as string).getTime() > Date.now() - 10 * 60_000;
+const claimStatusLabel = (item: Item) => {
+  if (hasActiveClaim(item)) return "กำลังทำจริง";
+  if (item.status !== "doing") return statusLabel[item.status];
+  if (hasExpiredLease(item) || item.worker_id) return "Worker ขาดการติดต่อ";
+  return "หยุดผิดปกติ — ไม่มี Active Claim";
+};
 
 export function WorkCommandCenterPage() {
   usePageTitle("ศูนย์สั่งงาน");
@@ -155,6 +184,7 @@ export function WorkCommandCenterPage() {
   const [rows, setRows] = useState<Item[]>([]),
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState("");
+  const [dispatchIntents, setDispatchIntents] = useState<DispatchIntent[]>([]);
   const [detailBusy, setDetailBusy] = useState(false);
   const [detailError, setDetailError] = useState("");
   const [claimNow, setClaimNow] = useState(() => Date.now());
@@ -172,12 +202,20 @@ export function WorkCommandCenterPage() {
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setBusy(true);
-    const { data, error } = await supabase
-      .from("system_work_items")
-      .select(
-        "work_key,title,category,status,progress,risk,production_status,owner,worker_id,current_step,heartbeat_at,lease_expires_at,created_at,updated_at",
-      )
-      .order("updated_at", { ascending: false });
+    const [itemsResult, intentsResult] = await Promise.all([
+      supabase
+        .from("system_work_items")
+        .select(
+          "work_key,title,category,status,progress,risk,production_status,owner,current_step,worker_id,heartbeat_at,lease_expires_at,approval_status,approval_fingerprint,attempt_count,worker_outcome,worker_outcome_reason,worker_outcome_at,created_at,updated_at",
+        )
+        .order("updated_at", { ascending: false }),
+      supabase
+        .from("system_work_dispatch_intents")
+        .select("work_key,intent_kind,status,owner,next_gate,next_action,sla_due_at")
+        .eq("status", "pending")
+        .order("sla_due_at", { ascending: true }),
+    ]);
+    const { data, error } = itemsResult;
     if (data) {
       const next = data as Item[];
       setRows((current) => {
@@ -202,7 +240,8 @@ export function WorkCommandCenterPage() {
         return refreshed ? { ...current, ...refreshed } : null;
       });
     }
-    if (error) setNotice(userError(error));
+    if (intentsResult.data) setDispatchIntents(intentsResult.data as DispatchIntent[]);
+    if (error ?? intentsResult.error) setNotice(userError(error ?? intentsResult.error));
     else if (silent) setNotice("");
     if (!silent) setBusy(false);
   }, []);
@@ -416,15 +455,54 @@ export function WorkCommandCenterPage() {
       setBusy(false);
     }
   };
+  const submitForReview = async () => {
+    if (!selected) return;
+    const reason = window.prompt(`ส่ง ${selected.work_key} เข้าตรวจอนุมัติ\nระบุเหตุผลเพื่อบันทึก Audit`)?.trim();
+    if (!reason) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.rpc("submit_system_work_item_for_review", {
+        target_work_key: selected.work_key,
+        target_reason: reason,
+      });
+      if (error) throw error;
+      setNotice(`ส่ง ${selected.work_key} เข้าตรวจอนุมัติและบันทึก Audit แล้ว`);
+      await load();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : userError(error));
+    } finally { setBusy(false); }
+  };
+  const reconcileApprovedExecution = async () => {
+    if (!selected?.approval_fingerprint) return;
+    const reason = window.prompt(`กู้สถานะการดำเนินการ ${selected.work_key}\nยืนยันว่า scope เดิมผ่านอนุมัติแล้ว และระบุเหตุผล`)?.trim();
+    if (!reason) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.rpc("reconcile_approved_system_work_item_execution", {
+        target_work_key: selected.work_key,
+        target_approval_fingerprint: selected.approval_fingerprint,
+        target_reason: reason,
+      });
+      if (error) throw error;
+      setNotice(`กู้สถานะ ${selected.work_key} แล้ว โดยยังคง retry budget และ Audit เดิม`);
+      await load();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : userError(error));
+    } finally { setBusy(false); }
+  };
   const counts = useMemo(
     () => ({
       ready: rows.filter((r) => r.status === "ready").length,
-      doing: rows.filter((r) => hasActiveWorkerClaim(r, claimNow)).length,
+      doing: rows.filter(hasActiveClaim).length,
       review: rows.filter((r) => r.status === "review").length,
       blocked: rows.filter((r) => r.status === "blocked").length,
       done: rows.filter((r) => r.status === "done").length,
     }),
     [rows, claimNow],
+  );
+  const intentsByWorkKey = useMemo(
+    () => new Map(dispatchIntents.map((intent) => [intent.work_key, intent])),
+    [dispatchIntents],
   );
   const visibleRows = useMemo(
     () =>
@@ -474,6 +552,12 @@ export function WorkCommandCenterPage() {
           onClose={() => setNotice("")}
         >
           {notice}
+        </Alert>
+      )}
+      {counts.doing === 0 && dispatchIntents.length > 0 && (
+        <Alert severity="warning">
+          ไม่พบ Worker ที่มี lease สด ระบบสร้าง Dispatch Intent แล้ว {dispatchIntents.length} งาน
+          เพื่อระบุผู้รับผิดชอบ ขั้นตอนถัดไป และ SLA โดยยังไม่เริ่มงานหรืออนุมัติแทนผู้ใช้
         </Alert>
       )}
       <Box
@@ -570,8 +654,29 @@ export function WorkCommandCenterPage() {
           {
             id: "owner",
             label: "ผู้รับผิดชอบ",
-            render: (r) => r.owner || "ยังไม่มอบหมาย",
+            render: (r) => (
+              <Box>
+                <Typography variant="body2">{r.owner || "ยังไม่มอบหมาย"}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {hasActiveClaim(r)
+                    ? `กำลังทำจริง · ${r.worker_id}`
+                    : r.status === "doing"
+                      ? "Worker ไม่ได้ทำงานจริง/หมดสิทธิ์แล้ว"
+                      : "ยังไม่มี Active Claim"}
+                </Typography>
+              </Box>
+            ),
             exportValue: (r) => r.owner || "",
+          },
+          {
+            id: "next_gate",
+            label: "ขั้นตอนถัดไป",
+            minWidth: 200,
+            render: (r) => {
+              const intent = intentsByWorkKey.get(r.work_key);
+              return intent ? `${intent.owner}: ${intent.next_gate}` : "-";
+            },
+            exportValue: (r) => intentsByWorkKey.get(r.work_key)?.next_gate ?? "",
           },
           {
             id: "status",
@@ -579,8 +684,8 @@ export function WorkCommandCenterPage() {
             render: (r) => (
               <Chip
                 size="small"
-                color={hasActiveWorkerClaim(r, claimNow) ? "warning" : r.status === "doing" ? "error" : statusColor[r.status]}
-                label={workerClaimLabel(r, statusLabel, claimNow)}
+                color={hasActiveClaim(r) ? "warning" : r.status === "doing" ? "error" : statusColor[r.status]}
+                label={claimStatusLabel(r)}
               />
             ),
             exportValue: (r) => statusLabel[r.status],
@@ -728,8 +833,8 @@ export function WorkCommandCenterPage() {
             </Stack>
             <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
               <Chip
-                color={statusColor[selected.status]}
-                label={statusLabel[selected.status]}
+                color={selected.status === "doing" && !hasActiveClaim(selected) ? "error" : statusColor[selected.status]}
+                label={claimStatusLabel(selected)}
               />
               <Chip
                 variant="outlined"
@@ -810,18 +915,46 @@ export function WorkCommandCenterPage() {
               <Typography variant="subtitle2">ผู้รับผิดชอบ</Typography>
               <Typography>{selected.owner || "ยังไม่มอบหมาย"}</Typography>
             </Box>
+            {intentsByWorkKey.get(selected.work_key) && (
+              <Alert severity="warning">
+                <Typography sx={{ fontWeight: 700 }}>Dispatch Intent</Typography>
+                <Typography variant="body2">
+                  ผู้รับผิดชอบ: {intentsByWorkKey.get(selected.work_key)?.owner}
+                </Typography>
+                <Typography variant="body2">
+                  ประตูถัดไป: {intentsByWorkKey.get(selected.work_key)?.next_gate}
+                </Typography>
+                <Typography variant="body2">
+                  {intentsByWorkKey.get(selected.work_key)?.next_action}
+                </Typography>
+                <Typography variant="caption">
+                  SLA {formatDate(intentsByWorkKey.get(selected.work_key)?.sla_due_at ?? null)}
+                </Typography>
+              </Alert>
+            )}
             <Box>
               <Typography variant="subtitle2">Production</Typography>
               <Typography>
                 {productionLabel(selected.production_status)}
               </Typography>
             </Box>
-            {selected.heartbeat_at && (
-              <Alert severity={hasActiveWorkerClaim(selected, claimNow) ? "info" : "error"}>
-                {hasActiveWorkerClaim(selected, claimNow)
-                  ? "Worker กำลังทำงานและมี Active Claim"
-                  : workerClaimLabel(selected, statusLabel, claimNow)}
-                {` · heartbeat ล่าสุด ${formatDate(selected.heartbeat_at)}`}
+            <Box>
+              <Typography variant="subtitle2">ผลลัพธ์ worker ล่าสุด</Typography>
+              <Typography>
+                {selected.worker_outcome
+                  ? `${selected.worker_outcome} · ${selected.worker_outcome_reason || "ไม่มีเหตุผลจาก worker"}`
+                  : "ยังไม่มีผลลัพธ์ worker"}
+              </Typography>
+              {selected.worker_outcome_at && (
+                <Typography variant="caption" color="text.secondary">
+                  {formatDate(selected.worker_outcome_at)}
+                </Typography>
+              )}
+            </Box>
+            {selected.status === "doing" && (
+              <Alert severity={hasActiveClaim(selected) ? "info" : "error"}>
+                {hasActiveClaim(selected) ? "Worker กำลังทำงานและมี Active Claim" : claimStatusLabel(selected)}
+                {selected.heartbeat_at && ` · heartbeat ล่าสุด ${formatDate(selected.heartbeat_at)}`}
                 {selected.lease_expires_at &&
                   ` · lease ถึง ${formatDate(selected.lease_expires_at)}`}
               </Alert>
@@ -863,6 +996,17 @@ export function WorkCommandCenterPage() {
                   ส่งแจ้งเตือนเฉพาะงานนี้
                 </Button>
               </Stack>
+            )}
+            {selected.status === "ready" && selected.approval_status === "pending" && (
+              <Button variant="contained" disabled={busy} onClick={() => void submitForReview()}>
+                ส่งตรวจอนุมัติ
+              </Button>
+            )}
+            {(["ready", "blocked"] as WorkStatus[]).includes(selected.status) &&
+              selected.approval_status === "approved" && selected.approval_fingerprint && (
+              <Button variant="outlined" disabled={busy} onClick={() => void reconcileApprovedExecution()}>
+                กู้สถานะงานที่อนุมัติแล้ว
+              </Button>
             )}
             <Divider />
             <Typography variant="h6">Timeline และ Audit</Typography>
