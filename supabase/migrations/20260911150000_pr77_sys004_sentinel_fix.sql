@@ -34,6 +34,7 @@ begin
   where item.status = 'doing'
     -- Monitoring sentinels intentionally have no worker lease. Their owner is
     -- health-monitor, which refreshes status/evidence independently.
+      and item.work_key <> 'SYS-004'
     and coalesce(item.production_status, '') not like 'monitoring_active%'
     and (
       item.worker_id is null
@@ -46,6 +47,19 @@ begin
       where active_run.work_key = item.work_key and active_run.status = 'running' and active_run.heartbeat_at >= stale_cutoff
     );
   get diagnostics recovered_items = row_count;
+  -- The sentinel itself is excluded from the block above, so if it already
+  -- carries a stale claim from before this migration, clear the lease
+  -- fields without touching status -- health-monitor, not the claim loop,
+  -- owns SYS-004's status.
+  update public.system_work_items as item
+  set worker_id = null, heartbeat_at = null, lease_expires_at = null, current_step = null,
+      updated_at = now()
+  where item.work_key = 'SYS-004'
+    and (
+      item.worker_id is not null
+      or item.heartbeat_at is not null
+      or item.lease_expires_at is not null
+    );
 
   update public.system_work_items as item
   set worker_id = null, heartbeat_at = null, lease_expires_at = null,
@@ -104,6 +118,7 @@ begin
     and coalesce(item.production_status, '') <> 'awaiting_approval'
     -- A monitoring sentinel is never a generic worker task, even if a legacy
     -- row was incorrectly requeued before this migration.
+        and item.work_key <> 'SYS-004'
     and coalesce(item.production_status, '') not like 'monitoring_active%'
     and item.attempt_count < max_attempts
     and (
