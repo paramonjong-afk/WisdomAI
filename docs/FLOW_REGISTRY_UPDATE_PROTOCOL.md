@@ -1116,6 +1116,44 @@ flowchart LR
 - Original Quarantine / Chain of Custody v1.1 (7/9/2569): recorded the Admin-approved default retention, legal-hold, quarantine, derivative and quarterly controlled-recovery policy in `docs/ORIGINAL_CHAIN_OF_CUSTODY_FLOW.md`. Documentation/control update only; no object, row, migration or runtime retention action was performed.
 
 - Release Parity / Safe Redirect v1.3 (7/9/2569): Cloudflare Pages is now the canonical Production target; Vercel is Preview/Parity only. Smart Entry keeps Vercel unavailable when its revision is stale or rate-limited and continues through Cloudflare, while preserving the existing health/revision checks.
+
+### Work Command Center / Worker Progress v1.0 (7/9/2569)
+
+```mermaid
+flowchart LR
+  I[system_work_items] --> S{Current state}
+  S -->|ready| Q[รับเข้าแล้ว รอ Worker]
+  S -->|doing + fresh heartbeat/lease| A[Worker กำลังทำงาน]
+  S -->|doing + stale/missing worker| N[ไม่มีผลลัพธ์จาก Worker]
+  S -->|blocked/done| O[Outcome เดิม]
+  Q --> D[Work Command Drawer]
+  A --> D
+  N --> D
+  O --> D
+  R[system_worker_runs] --> D
+  E[system_work_item_events] --> D
+  D --> X[ตรวจ run/recovery หรือ Audit ก่อนสั่งซ้ำ]
+```
+
+- **เหตุผล/ผลกระทบ:** หน้า `/work-command-center` แสดงสถานะ Worker จาก `system_work_items` และประวัติ `system_worker_runs` จริง พร้อมผลลัพธ์ที่อ่านง่าย: รับเข้าแล้ว รอ Worker, กำลังทำ, ติดปัญหา, เสร็จแล้ว หรือไม่มีผลลัพธ์จาก Worker; ไม่มีการสร้างสถานะจำลองหรือแก้ข้อมูลธุรกิจ.
+- **สิทธิ์/Failure/Retry/Audit:** ใช้ RLS เดิมของ Work Item/Worker Run; heartbeat เกิน 10 นาทีหรือ lease หมดอายุจะแสดงคำเตือนและให้ตรวจ recovery ก่อนสั่งซ้ำ; Drawer อ่าน Audit และหลักฐาน run ตามสิทธิ์เดิม.
+- **Migration/Verification/Rollback:** ไม่มี migration; verify targeted contracts, typecheck, lint, build และ authenticated runtime smoke หลัง release; rollback ด้วยการ revert UI/docs/test commit โดย queue, lease, run และ Audit เดิมไม่เปลี่ยน.
+
+### Work Command Center / Active Claim integration v1.1 (8/9/2569)
+
+```mermaid
+flowchart LR
+  I[system_work_items: worker_id, heartbeat, lease] --> P[Shared Active Claim predicate]
+  T[One-second local clock] --> P
+  P -->|valid| A[Active count, tab and Worker Progress]
+  P -->|expired or stale| R[Recovery guidance and Worker run audit]
+  A --> D[Read-only Drawer]
+  R --> D
+```
+
+- **เหตุผล/ผลกระทบ:** ใช้ Active Claim predicate ชุดเดียวกับ Worker Progress เพื่อให้ count, tab, chip และ Drawer เปลี่ยนตาม heartbeat/lease จริงโดยไม่สร้าง helper ซ้ำหรือเขียนข้อมูลกลับฐานข้อมูล.
+- **สิทธิ์/Failure/Retry/Audit:** สิทธิ์, RLS, RPC และ Audit เดิมคงเดิม; claim หมดอายุหรือ heartbeat เก่าจะแสดง recovery guidance และประวัติ Worker run ตามสิทธิ์.
+- **Migration/Verification/Rollback:** ไม่มี migration; verify fake-clock claim test, Worker Progress/Work Command contracts, typecheck, lint, build และ authenticated runtime smoke หลัง release; rollback ด้วยการ revert helper/UI/docs/test commit โดย queue, lease, run และ Audit เดิมไม่เปลี่ยน.
 ## 2026-09-07 — Filter Orchestrator Runtime Contract v1.0
 
 ```mermaid

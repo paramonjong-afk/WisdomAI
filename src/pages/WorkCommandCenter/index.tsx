@@ -26,6 +26,10 @@ import { usePageTitle } from "../../hooks/usePageTitle";
 import { supabase } from "../../lib/supabase";
 import { userError } from "../../utils/userError";
 import { runWithMutationAttempt } from "../../utils/mutationAttemptRunner";
+import {
+  CLAIM_HEARTBEAT_MAX_AGE_MS,
+  hasActiveWorkerClaim,
+} from "../../services/workClaimStatus";
 import { shouldApplyDetailResponse } from "./detailRequestGuard";
 
 type WorkStatus = "ready" | "doing" | "review" | "blocked" | "done";
@@ -39,9 +43,9 @@ type Item = {
   detail: string | null;
   production_status: string;
   owner: string | null;
+  worker_id: string | null;
   evidence: string | null;
   current_step: string | null;
-  worker_id: string | null;
   heartbeat_at: string | null;
   lease_expires_at: string | null;
   created_at: string;
@@ -73,6 +77,18 @@ type Event = {
   new_progress: number | null;
   note: string | null;
   created_at: string;
+};
+type WorkerRun = {
+  id: string;
+  worker_id: string;
+  status: "running" | "completed" | "failed" | "expired";
+  current_step: string | null;
+  progress: number;
+  heartbeat_at: string | null;
+  started_at: string;
+  finished_at: string | null;
+  evidence: string | null;
+  error_fingerprint: string | null;
 };
 type View = "active" | WorkStatus | "all";
 
@@ -126,6 +142,25 @@ const productionLabel = (value: string) => {
 };
 const formatDate = (value: string | null) =>
   value ? new Date(value).toLocaleString("th-TH") : "-";
+const hasStaleHeartbeat = (item: Item, now: number) =>
+  item.status === "doing" &&
+  (!item.heartbeat_at ||
+    new Date(item.heartbeat_at).getTime() < now - CLAIM_HEARTBEAT_MAX_AGE_MS);
+const leaseLabel = (value: string | null, now: number) => {
+  if (!value) return "ยังไม่มี lease";
+  const minutes = Math.ceil((new Date(value).getTime() - now) / 60_000);
+  return minutes <= 0 ? "lease หมดอายุ" : `เหลือ ${minutes} นาที`;
+};
+type WorkerOutcome = "acknowledged" | "claimed" | "blocked" | "completed" | "no_output";
+const workerOutcome = (item: Item, now: number): { value: WorkerOutcome; label: string; reason: string; nextAction: string } => {
+  if (item.status === "done") return { value: "completed", label: "เสร็จแล้ว", reason: "งานปิดจากคิวกลางแล้ว", nextAction: "อ่านหลักฐานและ Audit ก่อนเริ่มงานใหม่" };
+  if (item.status === "blocked") return { value: "blocked", label: "ติดปัญหา", reason: item.current_step || "มี blocker ที่ต้องตรวจ", nextAction: "เปิดรายละเอียดและแก้ blocker ตามหลักฐาน" };
+  if (item.status === "ready") return { value: "acknowledged", label: "รับเข้าแล้ว รอ Worker", reason: "คำสั่งอยู่คิวกลาง แต่ยังไม่มี Worker ถือ lease", nextAction: "รอ Worker รับงานหรือเริ่มแบบระบุงาน" };
+  if (!hasActiveWorkerClaim(item, now)) return { value: "no_output", label: "ไม่มีผลลัพธ์จาก Worker", reason: hasStaleHeartbeat(item, now) ? "heartbeat เกิน 10 นาที" : "ไม่มี Worker หรือ lease ที่ยังใช้งาน", nextAction: "ตรวจ worker run และ recovery ก่อนลองใหม่" };
+  return { value: "claimed", label: "Worker กำลังทำงาน", reason: item.current_step || "Worker รับงานแล้ว", nextAction: "ติดตาม heartbeat และผลลัพธ์ในรายละเอียด" };
+};
+const workerOutcomeColor = (outcome: WorkerOutcome): "error" | "warning" | "success" | "info" =>
+  outcome === "blocked" || outcome === "no_output" ? "error" : outcome === "claimed" ? "warning" : outcome === "completed" ? "success" : "info";
 const hasExpiredLease = (item: Item) =>
   item.status === "doing" &&
   Boolean(item.lease_expires_at) &&
@@ -152,11 +187,14 @@ export function WorkCommandCenterPage() {
   const [dispatchIntents, setDispatchIntents] = useState<DispatchIntent[]>([]);
   const [detailBusy, setDetailBusy] = useState(false);
   const [detailError, setDetailError] = useState("");
+  const [claimNow, setClaimNow] = useState(() => Date.now());
   const detailRequestId = useRef(0);
+  const pendingRefreshRef = useRef(false);
   const [view, setView] = useState<View>("active"),
     [createOpen, setCreateOpen] = useState(false),
     [selected, setSelected] = useState<Item | null>(null),
     [events, setEvents] = useState<Event[]>([]);
+  const [workerRuns, setWorkerRuns] = useState<WorkerRun[]>([]);
   const [title, setTitle] = useState(""),
     [detail, setDetail] = useState(""),
     [category, setCategory] = useState("operations"),
@@ -189,6 +227,9 @@ export function WorkCommandCenterPage() {
               item.status === next[index]?.status &&
               item.progress === next[index]?.progress &&
               item.production_status === next[index]?.production_status &&
+              item.worker_id === next[index]?.worker_id &&
+              item.heartbeat_at === next[index]?.heartbeat_at &&
+              item.lease_expires_at === next[index]?.lease_expires_at &&
               item.updated_at === next[index]?.updated_at,
           );
         return unchanged ? current : next;
@@ -209,6 +250,19 @@ export function WorkCommandCenterPage() {
     return () => window.clearTimeout(timer);
   }, [load]);
   useEffect(() => {
+    const timer = window.setInterval(() => setClaimNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    const flushAfterCopy = () => {
+      if (!pendingRefreshRef.current || document.getSelection()?.toString()) return;
+      pendingRefreshRef.current = false;
+      void load(true);
+    };
+    document.addEventListener("selectionchange", flushAfterCopy);
+    return () => document.removeEventListener("selectionchange", flushAfterCopy);
+  }, [load]);
+  useEffect(() => {
     const refresh = () => {
       if (document.visibilityState === "visible") void load(true);
     };
@@ -225,7 +279,10 @@ export function WorkCommandCenterPage() {
     let refreshTimer: number | undefined;
     const refreshFromRealtime = () => {
       window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(() => void load(true), 200);
+      refreshTimer = window.setTimeout(() => {
+        if (document.getSelection()?.toString()) { pendingRefreshRef.current = true; return; }
+        void load(true);
+      }, 200);
     };
     const channel = supabase
       .channel("work-command-center-system-work-items")
@@ -249,9 +306,10 @@ export function WorkCommandCenterPage() {
     const requestId = ++detailRequestId.current;
     setSelected(item);
     setEvents([]);
+    setWorkerRuns([]);
     setDetailError("");
     setDetailBusy(true);
-    const [detailResult, eventsResult] = await Promise.all([
+    const [detailResult, eventsResult, runsResult] = await Promise.all([
       supabase
         .from("system_work_items")
         .select("detail,evidence")
@@ -265,6 +323,14 @@ export function WorkCommandCenterPage() {
         .eq("work_key", item.work_key)
         .order("created_at", { ascending: false })
         .limit(100),
+      supabase
+        .from("system_worker_runs")
+        .select(
+          "id,worker_id,status,current_step,progress,heartbeat_at,started_at,finished_at,evidence,error_fingerprint",
+        )
+        .eq("work_key", item.work_key)
+        .order("started_at", { ascending: false })
+        .limit(5),
     ]);
     if (!shouldApplyDetailResponse(requestId, detailRequestId.current)) return;
     if (detailResult.data) {
@@ -274,7 +340,8 @@ export function WorkCommandCenterPage() {
       );
     }
     setEvents(eventsResult.data ? (eventsResult.data as Event[]) : []);
-    const error = detailResult.error ?? eventsResult.error;
+    setWorkerRuns(runsResult.data ? (runsResult.data as WorkerRun[]) : []);
+    const error = detailResult.error ?? eventsResult.error ?? runsResult.error;
     if (error) setDetailError(userError(error));
     setDetailBusy(false);
   };
@@ -282,6 +349,7 @@ export function WorkCommandCenterPage() {
     detailRequestId.current += 1;
     setSelected(null);
     setEvents([]);
+    setWorkerRuns([]);
     setDetailError("");
     setDetailBusy(false);
   };
@@ -430,7 +498,7 @@ export function WorkCommandCenterPage() {
       blocked: rows.filter((r) => r.status === "blocked").length,
       done: rows.filter((r) => r.status === "done").length,
     }),
-    [rows],
+    [rows, claimNow],
   );
   const intentsByWorkKey = useMemo(
     () => new Map(dispatchIntents.map((intent) => [intent.work_key, intent])),
@@ -442,12 +510,14 @@ export function WorkCommandCenterPage() {
         ? rows
         : view === "active"
           ? rows.filter((row) => row.status !== "done")
-          : rows.filter((row) => row.status === view),
-    [rows, view],
+          : view === "doing"
+            ? rows.filter((row) => hasActiveWorkerClaim(row, claimNow))
+            : rows.filter((row) => row.status === view),
+    [claimNow, rows, view],
   );
   const cards: [WorkStatus, string][] = [
     ["ready", "ต้องดำเนินการ"],
-    ["doing", "กำลังทำ"],
+    ["doing", "กำลังทำจริง"],
     ["review", "รอตรวจ/อนุมัติ"],
     ["blocked", "ติดปัญหา"],
   ];
@@ -621,6 +691,17 @@ export function WorkCommandCenterPage() {
             exportValue: (r) => statusLabel[r.status],
           },
           {
+            id: "worker",
+            label: "Worker / ผลลัพธ์",
+            minWidth: 210,
+            render: (r) => {
+              const outcome = workerOutcome(r, claimNow);
+              const color = workerOutcomeColor(outcome.value);
+              return <Box><Chip size="small" color={color} label={outcome.label} /><Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>{r.worker_id || "ยังไม่มี Worker"}{r.status === "doing" ? ` · ${leaseLabel(r.lease_expires_at, claimNow)}` : ""}</Typography></Box>;
+            },
+            exportValue: (r) => `${workerOutcome(r, claimNow).label} · ${r.worker_id || ""}`,
+          },
+          {
             id: "progress",
             label: "ความก้าวหน้า",
             render: (r) => `${r.progress}%`,
@@ -774,6 +855,40 @@ export function WorkCommandCenterPage() {
               <Typography>
                 {selected.current_step || "ยังไม่ระบุ"}
               </Typography>
+            </Box>
+            {(() => {
+              const outcome = workerOutcome(selected, claimNow);
+              const color = workerOutcomeColor(outcome.value);
+              return <Paper variant="outlined" sx={{ p: 1.5 }}>
+                <Typography variant="subtitle2">สถานะ Worker จริง</Typography>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mt: 1, alignItems: { sm: "center" } }}><Chip color={color} label={outcome.label} /><Typography variant="body2">{selected.worker_id || "ยังไม่มี Worker ถือ lease"}</Typography></Stack>
+                <Typography variant="body2" sx={{ mt: 1 }}>Progress {selected.progress}% · heartbeat {formatDate(selected.heartbeat_at)} · {leaseLabel(selected.lease_expires_at, claimNow)}</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>เหตุผล: {outcome.reason} · ถัดไป: {outcome.nextAction}</Typography>
+                {hasStaleHeartbeat(selected, claimNow) && <Alert severity="warning" sx={{ mt: 1 }}>Worker ยังไม่ยืนยันความคืบหน้าเกิน 10 นาที โปรดตรวจ run ก่อนสั่งซ้ำ</Alert>}
+              </Paper>;
+            })()}
+            <Box>
+              <Typography variant="subtitle2">Worker runs ล่าสุด</Typography>
+              {workerRuns.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                  ยังไม่พบ run ที่อ่านได้สำหรับงานนี้
+                </Typography>
+              ) : (
+                <Stack spacing={1} sx={{ mt: 1 }}>
+                  {workerRuns.map((run) => (
+                    <Paper key={run.id} variant="outlined" sx={{ p: 1.25 }}>
+                      <Stack direction={{ xs: "column", sm: "row" }} spacing={0.75} sx={{ alignItems: { sm: "center" }, justifyContent: "space-between" }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{run.worker_id}</Typography>
+                        <Chip size="small" color={run.status === "failed" || run.status === "expired" ? "error" : run.status === "completed" ? "success" : "warning"} label={run.status} />
+                      </Stack>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                        {run.current_step || "ยังไม่ระบุขั้นตอน"} · {run.progress}% · heartbeat {formatDate(run.heartbeat_at)}
+                      </Typography>
+                      {run.error_fingerprint && <Typography variant="caption" color="error.main" sx={{ display: "block", mt: 0.5 }}>ข้อผิดพลาด: {run.error_fingerprint}</Typography>}
+                    </Paper>
+                  ))}
+                </Stack>
+              )}
             </Box>
             {detailBusy && <LinearProgress aria-label="กำลังโหลดรายละเอียด" />}
             {detailError && (
