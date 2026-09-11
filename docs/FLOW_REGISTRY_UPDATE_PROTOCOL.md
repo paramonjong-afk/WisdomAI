@@ -41,6 +41,25 @@ flowchart LR
 - **Migration:** `20260908093000_approval_loop_notification_evidence.sql` extends the notification-type constraint, adds a per-destination `dedupe_key`, and prevents duplicate loop-evidence rows by fingerprint.
 - **Verification:** deterministic loop/non-loop fixtures, notification/evidence and duplicate-reservation contract, typecheck, lint, build and authenticated monitor/Drawer smoke after release.
 - **Rollback:** revert monitor/UI source if needed; retain notification and work-item evidence. The migration is additive and must not be rolled back by deleting audit rows.
+## 2026-09-07 — Control-plane stall recovery and worker outcomes
+
+```mermaid
+flowchart LR
+  A[Ready work item] --> B[Submit for review with reason]
+  B --> C[One pending approval]
+  C --> D[Approved scope fingerprint]
+  D --> E[Atomic claim with lease and retry cap]
+  E --> F[Worker outcome with reason]
+  F -->|completed| G[Done + Audit]
+  F -->|blocked or no_output| H[Visible Control Center recovery state]
+  H --> I[Manager reconciles only matching approved scope]
+```
+
+- **Reason:** prevent approved work from being stranded by stale production status, abandoned leases, or a worker that exits with no usable message.
+- **Impact:** `system_work_items`, `system_worker_runs`, Work Command Center, the automation worker and the local runner now retain a terminal outcome and reason. Recovery cannot reset attempts, change business data, or bypass company/role/fingerprint/lease checks.
+- **Migration:** `20260911160000_control_plane_stall_recovery.sql`.
+- **Verification:** targeted contract, typecheck, lint, build, PR migration checks, then authenticated Production Drawer/recovery smoke after deployment.
+- **Rollback:** corrective source revert only; keep existing outcomes, approvals and audit rows for investigation.
 ## 2026-09-07 — LINE attachment tenant isolation and duplicate-link containment v1.0 (DOC-INGEST-005)
 
 ```mermaid
@@ -1106,6 +1125,22 @@ flowchart LR
 - **การตรวจสอบ:** Work Command Center action test, deterministic drawer regression contract, typecheck, targeted lint, build; authenticated runtime interaction timing ยังต้องตรวจในหน้า Production
 - **Migration/Rollback:** ไม่มี migration; revert UI/test/doc commit ได้โดยไม่เปลี่ยน work item, approval หรือ audit เดิม
 
+### Work Command Center Active Claim Semantics v1.3 (7/9/2569)
+
+- **เหตุผล/ผลกระทบ:** แยกสถานะที่บันทึกว่า `doing` ออกจาก Worker ที่กำลังทำจริง เพื่อไม่ให้ orphan/stale work item เช่น `SYS-004` ถูกแสดงว่ากำลังทำอยู่
+- **กติกา:** Active Claim ต้องมี `worker_id`, `lease_expires_at` ยังไม่หมด และ `heartbeat_at` สดภายใน 10 นาที; ถ้าไม่ครบจะแสดง `หยุดผิดปกติ — ไม่มี Active Claim` หรือ `Worker ขาดการติดต่อ`
+- **Flow document:** `docs/WORK_COMMAND_CENTER_FLOW.md` เพิ่มกราฟิกและคำอธิบาย Active Claim semantics
+- **การตรวจสอบ:** targeted Work Command Center test, typecheck, lint, build และ read-only reconciliation กับ `system_worker_runs`
+- **Migration/Rollback:** ไม่มี migration และไม่มีการแก้ข้อมูล; revert UI/test/doc commit ได้โดยคง claim/audit เดิม
+
+### Work Command Center Time-Driven Claim Recompute v1.4 (7/9/2569)
+
+- **เหตุผล/ผลกระทบ:** ให้ป้ายสถานะและตัวนับเปลี่ยนตาม lease/heartbeat ที่หมดอายุ แม้ไม่มี realtime event ใหม่
+- **กติกา:** recompute `claimNow` ทุก 1 วินาที; ขอบเขต fresh heartbeat, stale heartbeat และ lease หมดอายุทดสอบด้วย fake clock
+- **Flow document:** `docs/WORK_COMMAND_CENTER_FLOW.md` อธิบาย timer recompute และเส้นทางหมดอายุ
+- **การตรวจสอบ:** `test:work-command-center`, `test:work-claim-status`, typecheck, lint และ build
+- **Migration/Rollback:** ไม่มี migration และไม่แก้ข้อมูล; revert UI/helper/test/doc commit ได้โดยคง claim/audit เดิม
+
 - Storage Retention / Trash / Restore / Purge v1.0 (7/9/2569): registered `docs/STORAGE_RETENTION_FLOW.md` for the existing `storage-retention-worker` and lifecycle RPCs. The documented path requires a dry-run, bounded batch, reference/legal-hold guards, seven-day trash, pre-expiry restore, purge, idempotent audit and reclaimed-byte reporting. Production migration `202608160024_storage_retention_lifecycle` and Edge Function `storage-retention-worker` were inspected; no new migration or data mutation was introduced. Rollback removes the documentation/registry entry while preserving lifecycle metadata, objects and audit history.
 
 - Storage Quota / Backup / Restore Drill v1.0 (7/9/2569): added `docs/STORAGE_QUOTA_BACKUP_RESTORE_FLOW.md` with quota thresholds, deduplicated alerting, immutable backup manifest and isolated restore verification. The Supabase Free plan has no PITR and no approved external backup destination/credential is configured, so no backup/restore readiness is claimed and no live data was changed. Rollback removes the documentation/registry entry only.
@@ -1115,6 +1150,94 @@ flowchart LR
 - Original Quarantine / Chain of Custody v1.1 (7/9/2569): recorded the Admin-approved default retention, legal-hold, quarantine, derivative and quarterly controlled-recovery policy in `docs/ORIGINAL_CHAIN_OF_CUSTODY_FLOW.md`. Documentation/control update only; no object, row, migration or runtime retention action was performed.
 
 - Release Parity / Safe Redirect v1.3 (7/9/2569): Cloudflare Pages is now the canonical Production target; Vercel is Preview/Parity only. Smart Entry keeps Vercel unavailable when its revision is stale or rate-limited and continues through Cloudflare, while preserving the existing health/revision checks.
+
+### Work Command Center / Worker Progress v1.0 (7/9/2569)
+
+```mermaid
+flowchart LR
+  I[system_work_items] --> S{Current state}
+  S -->|ready| Q[รับเข้าแล้ว รอ Worker]
+  S -->|doing + fresh heartbeat/lease| A[Worker กำลังทำงาน]
+  S -->|doing + stale/missing worker| N[ไม่มีผลลัพธ์จาก Worker]
+  S -->|blocked/done| O[Outcome เดิม]
+  Q --> D[Work Command Drawer]
+  A --> D
+  N --> D
+  O --> D
+  R[system_worker_runs] --> D
+  E[system_work_item_events] --> D
+  D --> X[ตรวจ run/recovery หรือ Audit ก่อนสั่งซ้ำ]
+```
+
+- **เหตุผล/ผลกระทบ:** หน้า `/work-command-center` แสดงสถานะ Worker จาก `system_work_items` และประวัติ `system_worker_runs` จริง พร้อมผลลัพธ์ที่อ่านง่าย: รับเข้าแล้ว รอ Worker, กำลังทำ, ติดปัญหา, เสร็จแล้ว หรือไม่มีผลลัพธ์จาก Worker; ไม่มีการสร้างสถานะจำลองหรือแก้ข้อมูลธุรกิจ.
+- **สิทธิ์/Failure/Retry/Audit:** ใช้ RLS เดิมของ Work Item/Worker Run; heartbeat เกิน 10 นาทีหรือ lease หมดอายุจะแสดงคำเตือนและให้ตรวจ recovery ก่อนสั่งซ้ำ; Drawer อ่าน Audit และหลักฐาน run ตามสิทธิ์เดิม.
+- **Migration/Verification/Rollback:** ไม่มี migration; verify targeted contracts, typecheck, lint, build และ authenticated runtime smoke หลัง release; rollback ด้วยการ revert UI/docs/test commit โดย queue, lease, run และ Audit เดิมไม่เปลี่ยน.
+
+### Work Command Center / Active Claim integration v1.1 (8/9/2569)
+
+```mermaid
+flowchart LR
+  I[system_work_items: worker_id, heartbeat, lease] --> P[Shared Active Claim predicate]
+  T[One-second local clock] --> P
+  P -->|valid| A[Active count, tab and Worker Progress]
+  P -->|expired or stale| R[Recovery guidance and Worker run audit]
+  A --> D[Read-only Drawer]
+  R --> D
+```
+
+- **เหตุผล/ผลกระทบ:** ใช้ Active Claim predicate ชุดเดียวกับ Worker Progress เพื่อให้ count, tab, chip และ Drawer เปลี่ยนตาม heartbeat/lease จริงโดยไม่สร้าง helper ซ้ำหรือเขียนข้อมูลกลับฐานข้อมูล.
+- **สิทธิ์/Failure/Retry/Audit:** สิทธิ์, RLS, RPC และ Audit เดิมคงเดิม; claim หมดอายุหรือ heartbeat เก่าจะแสดง recovery guidance และประวัติ Worker run ตามสิทธิ์.
+- **Migration/Verification/Rollback:** ไม่มี migration; verify fake-clock claim test, Worker Progress/Work Command contracts, typecheck, lint, build และ authenticated runtime smoke หลัง release; rollback ด้วยการ revert helper/UI/docs/test commit โดย queue, lease, run และ Audit เดิมไม่เปลี่ยน.
+## 2026-09-07 — Filter Orchestrator Runtime Contract v1.0
+
+```mermaid
+flowchart LR
+  A[Intake action] --> B[Canonical preflight]
+  B --> C[Document Flow RPC]
+  C --> D[State/room update]
+  D --> E[Append-only audit]
+```
+
+- **Reason:** QA found that FILTER-001's proposed contract was not imported by a runtime path and disagreed with the deployed RPC.
+- **Impact:** `documentFlowGateway.transitionWithContract` and Intake Room now use the same action names and client-visible state rules as `transition_document_flow_item`; server-side tenant, role, approval, version, idempotency, and audit checks remain mandatory.
+- **Migration:** None. The existing RPC remains the data authority.
+- **Verification:** `test:filter-runtime-contract` compares the action set and enforcement markers with the migration and confirms the runtime imports.
+- **Rollback:** Revert the application contract commit only; no records, sources, or audits are deleted.
+
+## 2026-09-07 — Intake Duplicate-State Preflight/UI v1.1
+
+```mermaid
+flowchart LR
+  A[Queue row: duplicate_state] --> B[Intake mapping]
+  B --> C[Queue/Drawer warning]
+  C --> D{duplicate?}
+  D -->|yes| E[Block route_filter preflight]
+  D -->|no| F[Existing transition contract]
+```
+
+- **Reason:** QA found the server-side `duplicate_state` guard was not carried into Intake UI context, so the visible queue action could appear available even though the RPC would reject it.
+- **Impact:** Intake queue filtering, Drawer messaging, action disabled state, and client preflight now use the same persisted duplicate marker; no routing, permissions, or data model changes.
+- **Migration:** None.
+- **Verification:** `test:filter-runtime-contract`, `test:document-flow-filter-consistency`, typecheck, targeted lint, build; no Production mutation or deployment.
+- **Rollback:** Revert the application/test/documentation commit; existing duplicate rows and audit history remain unchanged.
+
+
+### SYS-004 Monitoring Sentinel Recovery v1.0 (8/9/2569)
+
+```mermaid
+flowchart TD
+  S[SYS-004 monitoring sentinel] --> H[Health Monitor updates incident/evidence]
+  H --> D{Generic claim or stale recovery?}
+  D -->|yes| X[Exclude monitoring_active records]
+  D -->|no| A[Keep doing without worker lease]
+  X --> R[No requeue and no retry storm]
+  A --> R
+```
+
+- **เหตุผล/ผลกระทบ:** แยก `SYS-004` ซึ่งเป็น monitoring sentinel ออกจาก generic worker claim และ stale recovery เพื่อหยุด retry/claim loop; ไม่เปลี่ยน incident, ข้อมูลธุรกิจ, สิทธิ์ หรือการแจ้งเตือน.
+- **Migration:** `20260907143902_protect_monitoring_sentinel_work_items.sql` ผ่าน PR/CI เท่านั้น.
+- **Verification/Rollback:** SQL contract, migration replay, worker/health tests, lint/typecheck/build และ Production read-only verification; rollback ด้วยการ revert PR โดยคง monitoring/audit history.
+
 # 2026-09-08 — DOC-INGEST-003 original evidence recovery controls v1.2
 
 ```mermaid
@@ -1134,3 +1257,4 @@ flowchart LR
 - Permissions: Admin/platform admin, company manager, and accounting/document-operations membership only; private attachments are company-scoped by RLS.
 - Integration/failure: `document-original-recovery` authenticates and rechecks tenant scope, verifies SHA-256 and its Audit write before signing, consumes the grant once and fails closed on missing/mismatched/expired/revoked evidence or concurrent reuse. Requests serialize per attachment; the backfill writes the stronger approved seven-year financial/two-year general retention dates, which exceed the A/B/C minimum floor.
 - Verification/rollback: PostgreSQL custody contract plus migration safety checks, typecheck/lint/build and Preview authenticated recovery smoke; revoke new RPC grants/disable the Edge Function or revert the task branch without changing existing originals/lifecycle history.
+
