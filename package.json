@@ -197,6 +197,8 @@
     "test:document-custody-controls": "node scripts/document-custody-controls.test.mjs",
     "test:local-first-ai-router": "node --experimental-strip-types scripts/local-first-ai-router.test.ts",
     "test:filter-rule-pack": "node --experimental-strip-types scripts/filter-rule-pack.test.ts",
+    "test:document-flow-filter-consistency": "node --experimental-strip-types scripts/document-flow-filter-consistency.test.ts",
+    "test:filter-runtime-contract": "node --experimental-strip-types scripts/filter-runtime-contract.test.ts",
     "preview": "vite preview",
     "deploy:cloudflare": "npm run verify:cloudflare-production",
     "verify:cloudflare-production": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-cloudflare-production.ps1",
