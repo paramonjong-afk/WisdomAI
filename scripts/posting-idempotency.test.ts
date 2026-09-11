@@ -1,0 +1,11 @@
+import { readFileSync } from 'node:fs'
+import { strict as assert } from 'node:assert'
+
+const sql = readFileSync('supabase/migrations/202609090001_posting_idempotency_recovery.sql', 'utf8')
+const integration = readFileSync('scripts/posting-idempotency.integration.test.mjs', 'utf8')
+for (const token of ['posting_operations', 'posting_operation_events', 'unique (company_id, idempotency_key)', "'retry_wait'", "'dead_letter'", 'compensation_payload', 'reserve_posting_operation']) assert.match(sql, new RegExp(token.replace(/[()]/g, '\\$&')))
+assert.match(sql, /revoke all on function public\.reserve_posting_operation/)
+assert.match(sql, /grant execute on function public\.reserve_posting_operation[^\n]+to service_role/)
+assert.doesNotMatch(sql, /insert into public\.(accounting_draft_entries|inventory_movements)/)
+for (const token of ['supabase', 'db', 'reset', 'psql', 'ON_ERROR_STOP', 'idempotency_duplicate', 'posting_operations_rls_disabled']) assert.match(integration, new RegExp(token))
+console.log('posting idempotency/recovery contract passed')
