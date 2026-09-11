@@ -6,8 +6,10 @@
     "current_step": { "type": "string" },
     "evidence": { "type": "string" },
     "production_status": { "type": "string" },
-    "error_fingerprint": { "type": "string" }
+    "error_fingerprint": { "type": "string" },
+    "outcome": { "type": "string", "enum": ["acknowledged", "blocked", "completed", "no_output"] },
+    "outcome_reason": { "type": "string", "minLength": 1 }
   },
-  "required": ["status", "progress", "current_step", "evidence", "production_status", "error_fingerprint"],
+  "required": ["status", "progress", "current_step", "evidence", "production_status", "error_fingerprint", "outcome", "outcome_reason"],
   "additionalProperties": false
 }
