@@ -70,13 +70,40 @@ declare result_row public.posting_operations;
 begin
   if target_company_id is null or nullif(trim(target_idempotency_key),'') is null then raise exception 'posting_idempotency_key_required'; end if;
   if target_posting_type not in ('accounting','ap','stock','purchase_order') then raise exception 'posting_type_invalid'; end if;
+
+  if target_document_id is not null and not exists (
+    select 1 from public.accounting_documents ad
+    where ad.id = target_document_id and ad.company_id = target_company_id
+  ) then
+    raise exception 'posting_document_company_mismatch';
+  end if;
+
   insert into public.posting_operations(company_id,intake_id,document_id,posting_type,idempotency_key,created_by)
   values(target_company_id,target_intake_id,target_document_id,target_posting_type,trim(target_idempotency_key),auth.uid())
-  on conflict(company_id,idempotency_key) do update set updated_at=now()
+  on conflict(company_id,idempotency_key) do nothing
   returning * into result_row;
+
+  if found then
+    insert into public.posting_operation_events(operation_id,company_id,event_key,event_type,from_status,to_status,actor_id)
+    values(result_row.id, result_row.company_id, result_row.id::text||':reserved','reserved',null,'reserved',auth.uid());
+  else
+    select * into result_row from public.posting_operations
+    where company_id=target_company_id and idempotency_key=trim(target_idempotency_key);
+    if result_row.posting_type is distinct from target_posting_type
+      or result_row.intake_id is distinct from target_intake_id
+      or result_row.document_id is distinct from target_document_id then
+      raise exception 'posting_idempotency_key_reused_for_different_command';
+    end if;
+  end if;
+
   return result_row;
 end;
 $$;
-
+alter table public.posting_operations
+  add constraint posting_operations_id_company_uniq unique (id, company_id);
+alter table public.posting_operation_events
+  add constraint posting_operation_events_operation_company_fkey
+  foreign key (operation_id, company_id)
+  references public.posting_operations(id, company_id);
 revoke all on function public.reserve_posting_operation(uuid,text,text,uuid,uuid) from public, anon, authenticated;
 grant execute on function public.reserve_posting_operation(uuid,text,text,uuid,uuid) to service_role;
