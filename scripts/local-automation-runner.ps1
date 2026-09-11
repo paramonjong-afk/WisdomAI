@@ -21,10 +21,10 @@ function Invoke-Worker([hashtable]$Body, [string]$Secret) {
     -ContentType 'application/json; charset=utf-8' -Body $payload -TimeoutSec 45
 }
 
-function Finish-Run($Item, [string]$Secret, [string]$Status, [int]$Progress, [string]$Evidence, [string]$ProductionStatus, [string]$Fingerprint = '') {
+function Finish-Run($Item, [string]$Secret, [string]$Status, [int]$Progress, [string]$Evidence, [string]$ProductionStatus, [string]$Fingerprint = '', [string]$Outcome = 'blocked', [string]$OutcomeReason = 'Worker did not provide a terminal outcome.') {
   Invoke-Worker -Secret $Secret -Body @{
     action='finish'; worker_id=$WorkerId; run_id=$Item.run_id; status=$Status; progress=$Progress
-    evidence=$Evidence; production_status=$ProductionStatus; error_fingerprint=$Fingerprint
+    evidence=$Evidence; production_status=$ProductionStatus; error_fingerprint=$Fingerprint; outcome=$Outcome; outcome_reason=$OutcomeReason
   } | Out-Null
 }
 
@@ -52,7 +52,7 @@ try {
     if ($requiresApproval -and -not $hasMatchingApproval) {
       Finish-Run $item $secret 'review' ([int]$item.progress) `
         'Local runner preflight: work requires explicit approval because it may change schema, secrets, permissions, security, or data.' `
-        'awaiting_approval'
+        'awaiting_approval' '' 'acknowledged' 'Worker acknowledged the task but stopped for the required explicit approval.'
       exit 0
     }
 
@@ -66,7 +66,7 @@ Work item $($item.work_key): $($item.title)
 Category: $($item.category); risk: $($item.risk); current progress: $($item.progress)%
 Scope: $($item.detail)
 
-Work only inside $Workspace. Inspect existing changes and preserve unrelated user work. Update the existing work item evidence rather than inventing duplicate tasks. Do not run database migrations, rotate or expose secrets, change permissions/security, delete data, or make irreversible changes. If any such action is required, stop and return status review. For safe source changes, use focused edits, run npm.cmd run lint, npm.cmd run build, and relevant tests. Do not deploy schema or security changes. Return the final result using the required JSON schema with concise evidence and an error fingerprint when blocked.
+Work only inside $Workspace. Inspect existing changes and preserve unrelated user work. Update the existing work item evidence rather than inventing duplicate tasks. Do not run database migrations, rotate or expose secrets, change permissions/security, delete data, or make irreversible changes. If any such action is required, stop and return status review. For safe source changes, use focused edits, run npm.cmd run lint, npm.cmd run build, and relevant tests. Do not deploy schema or security changes. Return the final result using the required JSON schema. Always provide outcome and outcome_reason: completed for done, blocked for a diagnosed blocker, acknowledged when waiting for a human decision, and no_output only when no usable result could be produced.
 "@
     [IO.File]::WriteAllText($promptFile, $prompt, [Text.UTF8Encoding]::new($false))
 
@@ -111,11 +111,11 @@ Work only inside $Workspace. Inspect existing changes and preserve unrelated use
       # message past a head-truncated cutoff and leaving evidence useless for
       # diagnosis. The real failure is almost always at the very end.
       $tailStart = [Math]::Max(0, $tail.Length - 1500)
-      Finish-Run $item $secret 'blocked' ([int]$item.progress) "Codex CLI failed: $($tail.Substring($tailStart))" 'local_runner_failed' $fingerprint
+      Finish-Run $item $secret 'blocked' ([int]$item.progress) "Codex CLI failed: $($tail.Substring($tailStart))" 'local_runner_failed' $fingerprint 'no_output' 'Codex CLI ended without a schema-valid terminal result.'
       exit 1
     }
 
-    Finish-Run $item $secret $result.status ([int]$result.progress) $result.evidence $result.production_status $result.error_fingerprint
+    Finish-Run $item $secret $result.status ([int]$result.progress) $result.evidence $result.production_status $result.error_fingerprint $result.outcome $result.outcome_reason
   } finally {
     if ($secretPointer -ne [IntPtr]::Zero) {
       [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($secretPointer)

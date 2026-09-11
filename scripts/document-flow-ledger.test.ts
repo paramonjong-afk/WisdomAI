@@ -27,10 +27,17 @@ for (const token of [
   'อนุมัติแล้ว—รอ Gateway',
 ]) assert.ok(page.includes(token), `missing control tower feature: ${token}`)
 
+// The current gateway reads the lightweight queue projection and delegates
+// every state mutation to the central ledger RPCs.  It intentionally does not
+// query document_flow_items directly (the old contract did), so keep the
+// assertion aligned with the current source-of-truth boundary.
 for (const token of [
-  "from('document_flow_items')",
+  "from('omni_filter_tasks')",
+  "from('omni_intake_sources')",
   "from('document_flow_events')",
   "rpc('transition_document_flow_item'",
+  "rpc('route_document_flow_item'",
+  "rpc('route_document_flow_multi_destination'",
   'target_expected_version',
   'target_event_key',
 ]) assert.ok(gateway.includes(token), `missing central gateway feature: ${token}`)
