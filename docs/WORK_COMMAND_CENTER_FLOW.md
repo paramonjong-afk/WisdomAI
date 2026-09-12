@@ -145,6 +145,9 @@ round count and Telegram delivery result; the Drawer can therefore show the
 same evidence without changing approval, retry or business-record permissions.
 Telegram delivery is reserved by a per-destination dedupe key before it is
 sent, so overlapping monitor runs do not create duplicate alerts.
+Before escalation, the monitor re-reads the current work item and excludes
+items already in `done`, so a loop recorded shortly before completion cannot
+produce a stale alert or evidence row.
 Dispatch-intent inserts, updates, and supersessions append a
 `system_work_item_events` record. RLS is enabled: authenticated users can only
 read intents for visible parent work items, clients have no write permission,
@@ -176,6 +179,16 @@ and Health Monitor is the only writer.
   typecheck, lint, build, and authenticated Drawer smoke after release.
 - Rollback: revert the detector/UI source only. Existing events,
   notifications, approvals and work items remain intact.
+
+- Version: v1.4
+- Date: 2026-09-12
+- Rationale: prevent resolved work items from being re-escalated by a loop still
+  present in the 24-hour event window.
+- Migration: none; the monitor filters current `done` rows before delivery.
+- Verification: approval-loop contract, typecheck, lint, build and authenticated
+  monitor/Drawer smoke.
+- Rollback: revert the monitor/test/doc commit; event, notification and work
+  item history remain intact.
 
 - Version: v1.4
 - Date: 2026-09-08

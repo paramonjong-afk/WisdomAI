@@ -30,6 +30,7 @@ assert.match(monitor, /gte\('created_at', loop \? loop\.last_detected_at : since
 assert.match(monitor, /recordApprovalLoopEvidence/)
 assert.match(monitor, /dedupe_key: dedupeKey/)
 assert.match(monitor, /Cannot record monitor notification/)
+assert.match(monitor, /\.in\('work_key', loopKeys\)\.neq\('status', 'done'\)/)
 assert.match(page, /detectApprovalLoop/)
 assert.match(page, /ตรวจพบ Approval loop/)
 assert.match(page, /approvalLoop\.nextAction/)

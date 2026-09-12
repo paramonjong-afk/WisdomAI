@@ -14,8 +14,10 @@ flowchart LR
   I --> L[Web Chat result message]
   G --> M[Retry-safe error / no duplicate decision]
   K --> N[Event history loop detector]
-  N -->|review -> ready -> doing -> review| O[Control Center warning + fingerprinted escalation]
-  O --> P[Human resolves scope or execution blocker]
+  N -->|review -> ready -> doing -> review| O{Current item unresolved?}
+  O -->|yes| P[Control Center warning + fingerprinted escalation]
+  O -->|no| Q[Ignore stale loop evidence]
+  P --> R[Human resolves scope or execution blocker]
   I --> N[Atomic worker claim]
   N --> O[Terminal outcome: completed / blocked / no_output]
   O --> P[Control Center Drawer + Audit]
@@ -60,6 +62,7 @@ flowchart LR
 - row lock และเงื่อนไขสถานะกัน race ระหว่าง Telegram/Web Chat
 - หากงานไม่อยู่ `review` หรือ approval ถูกตัดสินใจแล้ว จะไม่เปลี่ยนสถานะซ้ำ
 - Health Monitor อ่าน event history ย้อนหลัง 24 ชั่วโมงเพื่อตรวจ `review -> ready -> doing -> review` และแจ้งก่อน retry cap; fingerprint ของรอบล่าสุดทำให้ไม่แจ้งซ้ำสำหรับ loop เดิม
+- ก่อนแจ้ง loop จะอ่านสถานะงานปัจจุบันซ้ำและข้ามรายการ `done` เพื่อไม่ส่ง escalation จาก event เก่าหลังงานเสร็จ
 - ทุก worker dispatch ต้องจบด้วย outcome พร้อมเหตุผล: `acknowledged`, `claimed`, `blocked`, `completed`, หรือ `no_output`; stale heartbeat ถูกบันทึกเป็น `no_output` ก่อนคืนคิว
 
 ## Audit and owner

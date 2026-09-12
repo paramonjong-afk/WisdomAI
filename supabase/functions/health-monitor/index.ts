@@ -344,7 +344,7 @@ Deno.serve(async (request) => {
     const approvalLoops = detectApprovalLoops((recentEvents ?? []) as Array<{ id: number; work_key: string; old_status: string | null; new_status: string | null; created_at: string }>)
     const loopKeys = approvalLoops.map(loop => loop.work_key)
     const { data: loopItems, error: loopItemsError } = loopKeys.length
-      ? await admin.from('system_work_items').select(selectCols).in('work_key', loopKeys)
+      ? await admin.from('system_work_items').select(selectCols).in('work_key', loopKeys).neq('status', 'done')
       : { data: [], error: null }
     if (loopItemsError) return json({ error: loopItemsError.message }, 500)
     const loopByKey = new Map(approvalLoops.map(loop => [loop.work_key, loop]))

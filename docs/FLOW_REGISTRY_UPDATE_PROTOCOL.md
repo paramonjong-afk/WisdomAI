@@ -31,9 +31,11 @@ flowchart LR
   B --> C[Worker doing]
   C --> D{Returns to review?}
   D -->|Yes| E[Event-loop fingerprint]
-  E --> F[Control Center warning]
-  E --> G[Reserve one per-room alert + append evidence]
-  F --> H[Human resolves scope or worker blocker]
+  E --> F{Current item unresolved?}
+  F -->|Yes| G[Control Center warning]
+  F -->|Yes| H[Reserve one per-room alert + append evidence]
+  F -->|No| I[Ignore stale loop evidence]
+  G --> J[Human resolves scope or worker blocker]
 ```
 
 - **Reason:** retry counts and `blocked_since` do not catch a task that keeps returning to approval before it reaches a retry cap.
@@ -41,6 +43,21 @@ flowchart LR
 - **Migration:** `20260908093000_approval_loop_notification_evidence.sql` extends the notification-type constraint, adds a per-destination `dedupe_key`, and prevents duplicate loop-evidence rows by fingerprint.
 - **Verification:** deterministic loop/non-loop fixtures, notification/evidence and duplicate-reservation contract, typecheck, lint, build and authenticated monitor/Drawer smoke after release.
 - **Rollback:** revert monitor/UI source if needed; retain notification and work-item evidence. The migration is additive and must not be rolled back by deleting audit rows.
+
+## 2026-09-12 — Ignore resolved items in approval-loop escalation
+
+```mermaid
+flowchart LR
+  A[Detected loop in recent event ledger] --> B{Current work item still unresolved?}
+  B -->|Yes| C[Escalate and append evidence]
+  B -->|No| D[Skip stale alert]
+```
+
+- **Reason:** a work item can complete after its loop event is recorded but before the next monitor run; resolved rows must not generate a new escalation.
+- **Impact:** Health Monitor excludes `status = done` loop candidates before dedupe, delivery, and evidence writes. Existing events and notifications remain unchanged.
+- **Migration:** none.
+- **Verification:** approval-loop contract asserts the unresolved-status filter; run targeted tests, typecheck, lint, build, and authenticated monitor smoke.
+- **Rollback:** revert the monitor/test/flow-doc commit; no work-item, notification, or audit data is deleted.
 ## 2026-09-07 — Control-plane stall recovery and worker outcomes
 
 ```mermaid
