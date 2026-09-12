@@ -75,7 +75,7 @@ export function MobileOverviewPage() {
       ] = await Promise.all([
         supabase
           .from('attendance_sessions')
-          .select('id,clock_in_at,profiles(full_name),project_sites(name)')
+          .select('id,clock_in_at,profiles!attendance_sessions_profile_id_fkey(full_name),project_sites(name)')
           .eq('company_id', companyId)
           .is('clock_out_at', null)
           .eq('status', 'needs_review')
