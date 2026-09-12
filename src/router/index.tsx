@@ -48,7 +48,9 @@ const FlowControlCenterPage = lazyWithReload(() => import('../pages/FlowControlC
 const SystemInventoryPage = lazyWithReload(() => import('../pages/SystemInventory').then((module) => ({ default: module.SystemInventoryPage })))
 const MasterDataCenterPage = lazyWithReload(() => import('../pages/MasterDataCenter').then((module) => ({ default: module.MasterDataCenterPage })))
 const AppLauncherPage = lazyWithReload(() => import('../pages/AppLauncher').then((module) => ({ default: module.AppLauncherPage })))
+const MobileOverviewPage = lazyWithReload(() => import('../pages/MobileOverview').then((module) => ({ default: module.MobileOverviewPage })))
 const AdminAccountRecoveryPage = lazyWithReload(() => import('../pages/AdminAccountRecovery').then((module) => ({ default: module.AdminAccountRecoveryPage })))
+const SystemBlueprintPage = lazyWithReload(() => import('../pages/SystemBlueprint').then((module) => ({ default: module.SystemBlueprintPage })))
 
 const loading = (
   <Box sx={{ minHeight: '50vh', display: 'grid', placeItems: 'center' }}>
@@ -86,6 +88,7 @@ export const router = createBrowserRouter([
               { path: 'boq-compare', element: managerOnly(<BoqComparePage />) },
               { path: 'drawing-ai', element: managerOnly(<DrawingAIPage />) },
               { path: 'time-tracking', element: deferred(<TimeTrackingPage />) },
+              { path: 'overview', element: managerOnly(<MobileOverviewPage />) },
               { path: 'workforce', element: deferred(<WorkforcePage />) },
               { path: 'workforce-setup', element: managerOnly(<WorkforceSetupPage />) },
               { path: 'contractors', element: managerOnly(<ContractorsPage />) },
@@ -112,6 +115,7 @@ export const router = createBrowserRouter([
               { path: 'system-health', element: adminOnly(<SystemHealthPage />) },
               { path: 'flow-control-center', element: managerOnly(<FlowControlCenterPage />) },
               { path: 'system-inventory', element: adminOnly(<SystemInventoryPage />) },
+              { path: 'system-blueprint', element: adminOnly(<SystemBlueprintPage />) },
               { path: 'flow-registry', element: adminOnly(<FlowRegistryPage />) },
               { path: 'work-command-center', element: adminOnly(<WorkCommandCenterPage />) },
               { path: 'platform-control-center', element: platformOnly(<PlatformControlCenterPage />) },
