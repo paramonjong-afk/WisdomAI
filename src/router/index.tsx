@@ -48,6 +48,7 @@ const FlowControlCenterPage = lazyWithReload(() => import('../pages/FlowControlC
 const SystemInventoryPage = lazyWithReload(() => import('../pages/SystemInventory').then((module) => ({ default: module.SystemInventoryPage })))
 const MasterDataCenterPage = lazyWithReload(() => import('../pages/MasterDataCenter').then((module) => ({ default: module.MasterDataCenterPage })))
 const AppLauncherPage = lazyWithReload(() => import('../pages/AppLauncher').then((module) => ({ default: module.AppLauncherPage })))
+const MobileOverviewPage = lazyWithReload(() => import('../pages/MobileOverview').then((module) => ({ default: module.MobileOverviewPage })))
 const AdminAccountRecoveryPage = lazyWithReload(() => import('../pages/AdminAccountRecovery').then((module) => ({ default: module.AdminAccountRecoveryPage })))
 
 const loading = (
@@ -86,6 +87,7 @@ export const router = createBrowserRouter([
               { path: 'boq-compare', element: managerOnly(<BoqComparePage />) },
               { path: 'drawing-ai', element: managerOnly(<DrawingAIPage />) },
               { path: 'time-tracking', element: deferred(<TimeTrackingPage />) },
+              { path: 'overview', element: managerOnly(<MobileOverviewPage />) },
               { path: 'workforce', element: deferred(<WorkforcePage />) },
               { path: 'workforce-setup', element: managerOnly(<WorkforceSetupPage />) },
               { path: 'contractors', element: managerOnly(<ContractorsPage />) },
