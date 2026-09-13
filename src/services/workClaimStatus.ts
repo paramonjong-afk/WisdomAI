@@ -11,12 +11,18 @@ export const hasActiveWorkerClaim = (
   item: WorkClaimRecord,
   now = Date.now(),
 ) =>
+  // Per the repository's claim protocol (AGENTS.md), a claim is active
+  // whenever worker_id is set and lease_expires_at has not passed yet --
+  // heartbeat_at is only refreshed when current_step changes, not on a
+  // fixed cadence, so a stale heartbeat under an unexpired lease (e.g. a
+  // two-hour lease with no step change in ten minutes) must not be
+  // reported as disconnected. Use hasStaleHeartbeat-style checks
+  // separately for a soft "no recent update" signal, never to override
+  // this classification.
   item.status === "doing" &&
   Boolean(item.worker_id) &&
   Boolean(item.lease_expires_at) &&
-  new Date(item.lease_expires_at as string).getTime() > now &&
-  Boolean(item.heartbeat_at) &&
-  new Date(item.heartbeat_at as string).getTime() >= now - CLAIM_HEARTBEAT_MAX_AGE_MS;
+  new Date(item.lease_expires_at as string).getTime() > now;
 
 export const hasExpiredWorkerLease = (
   item: WorkClaimRecord,

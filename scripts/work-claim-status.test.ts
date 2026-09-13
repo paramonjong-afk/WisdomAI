@@ -19,8 +19,16 @@ assert.equal(
     { ...base, heartbeat_at: new Date(now - CLAIM_HEARTBEAT_MAX_AGE_MS - 1).toISOString() },
     now,
   ),
-  false,
-  "stale heartbeat is inactive",
+  true,
+  "a stale heartbeat under an unexpired lease is still active -- the lease is the sole authority (AGENTS.md claim protocol); heartbeat only refreshes when current_step changes, not on a fixed cadence",
+);
+assert.equal(
+  hasActiveWorkerClaim(
+    { ...base, heartbeat_at: null },
+    now,
+  ),
+  true,
+  "a missing heartbeat under an unexpired lease is still active",
 );
 assert.equal(
   hasActiveWorkerClaim(
@@ -33,7 +41,21 @@ assert.equal(
 assert.equal(
   workerClaimLabel({ ...base, worker_id: null }, { doing: "กำลังทำ" }, now), "หยุดผิดปกติ - ไม่มี Active Claim");
 assert.equal(
-  workerClaimLabel({ ...base, heartbeat_at: new Date(now - CLAIM_HEARTBEAT_MAX_AGE_MS - 1).toISOString() }, { doing: "กำลังทำ" }, now),
+  workerClaimLabel(
+    { ...base, heartbeat_at: new Date(now - CLAIM_HEARTBEAT_MAX_AGE_MS - 1).toISOString() },
+    { doing: "กำลังทำ" },
+    now,
+  ),
+  "กำลังทำจริง",
+  "a valid unexpired lease reports as actively working even with a stale heartbeat",
+);
+assert.equal(
+  workerClaimLabel(
+    { ...base, lease_expires_at: new Date(now).toISOString() },
+    { doing: "กำลังทำ" },
+    now,
+  ),
   "Worker ขาดการติดต่อ",
+  "an expired lease with a worker still attached reports as disconnected",
 );
 console.log("Work claim status fake-clock boundaries passed");
