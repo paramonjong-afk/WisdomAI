@@ -1275,3 +1275,23 @@ flowchart LR
 - Integration/failure: `document-original-recovery` authenticates and rechecks tenant scope, verifies SHA-256 and its Audit write before signing, consumes the grant once and fails closed on missing/mismatched/expired/revoked evidence or concurrent reuse. Requests serialize per attachment; the backfill writes the stronger approved seven-year financial/two-year general retention dates, which exceed the A/B/C minimum floor.
 - Verification/rollback: PostgreSQL custody contract plus migration safety checks, typecheck/lint/build and Preview authenticated recovery smoke; revoke new RPC grants/disable the Edge Function or revert the task branch without changing existing originals/lifecycle history.
 
+### Central Approval Inbox v1.0 (8/9/2569)
+
+```mermaid
+flowchart TD
+  Q[Pending system_work_items] --> I[Authenticated Approval Inbox]
+  I --> B[Business/policy decision via existing RPC]
+  I --> H[Host/sandbox waiting item with source-room handoff]
+  B --> A[Mutation attempt and Audit]
+  H --> A
+```
+
+- **เหตุผล/ผลกระทบ:** รวมคำขออนุมัติงาน/นโยบายไว้ใน `/approvals` พร้อม `work_key`, scope, risk, evidence และผลตัดสิน; host/sandbox แสดงข้อจำกัด API ตามจริงโดยไม่สร้างปุ่มอนุมัติปลอม.
+- **สิทธิ์/Failure/Retry/Audit:** ใช้ Admin/Manager, RLS และ `decide_system_work_item_approval` เดิม; การตัดสินใจผ่าน mutation-attempt/Audit เดิมและ retry query เดิม; ไม่มี remembered approval หรือ auto-allow กว้าง.
+- **Migration/Verification/Rollback:** ไม่มี migration; verify inbox contract, approval contracts, typecheck/lint/build และ authenticated smoke; rollback ด้วยการถอดแท็บโดยไม่เปลี่ยน source records หรือ Audit.
+## 2026-09-09 — WCC approval backlog visibility P1
+
+Updated Approval Inbox and Work Command Center to retain accepted work through
+QA/PR/CI/release gates, reconcile the latest approval ledger, cap non-Done
+progress at 95%, and treat internal control records as supporting work. No
+schema or data migration.

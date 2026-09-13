@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 
 const source = readFileSync('src/pages/WorkCommandCenter/index.tsx', 'utf8')
 const flow = readFileSync('docs/WORK_COMMAND_CENTER_FLOW.md', 'utf8')
-assert.match(source, /worker_id,current_step,heartbeat_at,lease_expires_at/)
+assert.match(source, /current_step,worker_id,heartbeat_at,lease_expires_at/)
 assert.match(source, /type WorkerOutcome = "acknowledged" \| "claimed" \| "blocked" \| "completed" \| "no_output"/)
 assert.match(source, /hasStaleHeartbeat/)
 assert.match(source, /document\.getSelection\(\)\?\.toString\(\)/)

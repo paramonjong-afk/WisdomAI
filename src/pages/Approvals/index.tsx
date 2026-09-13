@@ -7,30 +7,53 @@ import { usePageTitle } from '../../hooks/usePageTitle'
 import { supabase } from '../../lib/supabase'
 import { userError } from '../../utils/userError'
 import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
+import { resolveApprovalState } from '../../services/workApprovalState'
+import type { ApprovalState } from '../../services/workApprovalState'
+import type { ApprovalLedgerRow } from '../../services/workApprovalState'
 
 type Leave={id:string;reason:string;starts_at:string;ends_at:string;profiles:{full_name:string|null;email:string|null}|null;leave_types:{name_th:string}|null}
 type Correction={id:string;reason:string;requested_clock_in_at:string|null;requested_clock_out_at:string|null;profiles:{full_name:string|null;email:string|null}|null}
 type Claim={id:string;claim_number:string;description:string;net_amount:number;contractor_contracts:{contractor_vendors:{legal_name:string}|null}|null}
 type AttendanceReview={id:string;clock_in_at:string;clock_out_at:string|null;clock_in_distance_meters:number|null;clock_out_distance_meters:number|null;clock_in_accuracy_meters:number|null;clock_out_accuracy_meters:number|null;review_reason:string|null;review_category:string|null;profiles:{full_name:string|null;email:string|null}|null;project_sites:{name:string;projects:{name:string}|null}|null}
+type WorkApproval={work_key:string;title:string;status:string;progress:number;risk:string;detail:string|null;evidence:string|null;approval_scope:string|null;approval_fingerprint:string|null;production_status:string;updated_at:string;approval_status:string|null;approval?:ApprovalLedgerRow|null;approvalState?:ApprovalState}
 const name=(profile:{full_name:string|null;email:string|null}|null)=>profile?.full_name||profile?.email||'ไม่ทราบชื่อ'
+// Host/sandbox permission requests (e.g. Codex CLI approve-for-me/sandbox
+// escalation) are not authorizable through this business-decision RPC --
+// see docs/APPROVAL_INBOX_FLOW.md. There is no dedicated schema column for
+// this yet (no migration for this inbox), so detect it from the same text
+// fields the table already shows; render those rows read-only with a
+// source-room handoff instead of wiring them to decide_system_work_item_approval.
+const HOST_SANDBOX_PATTERN=/\b(host|sandbox)\b/i
+const isHostOrSandboxApproval=(r:WorkApproval)=>HOST_SANDBOX_PATTERN.test(`${r.title} ${r.approval_scope??''} ${r.detail??''}`)
 
 export function ApprovalsPage(){
   usePageTitle('ศูนย์อนุมัติ')
   const {profile,currentCompany}=useAuth(),canManage=profile?.role==='admin'||profile?.role==='manager'
   const [tab,setTab]=useState(0),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false)
   const [error,setError]=useState(''),[message,setMessage]=useState('')
-  const [leaves,setLeaves]=useState<Leave[]>([]),[corrections,setCorrections]=useState<Correction[]>([]),[claims,setClaims]=useState<Claim[]>([])
+  const [leaves,setLeaves]=useState<Leave[]>([]),[corrections,setCorrections]=useState<Correction[]>([]),[claims,setClaims]=useState<Claim[]>([]),[workApprovals,setWorkApprovals]=useState<WorkApproval[]>([])
   const [attendanceReviews,setAttendanceReviews]=useState<AttendanceReview[]>([]),[reviewNote,setReviewNote]=useState('')
   const load=useCallback(async()=>{
     if(!canManage)return
     setLoading(true);setError('')
-    const [l,c,cl,a]=await Promise.all([
+    const [w,ledger,l,c,cl,a]=await Promise.all([
+      // Only 'review' items can have a real pending approval request --
+      // request_system_work_item_approval requires status='review' before
+      // it will create one. approval_status defaults to 'pending' on every
+      // row regardless, so filtering by that mirror column alone (or by a
+      // wider status set) would surface ordinary in-progress work with no
+      // actual approval request, and decideWork would then fail (or,
+      // worse, succeed) against a row nobody submitted for approval.
+      supabase.from('system_work_items').select('work_key,title,status,progress,risk,detail,evidence,approval_scope,approval_fingerprint,production_status,updated_at,approval_status').eq('status','review').order('updated_at',{ascending:false}).limit(200),
+      supabase.from('system_work_item_approvals').select('work_key,status,decision_channel,decision_reason,decision_by,decided_at,created_at,updated_at').order('updated_at',{ascending:false}).limit(500),
       supabase.from('employee_leave_requests').select('id,reason,starts_at,ends_at,profiles!employee_leave_requests_profile_id_fkey(full_name,email),leave_types(name_th)').in('status',['pending','late_notice','needs_evidence']).order('created_at').limit(200),
       supabase.from('attendance_correction_requests').select('id,reason,requested_clock_in_at,requested_clock_out_at,profiles!attendance_correction_requests_profile_id_fkey(full_name,email)').eq('status','pending').order('created_at').limit(200),
       supabase.from('contractor_payment_claims').select('id,claim_number,description,net_amount,contractor_contracts(contractor_vendors(legal_name))').eq('status','submitted').order('created_at').limit(200),
       supabase.from('attendance_sessions').select('id,clock_in_at,clock_out_at,clock_in_distance_meters,clock_out_distance_meters,clock_in_accuracy_meters,clock_out_accuracy_meters,review_reason,review_category,profiles!attendance_sessions_profile_id_fkey(full_name,email),project_sites(name,projects(name))').eq('status','needs_review').order('review_requested_at',{ascending:false}).limit(200),
     ])
-    const first=[l,c,cl,a].find((item)=>item.error)?.error;if(first)setError('โหลดรายการอนุมัติบางส่วนไม่สำเร็จ')
+    const first=[w,ledger,l,c,cl,a].find((item)=>item.error)?.error;if(first)setError('โหลดรายการอนุมัติบางส่วนไม่สำเร็จ')
+    const ledgerRows=(ledger.data??[]) as ApprovalLedgerRow[]; const all=(w.data??[]) as WorkApproval[]
+    setWorkApprovals(all.map(row=>{const approvalState=resolveApprovalState(row.approval_status,ledgerRows,row.work_key);return {...row,approval:approvalState.latest,approvalState}}))
     setLeaves((l.data??[]) as unknown as Leave[]);setCorrections((c.data??[]) as unknown as Correction[]);setClaims((cl.data??[]) as unknown as Claim[]);setAttendanceReviews((a.data??[]) as unknown as AttendanceReview[]);setLoading(false)
   },[canManage])
   useEffect(()=>{const timer=window.setTimeout(()=>void load(),0);return()=>window.clearTimeout(timer)},[load])
@@ -56,27 +79,43 @@ export function ApprovalsPage(){
     }
   }
   const reviewGps=(id:string,action:'approve'|'reject'|'request_more')=>run(()=>supabase.rpc('review_gps_attendance',{target_session_id:id,review_action:action,review_note:reviewNote.trim()||null,review_source:'web',source_line_group_id:null,source_line_user_id:null}),action==='approve'?'อนุมัติรายการ GPS แล้ว':action==='reject'?'ปฏิเสธรายการแล้ว':'ส่งคำขอข้อมูลเพิ่มแล้ว')
+  const decideWork=(row:WorkApproval,approved:boolean)=>run(async()=>{
+    if(row.approvalState?.status!=='pending') return {error:{message:'รายการนี้ถูกตัดสินแล้ว กรุณาโหลดข้อมูลใหม่'}}
+    if(isHostOrSandboxApproval(row)) return {error:{message:'รายการนี้เป็นคำขอสิทธิ์ host/sandbox ต้องอนุมัติในห้องต้นทางเท่านั้น'}}
+    if(!reviewNote.trim()) return {error:{message:'กรุณาระบุเหตุผลก่อนตัดสินใจ'}}
+    // decide_system_work_item_approval requires a non-empty reason for both
+    // approve and reject, and defaults target_channel to 'web_chat' when
+    // omitted -- pass 'web' explicitly so the audit trail correctly
+    // attributes this decision to the central web approval inbox instead of
+    // Web Chat.
+    const result=await supabase.rpc('decide_system_work_item_approval',{target_work_key:row.work_key,target_decision:approved?'approve':'reject',target_reason:reviewNote.trim(),target_channel:'web'})
+    if(result.error)return result
+    return {error:null}
+  },approved?'อนุมัติงานกลางแล้ว':'ปฏิเสธงานกลางแล้ว',{work_key:row.work_key,approval_scope:row.approval_scope,risk:row.risk,evidence:row.evidence})
   if(!canManage)return <Alert severity="error">เฉพาะผู้จัดการและผู้ดูแลระบบ</Alert>
   if(loading)return <Stack sx={{alignItems:'center',py:8}}><CircularProgress/></Stack>
   return <Stack spacing={3}>
     <PageHeader title="ศูนย์อนุมัติ" description="รวมรายการที่ต้องตัดสินใจไว้หน้าเดียว พร้อมบันทึกผู้อนุมัติและเวลา" />
     {message&&<Alert severity="success">{message}</Alert>}{error&&<Alert severity="error">{error}</Alert>}
     <Paper variant="outlined"><Tabs value={tab} onChange={(_e,v)=>setTab(v)} variant="scrollable">
-      <Tab label={`GPS รอตรวจ (${attendanceReviews.length})`}/><Tab label={`การลา (${leaves.length})`}/><Tab label={`แก้เวลา (${corrections.length})`}/><Tab label={`ผู้รับเหมา (${claims.length})`}/>
+      <Tab label={`งานกลาง/นโยบาย (${workApprovals.length})`}/><Tab label={`GPS รอตรวจ (${attendanceReviews.length})`}/><Tab label={`การลา (${leaves.length})`}/><Tab label={`แก้เวลา (${corrections.length})`}/><Tab label={`ผู้รับเหมา (${claims.length})`}/>
     </Tabs></Paper>
-    {tab===0&&<><TextField fullWidth label="หมายเหตุการตรวจ (จำเป็นเมื่อปฏิเสธหรือขอข้อมูลเพิ่ม)" value={reviewNote} onChange={event=>setReviewNote(event.target.value)}/><StandardDataTable rows={attendanceReviews} getRowId={r=>r.id} getSearchText={r=>`${name(r.profiles)} ${r.project_sites?.projects?.name} ${r.project_sites?.name} ${r.review_reason}`} searchLabel="ค้นหาพนักงาน โครงการ ไซต์ หรือเหตุผล" emptyText="ไม่มีรายการ GPS รอตรวจ" exportFileName="attendance-gps-review" columns={[
+    {tab===0&&<><Alert severity="info">งานกลางและนโยบายจะส่งคำขอพร้อม work_key, scope, risk, evidence และบันทึก Audit ผ่าน RPC เดิม การอนุมัติ host/sandbox ข้ามห้องยังไม่เปิดผ่าน API นี้ จึงต้องกดอนุมัติในห้องต้นทางเท่านั้น (แสดงเป็นรายการอ่านอย่างเดียวด้านล่าง)</Alert><TextField fullWidth label="เหตุผลการตัดสินใจ (จำเป็นทั้งอนุมัติและปฏิเสธ)" value={reviewNote} onChange={event=>setReviewNote(event.target.value)}/><StandardDataTable rows={workApprovals} getRowId={r=>r.work_key} getSearchText={r=>`${r.work_key} ${r.title} ${r.approval_scope??''} ${r.risk} ${r.evidence??''}`} searchLabel="ค้นหา work_key scope risk หรือหลักฐาน" emptyText="ไม่มีงานกลางรออนุมัติ" columns={[
+      {id:'key',label:'work_key',render:r=>r.work_key},{id:'scope',label:'Scope / งาน',render:r=><Stack><strong>{r.title}</strong><span>{r.approval_scope??'ไม่ระบุ scope'}</span></Stack>},{id:'risk',label:'ความเสี่ยง',render:r=>r.risk},{id:'evidence',label:'Evidence',render:r=>r.evidence??'ยังไม่มีหลักฐาน'},{id:'status',label:'สถานะ',render:r=>`${r.status} · ${r.progress}%`},{id:'action',label:'ตัดสินใจ',minWidth:240,render:r=>isHostOrSandboxApproval(r)?<Stack spacing={.5}><Alert severity="warning" sx={{py:0}}>คำขอสิทธิ์ host/sandbox — อนุมัติได้เฉพาะในห้องต้นทางเท่านั้น ไม่รองรับผ่าน API นี้</Alert></Stack>:<Stack direction="row" spacing={.5}><Button disabled={busy||!reviewNote.trim()} color="success" variant="contained" onClick={()=>void decideWork(r,true)}>อนุมัติ</Button><Button disabled={busy||!reviewNote.trim()} color="error" onClick={()=>void decideWork(r,false)}>ปฏิเสธ</Button></Stack>},
+    ]}/></>}
+    {tab===1&&<><TextField fullWidth label="หมายเหตุการตรวจ (จำเป็นเมื่อปฏิเสธหรือขอข้อมูลเพิ่ม)" value={reviewNote} onChange={event=>setReviewNote(event.target.value)}/><StandardDataTable rows={attendanceReviews} getRowId={r=>r.id} getSearchText={r=>`${name(r.profiles)} ${r.project_sites?.projects?.name} ${r.project_sites?.name} ${r.review_reason}`} searchLabel="ค้นหาพนักงาน โครงการ ไซต์ หรือเหตุผล" emptyText="ไม่มีรายการ GPS รอตรวจ" exportFileName="attendance-gps-review" columns={[
       {id:'employee',label:'พนักงาน',render:r=>name(r.profiles)},{id:'site',label:'โครงการ/ไซต์',render:r=>`${r.project_sites?.projects?.name??'-'} · ${r.project_sites?.name??'-'}`},{id:'time',label:'เข้า–ออก',render:r=>`${new Date(r.clock_in_at).toLocaleString('th-TH')} – ${r.clock_out_at?new Date(r.clock_out_at).toLocaleString('th-TH'):'ยังไม่ออก'}`},{id:'distance',label:'ระยะ เข้า/ออก',render:r=>`${r.clock_in_distance_meters===null?'-':Math.round(r.clock_in_distance_meters)+' ม.'} / ${r.clock_out_distance_meters===null?'-':Math.round(r.clock_out_distance_meters)+' ม.'}`},{id:'accuracy',label:'GPS เข้า/ออก',render:r=>`${r.clock_in_accuracy_meters===null?'-':'±'+Math.round(r.clock_in_accuracy_meters)+' ม.'} / ${r.clock_out_accuracy_meters===null?'-':'±'+Math.round(r.clock_out_accuracy_meters)+' ม.'}`},{id:'reason',label:'เหตุผลรอตรวจ',render:r=>r.review_reason||r.review_category||'-'},{id:'action',label:'ดำเนินการ',minWidth:280,render:r=><Stack direction="row" spacing={.5}><Button disabled={busy} onClick={()=>void reviewGps(r.id,'approve')}>อนุมัติ</Button><Button disabled={busy||!reviewNote.trim()} onClick={()=>void reviewGps(r.id,'request_more')}>ขอข้อมูลเพิ่ม</Button><Button color="error" disabled={busy||!reviewNote.trim()} onClick={()=>void reviewGps(r.id,'reject')}>ปฏิเสธ</Button></Stack>}
     ]}/></>}
-    {tab===1&&<StandardDataTable rows={leaves} getRowId={(r)=>r.id} getSearchText={(r)=>`${name(r.profiles)} ${r.reason}`} searchLabel="ค้นหาคำขอลา" emptyText="ไม่มีคำขอลารอตรวจ" columns={[
+    {tab===2&&<StandardDataTable rows={leaves} getRowId={(r)=>r.id} getSearchText={(r)=>`${name(r.profiles)} ${r.reason}`} searchLabel="ค้นหาคำขอลา" emptyText="ไม่มีคำขอลารอตรวจ" columns={[
       {id:'employee',label:'พนักงาน',render:(r)=>name(r.profiles)},{id:'type',label:'ประเภท',render:(r)=>r.leave_types?.name_th??'-'},
       {id:'period',label:'ช่วงเวลา',render:(r)=>`${new Date(r.starts_at).toLocaleString('th-TH')} – ${new Date(r.ends_at).toLocaleString('th-TH')}`},
       {id:'reason',label:'เหตุผล',render:(r)=>r.reason},{id:'action',label:'ดำเนินการ',render:(r)=><Stack direction="row" spacing={1}><Button disabled={busy} onClick={()=>void run(()=>supabase.rpc('review_leave_request',{target_request_id:r.id,decision:'approved',decision_note:null}),'อนุมัติการลาแล้ว')}>อนุมัติ</Button><Button disabled={busy} color="error" onClick={()=>void run(()=>supabase.rpc('review_leave_request',{target_request_id:r.id,decision:'rejected',decision_note:'ไม่ผ่านการอนุมัติ'}),'ปฏิเสธคำขอแล้ว')}>ปฏิเสธ</Button></Stack>},
     ]}/>}
-    {tab===2&&<StandardDataTable rows={corrections} getRowId={(r)=>r.id} getSearchText={(r)=>`${name(r.profiles)} ${r.reason}`} searchLabel="ค้นหาคำขอแก้เวลา" emptyText="ไม่มีคำขอแก้เวลารอตรวจ" columns={[
+    {tab===3&&<StandardDataTable rows={corrections} getRowId={(r)=>r.id} getSearchText={(r)=>`${name(r.profiles)} ${r.reason}`} searchLabel="ค้นหาคำขอแก้เวลา" emptyText="ไม่มีคำขอแก้เวลารอตรวจ" columns={[
       {id:'employee',label:'พนักงาน',render:(r)=>name(r.profiles)},{id:'time',label:'เวลาที่ขอแก้',render:(r)=>`${r.requested_clock_in_at?new Date(r.requested_clock_in_at).toLocaleString('th-TH'):'-'} – ${r.requested_clock_out_at?new Date(r.requested_clock_out_at).toLocaleString('th-TH'):'-'}`},
       {id:'reason',label:'เหตุผล',render:(r)=>r.reason},{id:'action',label:'ดำเนินการ',render:(r)=><Stack direction="row" spacing={1}><Button disabled={busy} onClick={()=>void run(()=>supabase.rpc('review_attendance_correction',{target_request_id:r.id,decision:'approved',decision_note:null}),'อนุมัติการแก้เวลาแล้ว')}>อนุมัติ</Button><Button disabled={busy} color="error" onClick={()=>void run(()=>supabase.rpc('review_attendance_correction',{target_request_id:r.id,decision:'rejected',decision_note:'ไม่ผ่านการอนุมัติ'}),'ปฏิเสธคำขอแล้ว')}>ปฏิเสธ</Button></Stack>},
     ]}/>}
-    {tab===3&&<StandardDataTable rows={claims} getRowId={(r)=>r.id} getSearchText={(r)=>`${r.claim_number} ${r.description}`} searchLabel="ค้นหางวดงาน" emptyText="ไม่มีงวดผู้รับเหมารอตรวจ" columns={[
+    {tab===4&&<StandardDataTable rows={claims} getRowId={(r)=>r.id} getSearchText={(r)=>`${r.claim_number} ${r.description}`} searchLabel="ค้นหางวดงาน" emptyText="ไม่มีงวดผู้รับเหมารอตรวจ" columns={[
       {id:'claim',label:'งวด',render:(r)=>r.claim_number},{id:'vendor',label:'ผู้รับเหมา',render:(r)=>r.contractor_contracts?.contractor_vendors?.legal_name??'-'},{id:'detail',label:'งาน',render:(r)=>r.description},{id:'net',label:'ยอดสุทธิ',render:(r)=>`฿${Number(r.net_amount).toLocaleString('th-TH')}`},
       {id:'action',label:'ดำเนินการ',render:(r)=><Stack direction="row" spacing={1}><Button disabled={busy} onClick={()=>void run(()=>supabase.rpc('transition_contractor_claim',{target_claim_id:r.id,target_action:'approve',target_payment_reference:null,target_note:null}),'อนุมัติงวดงานแล้ว')}>อนุมัติ</Button><Button disabled={busy} color="error" onClick={()=>void run(()=>supabase.rpc('transition_contractor_claim',{target_claim_id:r.id,target_action:'reject',target_payment_reference:null,target_note:'ไม่ผ่านการตรวจรับ'}),'ปฏิเสธงวดงานแล้ว')}>ปฏิเสธ</Button></Stack>},
     ]}/>}

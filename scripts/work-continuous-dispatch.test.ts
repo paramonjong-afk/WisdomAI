@@ -23,6 +23,11 @@ assert.match(monitor, /do not auto-retry/)
 assert.match(page, /system_work_dispatch_intents/)
 assert.match(page, /ไม่พบ Worker ที่มี lease สด/)
 assert.match(page, /Dispatch Intent/)
-assert.match(page, /const hasActiveClaim/)
+// The local hasActiveClaim duplicate (with its own buggy 10-minute heartbeat
+// cutoff) was removed during the PR #78 merge in favor of the shared,
+// already-fixed hasActiveWorkerClaim from src/services/workClaimStatus.ts --
+// see work-claim-status.test.ts for the fake-clock label coverage.
+assert.doesNotMatch(page, /const hasActiveClaim\b/)
+assert.match(page, /hasActiveWorkerClaim/)
 
 console.log('continuous dispatch handoff, approval gate, zero-active, and audit/RLS checks passed')

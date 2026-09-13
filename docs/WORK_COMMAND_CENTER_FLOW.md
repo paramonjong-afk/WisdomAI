@@ -120,6 +120,29 @@ sentinel หรือแถว orphan จะถูกแสดงเป็นห
 “Worker ขาดการติดต่อ” หรือ “หยุดผิดปกติ” ได้เองเมื่อเวลาผ่านเส้น lease/heartbeat
 แม้ไม่มี realtime event ใหม่; การ refresh ข้อมูลจากฐานข้อมูลยังคงทำตามรอบเดิม.
 
+## Active Claim semantics
+
+```mermaid
+flowchart TD
+  D[status = doing] --> W{worker_id exists?}
+  W -- no --> O[หยุดผิดปกติ: ไม่มี Active Claim]
+  W -- yes --> L{lease ยังไม่หมด?}
+  L -- no --> S[Worker ขาดการติดต่อ]
+  L -- yes --> H{heartbeat สดภายใน 10 นาที?}
+  H -- no --> S
+  H -- yes --> A[กำลังทำจริง: Active Claim]
+```
+
+`กำลังทำจริง` จะแสดงเฉพาะเมื่อมี `worker_id`, `lease_expires_at` ยังไม่หมด
+และ `heartbeat_at` สดไม่เกิน 10 นาทีจากเวลาปัจจุบัน การมี `status=doing`
+เพียงอย่างเดียวไม่ถือว่าเป็น Active Claim; งานอย่าง `SYS-004` ที่เป็น monitoring
+sentinel หรือแถว orphan จะถูกแสดงเป็นหยุดผิดปกติ/ขาดการติดต่อแทน และไม่ถูกนับใน
+การ์ด “กำลังทำจริง”.
+
+หน้าจอ recompute `claimNow` ทุก 1 วินาที จึงเปลี่ยนจาก “กำลังทำจริง” เป็น
+“Worker ขาดการติดต่อ” หรือ “หยุดผิดปกติ” ได้เองเมื่อเวลาผ่านเส้น lease/heartbeat
+แม้ไม่มี realtime event ใหม่; การ refresh ข้อมูลจากฐานข้อมูลยังคงทำตามรอบเดิม.
+
 ## Failure, retry, and audit
 
 List/detail query failures stay visible with a retry action. Realtime refreshes
@@ -261,3 +284,11 @@ and Health Monitor is the only writer.
   worker detection, approval/retry gates, audit, RLS, typecheck, lint, and build.
 - Rollback: revert the Health Monitor/UI change and stop creating new intents.
   Existing work items and audit records remain untouched.
+
+- Version: v1.5
+- Date: 2026-09-09
+- Rationale: keep accepted business work visible through QA/release gates and
+  prevent non-Done items from appearing complete.
+- Migration: none. The projection is read-only and preserves all source rows.
+- Verification: backlog projection tests, typecheck and build.
+- Rollback: revert the projection/UI commit; source work and audit history remain intact.
