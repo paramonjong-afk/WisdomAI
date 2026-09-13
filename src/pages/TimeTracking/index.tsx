@@ -408,6 +408,11 @@ export function TimeTrackingPage() {
     if (!isMobileViewport) return
     if (completedToday) return
     if (eagerGpsTargetSites.length === 0) return
+    // Intentional: checkLocationEagerly's first statement synchronously
+    // sets status to 'checking' before the async GPS lookup resolves —
+    // this is the standard loading-state-before-async-effect pattern
+    // (show a spinner, then fetch) and does not cause a render loop.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void checkLocationEagerly(eagerGpsTargetSites)
     // Re-run only when the mobile/desktop breakpoint, completion state, or
     // the actual target site(s) change — not on every render.
