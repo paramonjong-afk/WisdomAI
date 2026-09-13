@@ -32,6 +32,7 @@ import {
   workerClaimLabel,
 } from "../../services/workClaimStatus";
 import { shouldApplyDetailResponse } from "./detailRequestGuard";
+import { detectApprovalLoop } from "./approvalLoop";
 
 type WorkStatus = "ready" | "doing" | "review" | "blocked" | "done";
 type Item = {
@@ -526,6 +527,10 @@ export function WorkCommandCenterPage() {
     ["review", "รอตรวจ/อนุมัติ"],
     ["blocked", "ติดปัญหา"],
   ];
+  const approvalLoop = useMemo(
+    () => (selected ? detectApprovalLoop(selected.work_key, events) : null),
+    [events, selected],
+  );
 
   return (
     <Stack spacing={2.5}>
@@ -951,6 +956,16 @@ export function WorkCommandCenterPage() {
                   ` · lease ถึง ${formatDate(selected.lease_expires_at)}`}
               </Alert>
             )}
+            {approvalLoop?.detected && (
+              <Alert severity="warning">
+                <Typography sx={{ fontWeight: 700 }}>
+                  ตรวจพบ Approval loop {approvalLoop.rounds} รอบ
+                </Typography>
+                <Typography variant="body2">
+                  รอบล่าสุด {formatDate(approvalLoop.lastDetectedAt)} · {approvalLoop.nextAction}
+                </Typography>
+              </Alert>
+            )}
             {selected.evidence && (
               <Box>
                 <Typography variant="subtitle2">หลักฐานล่าสุด</Typography>
@@ -1015,7 +1030,11 @@ export function WorkCommandCenterPage() {
                   }}
                 >
                   <Typography sx={{ fontWeight: 700 }}>
-                    {event.event_type === "created" ? "สร้างงาน" : "อัปเดตงาน"}{" "}
+                    {event.event_type === "created"
+                      ? "สร้างงาน"
+                      : event.event_type === "approval_loop_detected"
+                        ? "ตรวจพบ Approval loop"
+                        : "อัปเดตงาน"}{" "}
                     · {formatDate(event.created_at)}
                   </Typography>
                   <Typography variant="body2">

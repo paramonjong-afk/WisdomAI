@@ -134,6 +134,20 @@ responses from an earlier row or a closed Drawer are discarded. Detail failures
 are shown separately from list errors and can be retried without changing the
 selected work item. Successful silent list refreshes clear stale list notices.
 
+## Approval loop detection
+
+The Drawer reads the existing, company-scoped `system_work_item_events` history
+and detects `review -> ready -> doing -> review`. A completed cycle is shown
+with its approval-round count, latest occurrence, and next safe action.
+Repeated review reminders alone do not create a false loop. The monitor writes
+one append-only `approval_loop_detected` event with the loop fingerprint,
+round count and Telegram delivery result; the Drawer can therefore show the
+same evidence without changing approval, retry or business-record permissions.
+Telegram delivery is reserved by a per-destination dedupe key before it is
+sent, so overlapping monitor runs do not create duplicate alerts.
+Before escalation, the monitor re-reads the current work item and excludes
+items already in `done`, so a loop recorded shortly before completion cannot
+produce a stale alert or evidence row.
 Dispatch-intent inserts, updates, and supersessions append a
 `system_work_item_events` record. RLS is enabled: authenticated users can only
 read intents for visible parent work items, clients have no write permission,
@@ -158,6 +172,36 @@ and Health Monitor is the only writer.
 
 - Version: v1.3
 - Date: 2026-09-07
+- Rationale: surface approval loops before the worker retry cap hides the
+  operational problem.
+- Migration: none; the detector reads the existing event ledger.
+- Verification: deterministic sequence regression, monitor dedupe contract,
+  typecheck, lint, build, and authenticated Drawer smoke after release.
+- Rollback: revert the detector/UI source only. Existing events,
+  notifications, approvals and work items remain intact.
+
+- Version: v1.4
+- Date: 2026-09-12
+- Rationale: prevent resolved work items from being re-escalated by a loop still
+  present in the 24-hour event window.
+- Migration: none; the monitor filters current `done` rows before delivery.
+- Verification: approval-loop contract, typecheck, lint, build and authenticated
+  monitor/Drawer smoke.
+- Rollback: revert the monitor/test/doc commit; event, notification and work
+  item history remain intact.
+
+- Version: v1.4
+- Date: 2026-09-08
+- Rationale: make approval-loop alerts durable and observable. The older
+  notification type constraint rejected work-item notification types, which
+  could leave delivery without audit evidence.
+- Migration: `20260908093000_approval_loop_notification_evidence.sql` adds the
+  allowed types, per-destination dedupe key and append-only loop-evidence
+  index.
+- Verification: loop sequence, reminder negative case, notification/evidence
+  contract, typecheck, lint, build and authenticated monitor/Drawer smoke.
+- Rollback: deploy the prior monitor/UI only if needed; retain notification
+  and event evidence. Do not delete existing audit rows.
 - Rationale: distinguish the persisted `doing` state from a live worker claim so
   stale/orphan rows cannot be presented as actively running.
 - Verification: targeted Work Command Center test, typecheck, lint, build and
