@@ -43,5 +43,21 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Register the app-shell Service Worker so Chrome/Edge (desktop and
+      // Android) recognize this site as installable and offer the native
+      // "Install app" / "Add to Home screen" prompt. Skipped on localhost
+      // dev ports so local development never runs a stale cached worker.
+      if ('serviceWorker' in navigator) {
+        const isLocalDev = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost'
+        if (!isLocalDev) {
+          window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js').catch((error) => {
+              console.error('[sw] registration failed', error)
+            })
+          })
+        }
+      }
+    </script>
   </body>
 </html>
