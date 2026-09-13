@@ -3,7 +3,7 @@ import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
 import GpsFixedRoundedIcon from '@mui/icons-material/GpsFixedRounded'
 import LocationOnRoundedIcon from '@mui/icons-material/LocationOnRounded'
 import PhotoCameraRoundedIcon from '@mui/icons-material/PhotoCameraRounded'
-import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
 import { StandardDataTable } from '../../components/StandardDataTable'
@@ -22,6 +22,8 @@ type LineGroup = { line_group_id:string; display_name:string|null }
 type GpsPolicy={id:string;error_code:string;action:'allow'|'review'|'reject';require_selfie:boolean;require_reason:boolean;notify_line:boolean}
 type LocationCheck = { latitude:number|null; longitude:number|null; accuracy:number|null; distance:number|null; site:Site; gpsErrorCode?:string; gpsErrorMessage?:string }
 type ResultDialog = { open:boolean; success:boolean; title:string; detail:string }
+type EagerGpsStatus = 'idle'|'checking'|'in-site'|'out-of-site'|'error'
+type EagerGps = { status:EagerGpsStatus; distance:number|null; site:Site|null; accuracy:number|null }
 type AttendanceSettings = {
   max_gps_accuracy_meters:number
   allow_outside_site_for_review:boolean
@@ -125,6 +127,8 @@ export function TimeTrackingPage() {
   const [resultDialog, setResultDialog] = useState<ResultDialog>({ open:false, success:false, title:'', detail:'' })
   const [busy, setBusy] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [eagerGps, setEagerGps] = useState<EagerGps>({ status:'idle', distance:null, site:null, accuracy:null })
+  const [eagerGpsCheckedAt, setEagerGpsCheckedAt] = useState<Date | null>(null)
   const [settings, setSettings] = useState<AttendanceSettings>({
     max_gps_accuracy_meters:200,
     allow_outside_site_for_review:true,
@@ -308,11 +312,69 @@ export function TimeTrackingPage() {
   const todayClockOut = todaySession?.clock_out_at
     ? new Date(todaySession.clock_out_at).toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit' })
     : '--:--'
+  const eagerGpsCheckedLabel = eagerGpsCheckedAt
+    ? `ตำแหน่งอัปเดตล่าสุด ${eagerGpsCheckedAt.toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit' })}`
+    : null
+  const eagerGpsCard = (() => {
+    switch (eagerGps.status) {
+      case 'in-site':
+        return { color:'success.main' as const, icon:<LocationOnRoundedIcon fontSize="small" />, text:'อยู่ในพื้นที่ที่กำหนด', sub:eagerGpsCheckedLabel, retry:true }
+      case 'out-of-site':
+        return {
+          color:'warning.main' as const, icon:<LocationOnRoundedIcon fontSize="small" />,
+          text: eagerGps.distance !== null ? `อยู่นอกพื้นที่ที่กำหนด · ห่างประมาณ ${Math.round(eagerGps.distance).toLocaleString('th-TH')} เมตร` : 'อยู่นอกพื้นที่ที่กำหนด',
+          sub: eagerGpsCheckedLabel ? `${eagerGpsCheckedLabel} · ลงเวลาได้ตามปกติ ระบบจะส่งให้ตรวจสอบภายหลัง` : 'ลงเวลาได้ตามปกติ ระบบจะส่งให้ตรวจสอบภายหลัง',
+          retry:true,
+        }
+      case 'error':
+        return { color:'warning.main' as const, icon:<GpsFixedRoundedIcon fontSize="small" />, text:'ตรวจสอบตำแหน่งไม่สำเร็จ', sub:'แตะเพื่อตรวจสอบตำแหน่งอีกครั้ง', retry:true }
+      case 'checking':
+        return { color:'text.secondary' as const, icon:<GpsFixedRoundedIcon fontSize="small" />, text:'กำลังตรวจสอบตำแหน่ง...', sub:'กรุณารอสักครู่', retry:false }
+      default:
+        return null
+    }
+  })()
 
   const getLocation = () => new Promise<GeolocationPosition>((resolve, reject) => {
     if (!navigator.geolocation) reject(new Error('อุปกรณ์นี้ไม่รองรับ GPS'))
     else navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy:true, timeout:20_000, maximumAge:0 })
   })
+
+  // Passive, display-only location check for the mobile home status card.
+  // This never sets `siteId`/`locationCheck` and never touches the write
+  // path — `prepareAttendance()` still re-checks GPS fresh at button-press
+  // time and is the sole source of truth for what actually gets clocked.
+  // Purpose: replace the old ambiguous "พบปัญหา GPS?" prompt with an
+  // honest, non-contradictory status (in-site / out-of-site / checking /
+  // failed) plus a last-checked timestamp, per the approved M-01a/M-01b
+  // review comments.
+  const checkLocationEagerly = useCallback(async (targetSites: Site[]) => {
+    if (targetSites.length === 0 || !navigator.geolocation) return
+    setEagerGps((current) => ({ ...current, status:'checking' }))
+    try {
+      const position = await getLocation()
+      const nearest = targetSites
+        .map((site) => ({ site, distance: distanceMeters(position.coords.latitude, position.coords.longitude, site.latitude, site.longitude) }))
+        .sort((a, b) => a.distance - b.distance)[0]
+      const withinSite = position.coords.accuracy <= settings.max_gps_accuracy_meters && nearest.distance <= nearest.site.radius_meters
+      setEagerGps({ status: withinSite ? 'in-site' : 'out-of-site', distance: nearest.distance, site: nearest.site, accuracy: position.coords.accuracy })
+    } catch {
+      setEagerGps({ status:'error', distance:null, site:null, accuracy:null })
+    } finally {
+      setEagerGpsCheckedAt(new Date())
+    }
+  }, [settings.max_gps_accuracy_meters])
+
+  useEffect(() => {
+    if (completedToday) return
+    const targetSites = openSession?.project_sites ? [openSession.project_sites] : sites
+    if (targetSites.length === 0) return
+    void checkLocationEagerly(targetSites)
+    // Re-run only when the relevant target site set actually changes
+    // (session opened/closed, or the assigned-site list loads) — not on
+    // every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completedToday, openSession?.id, sites.length])
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop())
@@ -755,6 +817,31 @@ export function TimeTrackingPage() {
           <Chip size="small" variant="outlined" icon={<LocationOnRoundedIcon />} color={sites.length > 0 ? 'success' : 'warning'} label={sites.length > 0 ? `${sites.length} ไซต์` : 'ยังไม่มีไซต์'} />
           <Chip size="small" variant="outlined" icon={<PhotoCameraRoundedIcon />} label="Selfie เมื่อกด" />
         </Stack>
+        {!completedToday && eagerGpsCard && (
+          <Box
+            role={eagerGpsCard.retry ? 'button' : undefined}
+            tabIndex={eagerGpsCard.retry ? 0 : undefined}
+            onClick={eagerGpsCard.retry ? () => void checkLocationEagerly(openSession?.project_sites ? [openSession.project_sites] : sites) : undefined}
+            onKeyDown={eagerGpsCard.retry ? (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                void checkLocationEagerly(openSession?.project_sites ? [openSession.project_sites] : sites)
+              }
+            } : undefined}
+            sx={{
+              p:1.25, borderRadius:2.5, bgcolor:'action.hover',
+              display:'flex', alignItems:'center', gap:1,
+              cursor:eagerGpsCard.retry ? 'pointer' : 'default',
+            }}
+          >
+            <Box sx={{ color:eagerGpsCard.color, display:'flex', alignItems:'center' }}>{eagerGpsCard.icon}</Box>
+            <Stack spacing={0} sx={{ minWidth:0, flex:1 }}>
+              <Typography variant="body2" sx={{ fontWeight:750, color:eagerGpsCard.color }}>{eagerGpsCard.text}</Typography>
+              {eagerGpsCard.sub && <Typography variant="caption" color="text.secondary">{eagerGpsCard.sub}</Typography>}
+              {eagerGps.status === 'checking' && <LinearProgress sx={{ mt:.75, borderRadius:1 }} />}
+            </Stack>
+          </Box>
+        )}
       </Stack>
       <Typography variant="h6" sx={{display:{xs:'none', md:'block'}}}>{completedToday ? 'ลงเวลาวันนี้ครบแล้ว' : openSession ? `กำลังทำงาน: ${openSession.project_sites?.name ?? ''}` : 'ลงเวลาเข้างาน'}</Typography>
       {!openSession && !completedToday && <TextField
