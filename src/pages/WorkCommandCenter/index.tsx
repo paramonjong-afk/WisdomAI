@@ -33,6 +33,9 @@ import {
 } from "../../services/workClaimStatus";
 import { shouldApplyDetailResponse } from "./detailRequestGuard";
 import { detectApprovalLoop } from "./approvalLoop";
+import { resolveApprovalState } from "../../services/workApprovalState";
+import type { ApprovalLedgerRow } from "../../services/workApprovalState";
+import { displayProgress, workLane } from "../../services/workBacklogProjection";
 
 type WorkStatus = "ready" | "doing" | "review" | "blocked" | "done";
 type Item = {
@@ -59,6 +62,7 @@ type Item = {
   worker_outcome_reason?: string | null;
   worker_outcome_at?: string | null;
   company_id?: string | null;
+  approval_state?: ReturnType<typeof resolveApprovalState>;
 };
 type WorkItemDetail = Pick<Item, "detail" | "evidence">;
 type DispatchIntent = {
@@ -163,26 +167,11 @@ const workerOutcome = (item: Item, now: number): { value: WorkerOutcome; label: 
 };
 const workerOutcomeColor = (outcome: WorkerOutcome): "error" | "warning" | "success" | "info" =>
   outcome === "blocked" || outcome === "no_output" ? "error" : outcome === "claimed" ? "warning" : outcome === "completed" ? "success" : "info";
-const hasExpiredLease = (item: Item) =>
-  item.status === "doing" &&
-  Boolean(item.lease_expires_at) &&
-  new Date(item.lease_expires_at as string).getTime() <= Date.now();
-const hasActiveClaim = (item: Item) =>
-  // Same claim protocol as workClaimStatus.ts's hasActiveWorkerClaim: the
-  // lease (worker_id + unexpired lease_expires_at) is the sole authority.
-  // heartbeat_at only updates on a current_step change, not on a fixed
-  // cadence, so it must not gate "active" here either.
-  item.status === "doing" &&
-  Boolean(item.worker_id) &&
-  Boolean(item.lease_expires_at) &&
-  new Date(item.lease_expires_at as string).getTime() > Date.now();
-const claimStatusLabel = (item: Item) => {
-  if (hasActiveClaim(item)) return "กำลังทำจริง";
-  if (item.status !== "doing") return statusLabel[item.status];
-  if (hasExpiredLease(item) || item.worker_id) return "Worker ขาดการติดต่อ";
-  return "หยุดผิดปกติ — ไม่มี Active Claim";
-};
-
+// hasActiveClaim/hasExpiredLease/claimStatusLabel used to be duplicated here
+// with their own (buggy) 10-minute heartbeat cutoff -- see PR #88. Consolidated
+// on the shared hasActiveWorkerClaim/workerClaimLabel from workClaimStatus.ts
+// (imported above) so there is exactly one definition of "is this claim
+// active" left in the codebase.
 export function WorkCommandCenterPage() {
   usePageTitle("ศูนย์สั่งงาน");
   const { currentCompany, profile, user } = useAuth();
@@ -207,7 +196,7 @@ export function WorkCommandCenterPage() {
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setBusy(true);
-    const [itemsResult, intentsResult] = await Promise.all([
+    const [itemsResult, intentsResult, ledgerResult] = await Promise.all([
       supabase
         .from("system_work_items")
         .select(
@@ -219,10 +208,16 @@ export function WorkCommandCenterPage() {
         .select("work_key,intent_kind,status,owner,next_gate,next_action,sla_due_at")
         .eq("status", "pending")
         .order("sla_due_at", { ascending: true }),
+      supabase
+        .from("system_work_item_approvals")
+        .select("work_key,status,decision_channel,decision_reason,decision_by,decided_at,created_at,updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(500),
     ]);
     const { data, error } = itemsResult;
     if (data) {
-      const next = data as Item[];
+      const ledger = (ledgerResult.data ?? []) as ApprovalLedgerRow[];
+      const next = (data as Item[]).map(item => ({ ...item, approval_state: resolveApprovalState(item.approval_status, ledger, item.work_key) }));
       setRows((current) => {
         const unchanged =
           current.length === next.length &&
@@ -246,7 +241,7 @@ export function WorkCommandCenterPage() {
       });
     }
     if (intentsResult.data) setDispatchIntents(intentsResult.data as DispatchIntent[]);
-    if (error ?? intentsResult.error) setNotice(userError(error ?? intentsResult.error));
+    if (error ?? intentsResult.error ?? ledgerResult.error) setNotice(userError(error ?? intentsResult.error ?? ledgerResult.error));
     else if (silent) setNotice("");
     if (!silent) setBusy(false);
   }, []);
@@ -258,10 +253,6 @@ export function WorkCommandCenterPage() {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
-  useEffect(() => {
-    const timer = window.setInterval(() => setClaimNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, []);
   useEffect(() => {
     const flushAfterCopy = () => {
       if (!pendingRefreshRef.current || document.getSelection()?.toString()) return;
@@ -408,6 +399,10 @@ export function WorkCommandCenterPage() {
   };
   const decide = async (approved: boolean) => {
     if (!selected) return;
+    if (selected.approval_state?.latest && selected.approval_state.latest.status !== "pending") {
+      setNotice(`รายการนี้ถูกตัดสินแล้วผ่าน ${selected.approval_state.latest.decision_channel ?? "อีกช่องทาง"}`);
+      return;
+    }
     const reason = window
       .prompt(
         `${approved ? "อนุมัติ" : "ไม่อนุมัติ"} ${selected.work_key}\nกรุณาระบุเหตุผลเพื่อบันทึก Audit`,
@@ -502,7 +497,7 @@ export function WorkCommandCenterPage() {
   const counts = useMemo(
     () => ({
       ready: rows.filter((r) => r.status === "ready").length,
-      doing: rows.filter(hasActiveClaim).length,
+      doing: rows.filter((r) => hasActiveWorkerClaim(r, claimNow)).length,
       review: rows.filter((r) => r.status === "review").length,
       blocked: rows.filter((r) => r.status === "blocked").length,
       done: rows.filter((r) => r.status === "done").length,
@@ -650,7 +645,7 @@ export function WorkCommandCenterPage() {
                 </Typography>
                 <LinearProgress
                   variant="determinate"
-                  value={r.progress}
+                  value={displayProgress(r.status, r.progress)}
                   color={
                     r.status === "blocked"
                       ? "error"
@@ -671,7 +666,7 @@ export function WorkCommandCenterPage() {
               <Box>
                 <Typography variant="body2">{r.owner || "ยังไม่มอบหมาย"}</Typography>
                 <Typography variant="caption" color="text.secondary">
-                  {hasActiveClaim(r)
+                  {hasActiveWorkerClaim(r, claimNow)
                     ? `กำลังทำจริง · ${r.worker_id}`
                     : r.status === "doing"
                       ? "Worker ไม่ได้ทำงานจริง/หมดสิทธิ์แล้ว"
@@ -697,8 +692,14 @@ export function WorkCommandCenterPage() {
             render: (r) => (
               <Chip
                 size="small"
-                color={hasActiveClaim(r) ? "warning" : r.status === "doing" ? "error" : statusColor[r.status]}
-                label={claimStatusLabel(r)}
+                color={
+                  hasActiveWorkerClaim(r, claimNow)
+                    ? "warning"
+                    : r.status === "doing"
+                      ? "error"
+                      : statusColor[r.status]
+                }
+                label={workerClaimLabel(r, statusLabel, claimNow)}
               />
             ),
             exportValue: (r) => workerClaimLabel(r, statusLabel, claimNow),
@@ -717,7 +718,7 @@ export function WorkCommandCenterPage() {
           {
             id: "progress",
             label: "ความก้าวหน้า",
-            render: (r) => `${r.progress}%`,
+            render: (r) => `${displayProgress(r.status, r.progress)}% · ${workLane(r.status, r.production_status, r.approval_state?.status)}`,
             exportValue: (r) => r.progress,
           },
           {
@@ -846,8 +847,8 @@ export function WorkCommandCenterPage() {
             </Stack>
             <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
               <Chip
-                color={selected.status === "doing" && !hasActiveClaim(selected) ? "error" : statusColor[selected.status]}
-                label={claimStatusLabel(selected)}
+                color={selected.status === "doing" && !hasActiveWorkerClaim(selected, claimNow) ? "error" : statusColor[selected.status]}
+                label={workerClaimLabel(selected, statusLabel, claimNow)}
               />
               <Chip
                 variant="outlined"
@@ -951,10 +952,19 @@ export function WorkCommandCenterPage() {
                 {productionLabel(selected.production_status)}
               </Typography>
             </Box>
+            {selected.approval_state && selected.approval_state.status !== "none" && (
+              <Alert severity={selected.approval_state.status === "pending" ? "warning" : selected.approval_state.status === "approved" ? "success" : "error"}>
+                Approval: {selected.approval_state.status} · {selected.approval_state.nextGate}
+                {selected.approval_state.latest?.decision_channel && ` · ผ่าน ${selected.approval_state.latest.decision_channel}`}
+              </Alert>
+            )}
             {selected.status === "doing" && (
-              <Alert severity={hasActiveClaim(selected) ? "info" : "error"}>
-                {hasActiveClaim(selected) ? "Worker กำลังทำงานและมี Active Claim" : claimStatusLabel(selected)}
-                {selected.heartbeat_at && ` · heartbeat ล่าสุด ${formatDate(selected.heartbeat_at)}`}
+              <Alert severity={hasActiveWorkerClaim(selected, claimNow) ? "info" : "error"}>
+                {hasActiveWorkerClaim(selected, claimNow)
+                  ? "Worker กำลังทำงานและมี Active Claim"
+                  : workerClaimLabel(selected, statusLabel, claimNow)}
+                {selected.heartbeat_at &&
+                  ` · heartbeat ล่าสุด ${formatDate(selected.heartbeat_at)}`}
                 {selected.lease_expires_at &&
                   ` · lease ถึง ${formatDate(selected.lease_expires_at)}`}
               </Alert>
@@ -980,7 +990,7 @@ export function WorkCommandCenterPage() {
                 </Paper>
               </Box>
             )}
-            {selected.status === "review" && (
+            {selected.status === "review" && selected.approval_state?.status === "pending" && (
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
                 <Button
                   variant="contained"

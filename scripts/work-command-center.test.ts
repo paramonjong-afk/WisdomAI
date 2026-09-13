@@ -14,10 +14,13 @@ assert.match(source,/worker_id/)
 assert.match(source,/hasActiveWorkerClaim/)
 assert.match(source,/workerClaimLabel/)
 assert.match(source,/view\s*===\s*["']doing["'][\s\S]*?rows\.filter\(\(row\)\s*=>\s*hasActiveWorkerClaim\(row, claimNow\)\)/)
-assert.match(source,/hasActiveWorkerClaim/)
 assert.match(source,/setInterval\(\(\) => setClaimNow\(Date\.now\(\)\), 1_000\)/)
-assert.match(source,/Worker ขาดการติดต่อ/)
-assert.match(source,/const hasActiveClaim/)
+// The local hasActiveClaim/claimStatusLabel duplicate was removed during the
+// PR #78 merge in favor of the shared, already-fixed hasActiveWorkerClaim/
+// workerClaimLabel from src/services/workClaimStatus.ts (see
+// work-claim-status.test.ts for the fake-clock label coverage) -- assert the
+// consolidation instead of the old local-function name.
+assert.doesNotMatch(source,/const hasActiveClaim\b/)
 assert.match(source,/system_work_dispatch_intents/)
 assert.match(source,/ไม่พบ Worker ที่มี lease สด/)
 assert.match(source,/Dispatch Intent/)
@@ -29,6 +32,7 @@ assert.match(source,/target_decision:\s*approved \? ['"]approve['"] : ['"]reject
 assert.match(source,/target_channel:\s*['"]web['"]/)
 assert.match(source,/อนุมัติ.*บันทึก Audit/)
 assert.match(source,/production_status,owner,current_step,worker_id,heartbeat_at,lease_expires_at,approval_status/)
+assert.match(source,/heartbeat_at,lease_expires_at,approval_status,approval_fingerprint,attempt_count,worker_outcome,worker_outcome_reason,worker_outcome_at,created_at,updated_at/)
 assert.doesNotMatch(source,/select\([\s\S]*detail,production_status[\s\S]*evidence,current_step/)
 assert.match(source,/select\("detail,evidence"\)/)
 assert.match(source,/const \[detailResult, eventsResult, runsResult\] = await Promise\.all/)
