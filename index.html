@@ -2,15 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/branding/wisdom-power-system-app-icon-32.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/branding/wisdom-ai-app-icon-32.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#162544" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="Wisdom Power" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/branding/wisdom-power-system-app-icon-180.png" />
+    <meta name="apple-mobile-web-app-title" content="WisdomAI" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/branding/wisdom-ai-app-icon-180.png" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <title>ลงเวลาทำงาน | Wisdom Power</title>
+    <title>ลงเวลาทำงาน | WisdomAI</title>
     <script>
       (function () {
         const hostname = window.location.hostname
@@ -43,5 +43,21 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Register the app-shell Service Worker so Chrome/Edge (desktop and
+      // Android) recognize this site as installable and offer the native
+      // "Install app" / "Add to Home screen" prompt. Skipped on localhost
+      // dev ports so local development never runs a stale cached worker.
+      if ('serviceWorker' in navigator) {
+        const isLocalDev = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost'
+        if (!isLocalDev) {
+          window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js').catch((error) => {
+              console.error('[sw] registration failed', error)
+            })
+          })
+        }
+      }
+    </script>
   </body>
 </html>
