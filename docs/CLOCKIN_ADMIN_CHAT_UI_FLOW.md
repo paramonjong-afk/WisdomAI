@@ -21,21 +21,30 @@ flowchart TD
 
 ## Status of this document
 
-**v1.2 — Design approved (13/09/2569); corrected after automated review on PR #84.** Supersedes
-v1.1 and v1.0. The reviewer (project owner) told Claude directly, in chat, that the design is
-approved — this is the actual authorization per the "Approval mechanism" section below, given both
-by clicking "อนุมัติเป็นต้นแบบ" on the review Artifact (`approved: true`,
+**v1.3 — First real-code implementation landed (M-01a/M-01b only, PR #86).** Supersedes v1.2,
+v1.1, and v1.0. The reviewer (project owner) explicitly chose, in chat, to begin real-code
+implementation of M-01 (the mobile clock-in page) — this is the authorization for the change
+recorded below, per the same "Approval mechanism" as v1.2.
+
+**v1.2 — Design approved (13/09/2569); corrected after automated review on PR #84.** The reviewer
+(project owner) told Claude directly, in chat, that the design is approved — this is the actual
+authorization per the "Approval mechanism" section below, given both by clicking
+"อนุมัติเป็นต้นแบบ" on the review Artifact (`approved: true`,
 `approvedAt: 2026-09-12T20:54:04.917Z`) and by explicitly confirming in chat afterward
 ("ทำไงต่อ อนุมัตแล้ว", then choosing to start implementation).
 
-**Implementation into the real WisdomAI-React codebase has not started yet.** This document
-records what was approved and corrects the screen inventory to match the final reviewed design.
-v1.2 additionally corrects four inaccuracies an automated reviewer (`chatgpt-codex-connector`)
-found in v1.1 on PR #84 — a claimed in-app review surface and screenshot set that were never built,
-a reference to a flow document that does not exist in this repository, a missing operational
-contract, and an impossible rollback claim. See Changelog. A separate follow-up implementation flow
-document is still expected before code changes land, per "Next step after approval" below — this
-revision is a design-record correction, not that follow-up document.
+**Implementation status:** M-01a and M-01b (the mobile clock-in home-screen status card described
+in the v1.3 changelog entry below) have landed in the real WisdomAI-React codebase via PR #86.
+M-01c/d/e and M-02/M-03/M-04/D-01/D-02/D-03/D-04 have not — those screens still only exist as the
+approved design record on the two Claude Artifacts referenced below. This document records what
+was approved and corrects the screen inventory to match the final reviewed design. v1.2 additionally
+corrects four inaccuracies an automated reviewer (`chatgpt-codex-connector`) found in v1.1 on
+PR #84 — a claimed in-app review surface and screenshot set that were never built, a reference to a
+flow document that does not exist in this repository, a missing operational contract, and an
+impossible rollback claim. See Changelog. A separate follow-up implementation flow document is
+still expected before the remaining screens' code changes land, per "Next step after approval"
+below — v1.2 was a design-record correction, not that follow-up document; v1.3 records the first
+actual implementation slice against the operational contract v1.2 already established.
 
 Existing behavior is still unchanged: `TIME_TRACKING_FLOW.md` (ลงเวลาบนมือถือ, เขียนผ่าน
 `attendance-clock` เข้า `attendance_sessions`) and `CHAT_ATTENDANCE_BRIDGE_FLOW.md` (คำสั่งลงเวลาผ่าน
@@ -82,7 +91,7 @@ document must not claim it exists.
 
 | ID | Screen | Notes |
 | --- | --- | --- |
-| M-01 | ลงเวลา — หน้าหลัก / ตรวจ GPS / ถ่ายรูป / สำเร็จ | full clock-in flow, mobile. Home-screen messaging contradiction fixed (M-01a); progress bar added during the GPS check (M-01b). |
+| M-01 | ลงเวลา — หน้าหลัก / ตรวจ GPS / ถ่ายรูป / สำเร็จ | full clock-in flow, mobile. Home-screen messaging contradiction fixed (M-01a); progress bar added during the GPS check (M-01b). **M-01a/M-01b implemented in code (PR #86, v1.3 changelog below)** — as an eager, display-only status card on the existing home screen, not yet the full 5-screen mockup layout. M-01c/d/e (in-site confirmation, camera, success as dedicated screens) remain design-only. |
 | M-02 | เวลาของฉัน — วันนี้ / สัปดาห์นี้ / รอบจ่ายเงิน | hours summary, ring chart, days-worked headline stat, 3-column day rows (เข้า/วันที่/ออก), weekly bar chart, history. "เดือนนี้" reframed as "รอบจ่ายเงิน" (pay-cutoff period) with prev/next controls. |
 | M-03 | แอดมิน — ภาพรวม / อนุมัติ / เมนู | mobile admin, 3 tabs. The GPS clock-in write path already has written, code-verified flow docs (`TIME_TRACKING_FLOW.md`, `CHAT_ATTENDANCE_BRIDGE_FLOW.md`); this admin screen itself has no separate flow spec yet. |
 | M-04 | แชท — รายการห้อง / สนทนา | mobile chat, incl. attendance task card |
@@ -173,6 +182,63 @@ work must be run and confirmed by the developer themselves after each change is 
 document does not claim that verification has happened.
 
 ## Changelog
+
+### v1.3 — 2026-09-13 (13/09/2569) — First M-01 implementation (M-01a/M-01b), corrected before merge
+
+- **Rationale:** the reviewer explicitly chose to begin real-code implementation of M-01 (the
+  mobile clock-in page) rather than continue with design-only documentation. Per the Operational
+  contract in v1.2, M-01 is scoped as UI-only with no new inputs/outputs/states/roles/integrations
+  — this entry implements the smallest slice that satisfies the two concrete, already-approved
+  review comments (M-01a, M-01b) against the *existing* `src/pages/TimeTracking/index.tsx`
+  component, rather than rebuilding the page as the mockup's five dedicated full-screen states
+  (home / requesting / in-site / camera / success). That larger rebuild remains design-only and is
+  not part of this entry.
+- **What changed (code, `src/pages/TimeTracking/index.tsx`, PR #86):**
+  1. Added a passive, display-only "eager GPS status" card to the existing mobile home screen. It
+     silently checks geolocation once the assigned/open-session site is known and shows one
+     non-contradictory status: checking (with a progress bar, per M-01b), in-site, out-of-site,
+     GPS-inaccurate, or check-failed — each with a "ตำแหน่งอัปเดตล่าสุด" timestamp. This replaces the
+     old ambiguous "พบปัญหา GPS?" concept from the pre-fix mockup (M-01a) with an honest status that
+     is never shown alongside a contradicting "in area" message.
+  2. The card is tap/keyboard-activatable to re-check location on demand.
+  3. **Fixed before merge, from `chatgpt-codex-connector`'s review of the first commit (71b1df0) on
+     PR #86** — confirmed against `supabase/functions/attendance-clock/index.ts` on a fresh
+     read-only clone:
+     - The eager check now gates on the `md` breakpoint (`useMediaQuery(theme.breakpoints.down('md'))`)
+       so desktop sessions never trigger an unexpected browser geolocation permission prompt for a
+       card that is only ever rendered on mobile.
+     - The out-of-site and (new) inaccurate-GPS status copy no longer promises an outcome ("will be
+       accepted and reviewed later") — the employee's client never fetches the company's
+       `attendance_gps_error_policies`, so it cannot know whether `attendance-clock` will allow,
+       review, or reject the record. The copy now states the fact only and says the system will
+       check policy on confirm.
+     - Out-of-site and GPS-inaccurate are now distinguished as separate statuses, matching
+       `attendance-clock`'s own priority exactly (a fix outside the site radius is `outside_site`
+       regardless of accuracy; only a fix *within* radius can be flagged as merely inaccurate) —
+       previously a single `withinSite` boolean conflated the two, which could show "out of site"
+       with a near-zero distance for an in-radius employee with a noisy GPS fix.
+     - The status re-check effect now depends on the target site(s)' actual id/coordinates/radius,
+       not just the array length, so a same-count site swap or an in-place geometry update
+       triggers a fresh check instead of silently keeping a stale result.
+- **Impact:** front-end only, one file. No change to `attendance-clock`'s inputs/outputs, to
+  `attendance_sessions`, to roles/permissions, or to any integration — `prepareAttendance()` (the
+  code path that actually performs a clock-in/out) is untouched and still re-verifies GPS fresh at
+  button-press time; the new card only ever reads location for display. No new states per the
+  attendance state machine in `TIME_TRACKING_FLOW.md`.
+- **Migration:** none — no schema or data change.
+- **Verification:** prepared and reviewed in a read-only sandbox clone of this repository (no push
+  access, per this project's standing platform constraint) — every line of the diff was checked
+  against a fresh `origin/main` fetch before either commit was proposed (avoiding the branding
+  regression class of mistake recorded in `claude/PWA_INSTALL_AND_PRODUCTION_LINKS.md`), a
+  brace/paren balance check was run over the full file, and the out-of-site/inaccurate priority
+  logic was checked line-by-line against the live `attendance-clock` source. As this session has no
+  shell access on the developer's machine, `npm run build` and `npm run lint` still need to be run
+  and confirmed by the developer, and the mobile clock-in page should be smoke-tested on an actual
+  phone (or mobile viewport) for all five status states before/soon after merge, per the PR's test
+  plan checklist.
+- **Rollback:** revert the PR #86 commit(s) on `main`. The change is additive UI only (one new
+  status card, hidden entirely below the `md` breakpoint) with no data or schema touched, so
+  reverting has no side effects on any existing record or other screen.
 
 ### v1.2 — 2026-09-13 (13/09/2569) — Corrections from automated PR review
 
