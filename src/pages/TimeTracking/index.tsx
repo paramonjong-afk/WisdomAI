@@ -3,7 +3,7 @@ import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
 import GpsFixedRoundedIcon from '@mui/icons-material/GpsFixedRounded'
 import LocationOnRoundedIcon from '@mui/icons-material/LocationOnRounded'
 import PhotoCameraRoundedIcon from '@mui/icons-material/PhotoCameraRounded'
-import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress, MenuItem, Paper, Stack, TextField, Typography, useMediaQuery, useTheme } from '@mui/material'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
 import { StandardDataTable } from '../../components/StandardDataTable'
@@ -22,7 +22,7 @@ type LineGroup = { line_group_id:string; display_name:string|null }
 type GpsPolicy={id:string;error_code:string;action:'allow'|'review'|'reject';require_selfie:boolean;require_reason:boolean;notify_line:boolean}
 type LocationCheck = { latitude:number|null; longitude:number|null; accuracy:number|null; distance:number|null; site:Site; gpsErrorCode?:string; gpsErrorMessage?:string }
 type ResultDialog = { open:boolean; success:boolean; title:string; detail:string }
-type EagerGpsStatus = 'idle'|'checking'|'in-site'|'out-of-site'|'error'
+type EagerGpsStatus = 'idle'|'checking'|'in-site'|'out-of-site'|'inaccurate'|'error'
 type EagerGps = { status:EagerGpsStatus; distance:number|null; site:Site|null; accuracy:number|null }
 type AttendanceSettings = {
   max_gps_accuracy_meters:number
@@ -105,6 +105,12 @@ export function TimeTrackingPage() {
   usePageTitle('ลงเวลาทำงาน')
   const { user, profile, currentCompany } = useAuth()
   const isManager = profile?.role === 'admin' || profile?.role === 'manager'
+  const theme = useTheme()
+  // The eager GPS status card only renders below the `md` breakpoint (see
+  // the mobile-only Stack it lives in further down). Gate the geolocation
+  // request itself on the same breakpoint so a desktop session never shows
+  // an unexpected location-permission prompt for a card it can't see.
+  const isMobileViewport = useMediaQuery(theme.breakpoints.down('md'))
   const [sites, setSites] = useState<Site[]>([])
   const [sessions, setSessions] = useState<Attendance[]>([])
   const [projects, setProjects] = useState<Project[]>([])
@@ -323,7 +329,19 @@ export function TimeTrackingPage() {
         return {
           color:'warning.main' as const, icon:<LocationOnRoundedIcon fontSize="small" />,
           text: eagerGps.distance !== null ? `อยู่นอกพื้นที่ที่กำหนด · ห่างประมาณ ${Math.round(eagerGps.distance).toLocaleString('th-TH')} เมตร` : 'อยู่นอกพื้นที่ที่กำหนด',
-          sub: eagerGpsCheckedLabel ? `${eagerGpsCheckedLabel} · ลงเวลาได้ตามปกติ ระบบจะส่งให้ตรวจสอบภายหลัง` : 'ลงเวลาได้ตามปกติ ระบบจะส่งให้ตรวจสอบภายหลัง',
+          // Do not promise an outcome here: whether this is accepted, sent
+          // for review, or rejected outright depends on the company's
+          // "outside_site" GPS policy, which the employee's client never
+          // fetches (attendance-clock decides at write time). State the
+          // fact only.
+          sub: eagerGpsCheckedLabel ? `${eagerGpsCheckedLabel} · ระบบจะตรวจสอบสิทธิ์ตามนโยบายบริษัทเมื่อกดยืนยัน` : 'ระบบจะตรวจสอบสิทธิ์ตามนโยบายบริษัทเมื่อกดยืนยัน',
+          retry:true,
+        }
+      case 'inaccurate':
+        return {
+          color:'warning.main' as const, icon:<GpsFixedRoundedIcon fontSize="small" />,
+          text: eagerGps.accuracy !== null ? `สัญญาณ GPS ไม่แม่นยำพอ · คลาดเคลื่อนประมาณ ${Math.round(eagerGps.accuracy).toLocaleString('th-TH')} เมตร` : 'สัญญาณ GPS ไม่แม่นยำพอ',
+          sub: eagerGpsCheckedLabel ? `${eagerGpsCheckedLabel} · ระบบจะตรวจสอบสิทธิ์ตามนโยบายบริษัทเมื่อกดยืนยัน` : 'ระบบจะตรวจสอบสิทธิ์ตามนโยบายบริษัทเมื่อกดยืนยัน',
           retry:true,
         }
       case 'error':
@@ -356,8 +374,17 @@ export function TimeTrackingPage() {
       const nearest = targetSites
         .map((site) => ({ site, distance: distanceMeters(position.coords.latitude, position.coords.longitude, site.latitude, site.longitude) }))
         .sort((a, b) => a.distance - b.distance)[0]
-      const withinSite = position.coords.accuracy <= settings.max_gps_accuracy_meters && nearest.distance <= nearest.site.radius_meters
-      setEagerGps({ status: withinSite ? 'in-site' : 'out-of-site', distance: nearest.distance, site: nearest.site, accuracy: position.coords.accuracy })
+      // Mirror attendance-clock's own priority exactly (see
+      // supabase/functions/attendance-clock/index.ts): a fix outside the
+      // site radius is always "outside_site" regardless of accuracy — only
+      // a fix that IS within radius can be flagged as merely inaccurate.
+      // Conflating the two here would tell an in-radius employee with a
+      // noisy GPS fix that they are "out of site" with a near-zero
+      // distance, which does not match what the backend will actually do.
+      const outsideSite = nearest.distance > nearest.site.radius_meters
+      const inaccurate = !outsideSite && position.coords.accuracy > settings.max_gps_accuracy_meters
+      const status: EagerGpsStatus = outsideSite ? 'out-of-site' : inaccurate ? 'inaccurate' : 'in-site'
+      setEagerGps({ status, distance: nearest.distance, site: nearest.site, accuracy: position.coords.accuracy })
     } catch {
       setEagerGps({ status:'error', distance:null, site:null, accuracy:null })
     } finally {
@@ -365,16 +392,27 @@ export function TimeTrackingPage() {
     }
   }, [settings.max_gps_accuracy_meters])
 
+  const eagerGpsTargetSites = openSession?.project_sites ? [openSession.project_sites] : sites
+  // Depend on the actual site identities/geometry, not just the array
+  // length — a focus refresh that swaps in a different same-count site
+  // list, or updates coordinates/radius in place, must still trigger a
+  // fresh check instead of silently keeping the stale result.
+  const eagerGpsTargetSignature = eagerGpsTargetSites
+    .map((site) => `${site.id}:${site.latitude}:${site.longitude}:${site.radius_meters}`)
+    .join('|')
+
   useEffect(() => {
+    // The status card only renders on mobile viewports (see the JSX
+    // below) — never request geolocation for a card the current viewport
+    // can't show.
+    if (!isMobileViewport) return
     if (completedToday) return
-    const targetSites = openSession?.project_sites ? [openSession.project_sites] : sites
-    if (targetSites.length === 0) return
-    void checkLocationEagerly(targetSites)
-    // Re-run only when the relevant target site set actually changes
-    // (session opened/closed, or the assigned-site list loads) — not on
-    // every render.
+    if (eagerGpsTargetSites.length === 0) return
+    void checkLocationEagerly(eagerGpsTargetSites)
+    // Re-run only when the mobile/desktop breakpoint, completion state, or
+    // the actual target site(s) change — not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [completedToday, openSession?.id, sites.length])
+  }, [isMobileViewport, completedToday, eagerGpsTargetSignature])
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop())
@@ -821,11 +859,11 @@ export function TimeTrackingPage() {
           <Box
             role={eagerGpsCard.retry ? 'button' : undefined}
             tabIndex={eagerGpsCard.retry ? 0 : undefined}
-            onClick={eagerGpsCard.retry ? () => void checkLocationEagerly(openSession?.project_sites ? [openSession.project_sites] : sites) : undefined}
+            onClick={eagerGpsCard.retry ? () => void checkLocationEagerly(eagerGpsTargetSites) : undefined}
             onKeyDown={eagerGpsCard.retry ? (event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault()
-                void checkLocationEagerly(openSession?.project_sites ? [openSession.project_sites] : sites)
+                void checkLocationEagerly(eagerGpsTargetSites)
               }
             } : undefined}
             sx={{
