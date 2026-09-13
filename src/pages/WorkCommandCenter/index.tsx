@@ -168,11 +168,14 @@ const hasExpiredLease = (item: Item) =>
   Boolean(item.lease_expires_at) &&
   new Date(item.lease_expires_at as string).getTime() <= Date.now();
 const hasActiveClaim = (item: Item) =>
+  // Same claim protocol as workClaimStatus.ts's hasActiveWorkerClaim: the
+  // lease (worker_id + unexpired lease_expires_at) is the sole authority.
+  // heartbeat_at only updates on a current_step change, not on a fixed
+  // cadence, so it must not gate "active" here either.
   item.status === "doing" &&
   Boolean(item.worker_id) &&
-  Boolean(item.lease_expires_at && item.heartbeat_at) &&
-  new Date(item.lease_expires_at as string).getTime() > Date.now() &&
-  new Date(item.heartbeat_at as string).getTime() > Date.now() - 10 * 60_000;
+  Boolean(item.lease_expires_at) &&
+  new Date(item.lease_expires_at as string).getTime() > Date.now();
 const claimStatusLabel = (item: Item) => {
   if (hasActiveClaim(item)) return "กำลังทำจริง";
   if (item.status !== "doing") return statusLabel[item.status];
