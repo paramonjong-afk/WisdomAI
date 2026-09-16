@@ -1376,3 +1376,22 @@ flowchart LR
 - **Reason/impact:** zero active runs no longer implies a Worker outage when every open item is waiting for approval or blocker remediation. The Work Command Center names each lane and ready rows state whether they are approved.
 - **Data/audit:** `202609160005_reconcile_sys004_resolved_children.sql` closes only the two historical SYS-004 repair children proven superseded/completed by PR #96 and Production revision `601ddf7`; no task, incident, run or event is deleted.
 - **Verification/rollback:** runner no-op smoke, targeted UI/sentinel contracts, migration replay/dry-run, typecheck, lint, build and authenticated queue counts. Revert the UI or restore child states from append-only events; do not revert the healthy SYS-004 sentinel.
+
+## 2026-09-16 — Controller queue classification and Ready dependency plan v2.4
+
+```mermaid
+flowchart LR
+  B[30 Blocked items] --> C{Management lane}
+  C --> E[Evidence reconcile]
+  C --> T[Technical execution]
+  C --> A[Authority or access]
+  R[9 critical Ready items] --> P1[Phase 1 Posting contract]
+  P1 --> P2[Phase 2 Approval policy]
+  P2 --> P3[Phase 3 Destination gateways]
+  P3 --> P4[Phase 4 Reversal]
+  P4 --> P5[Phase 5 Filter integration]
+```
+
+- **Reason/impact:** removes ambiguous backlog management and prevents nine critical items from being developed in incompatible parallel branches.
+- **Data/state:** records `management_lane`, exact next management action, phase and dependencies in existing `context_manifest`. Status, approval, claim, retry budget, business data and audit history remain unchanged.
+- **Migration/verification/rollback:** `202609160006_classify_control_queue_and_ready_plan.sql`; guarded contract, migration replay/dry-run and authenticated metadata/count smoke. Roll back only the added planning keys using a corrective migration.
