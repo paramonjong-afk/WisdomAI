@@ -7,6 +7,34 @@ const expectedSecret = Deno.env.get('AUTOMATION_WORKER_SECRET')
 const headers = { 'content-type': 'application/json; charset=utf-8' }
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers })
 
+type ModelTier = 'economy'|'balanced'|'reasoning'
+type QaTier = 'automated'|'standard'|'independent'|'human'
+const defaultRoute = (category: string, risk: string) => {
+  const high = risk === 'critical' || ['tenant','security','migration'].includes(category)
+  const low = risk === 'low' && ['operations','report','audit'].includes(category)
+  return {
+    model_tier: (high ? 'reasoning' : low ? 'economy' : 'balanced') as ModelTier,
+    model_name: null as string | null,
+    token_budget_input: high ? 48000 : low ? 12000 : 24000,
+    token_budget_output: high ? 12000 : low ? 3000 : 6000,
+    token_soft_limit_percent: 80,
+    qa_tier: (high ? 'independent' : low ? 'automated' : 'standard') as QaTier,
+  }
+}
+
+async function routeWork(item: Record<string, unknown>) {
+  const requestedCategory = String(item.category || 'operations')
+  const requestedRisk = String(item.risk || 'medium')
+  const category = ['operations','automation','line','report','audit','tenant','security','migration'].includes(requestedCategory) ? requestedCategory : 'operations'
+  const risk = ['low','medium','high','critical'].includes(requestedRisk) ? requestedRisk : 'medium'
+  const companyId = typeof item.company_id === 'string' ? item.company_id : null
+  let query = admin.from('system_model_policies').select('model_tier,model_name,token_budget_input,token_budget_output,token_soft_limit_percent,qa_tier')
+    .eq('enabled', true).or(`category.eq.${category},category.is.null`).or(`risk.eq.${risk},risk.is.null`)
+  query = companyId ? query.or(`company_id.eq.${companyId},company_id.is.null`) : query.is('company_id', null)
+  const { data } = await query.order('company_id', { ascending: false, nullsFirst: false }).order('category', { ascending: false, nullsFirst: false }).order('risk', { ascending: false, nullsFirst: false }).limit(1).maybeSingle()
+  return { ...defaultRoute(category, risk), ...(data ?? {}) }
+}
+
 type WorkerOutcome = 'acknowledged'|'claimed'|'blocked'|'completed'|'no_output'
 type Body = {
   action?: 'status'|'claim'|'heartbeat'|'finish'|'retry_runner_failure'|'inspect_line_voice_uat'|'complete_line_voice_uat'|'start_specific'|'reset_retry'
@@ -29,6 +57,9 @@ type Body = {
   new_information_hash?: string
   token_input?: number
   token_output?: number
+  estimated_cost_usd?: number
+  actual_cost_usd?: number
+  cache_hit?: boolean
   lease_minutes?: number
 }
 
@@ -43,7 +74,7 @@ Deno.serve(async request => {
 
   if (body.action === 'status') {
     const [{ data: items, error: itemError }, { data: runs, error: runError }] = await Promise.all([
-      admin.from('system_work_items').select('work_key,title,status,progress,risk,production_status,approval_status,approval_scope,approved_at,approval_channel,worker_id,heartbeat_at,lease_expires_at,current_step,attempt_count,error_fingerprint,worker_outcome,worker_outcome_reason,worker_outcome_at,requirement_version,controller_owner,execution_owner,qa_owner,control_state,checkpoint,context_manifest,new_information_hash,updated_at').order('work_key'),
+      admin.from('system_work_items').select('work_key,title,status,progress,risk,production_status,approval_status,approval_scope,approved_at,approval_channel,worker_id,heartbeat_at,lease_expires_at,current_step,attempt_count,error_fingerprint,worker_outcome,worker_outcome_reason,worker_outcome_at,requirement_version,controller_owner,execution_owner,qa_owner,control_state,checkpoint,context_manifest,new_information_hash,model_tier,model_name,token_budget_input,token_budget_output,token_input_total,token_output_total,estimated_cost_usd,actual_cost_usd,qa_tier,escalation_level,cache_hit,prompt_version,output_schema_version,updated_at').order('work_key'),
       admin.from('system_worker_runs').select('id,work_key,worker_id,status,current_step,progress,outcome,outcome_reason,started_at,heartbeat_at,finished_at').order('started_at', { ascending: false }).limit(100),
     ])
     if (itemError || runError) return json({ error: (itemError ?? runError)?.message }, 500)
@@ -86,7 +117,20 @@ Deno.serve(async request => {
       target_worker: workerId, lease_minutes: Math.min(120, Math.max(5, Number(body.lease_minutes) || 15)),
     })
     if (error) return json({ error: error.message }, 500)
-    return json({ item: data?.[0] ?? null })
+    const item = data?.[0] as Record<string, unknown> | undefined
+    if (!item) return json({ item: null })
+    const route = await routeWork(item)
+    const runRoute = {
+      model_tier: route.model_tier, model_name: route.model_name,
+      token_budget_input: route.token_budget_input, token_budget_output: route.token_budget_output,
+      prompt_version: 'work-control-v2', output_schema_version: '2',
+    }
+    const [itemRouteWrite, runRouteWrite] = await Promise.all([
+      admin.from('system_work_items').update(route).eq('work_key', item.work_key),
+      admin.from('system_worker_runs').update(runRoute).eq('id', item.run_id),
+    ])
+    const routing_warning = itemRouteWrite.error?.message || runRouteWrite.error?.message || null
+    return json({ item: { ...item, ...route, prompt_version: 'work-control-v2', output_schema_version: '2' }, routing_warning })
   }
 
   if (body.action === 'retry_runner_failure') {
@@ -143,7 +187,22 @@ Deno.serve(async request => {
       lease_minutes: Math.min(120, Math.max(5, Number(body.lease_minutes) || 60)),
     })
     if (error) return json({ error: error.message }, 500)
-    return json({ item: data?.[0] ?? null })
+    const item = data?.[0] as Record<string, unknown> | undefined
+    if (!item) return json({ item: null })
+    const route = await routeWork(item)
+    const runRoute = {
+      model_tier: route.model_tier, model_name: route.model_name,
+      token_budget_input: route.token_budget_input, token_budget_output: route.token_budget_output,
+      prompt_version: 'work-control-v2', output_schema_version: '2',
+    }
+    const [itemRouteWrite, runRouteWrite] = await Promise.all([
+      admin.from('system_work_items').update(route).eq('work_key', item.work_key),
+      admin.from('system_worker_runs').update(runRoute).eq('id', item.run_id),
+    ])
+    return json({
+      item: { ...item, ...route, prompt_version: 'work-control-v2', output_schema_version: '2' },
+      routing_warning: itemRouteWrite.error?.message || runRouteWrite.error?.message || null,
+    })
   }
 
   if (!body.run_id) return json({ error: 'run_id_required' }, 400)
@@ -178,7 +237,15 @@ Deno.serve(async request => {
       target_token_output: Number.isFinite(body.token_output) ? body.token_output : null,
     })
     if (error) return json({ error: error.message }, 500)
-    return json({ updated: data === true })
+    const { error: costError } = await admin.rpc('record_system_work_cost_v2', {
+      target_run: body.run_id,target_worker: workerId,
+      target_token_input: Math.max(0,Number(body.token_input)||0),target_token_output: Math.max(0,Number(body.token_output)||0),
+      target_estimated_cost: Math.max(0,Number(body.estimated_cost_usd)||0),target_actual_cost: Math.max(0,Number(body.actual_cost_usd)||0),
+      target_cache_hit: body.cache_hit === true,
+    })
+    // The work item is already terminal at this point. A telemetry failure must
+    // not make the runner retry the completed operation and duplicate effects.
+    return json({ updated: data === true, cost_recorded: !costError, cost_warning: costError?.message ?? null })
   }
   return json({ error: 'invalid_action' }, 400)
 })

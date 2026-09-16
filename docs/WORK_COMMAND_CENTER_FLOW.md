@@ -41,7 +41,7 @@ flowchart LR
 
 # Work Command Center Flow
 
-Work Control Core v1 adds requirement version, Controller/Execution/QA owners, explicit control state and the latest durable checkpoint to the Drawer. Numeric progress remains a secondary indicator; milestone, checkpoint, blocker and next action are the operational evidence. See `docs/WORK_CONTROL_CORE_FLOW.md`.
+Work Control Core v2 also shows the selected model tier, optional concrete model, token budget/usage, QA tier, escalation, cache result, prompt/schema versions and aggregate cost. These values are operational telemetry only: they do not replace the task, approval, claim or Audit ledgers. See `docs/WORK_CONTROL_CORE_FLOW.md`.
 
 ## Purpose
 
@@ -60,7 +60,7 @@ the UI does not change business data.
 - **List output:** status counts, a paginated table of current work-item
   summaries, and a readable Worker outcome.
 - **Detail output:** full detail/evidence, worker lease state, recent worker
-  runs, and the latest 100 audit events for the selected work key.
+  runs, model/token/QA/cost controls, and the latest 100 audit events for the selected work key.
 - **Mutation output:** existing RPC result, refreshed list, and audit/event
   record; this worker-progress UI adds no new mutation.
   `system_work_dispatch_intents`, realtime changes, Health Monitor, and explicit
