@@ -33,6 +33,49 @@ export type ChequePaymentEvidence = {
   cheque_matched_entity_type: string | null
 }
 
+export type PostingApprovalPreview = {
+  document: {
+    id: string
+    document_number: string | null
+    document_date: string | null
+    vendor_name: string | null
+    vendor_tax_id: string | null
+    subtotal: number | null
+    vat_amount: number | null
+    withholding_tax_amount: number | null
+    total_amount: number | null
+    currency: string
+    posting_status: string
+    matching_status: string
+    matched_document_ids: string[]
+    risk_flags: string[]
+    analysis_confidence: number | null
+    extraction_dimensions: Record<string, unknown>
+    projects: { name: string; code: string | null } | null
+  }
+  lines: Array<{
+    id: string
+    line_number: number
+    description: string
+    quantity: number | null
+    unit: string | null
+    unit_price: number | null
+    line_amount: number | null
+    item_type: string
+    account_code: string | null
+    account_name: string | null
+  }>
+  journal: Array<{
+    id: string
+    line_number: number
+    account_code: string
+    account_name: string
+    debit: number
+    credit: number
+    description: string | null
+  }>
+}
+
 export type DocumentFlowScope = {
   channel?: 'all' | 'line' | 'telegram' | 'web_chat' | 'hr' | 'unknown'
   date?: string
@@ -397,6 +440,34 @@ export const documentFlowGateway = {
     return supabase.from('document_flow_destination_tasks')
       .select('id,item_id,department,required,status,assigned_to,note,version,created_at,updated_at')
       .eq('item_id', itemId).order('created_at')
+  },
+
+  async loadPostingApprovalPreview(documentId: string) {
+    const [documentResult, linesResult, journalResult] = await Promise.all([
+      supabase.from('accounting_documents').select(
+        'id,document_number,document_date,vendor_name,vendor_tax_id,subtotal,vat_amount,withholding_tax_amount,total_amount,currency,posting_status,matching_status,matched_document_ids,risk_flags,analysis_confidence,extraction_dimensions,projects(name,code)',
+      ).eq('id', documentId).maybeSingle(),
+      supabase.from('accounting_document_lines').select(
+        'id,line_number,description,quantity,unit,unit_price,line_amount,item_type,account_code,account_name',
+      ).eq('document_id', documentId).order('line_number'),
+      supabase.from('accounting_draft_entries').select(
+        'id,line_number,account_code,account_name,debit,credit,description',
+      ).eq('document_id', documentId).order('line_number'),
+    ])
+    const error = documentResult.error ?? linesResult.error ?? journalResult.error
+    return {
+      data: error || !documentResult.data ? null : {
+        document: {
+          ...documentResult.data,
+          projects: Array.isArray(documentResult.data.projects)
+            ? documentResult.data.projects[0] ?? null
+            : documentResult.data.projects,
+        },
+        lines: linesResult.data ?? [],
+        journal: journalResult.data ?? [],
+      } as unknown as PostingApprovalPreview,
+      error,
+    }
   },
 
   async routeMultiDestination(input: { itemId: string; expectedVersion: number; eventKey: string; documentType: string; departments: string[]; requiredDepartments: string[]; note?: string | null }) {

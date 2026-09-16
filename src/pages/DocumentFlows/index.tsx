@@ -20,7 +20,7 @@ import { userError } from '../../utils/userError'
 import { IntakeRoomPanel, type IntakeRoomTableTools } from '../IntakeRoom'
 import { useAuth } from '../../hooks/useAuth'
 import { runWithMutationAttempt } from '../../utils/mutationAttemptRunner'
-import { documentFlowGateway, type DocumentFlowScope, type OmniFilterTaskRow, type TransferSlipParties } from '../../services/documentFlowGateway'
+import { documentFlowGateway, type DocumentFlowScope, type OmniFilterTaskRow, type PostingApprovalPreview, type TransferSlipParties } from '../../services/documentFlowGateway'
 
 type Flow = 'intake' | 'filter' | 'posting'
 type ViewMode = 'intake_room' | 'omni_filter' | 'hr_confirmation' | 'filter' | 'task_types'
@@ -128,11 +128,13 @@ const omniTaskStatusLabels: Record<string, string> = { queued: 'รอคัด�
 const actionLabels: Record<string, string> = {
   route_filter: 'ส่งเข้า Filter', request_classification: 'ส่งกลับคัดแยก', request_correction: 'ส่งกลับแก้ไข',
   ready_posting: 'ส่งเข้า Posting', approve: 'อนุมัติเข้าคิว Gateway', reject: 'ไม่อนุมัติ', retry: 'ลองใหม่',
+  request_information: 'ขอข้อมูลเพิ่มเติม', resubmit_information: 'ส่งข้อมูลกลับเพื่อรออนุมัติ',
 }
 const stateLabels: Record<string, string> = {
   received: 'รับเข้าแล้ว', ai_processing: 'AI กำลังวิเคราะห์', awaiting_classification: 'รอคัดแยก',
   validating: 'กำลังตรวจละเอียด', needs_correction: 'รอแก้ไข', duplicate_hold: 'พักเอกสารซ้ำ',
   ready_for_posting: 'พร้อมส่ง Posting', destination_in_progress: 'กำลังดำเนินงานปลายทาง', awaiting_approval: 'รออนุมัติ',
+  information_requested: 'รอข้อมูลจากเจ้าของต้นทาง',
   approved_waiting_gateway: 'อนุมัติแล้ว—รอ Gateway', posting: 'กำลังบันทึกปลายทาง', posted: 'บันทึกแล้ว',
   rejected: 'ไม่อนุมัติ', failed: 'ทำงานไม่สำเร็จ', dismissed: 'ไม่นำมาใช้',
 }
@@ -244,6 +246,8 @@ export function DocumentFlowsPage() {
   const [previewIndex, setPreviewIndex] = useState(0)
   const [transferSlipParties, setTransferSlipParties] = useState<TransferSlipParties | null>(null)
   const [transferSlipPartiesMessage, setTransferSlipPartiesMessage] = useState('')
+  const [postingPreview, setPostingPreview] = useState<PostingApprovalPreview | null>(null)
+  const [postingPreviewMessage, setPostingPreviewMessage] = useState('')
   const [events, setEvents] = useState<FlowEvent[]>([])
   const [globalFilterOpen, setGlobalFilterOpen] = useState(false)
   const intakeTableToolsRef = useRef<IntakeRoomTableTools | null>(null)
@@ -447,6 +451,20 @@ export function DocumentFlowsPage() {
     }
   }
 
+  const loadPostingPreview = async (item: FlowItem) => {
+    setPostingPreview(null)
+    setPostingPreviewMessage('')
+    if (item.current_flow !== 'posting' || !item.accounting_document_id) return
+    setPostingPreviewMessage('กำลังโหลด Transaction Preview…')
+    const result = await documentFlowGateway.loadPostingApprovalPreview(item.accounting_document_id)
+    if (result.error || !result.data) {
+      setPostingPreviewMessage(`โหลด Transaction Preview ไม่สำเร็จ: ${userError(result.error ?? 'ไม่พบเอกสารบัญชี')}`)
+      return
+    }
+    setPostingPreview(result.data)
+    setPostingPreviewMessage('')
+  }
+
   const transition = async (item: FlowItem, action: string) => {
     const request = {
       item_id: item.id,
@@ -475,6 +493,7 @@ export function DocumentFlowsPage() {
           action,
           expectedVersion: item.version,
           eventKey: crypto.randomUUID(),
+          note: routeNote.trim() || null,
         }),
         errorAction: 'เปลี่ยนสถานะไม่สำเร็จ',
         errorCode: 'UNHANDLED',
@@ -639,6 +658,14 @@ export function DocumentFlowsPage() {
     return status === 'all' ? byDepartment : byDepartment.filter((row) => row.state === status)
   }, [destinationDepartment, flow, normalizedTypeFilter, rows, status])
   const activePreview = previewFiles[previewIndex] ?? null
+  const postingJournalDebit = postingPreview?.journal.reduce((sum, line) => sum + Number(line.debit), 0) ?? 0
+  const postingJournalCredit = postingPreview?.journal.reduce((sum, line) => sum + Number(line.credit), 0) ?? 0
+  const postingApprovalReady = Boolean(postingPreview
+    && postingPreview.lines.length > 0
+    && postingPreview.journal.length > 0
+    && Math.abs(postingJournalDebit - postingJournalCredit) < .005
+    && postingPreview.document.matching_status === 'complete'
+    && postingPreview.document.posting_status !== 'posted')
 
   const loadTransferSlipParties = useCallback(async (item: FlowItem) => {
     setTransferSlipParties(null)
@@ -765,6 +792,7 @@ export function DocumentFlowsPage() {
         setNewWorkPackageName('')
         setNewWorkPackageDetail('')
         void loadTransferSlipParties(row)
+        void loadPostingPreview(row)
       }}
       hideBuiltInToolbarActions
       hideToolbar
@@ -817,7 +845,8 @@ export function DocumentFlowsPage() {
         { id: 'version', label: 'Version', minWidth: 80, render: (row) => `v${row.version}`, sortValue: (row) => row.version },
         { id: 'actions', label: 'ดำเนินการ', minWidth: 250, render: (row) => <Stack direction="row" spacing={.5} onClick={(event) => event.stopPropagation()}>
           <Tooltip title="ดู Timeline"><IconButton size="small" onClick={() => void openTimeline(row)}><HistoryOutlinedIcon fontSize="small" /></IconButton></Tooltip>
-          {availableActions(row).map((action) => <Button key={action} size="small" variant={action === 'approve' || action === 'route_filter' ? 'contained' : 'outlined'} startIcon={<PlayArrowOutlinedIcon />} disabled={workingId === row.id} onClick={() => void transition(row, action)}>{actionLabels[action]}</Button>)}
+          {(row.current_flow === 'posting' && row.state === 'awaiting_approval' ? [] : availableActions(row)).map((action) => <Button key={action} size="small" variant={action === 'route_filter' ? 'contained' : 'outlined'} startIcon={<PlayArrowOutlinedIcon />} disabled={workingId === row.id} onClick={() => void transition(row, action)}>{actionLabels[action]}</Button>)}
+          {row.current_flow === 'posting' && row.state === 'awaiting_approval' && <Typography variant="caption" color="primary">คลิกแถวเพื่อเปิดตรวจรับ</Typography>}
         </Stack>, exportValue: (row) => availableActions(row).map((action) => actionLabels[action]).join(', ') },
       ]}
     />
@@ -838,12 +867,56 @@ export function DocumentFlowsPage() {
       </Stack></DialogContent>
       <DialogActions><Button onClick={() => setTimelineItem(null)}>ปิด</Button></DialogActions>
     </Dialog>
-    <Drawer anchor="right" open={Boolean(selectedItem)} onClose={() => { ++previewRequestRef.current; setSelectedItem(null); setPreviewFiles([]); setPreviewIndex(0); setPreviewMessage(''); setTransferSlipParties(null); setTransferSlipPartiesMessage('') }} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 520 }, p: 3 } } }}>
+    <Drawer anchor="right" open={Boolean(selectedItem)} onClose={() => { ++previewRequestRef.current; setSelectedItem(null); setPreviewFiles([]); setPreviewIndex(0); setPreviewMessage(''); setTransferSlipParties(null); setTransferSlipPartiesMessage(''); setPostingPreview(null); setPostingPreviewMessage('') }} slotProps={{ paper: { sx: { width: { xs: '100%', sm: 720 }, p: 3 } } }}>
       {selectedItem && <Stack spacing={2}>
         <Box><Typography variant="overline" color="text.secondary">ความสัมพันธ์ข้ามห้อง</Typography><Typography variant="h5" sx={{ fontWeight: 800 }}>{typeLabels[selectedItem.document_type ?? 'other'] ?? selectedItem.document_type ?? 'เอกสาร'}</Typography><Typography variant="body2" color="text.secondary">Intake → Filter → {departmentLabels[selectedItem.target_department ?? taskCategoryOf(selectedItem)] ?? 'คิวปลายทาง'} · สถานะ {stateLabels[selectedItem.state] ?? selectedItem.state}</Typography></Box>
         <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}><Chip label={flowLabels[selectedItem.current_flow] ?? selectedItem.current_flow} color="primary" /><Chip label={dataReviewLabels[selectedItem.data_review_status ?? 'complete']} color={dataReviewColor(selectedItem.data_review_status)} /> <Chip label={selectedItem.sensitivity === 'restricted_hr' ? 'ข้อมูล HR จำกัดสิทธิ์' : selectedItem.sensitivity === 'financial' ? 'ข้อมูลการเงิน' : 'ข้อมูลทั่วไป'} color={selectedItem.sensitivity === 'restricted_hr' ? 'warning' : 'default'} /><Chip label={`Version ${selectedItem.version}`} /></Stack>
         <Paper variant="outlined" sx={{ p: 1.5 }}><Stack spacing={.5}><Typography variant="subtitle2" sx={{ fontWeight: 800 }}>เส้นทางและผู้รับผิดชอบ</Typography><Typography variant="body2">ต้นทาง: {selectedItem.source_channel ?? 'ไม่ระบุ'} · {selectedItem.source_room_name ?? 'ไม่ระบุห้อง'} · ผู้ส่ง {selectedItem.source_sender_name ?? 'ไม่ระบุ'}</Typography><Typography variant="body2">รับเข้า: {dateTime(selectedItem.source_received_at ?? selectedItem.created_at)} · ปลายทาง: {departmentsFor(selectedItem).map((department) => departmentLabels[department]).join(', ')}</Typography><Typography variant="body2">สถานะรับงาน: {selectedItem.assignment_status === 'claimed' || selectedItem.assignment_status === 'in_progress' ? 'มีผู้รับผิดชอบแล้ว' : 'ยังไม่รับงาน'} · สิ่งที่ต้องทำต่อ: {nextActionLabel(selectedItem)}</Typography><Typography variant="body2" color="text.secondary">Comment ล่าสุด: {latestComment(selectedItem)}</Typography></Stack></Paper>
         {selectedItem.data_review_note && <Alert severity={selectedItem.data_review_status === 'incomplete' ? 'error' : 'warning'}>สถานะข้อมูล: {selectedItem.data_review_note}</Alert>}
+        {selectedItem.current_flow === 'posting' && <>
+          <Alert severity={selectedItem.state === 'posted' ? 'success' : 'warning'}>
+            {selectedItem.state === 'posted' ? 'ลงบัญชีแล้ว — ตรวจเลขอ้างอิงใน Timeline' : 'รออนุมัติ — ยังไม่ลงบัญชี/Stock'}
+          </Alert>
+          <Paper variant="outlined" sx={{ p: 1.5 }}><Stack spacing={1}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>Approval Snapshot · Transaction Preview</Typography>
+            <Typography variant="body2"><strong>Intake ID:</strong> {selectedItem.intake_id}</Typography>
+            <Typography variant="body2"><strong>Document ID:</strong> {selectedItem.accounting_document_id ?? 'ยังไม่ผูกเอกสารบัญชี'}</Typography>
+            {postingPreviewMessage && <Alert severity="warning">{postingPreviewMessage}</Alert>}
+            {postingPreview && <>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                <Box sx={{ flex: 1 }}><Typography variant="caption" color="text.secondary">คู่ค้า / เลขประจำตัวผู้เสียภาษี</Typography><Typography variant="body2">{postingPreview.document.vendor_name ?? 'ยังไม่ระบุ'} · {postingPreview.document.vendor_tax_id ?? 'ยังไม่ระบุ'}</Typography></Box>
+                <Box sx={{ flex: 1 }}><Typography variant="caption" color="text.secondary">โครงการ</Typography><Typography variant="body2">{postingPreview.document.projects ? `${postingPreview.document.projects.code ? `${postingPreview.document.projects.code} · ` : ''}${postingPreview.document.projects.name}` : 'ยังไม่ระบุ'}</Typography></Box>
+              </Stack>
+              <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                <Chip size="small" label={`Matching: ${postingPreview.document.matching_status}`} color={postingPreview.document.matching_status === 'complete' ? 'success' : 'warning'} />
+                <Chip size="small" label={`บัญชี: ${postingPreview.document.posting_status === 'posted' ? 'ลงบัญชีแล้ว' : 'ยังไม่ลงบัญชี'}`} color={postingPreview.document.posting_status === 'posted' ? 'success' : 'warning'} />
+                <Chip size="small" label={`Stock: ${postingPreview.document.posting_status === 'posted' ? 'ตรวจ Timeline' : 'ยังไม่ตัด/รับ Stock'}`} color="warning" />
+                <Chip size="small" label={`OCR ${confidence(postingPreview.document.analysis_confidence)}`} />
+              </Stack>
+              <Typography variant="body2">ยอดก่อนภาษี {money(postingPreview.document.subtotal)} · VAT {money(postingPreview.document.vat_amount)} · หัก ณ ที่จ่าย {money(postingPreview.document.withholding_tax_amount)} · <strong>สุทธิ {money(postingPreview.document.total_amount)}</strong></Typography>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>รายการ ({postingPreview.lines.length})</Typography>
+              {postingPreview.lines.length === 0 ? <Alert severity="warning">ยังไม่มีรายการสินค้า/บริการ</Alert> : postingPreview.lines.map((line) => <Box key={line.id} sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 1 }}><Typography variant="body2">{line.line_number}.</Typography><Typography variant="body2">{line.description}<Typography component="span" variant="caption" color="text.secondary"> · {line.account_code ?? '-'} {line.account_name ?? ''}</Typography></Typography><Typography variant="body2">{money(line.line_amount)}</Typography></Box>)}
+              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Journal Preview</Typography>
+              {postingPreview.journal.length === 0 ? <Alert severity="warning">ยังไม่มี Journal Preview — ห้ามอนุมัติจนกว่าจะสร้าง Draft ที่สมดุล</Alert> : postingPreview.journal.map((line) => <Box key={line.id} sx={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 1 }}><Typography variant="body2">{line.account_code} · {line.account_name}</Typography><Typography variant="body2">Dr {money(line.debit)}</Typography><Typography variant="body2">Cr {money(line.credit)}</Typography></Box>)}
+              <Alert severity={postingApprovalReady ? 'success' : 'error'}>Debit {money(postingJournalDebit)} · Credit {money(postingJournalCredit)} · {postingApprovalReady ? 'ข้อมูลครบ สมดุล และ Matching ผ่าน' : 'ห้ามอนุมัติ: Journal/รายการ/Matching ยังไม่ครบ หรือเอกสารถูกลงบัญชีแล้ว'}</Alert>
+            </>}
+          </Stack></Paper>
+          {selectedItem.state === 'awaiting_approval' && <Paper variant="outlined" sx={{ p: 1.5 }}><Stack spacing={1}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>การตัดสินใจ</Typography>
+            <TextField label="เหตุผล/ข้อมูลที่ต้องการ" multiline minRows={2} value={routeNote} onChange={(event) => setRouteNote(event.target.value)} />
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              <Button variant="contained" disabled={workingId === selectedItem.id || !postingApprovalReady} onClick={() => void transition(selectedItem, 'approve')}>อนุมัติ</Button>
+              <Button variant="outlined" color="warning" disabled={workingId === selectedItem.id || !routeNote.trim()} onClick={() => void transition(selectedItem, 'request_correction')}>ส่งกลับแก้ไข</Button>
+              <Button variant="outlined" color="error" disabled={workingId === selectedItem.id || !routeNote.trim()} onClick={() => void transition(selectedItem, 'reject')}>ปฏิเสธ</Button>
+              <Button variant="outlined" disabled={workingId === selectedItem.id || !routeNote.trim()} onClick={() => void transition(selectedItem, 'request_information')}>ขอข้อมูลเพิ่มเติม</Button>
+            </Stack>
+          </Stack></Paper>}
+          {selectedItem.state === 'information_requested' && <Paper variant="outlined" sx={{ p: 1.5 }}><Stack spacing={1}>
+            <Alert severity="info">รายการยังเปิดอยู่และส่งกลับให้เจ้าของต้นทางเติมข้อมูล โดยยังไม่ลงบัญชีหรือ Stock</Alert>
+            <TextField label="รายละเอียดข้อมูลที่ส่งกลับ" multiline minRows={2} value={routeNote} onChange={(event) => setRouteNote(event.target.value)} />
+            <Button variant="contained" disabled={workingId === selectedItem.id || !routeNote.trim()} onClick={() => void transition(selectedItem, 'resubmit_information')}>ส่งข้อมูลกลับเพื่อรออนุมัติ</Button>
+          </Stack></Paper>}
+        </>}
         <Button variant="outlined" onClick={() => void openPreview(selectedItem)}>เปิดเอกสาร/รูปต้นฉบับ</Button>
         {previewMessage && <Alert severity="info">{previewMessage}</Alert>}
         {previewFiles.length > 1 && <Stack direction="row" spacing={.5} useFlexGap sx={{ flexWrap: 'wrap' }}>{previewFiles.map((file, index) => <Button key={file.url} size="small" variant={index === previewIndex ? 'contained' : 'outlined'} onClick={() => setPreviewIndex(index)}>{file.label}</Button>)}</Stack>}

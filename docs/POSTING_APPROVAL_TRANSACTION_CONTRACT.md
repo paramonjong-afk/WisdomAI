@@ -4,7 +4,9 @@ flowchart TD
   B --> C[Approval room<br/>OCR + matching + journal/tax preview]
   C --> D{Authorized approver decision}
   D -->|return for correction| E[Filter correction room]
-  D -->|reject / request information| F[Posting rejected or held]
+  D -->|reject| F[Posting rejected]
+  D -->|request information + reason| Q[Open hold routed to source owner]
+  Q -->|source owner resubmits| C
   D -->|approve| G[Server revalidates tenant, role,<br/>version, balance, matching, period and targets]
   G -->|stale or invalid| C
   G -->|valid| H[Reserve one command per target<br/>in one approval transaction]
@@ -18,6 +20,14 @@ flowchart TD
   O --> P[New corrected document + new approval]
 ```
 
+## Phase 2 approval-room implementation
+
+The Posting queue now opens a same-route approval drawer backed by the existing tenant-scoped Accounting Document RLS. It shows the complete Intake ID and Accounting Document ID, secure source image/PDF preview, OCR confidence, vendor and tax identity, project, item lines, tax totals, matching state, and draft journal debit/credit totals. The persistent warning **“รออนุมัติ — ยังไม่ลงบัญชี/Stock”** stays visible until the source state is posted.
+
+Approval is not offered as a quick table action. The drawer enables it only when the Accounting Document has lines, a non-empty balanced draft journal, `matching_status = complete`, and is not already posted. The server RPC remains authoritative for tenant, role, version, state transition, idempotency, and Audit. Return-for-correction and rejection require a reason and pass that note to the existing audited transition.
+
+`request_information` is now a distinct, non-terminal hold. A Posting approver must enter a reason; the server resolves the source owner from `accounting_documents.created_by` (falling back to the existing assignee), keeps the item in Posting as `information_requested`, and exposes it to that owner within the same company. Only that owner (or a platform-admin recovery actor) may resubmit with a note. Resubmission returns the same item to `awaiting_approval`, increments its version, and appends a second Audit event. Neither action creates Posting, Accounting, AP, Stock, or PO side effects.
+
 # Posting approval and transaction contract
 
 This is the canonical Phase 1 contract for `POSTING-FLOW-001`, implementing the contract boundary requested by `FILTER-007` and `FILTER-008`. It defines what later UI, RPC, gateway, correction, and monitoring phases must implement. It does not connect a live gateway, mutate Production data, or grant permissions.
@@ -30,7 +40,7 @@ Approval output is an append-only approval event and one deterministic command f
 
 ## States and transitions
 
-The canonical path is `awaiting_approval → approved_waiting_gateway → posting → posted`. A stale snapshot, failed final validation, expired/delegated approval, or changed source version remains `awaiting_approval` with a precise reason and requires a refreshed snapshot. `request_correction` returns to `filter / needs_correction`; `reject` is terminal until an explicitly audited retry/reopen action. Gateway failures use `failed → retry_wait → processing`, or `dead_letter → compensating → compensated`.
+The canonical path is `awaiting_approval → approved_waiting_gateway → posting → posted`. The information loop is `awaiting_approval → information_requested → awaiting_approval`; the record remains open and each transition increments the optimistic version. A stale snapshot, failed final validation, expired/delegated approval, or changed source version remains `awaiting_approval` with a precise reason and requires a refreshed snapshot. `request_correction` returns to `filter / needs_correction`; `reject` is terminal until an explicitly audited retry/reopen action. Gateway failures use `failed → retry_wait → processing`, or `dead_letter → compensating → compensated`.
 
 The approval transaction must atomically record the approval event, transition the document-flow version, and reserve all intended commands. If all command reservations cannot be made, none may become executable. Gateway execution may span systems; partial success must be recorded per command and recovered or compensated, never hidden by a single aggregate “posted” state.
 
@@ -45,6 +55,7 @@ The executable TypeScript preflight in `src/services/postingFlowContract.ts` def
 - Filter reviewer may pass or return a document but cannot post it merely by passing Filter Flow.
 - Posting viewer may read only company-scoped snapshots and evidence allowed by existing document/evidence policies.
 - Approver must satisfy the server-side company, document type, project, amount limit, approval sequence, delegation/expiry, and segregation-of-duties policy at action time.
+- A company manager/Posting approver may request information. Only the recorded source owner may resubmit; company and item identity are checked before an idempotent replay is returned, preventing cross-tenant event-key probing.
 - Gateway/service role is the only actor allowed to reserve/execute commands and write destination references.
 - Audit/compliance roles receive read-only timelines; cross-company reads and actions are denied.
 
@@ -91,3 +102,5 @@ Phase 1 is contract-only: rollback removes the TypeScript/document/test addition
 | Version | Date | Rationale | Impact | Migration | Verification | Rollback |
 | --- | --- | --- | --- | --- | --- | --- |
 | v1.0 | 16/9/2569 | Define the canonical approval/transaction boundary before implementing UI and gateways | Contract, Flow document, test; no runtime routing or permission change | None | Contract test, typecheck, lint, build; runtime/deployment deferred to approved phases 2–5 | Revert contract files and registry entry; retain all existing ledgers and Audit |
+| v1.1 | 16/9/2569 | Implement the approval snapshot and transaction preview without bypassing server authority | Posting drawer, tenant-scoped preview reads, guarded decisions, explicit hold blocker | None | Posting-room contract, Filter runtime contract, typecheck, lint, build | Revert UI/gateway/test/docs; no business rows or Audit history are removed |
+| v1.2 | 16/9/2569 | Add the approved request-information policy and source-owner return loop | New open state, owner fields, company-scoped owner visibility, audited request/resubmit RPC actions, drawer controls | `202609160009_posting_request_information.sql` | Migration safety/replay, request-information and Posting-room contracts, typecheck, lint, build, authenticated role smoke | Hide actions and restore the prior RPC/queue function; retain state/owner columns and Audit rows for recovery, then move held rows back to `awaiting_approval` only through an audited repair |

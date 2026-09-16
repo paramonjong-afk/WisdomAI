@@ -1415,3 +1415,26 @@ flowchart LR
 - **Reason/impact:** removes ambiguous backlog management and prevents nine critical items from being developed in incompatible parallel branches.
 - **Data/state:** records `management_lane`, exact next management action, phase and dependencies in existing `context_manifest`. Status, approval, claim, retry budget, business data and audit history remain unchanged.
 - **Migration/verification/rollback:** `202609160006_classify_control_queue_and_ready_plan.sql`; guarded contract, migration replay/dry-run and authenticated metadata/count smoke. Roll back only the added planning keys using a corrective migration.
+
+## 2026-09-16 — Posting approval snapshot / Transaction Preview v1.2
+
+```mermaid
+flowchart LR
+  Q[Posting approval queue] --> D[Same-route review drawer]
+  D -->|request information + required reason| H[Open hold · source-owner queue]
+  H -->|owner resubmits with note| Q
+  D --> E[Secure evidence + OCR/vendor/project/items/tax]
+  D --> J[Draft journal + matching]
+  E --> G{Complete, matched, balanced, not posted?}
+  J --> G
+  G -->|yes| A[Approve via authoritative RPC]
+  G -->|no| B[Block approval with exact reason]
+  D --> R[Return or reject with required note]
+  D -. policy/schema pending .-> H[Request-information hold disabled]
+```
+
+- **Input/output/state:** reads the existing company-scoped Document Flow item, Accounting Document, lines, draft journal, project, and secure source preview. Approval decisions write only through audited `transition_document_flow_item`. Request information moves `awaiting_approval → information_requested` and assigns responsibility to the Accounting Document creator (existing assignee fallback); owner resubmission returns to `awaiting_approval` without creating Posting/Accounting/Stock effects.
+- **Permissions/failure/retry:** existing RLS and server authorization remain authoritative. Stale versions and RPC failures stay visible without optimistic success. Approval cannot bypass the drawer or proceed with missing lines, empty/unbalanced journal, incomplete matching, or an already-posted document.
+- **Known blocker:** a distinct `request_information` hold has no approved document-flow state/RPC/owner queue. It is visibly disabled rather than incorrectly mapped to correction. Adding it requires a separately approved migration/security change.
+- **Permission/Audit:** request requires a company manager/Posting approver and a non-empty reason. Resubmit requires the recorded source owner (platform-admin recovery allowed), same-company scope, expected version and event key. Replay checks item identity and tenant before returning. Both transitions append Audit events.
+- **Migration/verification/rollback:** `202609160009_posting_request_information.sql`; verify safety and clean replay, request/resubmit authorization/idempotency contracts, focused Posting/Filter contracts, typecheck, lint, build, then authenticated responsive smoke. Roll back UI and RPC/queue behavior while retaining columns/Audit; recover held rows by audited transition rather than deletion.
