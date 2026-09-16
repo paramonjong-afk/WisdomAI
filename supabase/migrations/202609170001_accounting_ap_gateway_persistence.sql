@@ -57,6 +57,7 @@ create unique index if not exists vendors_id_company_uniq on public.vendors(id,c
 create unique index if not exists projects_id_company_uniq on public.projects(id,company_id);
 create unique index if not exists accounting_documents_id_company_uniq on public.accounting_documents(id,company_id);
 create unique index if not exists document_flow_items_id_company_uniq on public.document_flow_items(id,company_id);
+create unique index if not exists posting_operations_id_company_uniq on public.posting_operations(id,company_id);
 alter table public.accounting_ap_transactions add constraint accounting_ap_transactions_flow_company_fkey foreign key(document_flow_item_id,company_id) references public.document_flow_items(id,company_id) not valid;
 alter table public.accounting_ap_transactions add constraint accounting_ap_transactions_document_company_fkey foreign key(document_id,company_id) references public.accounting_documents(id,company_id) not valid;
 alter table public.accounting_ap_transactions add constraint accounting_ap_transactions_vendor_company_fkey foreign key(vendor_id,company_id) references public.vendors(id,company_id) not valid;
