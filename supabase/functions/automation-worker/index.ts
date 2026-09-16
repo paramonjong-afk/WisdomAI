@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
+const adminKey = Deno.env.get('WISDOM_SUPABASE_SECRET_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+const admin = createClient(Deno.env.get('SUPABASE_URL')!, adminKey, {
   auth: { persistSession: false },
 })
 const expectedSecret = Deno.env.get('AUTOMATION_WORKER_SECRET')
