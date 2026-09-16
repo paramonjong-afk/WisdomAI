@@ -1344,3 +1344,18 @@ flowchart LR
 - **State/routing:** verified children become `done` with `implemented`, `superseded`, or `cancelled_with_audit` evidence; unresolved Production smoke and new Document/Posting flows remain open. Pending intents are completed only for reconciled work.
 - **Failure/recovery:** updates require no active Worker claim. `SYS-004` remains `doing` as a monitoring sentinel and is not counted as a Worker claim. Restore any disputed row from its append-only event history.
 - **Owner/verification:** Controller 00 owns reconciliation; verify guarded SQL, migration replay/dry-run, before/after counts, RLS, Work Command Center and remaining blocker list.
+
+## 2026-09-16 — SYS-004 monitoring sentinel hardening / Work Control v2.2
+
+```mermaid
+flowchart LR
+  H[Health Monitor] --> M[Dedicated monitor telemetry]
+  M --> U[Work Command Center Monitor view]
+  W[Executable work] --> C[Claim / Approval / Token / QA]
+  M -. excluded .-> C
+```
+
+- **Reason/impact:** formalizes SYS-004 as `monitoring_sentinel`; it remains visible but no longer contributes to actionable backlog, Worker capacity, approval, attempt or token/cost metrics.
+- **Data/routing:** additive monitor fields retain the current health snapshot while Controller evidence/checkpoint and append-only history remain separate. Generic and targeted claim RPCs select only executable work.
+- **Failure/recovery:** status API returns fresh `live_runs` separately from `run_history`; missing token telemetry is shown as unknown. No incident or historical run is deleted.
+- **Migration/verification/rollback:** `202609160004_sys004_monitoring_sentinel_hardening.sql`; run sentinel/claim/API/UI contracts, replay/dry-run, typecheck, lint, build and authenticated page smoke. Revert source/UI if needed while retaining additive fields and audit history.

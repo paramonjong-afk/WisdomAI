@@ -2,6 +2,9 @@
 flowchart LR
   A[Authenticated user opens /work-command-center] --> B[Load lightweight work-item list]
   B --> C[Filter, sort, paginate in StandardDataTable]
+  B --> S{Work kind}
+  S -->|executable| C
+  S -->|monitoring sentinel| M[Separate Monitor status<br/>excluded from Worker metrics]
   C --> D[Realtime update or manual refresh]
   D --> B
   C --> E[User clicks a row]
@@ -52,6 +55,12 @@ opens a row so the initial page remains responsive without hiding information.
 Worker outcome is derived from real `system_work_items` lease/heartbeat fields
 and the Drawer reads recent `system_worker_runs`; no status is fabricated and
 the UI does not change business data.
+
+Monitoring sentinels remain searchable in the All view but are excluded from
+the actionable backlog, Worker counts, approval actions, retry attempts and
+token/cost totals. Their Drawer shows monitor state, open-incident count and
+last check time. Zero telemetry is displayed as unknown until a Worker reports
+usage; it is never presented as proof of zero consumption.
 
 ## Inputs and outputs
 
@@ -294,3 +303,10 @@ and Health Monitor is the only writer.
 - Migration: none. The projection is read-only and preserves all source rows.
 - Verification: backlog projection tests, typecheck and build.
 - Rollback: revert the projection/UI commit; source work and audit history remain intact.
+
+- Version: v1.6
+- Date: 2026-09-16
+- Rationale: prevent SYS-004 monitor state and historical Worker values from distorting actionable backlog, Worker capacity, approvals and token reporting.
+- Migration: `202609160004_sys004_monitoring_sentinel_hardening.sql`.
+- Verification: sentinel claim guard, live-run/history API contract, Work Command Center counts/Drawer, migration replay/dry-run, typecheck, lint, build and authenticated Production smoke.
+- Rollback: revert UI/functions and stop using the additive monitor fields; preserve the sentinel hardening audit event and all historical runs.

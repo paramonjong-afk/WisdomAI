@@ -58,9 +58,12 @@ async function updateErrorWorkItem(results: CheckResult[], checkedAt: string) {
   const { error } = await admin.from('system_work_items').update({
     progress: failures.length ? 90 : 100,
     risk: severity,
-    evidence: evidence.slice(0, 4000),
-    error_fingerprint: fingerprints.join('|').slice(0, 200) || null,
-    current_step: failures.length ? 'ติดตาม incident ที่ยังเปิด' : 'ตรวจ regression ผ่าน',
+    work_kind: 'monitoring_sentinel',
+    monitor_state: failures.some(result => result.status === 'critical') ? 'critical' : failures.length ? 'warning' : 'healthy',
+    monitor_checked_at: checkedAt,
+    monitor_open_incident_count: openIncidents ?? 0,
+    monitor_evidence: evidence.slice(0, 4000),
+    monitor_fingerprint: fingerprints.join('|').slice(0, 200) || null,
     production_status: failures.length ? 'monitoring_active_with_open_incidents' : 'deployed_and_monitoring_healthy',
     updated_at: checkedAt,
   }).eq('work_key', 'SYS-004')

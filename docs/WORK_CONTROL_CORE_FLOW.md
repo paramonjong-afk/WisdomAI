@@ -1,7 +1,10 @@
 ```mermaid
 flowchart LR
   A[Controller accepts approved task] --> B[Reuse Task Ledger]
-  B --> C[Load requirement version + checkpoint]
+  B --> S{Work kind}
+  S -->|monitoring_sentinel| SM[Monitor telemetry only<br/>No claim, approval or retry budget]
+  S -->|executable| C
+  C[Load requirement version + checkpoint]
   C --> R[Risk and category model routing]
   R --> D[Build compact diff-first context manifest]
   D --> E[Atomic Worker claim + resource boundary]
@@ -33,6 +36,8 @@ flowchart LR
 ## Purpose
 
 The existing `system_work_items` ledger remains the task source of truth. V2 keeps the V1 checkpoint and anti-loop path, then adds fail-open model routing, per-task token budgets, prompt/schema versioning, exact-input result-cache storage, QA tier, resource-lock storage and idempotent cost telemetry. Missing optional routing configuration keeps the current model and never blocks an otherwise valid task.
+
+`monitoring_sentinel` rows share the visible ledger but are not executable work. They never enter claim, approval, retry, token or Worker-capacity calculations. Monitor telemetry is stored in dedicated fields so a scheduled check cannot overwrite Controller evidence or checkpoints.
 
 ## Inputs and outputs
 
@@ -66,3 +71,4 @@ Cache reuse is permitted only for an exact key composed from requirement/source/
 | v1.0 | 2026-09-16 | Stop lost work, full-chat reload and same-error retry loops | Extends existing work/run ledgers; compact Worker packet and explicit recovery states | `202609160001_work_control_core_p0.sql` | state-transition contracts, migration safety, typecheck, lint, build and authenticated Work Command Center smoke | Revert source/UI and stop using v2 RPCs; additive columns/tables and audit/checkpoints remain for recovery |
 | v2.0 | 2026-09-16 | Reduce token/cost while preserving throughput and recovery | Adds fail-open routing/budgets, QA tier, versioned output, exact cache/lock foundations, idempotent cost events and UI visibility | `202609160002_work_control_core_v2_cost_routing.sql` | V1+V2 contracts, PowerShell parse, migration safety, typecheck, lint, build and authenticated Work Command Center smoke | Revert runner/Edge/UI to V1; retain additive telemetry/config tables for audit, disable policies and model env mappings |
 | v2.1 | 2026-09-16 | Remove stale queue noise after verified releases without deleting history | Reconciles implementation/QA children to merged PRs, completes their pending intents, restores SYS-004 sentinel semantics and keeps zero-runner capacity open | `202609160003_reconcile_work_queue_after_control_v2.sql` | guarded migration contract, full replay/dry-run, before/after queue counts and authenticated Work Command Center smoke | restore affected rows from append-only event history; do not delete reconciliation events |
+| v2.2 | 2026-09-16 | Prevent monitoring telemetry from corrupting Worker/Approval metrics | Adds formal `monitoring_sentinel` kind, dedicated monitor fields, claim exclusion and truthful unknown-token UI | `202609160004_sys004_monitoring_sentinel_hardening.sql` | sentinel/claim/API/UI contracts, migration replay/dry-run, typecheck, lint, build and authenticated Work Command Center smoke | revert source/UI and stop writing new monitor fields; retain additive columns and audit event for recovery |
