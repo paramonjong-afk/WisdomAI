@@ -6,9 +6,24 @@ const base: PostingApprovalRequest = {
   currentFlow: 'posting',
   currentState: 'awaiting_approval',
   expectedDocumentVersion: 7,
+  decisionAt: '2026-09-16T10:00:00.000Z',
   approverId: 'approver-1',
-  approverAuthorized: true,
-  separationOfDutiesRequired: true,
+  policyAuthorization: {
+    allowed: true,
+    completed: true,
+    policyId: 'policy-1',
+    policyVersion: 1,
+    companyId: 'company-1',
+    approverId: 'approver-1',
+    approvalRequestId: 'approval:event:1',
+    documentId: 'document-1',
+    documentVersion: 7,
+    snapshotHash: 'sha256:approval-snapshot',
+    finalStage: 2,
+    totalStages: 2,
+    authorizedAt: '2026-09-16T09:59:00.000Z',
+    expiresAt: '2026-09-17T08:00:00.000Z',
+  },
   approvalEventKey: 'approval:event:1',
   finalValidationPassed: true,
   snapshot: {
@@ -43,9 +58,15 @@ assert.equal(approved.commands[0].approvalSnapshotHash, base.snapshot.snapshotHa
 assert.equal(evaluatePostingApproval({ ...base, currentFlow: 'filter' }).reason, 'posting_transition_not_allowed')
 assert.equal(evaluatePostingApproval({ ...base, snapshot: { ...base.snapshot, filterDecision: 'failed' } }).reason, 'posting_filter_not_passed')
 assert.equal(evaluatePostingApproval({ ...base, expectedDocumentVersion: 6 }).reason, 'posting_snapshot_stale')
-assert.equal(evaluatePostingApproval({ ...base, approverAuthorized: false }).reason, 'posting_approver_not_authorized')
+assert.equal(evaluatePostingApproval({ ...base, policyAuthorization: { allowed: false, completed: false } }).reason, 'posting_approver_not_authorized')
+assert.equal(evaluatePostingApproval({ ...base, policyAuthorization: { ...base.policyAuthorization, completed: false } }).reason, 'posting_approval_sequence_incomplete')
+assert.equal(evaluatePostingApproval({ ...base, policyAuthorization: { ...base.policyAuthorization, companyId: 'company-2' } }).reason, 'posting_policy_authorization_mismatch')
+assert.equal(evaluatePostingApproval({ ...base, approvalEventKey: 'approval:event:replay' }).reason, 'posting_policy_authorization_mismatch')
+assert.equal(evaluatePostingApproval({ ...base, snapshot: { ...base.snapshot, documentId: 'document-2' } }).reason, 'posting_policy_authorization_mismatch')
+assert.equal(evaluatePostingApproval({ ...base, snapshot: { ...base.snapshot, snapshotHash: 'sha256:changed' } }).reason, 'posting_policy_authorization_mismatch')
+assert.equal(evaluatePostingApproval({ ...base, decisionAt: '2026-09-17T08:00:00.001Z' }).reason, 'posting_policy_authorization_expired')
+assert.equal(evaluatePostingApproval({ ...base, policyAuthorization: { ...base.policyAuthorization, finalStage: 1 } }).reason, 'posting_policy_authorization_mismatch')
 assert.equal(evaluatePostingApproval({ ...base, approverId: '' }).reason, 'posting_actor_identity_required')
-assert.equal(evaluatePostingApproval({ ...base, approverId: 'maker-1' }).reason, 'posting_separation_of_duties_violation')
 assert.equal(evaluatePostingApproval({ ...base, finalValidationPassed: false }).reason, 'posting_final_validation_failed')
 assert.equal(evaluatePostingApproval({ ...base, snapshot: { ...base.snapshot, targets: ['ap', 'ap'] } }).reason, 'posting_targets_invalid')
 assert.equal(evaluatePostingApproval({ ...base, snapshot: { ...base.snapshot, targets: ['unknown'] as never } }).reason, 'posting_targets_invalid')
