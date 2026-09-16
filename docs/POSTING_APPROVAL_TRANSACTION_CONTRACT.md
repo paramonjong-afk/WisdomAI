@@ -185,3 +185,45 @@ Document-type authority v3.6 replaces that broad “actual-posting” assumption
 | v3.5 | 17/9/2569 | Preserve quotation reference/PO workflow ownership | Posting bundle refuses quotations; existing quotation decision RPC alone creates PO from persisted action and quantities; Stock derives only for actual-posting types | Same additive migration | PostgreSQL quotation refusal/no side effects, actual invoice+Stock exact targets, quotation workflow regression suite, full gates | Revert bundle semantic guard only if a separately approved unified quotation architecture replaces the existing owner |
 | v3.6 | 17/9/2569 | Prevent unsupported document classifications from defaulting into Accounting/AP | Explicit server whitelist for nine catalog-backed Accounting/AP types; all non-posting, separately-owned and unknown types fail before side effects | Same additive migration | Table-driven PostgreSQL coverage for all nine supported types plus unsupported/unknown zero-side-effect cases; full gates | Disable approval bundle or restore the prior function only under approved routing authority; retained evidence is immutable |
 | v3.7 | 17/9/2569 | Correct Production composite-FK prerequisite after rolled-back migration run 35137064316 | Add idempotent `(id, company_id)` unique index on Posting operations before dependent FKs; no data or runtime behavior change | Same unapplied additive migration | Production-shaped PostgreSQL base without the key, parent-key ordering contract, full migration replay and build gates | Before apply revert the index line; after apply retain it, or remove dependent FKs first in a reviewed forward migration |
+
+## Stock gateway command — v4.0 (17/9/2569)
+
+```mermaid
+flowchart TD
+  A[Approved Stock operation + immutable snapshot] --> B{Validate company, item, unit,<br/>warehouse, project and value}
+  B -->|invalid| X[Stable denial; no Stock write]
+  B -->|receipt| C{Ordered - previously received<br/>>= this receipt?}
+  C -->|no: over-receipt| X
+  C -->|yes| D[Partial or complete receipt plan]
+  B -->|issue| E{Project warehouse balance<br/>>= issue quantity?}
+  E -->|no| X
+  E -->|yes| F[Issue plan]
+  B -->|adjustment + reason| G{Resulting balance >= 0?}
+  G -->|no| X
+  G -->|yes| H[Immutable adjustment plan]
+  D --> I[Atomic movements + balance projection<br/>+ operation state + Audit]
+  F --> I
+  H --> I
+  I --> J{Retry / double-click?}
+  J -->|same fingerprint| K[Return original result]
+  J -->|unknown outcome| L[Lookup before retry]
+  J -->|different fingerprint| X
+```
+
+The Stock gateway accepts only one reserved `stock` operation created by the approved Posting bundle. The executor supplies authoritative server-read context; the planner requires an exact match for operation ID/status/idempotency key, company, Intake, document/version, approval event, snapshot hash and command fingerprint. Every line must match active company-scoped item, canonical unit, warehouse/location, project and current tuple balance. Receipt, issue and adjustment therefore cannot trust caller-supplied master or balance values or silently fall back to an unscoped warehouse/project.
+
+Receipt lines carry ordered quantity and cumulative previously received quantity. The gateway refuses over-receipt, labels an accepted receipt `partial` until cumulative quantity reaches the order, and never treats a partial receipt as a complete order. Issue lines become negative deltas and fail when the exact item/project/warehouse balance is insufficient. Adjustment accepts a signed delta only with a reason and refuses a negative resulting balance. Quantity uses three-decimal precision; unit cost, line value and command total reconcile at currency-cent precision.
+
+The output is a deterministic atomic write plan for inventory movements, the balance projection, append-only Audit and Posting-operation status. The transaction identity includes the approved operation ID. A retry or double-click with the same transaction key and fingerprint replays the durable result. A different fingerprint is an idempotency conflict; an unknown outcome requires destination lookup before retry; an already-reversed execution cannot replay as success. Failure before commit rolls back the transaction. Once committed, correction uses an immutable adjustment or the later POSTING-008 reversal contract; original movements are never edited or deleted.
+
+This version defines and tests the gateway command boundary only. It does not add schema, permissions, a live executor, Production writes or legacy reconciliation. Runtime activation must use service authority, lock/recheck current ordered and balance quantities in the same transaction, reconcile existing unscoped/duplicate movements, and pass independent QA before release.
+
+Runtime v4.1 adds a service-role-only atomic executor while retaining `inventory_movements` as Inventory's authoritative ledger. Tenant item-scope authority and append-only execution, movement-link and Audit rows bind every write to the approval snapshot. The executor locks the Posting operation, Flow item, source lines, item scope, warehouse and project, then recomputes the exact tuple balance before writing. Matching retries replay, unknown results require lookup, conflicts fail closed, and pre-commit errors roll back every effect.
+
+Current approval snapshots contain only the Stock target, not canonical Stock lines or warehouse. Runtime therefore requires immutable `stockLines` evidence and rejects existing snapshots with `stock_canonical_snapshot_missing_reapproval_required`; it never infers a warehouse or backfills evidence. Existing inventory items also lack tenant ownership, so `inventory_item_company_scopes` starts empty and legacy items require human-authorized reconciliation.
+
+Independent-QA hardening v4.2 adds tenant-bound `posting_stock_approval_lines`. Future approval inserts atomically copy those reviewed lines into the immutable snapshot, derive command total and recompute the full SHA-256 hash. Snapshot update/delete is denied after approval except an explicit service-role reviewed-recovery session, and execution independently recomputes the full hash. Receipt history joins committed executions and counts receipt operations only. SQL also enforces signed quantity precision, nonnegative two-decimal cost, line value and command-total reconciliation, unique line/source identities, timestamp validity, exact live event projection, and composite tenant references through the scoped item mapping where legacy source tables lack company ownership.
+
+| v4.0 | 17/9/2569 | Define the approved Stock receipt/issue/adjustment command before persistence | Fail-closed command planner with quantity/unit/warehouse/project/value checks, partial receipt, over-receipt prevention and double-click replay | None | `test:stock-gateway`, Posting contracts, typecheck, lint and build | Revert contract/source/test/docs; no Stock or Production data changed |
+| v4.1 | 17/9/2569 | Persist approved Stock without duplicating Inventory ownership | Tenant scope/execution/link/Audit tables and service-only executor append to existing `inventory_movements`; legacy evidence fails closed | `202609170002_stock_gateway_persistence.sql` | Executable PostgreSQL tenant/concurrency/replay/conflict/partial/overreceipt/insufficient/rollback/Audit/projection plus full gates | Revoke executor; retain immutable evidence/movements and use POSTING-008 reversal |
+| v4.2 | 17/9/2569 | Close snapshot, valuation, cumulative receipt, event projection and tenant-FK gaps | Atomic reviewed Stock-line capture/hash, immutable snapshots, strict SQL valuation and exact projections/composite scope | Same additive migration | Executable capture/tamper/duplicate/value/cumulative/event/tenant tests plus full gates | Revoke capture/executor; retain immutable snapshots, movements and Audit; reviewed recovery only |

@@ -470,6 +470,10 @@ export const documentFlowGateway = {
     }
   },
 
+  async loadPostingStockLocations() {
+    return supabase.from('inventory_locations').select('id,name').eq('active', true).order('name')
+  },
+
   async routeMultiDestination(input: { itemId: string; expectedVersion: number; eventKey: string; documentType: string; departments: string[]; requiredDepartments: string[]; note?: string | null }) {
     return supabase.rpc('route_document_flow_multi_destination', {
       target_item_id: input.itemId,
@@ -510,13 +514,15 @@ export const documentFlowGateway = {
     expectedVersion: number
     eventKey: string
     note?: string | null
+    stockPreparation?: readonly { sourceLineId: string; locationId: string; requestedQuantity: number }[]
   }) {
     if (input.action === 'approve') {
-      return supabase.rpc('approve_posting_bundle', {
+      return supabase.rpc('approve_posting_stock_bundle', {
         target_item_id: input.itemId,
         target_expected_version: input.expectedVersion,
         target_event_key: input.eventKey,
         target_note: input.note ?? null,
+        target_stock_inputs: input.stockPreparation ?? [],
       })
     }
     return supabase.rpc('transition_document_flow_item', {

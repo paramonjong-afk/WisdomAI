@@ -23,6 +23,46 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-17 — Posting Stock gateway command v4.0
+
+```mermaid
+flowchart LR
+  A[Approved Stock operation] --> V[Validate item + unit + warehouse + project + value]
+  V --> R[Receipt: partial/complete; block over-receipt]
+  V --> I[Issue: block insufficient scoped balance]
+  V --> J[Adjustment: reason + non-negative result]
+  R --> T[Atomic movement/balance/Audit plan]
+  I --> T
+  J --> T
+  T --> D[Idempotent replay or lookup-before-retry]
+```
+
+- **Reason:** define the Phase 3 Stock gateway command for approved receipt, issue and adjustment without allowing quantity, unit, warehouse, project or value drift.
+- **Impact:** adds a deterministic fail-closed planner and test contract. It does not add schema, permissions, a live executor, Production writes, or mutate existing Stock rows.
+- **Failure/retry/audit:** over-receipt, insufficient balance, unit/dimension mismatch, value mismatch, missing adjustment reason and negative result are stable denials. Same-fingerprint double-click replays; unknown outcome requires lookup; committed correction is append-only.
+- **Owner/verification/rollback:** Stock owns quantity and valuation invariants; Posting owns approval binding; Platform owns atomic persistence and recovery. Verify `test:stock-gateway`, Posting tests, typecheck, lint and build. Revert the source/test/docs changes; no data rollback is needed.
+
+### Runtime v4.1
+
+```mermaid
+flowchart LR
+  A[Immutable approved stockLines] --> B[Service-only executor]
+  B --> C[Lock source + item scope + warehouse + project]
+  C --> D[Recompute Inventory balance]
+  D -->|valid| E[Append inventory_movements + links + Audit]
+  D -->|drift / overreceipt / insufficient| X[Atomic rollback]
+  E --> F{Other Posting targets pending?}
+  F -->|yes| G[posting_partial_targets]
+  F -->|no| H[completed_archive]
+  I[Legacy snapshot/item without authority] --> X
+```
+
+- Existing `inventory_movements` remains the Stock source of truth; additive tables store tenant scope, execution identity, linkage and Audit only.
+- Only `service_role` executes. Authenticated users have tenant-manager read visibility and no write grants. Retry is lookup-first and corrections link to POSTING-008.
+- Current approval snapshots lack canonical warehouse/Stock-line evidence and legacy items lack company scope. Both fail closed pending human-authorized snapshot capture/reconciliation; nothing is inferred or backfilled.
+- Migration: `202609170002_stock_gateway_persistence.sql`. Rollback revokes the executor and retains committed immutable Inventory/Audit evidence.
+- QA v4.2 stages reviewed company/item/warehouse/project lines before approval; the approval transaction embeds them, derives valuation total and recomputes SHA-256. Approved snapshots are immutable outside explicit reviewed recovery. Execution independently verifies the hash, strict valuation/quantity/time identities and exact locked before/after Flow projection. Receipt accumulation excludes adjustments and issues.
+
 ## 2026-09-17 — Posting Accounting/AP gateway command v3.0
 
 ```mermaid
@@ -1516,3 +1556,5 @@ flowchart LR
 The approval bundle now maps only catalog-backed Accounting/AP document types and derives Stock from canonical lines. Quotation, Purchase Order, Stock-owned documents, transfer/payroll/withholding flows, reference/archive classifications and unknown values cannot create Posting operations, approval events or snapshots. Table-driven PostgreSQL verification covers every supported combined type and representative refusals. Rollback disables the bundle or replaces the function through a reviewed forward migration; immutable evidence is retained.
 
 Production prerequisite correction v3.7 adds the missing tenant-composite unique parent key on Posting operations before Accounting/AP foreign keys are installed. This does not change the flowchart, routing, state, permissions or data writes; it allows the already-documented tenant-integrity relationship to install on the Production-shaped schema. Migration run `35137064316` was transactional and rolled back. Recovery is to rerun the corrected migration; rollback retains the harmless unique index unless dependent FKs are first removed by a reviewed forward migration.
+
+POSTING-005 Stock approval atomicity v4.3 (17/9/2569) replaces client-side per-line staging with one tenant-manager RPC. The server locks the Flow item, verifies the exact canonical Stock-line set and canonical PO links, derives current revisions under the document lock, stages every reviewed warehouse/quantity input, and invokes the approval bundle in the same transaction. A line or approval failure rolls back staging, operations, event and snapshot together; an identical approval event replays without restaging. Migration `202609170002_stock_gateway_persistence.sql`; rollback revokes the bundle RPC and hides the Stock preparation controls while retaining append-only execution/audit evidence.
