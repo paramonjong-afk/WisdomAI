@@ -118,3 +118,19 @@ Phase 1 is contract-only: rollback removes the TypeScript/document/test addition
 | v1.2 | 16/9/2569 | Add the approved request-information policy and source-owner return loop | New open state, owner fields, company-scoped owner visibility, audited request/resubmit RPC actions, drawer controls | `202609160009_posting_request_information.sql` | Migration safety/replay, request-information and Posting-room contracts, typecheck, lint, build, authenticated role smoke | Hide actions and restore the prior RPC/queue function; retain state/owner columns and Audit rows for recovery, then move held rows back to `awaiting_approval` only through an audited repair |
 | v2.0 | 16/9/2569 | Define tenant, document-type, project, amount, stage, delegation, expiry, and segregation-of-duties policy | Executable resolver and final-approval binding; no schema, role, permission, data, or runtime routing change | None | Positive/negative/cross-tenant policy tests, Posting contract test, typecheck, lint, build | Revert resolver and contract binding; preserve all approval, document-flow, Posting, and Audit records |
 | v2.1 | 16/9/2569 | Close final-authorization replay, delegated-principal reuse, and unrelated malformed-policy denial gaps | Evidence is bound to request/document/version/snapshot/final stage and decision time; approval history retains delegate principal | None | Replay/expiry/cross-document, principal↔delegate reuse, malformed scoped/unrelated policy tests plus full local gates | Revert v2.1 contract/source/tests; preserve approval, Posting, and Audit records |
+
+## Phase 3 guarded activation — v2.2 (16/9/2569)
+
+```mermaid
+flowchart LR
+  A[Batch receipt + unchanged fingerprint] --> B{Exact Phase 2 state\nProduction + QA evidence}
+  B -->|pass| C[POSTING-001/002 done 100]
+  C --> D[POSTING-004/005 ready + queued]
+  D --> E[Atomic Worker claim]
+  B -->|drift or worker| F[Abort transaction]
+  D -. no release .-> G[Phase 4/5 blocked]
+```
+
+Migration `202609160010_activate_posting_phase3.sql` locks the complete approved batch and verifies the original receipt, recomputed scope fingerprints, approval, no worker, dependencies, and exact Phase 2 states. It records exact Production commits/revisions and independent-QA evidence before completing POSTING-001/002. Only POSTING-004/005 enter the approved execution queue; Phase 4/5 stay blocked. Exact final-state replay is a no-op and partial/drifted state aborts. Platform Operations owns the flow. Recovery uses a new guarded forward migration only while Phase 3 is unclaimed/unstarted; Audit is retained.
+
+| v2.2 | 16/9/2569 | Release Phase 3 only after exact Phase 2 Production and independent-QA evidence | POSTING-001/002 close; POSTING-004/005 become claimable; Phase 4/5 remain blocked | `202609160010_activate_posting_phase3.sql` | Contract, migration safety/replay, typecheck, lint, build, real control-plane state after release | Guarded forward migration before any Phase 3 claim; retain Audit |
