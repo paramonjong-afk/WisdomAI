@@ -23,6 +23,14 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-16 — Health Monitor deploy syntax recovery v1.1
+
+- **เหตุผล:** แก้ missing closing brace ที่ทำให้ `health-monitor` bundle ไม่ผ่านและหยุด workflow deploy Edge Functions หลัง PR #92
+- **ผลกระทบ:** คืนความสามารถ deploy ให้ Flow เดิมเท่านั้น; ไม่มีการเปลี่ยน data, routing, permission, retry หรือ business behavior
+- **Migration:** ไม่มี
+- **การตรวจสอบ:** parser regression, approval-loop/health-monitor tests, Supabase bundle, typecheck, lint, build, CI และ authenticated Production smoke
+- **Rollback:** revert syntax commit; ไม่มีข้อมูลหรือ Audit ถูกลบหรือแก้ย้อนหลัง
+
 ## 2026-09-16 — Work Control Core P0 v1.0
 
 - **เหตุผล:** ป้องกันงานหายเมื่อ Worker/Token หยุด และหยุด retry ปัญหาเดิมโดยไม่มีข้อมูลใหม่

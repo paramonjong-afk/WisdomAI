@@ -36,3 +36,11 @@ Recovery uses row locks with `skip locked`, validates age and batch bounds, and 
 ## Owner and rollback
 
 Owner: Platform / LINE integration. Rollback is to disable the recovery call and revert the migration; already recovered rows remain explicit failed records and can be reprocessed from their original evidence.
+
+## 2026-09-16 - Edge Function syntax recovery v1.1
+
+- Rationale: restore the intended approval-loop monitor path after a missing function-closing brace prevented the Edge Function bundle from completing.
+- Impact: syntax-only recovery; inputs, outputs, states, permissions, integrations, retries, audit events and ownership remain unchanged.
+- Migration: none.
+- Verification: TypeScript parser regression, approval-loop/health-monitor tests, Supabase function bundle, typecheck, lint, build and authenticated Production smoke.
+- Rollback: revert the single closing brace only if a replacement implementation is deployed; no data or audit rows are changed by this recovery.
