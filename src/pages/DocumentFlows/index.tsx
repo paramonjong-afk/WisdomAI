@@ -248,6 +248,8 @@ export function DocumentFlowsPage() {
   const [transferSlipPartiesMessage, setTransferSlipPartiesMessage] = useState('')
   const [postingPreview, setPostingPreview] = useState<PostingApprovalPreview | null>(null)
   const [postingPreviewMessage, setPostingPreviewMessage] = useState('')
+  const [stockLocations, setStockLocations] = useState<Array<{ id: string; name: string }>>([])
+  const [stockPreparation, setStockPreparation] = useState<Record<string, { locationId: string; quantity: string; revision: number }>>({})
   const [events, setEvents] = useState<FlowEvent[]>([])
   const [globalFilterOpen, setGlobalFilterOpen] = useState(false)
   const intakeTableToolsRef = useRef<IntakeRoomTableTools | null>(null)
@@ -462,6 +464,12 @@ export function DocumentFlowsPage() {
       return
     }
     setPostingPreview(result.data)
+    if (result.data.lines.some((line) => line.item_type === 'stock')) {
+      const locations = await documentFlowGateway.loadPostingStockLocations()
+      if (locations.error) { setPostingPreviewMessage(`โหลดคลังที่อนุญาตไม่สำเร็จ: ${userError(locations.error)}`); return }
+      setStockLocations((locations.data ?? []) as Array<{ id: string; name: string }>)
+      setStockPreparation(Object.fromEntries(result.data.lines.filter((line) => line.item_type === 'stock').map((line) => [line.id, { locationId: '', quantity: '', revision: 0 }])))
+    } else { setStockLocations([]); setStockPreparation({}) }
     setPostingPreviewMessage('')
   }
 
@@ -494,6 +502,9 @@ export function DocumentFlowsPage() {
           expectedVersion: item.version,
           eventKey: crypto.randomUUID(),
           note: routeNote.trim() || null,
+          stockPreparation: action === 'approve' && item.accounting_document_id ? Object.entries(stockPreparation).map(([sourceLineId, value]) => ({
+            sourceLineId, locationId: value.locationId, requestedQuantity: Number(value.quantity),
+          })) : undefined,
         }),
         errorAction: 'เปลี่ยนสถานะไม่สำเร็จ',
         errorCode: 'UNHANDLED',
@@ -664,6 +675,7 @@ export function DocumentFlowsPage() {
     && postingPreview.lines.length > 0
     && postingPreview.journal.length > 0
     && Math.abs(postingJournalDebit - postingJournalCredit) < .005
+    && postingPreview.lines.filter((line) => line.item_type === 'stock').every((line) => Boolean(stockPreparation[line.id]?.locationId) && Number(stockPreparation[line.id]?.quantity) > 0)
     && postingPreview.document.matching_status === 'complete'
     && postingPreview.document.posting_status !== 'posted')
 
@@ -895,7 +907,7 @@ export function DocumentFlowsPage() {
               </Stack>
               <Typography variant="body2">ยอดก่อนภาษี {money(postingPreview.document.subtotal)} · VAT {money(postingPreview.document.vat_amount)} · หัก ณ ที่จ่าย {money(postingPreview.document.withholding_tax_amount)} · <strong>สุทธิ {money(postingPreview.document.total_amount)}</strong></Typography>
               <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>รายการ ({postingPreview.lines.length})</Typography>
-              {postingPreview.lines.length === 0 ? <Alert severity="warning">ยังไม่มีรายการสินค้า/บริการ</Alert> : postingPreview.lines.map((line) => <Box key={line.id} sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 1 }}><Typography variant="body2">{line.line_number}.</Typography><Typography variant="body2">{line.description}<Typography component="span" variant="caption" color="text.secondary"> · {line.account_code ?? '-'} {line.account_name ?? ''}</Typography></Typography><Typography variant="body2">{money(line.line_amount)}</Typography></Box>)}
+              {postingPreview.lines.length === 0 ? <Alert severity="warning">ยังไม่มีรายการสินค้า/บริการ</Alert> : postingPreview.lines.map((line) => <Box key={line.id} sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 1 }}><Typography variant="body2">{line.line_number}.</Typography><Box><Typography variant="body2">{line.description}<Typography component="span" variant="caption" color="text.secondary"> · {line.account_code ?? '-'} {line.account_name ?? ''}</Typography></Typography>{line.item_type === 'stock' && <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1 }}><TextField select size="small" label="คลัง/ตำแหน่งรับเข้า" value={stockPreparation[line.id]?.locationId ?? ''} onChange={(event) => setStockPreparation((current) => ({ ...current, [line.id]: { ...(current[line.id] ?? { quantity: '', revision: 0 }), locationId: event.target.value } }))} sx={{ minWidth: 220 }}>{stockLocations.map((location) => <MenuItem key={location.id} value={location.id}>{location.name}</MenuItem>)}</TextField><TextField size="small" type="number" label="จำนวนที่ขอรับ" value={stockPreparation[line.id]?.quantity ?? ''} onChange={(event) => setStockPreparation((current) => ({ ...current, [line.id]: { ...(current[line.id] ?? { locationId: '', revision: 0 }), quantity: event.target.value } }))} slotProps={{ htmlInput: { min: 0, step: 0.001 } }} /></Stack>}</Box><Typography variant="body2">{money(line.line_amount)}</Typography></Box>)}
               <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Journal Preview</Typography>
               {postingPreview.journal.length === 0 ? <Alert severity="warning">ยังไม่มี Journal Preview — ห้ามอนุมัติจนกว่าจะสร้าง Draft ที่สมดุล</Alert> : postingPreview.journal.map((line) => <Box key={line.id} sx={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 1 }}><Typography variant="body2">{line.account_code} · {line.account_name}</Typography><Typography variant="body2">Dr {money(line.debit)}</Typography><Typography variant="body2">Cr {money(line.credit)}</Typography></Box>)}
               <Alert severity={postingApprovalReady ? 'success' : 'error'}>Debit {money(postingJournalDebit)} · Credit {money(postingJournalCredit)} · {postingApprovalReady ? 'ข้อมูลครบ สมดุล และ Matching ผ่าน' : 'ห้ามอนุมัติ: Journal/รายการ/Matching ยังไม่ครบ หรือเอกสารถูกลงบัญชีแล้ว'}</Alert>

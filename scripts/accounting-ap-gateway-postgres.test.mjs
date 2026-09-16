@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { PGlite } from '@electric-sql/pglite'
 
 const db=new PGlite()
-await db.exec(`create role anon; create role authenticated; create role service_role; create schema auth; create schema extensions; create function extensions.digest(bytea,text) returns bytea language sql immutable as $$select decode(repeat('ab',32),'hex')$$; create function auth.uid() returns uuid language sql stable as $$select null::uuid$$;
+await db.exec(`create role anon; create role authenticated; create role service_role; create schema auth; create schema extensions; create function extensions.digest(bytea,text) returns bytea language sql immutable as $$select decode(md5(convert_from($1,'UTF8'))||md5('second:'||convert_from($1,'UTF8')),'hex')$$; create function auth.uid() returns uuid language sql stable as $$select '60000000-0000-0000-0000-000000000001'::uuid$$;
 create function auth.role() returns text language sql stable as $$select current_setting('request.jwt.claim.role',true)$$;
 create table public.companies(id uuid primary key); create table public.profiles(id uuid primary key);
 create table public.projects(id uuid primary key,company_id uuid not null references public.companies(id));
@@ -21,7 +21,7 @@ create table public.posting_operation_events(id uuid primary key default gen_ran
 await db.exec(readFileSync('supabase/migrations/202609170001_accounting_ap_gateway_persistence.sql','utf8'))
 assert.equal((await db.query(`select count(*)::int n from pg_indexes where schemaname='public' and tablename='posting_operations' and indexname='posting_operations_id_company_uniq'`)).rows[0].n,1,'migration must add the Production-missing posting operation composite parent key')
 const c1='00000000-0000-0000-0000-000000000001', c2='00000000-0000-0000-0000-000000000002', d='10000000-0000-0000-0000-000000000001', i='20000000-0000-0000-0000-000000000001', f='30000000-0000-0000-0000-000000000001', v='40000000-0000-0000-0000-000000000001', p='50000000-0000-0000-0000-000000000001', a='60000000-0000-0000-0000-000000000001', ap='70000000-0000-0000-0000-000000000001', po='80000000-0000-0000-0000-000000000001'
-await db.exec(`insert into companies values('${c1}'),('${c2}'); insert into vendors values('${v}','${c1}'); insert into projects values('${p}','${c1}');
+await db.exec(`insert into companies values('${c1}'),('${c2}'); insert into profiles values('60000000-0000-0000-0000-000000000001'); insert into vendors values('${v}','${c1}'); insert into projects values('${p}','${c1}');
 insert into accounting_documents values('${d}','${c1}','${v}','quotation','INV-1','2026-09-01','2026-09-30','THB','Vendor',100,0,7,3,104,'confirmed','draft',null,now());
 insert into accounting_document_lines(document_id,item_type) values('${d}','stock');
 insert into accounting_draft_entries values('${d}',1,'5200','Expense',100,0,'${p}','Base'),('${d}',2,'1150','VAT',7,0,null,'VAT'),('${d}',3,'2100','AP',0,104,null,'AP'),('${d}',4,'2150','WHT',0,3,null,'WHT');
@@ -73,3 +73,4 @@ await assert.rejects(()=>db.query(`select persist_accounting_ap_gateway($1,$2,$3
 await assert.rejects(()=>db.exec(`insert into accounting_ap_journal_lines(transaction_id,company_id,line_number,account_code,account_name,role,debit,credit,description) values('${committed.transaction_id}','${c2}',99,'x','x','base_debit',1,0,'x')`),/foreign key|violates/i)
 assert.equal((await db.query(`select count(*)::int n from posting_operation_events where event_type in ('started','posted')`)).rows[0].n,4)
 console.log('Accounting/AP PostgreSQL runtime: document-type matrix, replay, tamper, cross-tenant FK, partial targets and audit passed')
+export { db, c1, c2, d, i, f, p }
