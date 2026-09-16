@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import ts from 'typescript'
 import { detectApprovalLoop } from '../src/pages/WorkCommandCenter/approvalLoop.ts'
 
 const firstLoop = detectApprovalLoop('DOC-INGEST-003', [
@@ -19,6 +20,12 @@ const reminderOnly = detectApprovalLoop('DOC-INGEST-004', [
 assert.equal(reminderOnly.detected, false)
 
 const monitor = readFileSync('supabase/functions/health-monitor/index.ts', 'utf8')
+const monitorSource = ts.createSourceFile('health-monitor/index.ts', monitor, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+assert.deepEqual(
+  monitorSource.parseDiagnostics.map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, ' ')),
+  [],
+  'health-monitor must remain syntactically deployable',
+)
 const page = readFileSync('src/pages/WorkCommandCenter/index.tsx', 'utf8')
 const detector = readFileSync('supabase/functions/_shared/approval-loop.ts', 'utf8')
 assert.match(monitor, /function detectApprovalLoops/)

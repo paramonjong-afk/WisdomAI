@@ -236,6 +236,8 @@ function detectApprovalLoops(events: Array<{ id: number; work_key: string; old_s
     })
   }
   return loops
+}
+
 type DispatchIntent = {
   work_key: string
   company_id: string | null
