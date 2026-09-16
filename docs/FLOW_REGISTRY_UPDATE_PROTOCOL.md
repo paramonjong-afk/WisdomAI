@@ -1558,3 +1558,25 @@ The approval bundle now maps only catalog-backed Accounting/AP document types an
 Production prerequisite correction v3.7 adds the missing tenant-composite unique parent key on Posting operations before Accounting/AP foreign keys are installed. This does not change the flowchart, routing, state, permissions or data writes; it allows the already-documented tenant-integrity relationship to install on the Production-shaped schema. Migration run `35137064316` was transactional and rolled back. Recovery is to rerun the corrected migration; rollback retains the harmless unique index unless dependent FKs are first removed by a reviewed forward migration.
 
 POSTING-005 Stock approval atomicity v4.3 (17/9/2569) replaces client-side per-line staging with one tenant-manager RPC. The server locks the Flow item, verifies the exact canonical Stock-line set and canonical PO links, derives current revisions under the document lock, stages every reviewed warehouse/quantity input, and invokes the approval bundle in the same transaction. A line or approval failure rolls back staging, operations, event and snapshot together; an identical approval event replays without restaging. Migration `202609170002_stock_gateway_persistence.sql`; rollback revokes the bundle RPC and hides the Stock preparation controls while retaining append-only execution/audit evidence.
+
+## 2026-09-17 — Posting prerequisite recovery v4.3
+
+```mermaid
+flowchart LR
+  A[Posting approval drawer] --> B{Accounting period open?}
+  B -->|no| C[Manager opens document month + Audit]
+  B -->|yes| D{Every Stock line linked to compatible PO line?}
+  D -->|no| E[Manager selects exact compatible PO line]
+  E --> F[Server validates tenant/project/product/unit/price/remaining]
+  C --> D
+  F --> G[Persist canonical link + Audit]
+  D -->|yes| H[Approval bundle]
+  G --> H
+  H --> I[Accounting/AP and Stock gateways]
+```
+
+- **Input/output:** the Posting drawer reads the document date, open-period authority, Stock source lines and server-filtered PO-line candidates. It writes only a manager-confirmed monthly period or exact source-line → PO-line link, then returns to the existing approval bundle.
+- **State/permissions:** only an active company manager may configure prerequisites. Configuration is refused after Posting reservation/processing/completion or after the document is posted. Closed/locked periods cannot be reopened by this path.
+- **Integrations/failure:** PO compatibility is rechecked server-side for tenant, project, product code, unit, unit price, approved/partially-received PO state and remaining quantity. Missing or ambiguous business data stays visibly blocked; no fuzzy/default link or historical inference is performed.
+- **Audit/retry/recovery:** every successful change appends `posting_prerequisite_events`; exact retries are safe. Rollback hides the UI/RPC while retaining nullable links, period rows and Audit. Incorrect links must be corrected through a reviewed forward event before approval, never by deleting history.
+- **Version/change:** v4.3, 17/9/2569. Migration `202609170003_posting_prerequisite_management.sql`. Verify contract, full migration replay, typecheck, lint, build, real Posting drawer and destination/Audit path.

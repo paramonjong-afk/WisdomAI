@@ -249,7 +249,7 @@ export function DocumentFlowsPage() {
   const [postingPreview, setPostingPreview] = useState<PostingApprovalPreview | null>(null)
   const [postingPreviewMessage, setPostingPreviewMessage] = useState('')
   const [stockLocations, setStockLocations] = useState<Array<{ id: string; name: string }>>([])
-  const [stockPreparation, setStockPreparation] = useState<Record<string, { locationId: string; quantity: string; revision: number }>>({})
+  const [stockPreparation, setStockPreparation] = useState<Record<string, { locationId: string; quantity: string; purchaseOrderLineId: string; revision: number }>>({})
   const [events, setEvents] = useState<FlowEvent[]>([])
   const [globalFilterOpen, setGlobalFilterOpen] = useState(false)
   const intakeTableToolsRef = useRef<IntakeRoomTableTools | null>(null)
@@ -468,9 +468,31 @@ export function DocumentFlowsPage() {
       const locations = await documentFlowGateway.loadPostingStockLocations()
       if (locations.error) { setPostingPreviewMessage(`โหลดคลังที่อนุญาตไม่สำเร็จ: ${userError(locations.error)}`); return }
       setStockLocations((locations.data ?? []) as Array<{ id: string; name: string }>)
-      setStockPreparation(Object.fromEntries(result.data.lines.filter((line) => line.item_type === 'stock').map((line) => [line.id, { locationId: '', quantity: '', revision: 0 }])))
+      setStockPreparation(Object.fromEntries(result.data.lines.filter((line) => line.item_type === 'stock').map((line) => [line.id, { locationId: '', quantity: '', purchaseOrderLineId: line.purchase_order_line_id ?? '', revision: 0 }])))
     } else { setStockLocations([]); setStockPreparation({}) }
     setPostingPreviewMessage('')
+  }
+
+  const linkPostingPurchaseOrderLine = async (sourceLineId: string) => {
+    if (!selectedItem || !postingPreview) return
+    const selected = stockPreparation[sourceLineId]?.purchaseOrderLineId
+    if (!selected) { setError('เลือก PO line ที่ตรงกับรายการก่อน'); return }
+    setWorkingId(sourceLineId)
+    setError('')
+    const result = await documentFlowGateway.linkPostingPurchaseOrderLine(sourceLineId, selected, routeNote.trim() || 'ยืนยัน PO line ก่อน Posting')
+    if (result.error) setError(`เชื่อม PO line ไม่สำเร็จ: ${userError(result.error)}`)
+    else { setSuccess('เชื่อม PO line และบันทึก Audit แล้ว'); await loadPostingPreview(selectedItem) }
+    setWorkingId('')
+  }
+
+  const openPostingAccountingPeriod = async () => {
+    if (!selectedItem?.accounting_document_id) return
+    setWorkingId(selectedItem.id)
+    setError('')
+    const result = await documentFlowGateway.openPostingAccountingPeriod(selectedItem.accounting_document_id, routeNote.trim() || 'เปิดรอบบัญชีจาก Posting approval')
+    if (result.error) setError(`เปิดรอบบัญชีไม่สำเร็จ: ${userError(result.error)}`)
+    else { setSuccess('เปิดรอบบัญชีของเดือนเอกสารและบันทึก Audit แล้ว'); await loadPostingPreview(selectedItem) }
+    setWorkingId('')
   }
 
   const transition = async (item: FlowItem, action: string) => {
@@ -675,7 +697,8 @@ export function DocumentFlowsPage() {
     && postingPreview.lines.length > 0
     && postingPreview.journal.length > 0
     && Math.abs(postingJournalDebit - postingJournalCredit) < .005
-    && postingPreview.lines.filter((line) => line.item_type === 'stock').every((line) => Boolean(stockPreparation[line.id]?.locationId) && Number(stockPreparation[line.id]?.quantity) > 0)
+    && postingPreview.document.accounting_period_open
+    && postingPreview.lines.filter((line) => line.item_type === 'stock').every((line) => Boolean(line.purchase_order_line_id) && Boolean(stockPreparation[line.id]?.locationId) && Number(stockPreparation[line.id]?.quantity) > 0)
     && postingPreview.document.matching_status === 'complete'
     && postingPreview.document.posting_status !== 'posted')
 
@@ -906,8 +929,14 @@ export function DocumentFlowsPage() {
                 <Chip size="small" label={`OCR ${confidence(postingPreview.document.analysis_confidence)}`} />
               </Stack>
               <Typography variant="body2">ยอดก่อนภาษี {money(postingPreview.document.subtotal)} · VAT {money(postingPreview.document.vat_amount)} · หัก ณ ที่จ่าย {money(postingPreview.document.withholding_tax_amount)} · <strong>สุทธิ {money(postingPreview.document.total_amount)}</strong></Typography>
+              {!postingPreview.document.accounting_period_open && <Alert severity="warning" action={<Button color="inherit" size="small" disabled={workingId === selectedItem.id} onClick={() => void openPostingAccountingPeriod()}>เปิดรอบเดือนนี้</Button>}>รอบบัญชีของวันที่เอกสารยังไม่เปิด จึงยังอนุมัติไม่ได้</Alert>}
               <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>รายการ ({postingPreview.lines.length})</Typography>
-              {postingPreview.lines.length === 0 ? <Alert severity="warning">ยังไม่มีรายการสินค้า/บริการ</Alert> : postingPreview.lines.map((line) => <Box key={line.id} sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 1 }}><Typography variant="body2">{line.line_number}.</Typography><Box><Typography variant="body2">{line.description}<Typography component="span" variant="caption" color="text.secondary"> · {line.account_code ?? '-'} {line.account_name ?? ''}</Typography></Typography>{line.item_type === 'stock' && <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1 }}><TextField select size="small" label="คลัง/ตำแหน่งรับเข้า" value={stockPreparation[line.id]?.locationId ?? ''} onChange={(event) => setStockPreparation((current) => ({ ...current, [line.id]: { ...(current[line.id] ?? { quantity: '', revision: 0 }), locationId: event.target.value } }))} sx={{ minWidth: 220 }}>{stockLocations.map((location) => <MenuItem key={location.id} value={location.id}>{location.name}</MenuItem>)}</TextField><TextField size="small" type="number" label="จำนวนที่ขอรับ" value={stockPreparation[line.id]?.quantity ?? ''} onChange={(event) => setStockPreparation((current) => ({ ...current, [line.id]: { ...(current[line.id] ?? { locationId: '', revision: 0 }), quantity: event.target.value } }))} slotProps={{ htmlInput: { min: 0, step: 0.001 } }} /></Stack>}</Box><Typography variant="body2">{money(line.line_amount)}</Typography></Box>)}
+              {postingPreview.lines.length === 0 ? <Alert severity="warning">ยังไม่มีรายการสินค้า/บริการ</Alert> : postingPreview.lines.map((line) => <Box key={line.id} sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 1 }}><Typography variant="body2">{line.line_number}.</Typography><Box><Typography variant="body2">{line.description}<Typography component="span" variant="caption" color="text.secondary"> · {line.account_code ?? '-'} {line.account_name ?? ''}</Typography></Typography>{line.item_type === 'stock' && <Stack spacing={1} sx={{ mt: 1 }}>
+                {!line.purchase_order_line_id && <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><TextField select size="small" label="PO line ต้นทาง" value={stockPreparation[line.id]?.purchaseOrderLineId ?? ''} onChange={(event) => setStockPreparation((current) => ({ ...current, [line.id]: { ...(current[line.id] ?? { locationId: '', quantity: '', revision: 0 }), purchaseOrderLineId: event.target.value } }))} sx={{ minWidth: 280 }}>{line.compatible_purchase_order_lines.map((option) => <MenuItem key={option.id} value={option.id}>{option.label} · คงเหลือ {option.remaining_quantity}</MenuItem>)}</TextField><Button variant="outlined" disabled={workingId === line.id || !stockPreparation[line.id]?.purchaseOrderLineId} onClick={() => void linkPostingPurchaseOrderLine(line.id)}>ยืนยัน PO line</Button></Stack>}
+                {!line.purchase_order_line_id && line.compatible_purchase_order_lines.length === 0 && <Alert severity="error">ไม่พบ PO line ที่ตรงกัน ต้องแก้ข้อมูล PO/โครงการ/สินค้าให้ตรงก่อน</Alert>}
+                {line.purchase_order_line_id && <Chip size="small" color="success" label="เชื่อม PO line แล้ว" sx={{ alignSelf: 'flex-start' }} />}
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}><TextField select size="small" label="คลัง/ตำแหน่งรับเข้า" value={stockPreparation[line.id]?.locationId ?? ''} onChange={(event) => setStockPreparation((current) => ({ ...current, [line.id]: { ...(current[line.id] ?? { quantity: '', purchaseOrderLineId: '', revision: 0 }), locationId: event.target.value } }))} sx={{ minWidth: 220 }}>{stockLocations.map((location) => <MenuItem key={location.id} value={location.id}>{location.name}</MenuItem>)}</TextField><TextField size="small" type="number" label="จำนวนที่ขอรับ" value={stockPreparation[line.id]?.quantity ?? ''} onChange={(event) => setStockPreparation((current) => ({ ...current, [line.id]: { ...(current[line.id] ?? { locationId: '', purchaseOrderLineId: '', revision: 0 }), quantity: event.target.value } }))} slotProps={{ htmlInput: { min: 0, step: 0.001 } }} /></Stack>
+              </Stack>}</Box><Typography variant="body2">{money(line.line_amount)}</Typography></Box>)}
               <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Journal Preview</Typography>
               {postingPreview.journal.length === 0 ? <Alert severity="warning">ยังไม่มี Journal Preview — ห้ามอนุมัติจนกว่าจะสร้าง Draft ที่สมดุล</Alert> : postingPreview.journal.map((line) => <Box key={line.id} sx={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 1 }}><Typography variant="body2">{line.account_code} · {line.account_name}</Typography><Typography variant="body2">Dr {money(line.debit)}</Typography><Typography variant="body2">Cr {money(line.credit)}</Typography></Box>)}
               <Alert severity={postingApprovalReady ? 'success' : 'error'}>Debit {money(postingJournalDebit)} · Credit {money(postingJournalCredit)} · {postingApprovalReady ? 'ข้อมูลครบ สมดุล และ Matching ผ่าน' : 'ห้ามอนุมัติ: Journal/รายการ/Matching ยังไม่ครบ หรือเอกสารถูกลงบัญชีแล้ว'}</Alert>

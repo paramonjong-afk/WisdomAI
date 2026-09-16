@@ -50,6 +50,7 @@ export type PostingApprovalPreview = {
     matched_document_ids: string[]
     risk_flags: string[]
     analysis_confidence: number | null
+    accounting_period_open: boolean
     extraction_dimensions: Record<string, unknown>
     projects: { name: string; code: string | null } | null
   }
@@ -64,6 +65,8 @@ export type PostingApprovalPreview = {
     item_type: string
     account_code: string | null
     account_name: string | null
+    purchase_order_line_id: string | null
+    compatible_purchase_order_lines: Array<{ id: string; label: string; remaining_quantity: number }>
   }>
   journal: Array<{
     id: string
@@ -448,26 +451,51 @@ export const documentFlowGateway = {
         'id,document_number,document_date,vendor_name,vendor_tax_id,subtotal,vat_amount,withholding_tax_amount,total_amount,currency,posting_status,matching_status,matched_document_ids,risk_flags,analysis_confidence,extraction_dimensions,projects(name,code)',
       ).eq('id', documentId).maybeSingle(),
       supabase.from('accounting_document_lines').select(
-        'id,line_number,description,quantity,unit,unit_price,line_amount,item_type,account_code,account_name',
+        'id,line_number,description,quantity,unit,unit_price,line_amount,item_type,account_code,account_name,purchase_order_line_id',
       ).eq('document_id', documentId).order('line_number'),
       supabase.from('accounting_draft_entries').select(
         'id,line_number,account_code,account_name,debit,credit,description',
       ).eq('document_id', documentId).order('line_number'),
     ])
     const error = documentResult.error ?? linesResult.error ?? journalResult.error
+    const prerequisiteResult = documentResult.data
+      ? await supabase.rpc('get_posting_prerequisites', { target_document_id: documentId })
+      : { data: null, error: null }
+    const prerequisite = prerequisiteResult.data as { accountingPeriodOpen?: boolean; stockLines?: Array<{ sourceLineId: string; compatiblePurchaseOrderLines: Array<{ id: string; label: string; remainingQuantity: number }> }> } | null
+    const stockByLine = new Map((prerequisite?.stockLines ?? []).map((line) => [line.sourceLineId, line.compatiblePurchaseOrderLines]))
+    const combinedError = error ?? prerequisiteResult.error
     return {
-      data: error || !documentResult.data ? null : {
+      data: combinedError || !documentResult.data ? null : {
         document: {
           ...documentResult.data,
+          accounting_period_open: Boolean(prerequisite?.accountingPeriodOpen),
           projects: Array.isArray(documentResult.data.projects)
             ? documentResult.data.projects[0] ?? null
             : documentResult.data.projects,
         },
-        lines: linesResult.data ?? [],
+        lines: (linesResult.data ?? []).map((line) => ({
+          ...line,
+          compatible_purchase_order_lines: (stockByLine.get(line.id) ?? []).map((option) => ({ id: option.id, label: option.label, remaining_quantity: option.remainingQuantity })),
+        })),
         journal: journalResult.data ?? [],
       } as unknown as PostingApprovalPreview,
-      error,
+      error: combinedError,
     }
+  },
+
+  async linkPostingPurchaseOrderLine(sourceLineId: string, purchaseOrderLineId: string, reason: string) {
+    return supabase.rpc('configure_posting_purchase_order_line', {
+      target_source_line_id: sourceLineId,
+      target_purchase_order_line_id: purchaseOrderLineId,
+      target_reason: reason,
+    })
+  },
+
+  async openPostingAccountingPeriod(documentId: string, reason: string) {
+    return supabase.rpc('open_posting_accounting_period_for_document', {
+      target_document_id: documentId,
+      target_reason: reason,
+    })
   },
 
   async loadPostingStockLocations() {
