@@ -23,6 +23,26 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-16 — Posting approval and transaction contract v1.0
+
+```mermaid
+flowchart LR
+  A[Filter passed + immutable snapshot] --> B[Authorized Posting approval]
+  B --> C[Atomic idempotent command reservation]
+  C --> D[Accounting / AP / Stock / PO gateways]
+  D --> E[Intake + Filter + Audit projection]
+  D --> F[Retry / dead letter / compensation]
+  E --> G[Correction through new version or linked reversal]
+```
+
+- **Reason:** define the canonical `FILTER-007`/`FILTER-008` approval snapshot, permission, validation, transaction, idempotency, correction/reversal, status projection, and Audit boundary before runtime phases.
+- **Impact:** adds `docs/POSTING_APPROVAL_TRANSACTION_CONTRACT.md`, executable TypeScript preflight, and contract tests. Phase 1 does not alter runtime routing, schema, data, roles, permissions, or Production.
+- **Inputs/outputs and owner:** only a versioned Filter-pass document may enter; output is an approval event plus one command per selected destination. Posting Flow/Accounting owns the business contract; Platform/Security and destination owners own their respective controls.
+- **Failure/retry:** retry retains the same deterministic command identity; unknown/partial outcomes are reconciled or compensated, and Intake/Filter cannot show posted early.
+- **Migration:** none. Reversal command and atomic multi-target reservation remain explicit later-phase dependencies.
+- **Verification:** `test:posting-flow-contract`, typecheck, lint, and build. Authenticated UI/gateway/Production smoke is deferred because those runtime changes are outside the approved Phase 1 scope.
+- **Rollback:** revert the contract source/document/test/registry entry; preserve all existing document-flow and posting ledgers/events.
+
 ## 2026-09-16 — Health Monitor deploy syntax recovery v1.1
 
 - **เหตุผล:** แก้ missing closing brace ที่ทำให้ `health-monitor` bundle ไม่ผ่านและหยุด workflow deploy Edge Functions หลัง PR #92

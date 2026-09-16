@@ -61,6 +61,8 @@ Threshold ต้องปรับแยกตามชนิดและข้�
 
 สร้าง Accounting/AP/Stock/PO เฉพาะหลังอนุมัติด้วย transaction/idempotency key; ส่งผลกลับห้องแรกและห้องประเภท; รองรับ correction/reversal, retry, dead-letter, SLA dashboard และ trace ด้วย Intake ID เดิม
 
+หลักฐาน Phase 1: `docs/POSTING_APPROVAL_TRANSACTION_CONTRACT.md` และ `src/services/postingFlowContract.ts` กำหนด approval snapshot, server authorization/final validation, atomic multi-target reservation, idempotency, correction/reversal, status projection และ append-only Audit contract แล้ว โดยยังไม่เชื่อม Gateway หรือเปลี่ยน permission/schema จนกว่าจะอนุมัติ Phase ถัดไป
+
 ## เกณฑ์ปิด Flow
 
 - Automated tests ครบ happy path, low confidence, duplicate, missing page, mismatch, retry และ double-click
