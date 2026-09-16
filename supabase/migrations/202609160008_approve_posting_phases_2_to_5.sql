@@ -14,12 +14,23 @@ begin
   for update;
 
   if item.work_key is null
-     or item.status <> 'review'
-     or item.progress <> 20
      or item.worker_id is not null
-     or item.worker_outcome <> 'completed'
-     or item.current_step <> 'phase1_complete_waiting_phase2_approval'
-     or item.context_manifest ->> 'approval_receipt' <> 'CTRL-POSTING-FLOW-001-PHASE1-20260916' then
+     or item.approval_status <> 'approved'
+     or item.context_manifest ->> 'approval_receipt' <> 'CTRL-POSTING-FLOW-001-PHASE1-20260916'
+     or not (
+       (
+         item.status = 'review'
+         and item.progress = 20
+         and item.worker_outcome = 'completed'
+         and item.current_step = 'phase1_complete_waiting_phase2_approval'
+       )
+       or (
+         item.status = 'ready'
+         and item.progress = 0
+         and item.production_status = 'approved_for_execution'
+         and item.current_step = 'Phase 1 approved; waiting for an atomic Worker claim.'
+       )
+     ) then
     raise exception 'Phase 1 completion evidence changed; batch activation refused';
   end if;
 
@@ -107,4 +118,3 @@ begin
   end loop;
 end
 $$;
-
