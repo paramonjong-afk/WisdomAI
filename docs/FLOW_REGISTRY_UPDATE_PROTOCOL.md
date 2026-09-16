@@ -23,6 +23,14 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-16 — Work Control Core P0 v1.0
+
+- **เหตุผล:** ป้องกันงานหายเมื่อ Worker/Token หยุด และหยุด retry ปัญหาเดิมโดยไม่มีข้อมูลใหม่
+- **ผลกระทบ:** Task/Run ledger เดิม, Automation Worker, local runner และ Work Command Center; เพิ่ม checkpoint, context manifest, control state และ versioned Problem โดยไม่สร้างคิวงานชุดที่สอง
+- **Migration:** `202609160001_work_control_core_p0.sql` แบบ additive; ไม่มีการลบหรือเขียนทับธุรกรรมธุรกิจ
+- **การตรวจสอบ:** migration safety, Work Control contracts, claim/recovery regression, typecheck, lint, build และ authenticated Work Command Center smoke
+- **Rollback:** กลับไปเรียก RPC เดิมและ revert source/UI; เก็บ checkpoint/problem/audit ที่สร้างแล้วเพื่อ recovery
+
 ## 2026-09-07 — Approval loop detection before retry cap
 
 ```mermaid

@@ -21,6 +21,14 @@ type Body = {
   error_fingerprint?: string
   outcome?: WorkerOutcome
   outcome_reason?: string
+  current_step?: string
+  control_state?: 'queued'|'blocked'|'paused'|'waiting_permission'|'token_limit'|'waiting_qa'|'worker_lost'|'done'
+  checkpoint?: Record<string, unknown>
+  context_manifest?: Record<string, unknown>
+  problem_category?: 'code'|'token'|'allow'|'policy'|'dependency'|'config'|'data'|'network'|'qa'|'worker_lost'|'unknown'
+  new_information_hash?: string
+  token_input?: number
+  token_output?: number
   lease_minutes?: number
 }
 
@@ -35,7 +43,7 @@ Deno.serve(async request => {
 
   if (body.action === 'status') {
     const [{ data: items, error: itemError }, { data: runs, error: runError }] = await Promise.all([
-      admin.from('system_work_items').select('work_key,title,status,progress,risk,production_status,approval_status,approval_scope,approved_at,approval_channel,worker_id,heartbeat_at,lease_expires_at,current_step,attempt_count,error_fingerprint,worker_outcome,worker_outcome_reason,worker_outcome_at,updated_at').order('work_key'),
+      admin.from('system_work_items').select('work_key,title,status,progress,risk,production_status,approval_status,approval_scope,approved_at,approval_channel,worker_id,heartbeat_at,lease_expires_at,current_step,attempt_count,error_fingerprint,worker_outcome,worker_outcome_reason,worker_outcome_at,requirement_version,controller_owner,execution_owner,qa_owner,control_state,checkpoint,context_manifest,new_information_hash,updated_at').order('work_key'),
       admin.from('system_worker_runs').select('id,work_key,worker_id,status,current_step,progress,outcome,outcome_reason,started_at,heartbeat_at,finished_at').order('started_at', { ascending: false }).limit(100),
     ])
     if (itemError || runError) return json({ error: (itemError ?? runError)?.message }, 500)
@@ -74,7 +82,7 @@ Deno.serve(async request => {
   }
 
   if (body.action === 'claim') {
-    const { data, error } = await admin.rpc('claim_system_work_item', {
+    const { data, error } = await admin.rpc('claim_system_work_item_v2', {
       target_worker: workerId, lease_minutes: Math.min(120, Math.max(5, Number(body.lease_minutes) || 15)),
     })
     if (error) return json({ error: error.message }, 500)
@@ -84,12 +92,22 @@ Deno.serve(async request => {
   if (body.action === 'retry_runner_failure') {
     const workKey = String(body.work_key || '').trim().slice(0, 80)
     if (!workKey) return json({ error: 'work_key_required' }, 400)
+    const { data: item, error: itemError } = await admin.from('system_work_items')
+      .select('requirement_version,error_fingerprint,new_information_hash').eq('work_key', workKey).maybeSingle()
+    if (itemError) return json({ error: itemError.message }, 500)
+    if (!item?.error_fingerprint) return json({ updated: false, reason: 'problem_fingerprint_required' }, 409)
+    const { data: problem, error: problemError } = await admin.from('system_work_problems')
+      .select('retry_allowed').eq('work_key', workKey).eq('requirement_version', item.requirement_version)
+      .eq('problem_fingerprint', item.error_fingerprint).maybeSingle()
+    if (problemError) return json({ error: problemError.message }, 500)
+    if (!problem?.retry_allowed) return json({ updated: false, reason: 'no_new_information_retry_blocked' }, 409)
     const { data, error } = await admin.from('system_work_items').update({
       status: 'ready',
       worker_id: null,
       heartbeat_at: null,
       lease_expires_at: null,
-      current_step: null,
+      current_step: 'controlled_retry_after_new_information',
+      control_state: 'queued',
       production_status: 'retry_after_runner_fix',
       evidence: 'Auto-recovery: valid structured result was produced but the local runner reported a non-zero process exit; retrying with corrected result handling.',
       updated_at: new Date().toISOString(),
@@ -107,8 +125,10 @@ Deno.serve(async request => {
     // 20260904130000_bounded_retry_and_escalation_alerts.sql.
     const workKey = String(body.work_key || '').trim().slice(0, 80)
     if (!workKey) return json({ error: 'work_key_required' }, 400)
-    const { data, error } = await admin.rpc('reset_system_work_item_retry', {
-      target_work_key: workKey, actor: workerId,
+    const newInformationHash = String(body.new_information_hash || '').trim().slice(0, 200)
+    if (!newInformationHash) return json({ error: 'new_information_required' }, 400)
+    const { data, error } = await admin.rpc('reset_system_work_item_retry_v2', {
+      target_work_key: workKey, target_actor: workerId, target_new_information_hash: newInformationHash,
     })
     if (error) return json({ error: error.message }, 500)
     return json({ updated: data === true, work_key: workKey })
@@ -140,13 +160,22 @@ Deno.serve(async request => {
     if (!body.outcome || !body.outcome_reason?.trim()) {
       return json({ error: 'terminal_outcome_and_reason_required' }, 400)
     }
-    const { data, error } = await admin.rpc('finish_system_work_item', {
+    const controlState = body.control_state || (body.status === 'done' ? 'done' : body.status === 'blocked' ? 'blocked' : 'waiting_qa')
+    const { data, error } = await admin.rpc('finish_system_work_item_v2', {
       target_run: body.run_id,target_worker: workerId,target_status: body.status,
       target_progress: Math.min(100,Math.max(0,Number(body.progress)||0)),
       target_evidence: String(body.evidence || ''),target_production_status: body.production_status || null,
       target_error_fingerprint: body.error_fingerprint || null,
       target_outcome: body.outcome,
       target_outcome_reason: body.outcome_reason.trim().slice(0, 1000),
+      target_current_step: String(body.current_step || body.step || controlState).slice(0, 500),
+      target_control_state: controlState,
+      target_checkpoint: body.checkpoint || {},
+      target_context_manifest: body.context_manifest || {},
+      target_problem_category: body.problem_category || null,
+      target_new_information_hash: body.new_information_hash || null,
+      target_token_input: Number.isFinite(body.token_input) ? body.token_input : null,
+      target_token_output: Number.isFinite(body.token_output) ? body.token_output : null,
     })
     if (error) return json({ error: error.message }, 500)
     return json({ updated: data === true })

@@ -113,6 +113,6 @@ assert.match(boundedRetryMigration, /reset_system_work_item_retry/)
 assert.match(boundedRetryMigration, /wisdomai-work-escalation-alerts/)
 assert.ok(healthMonitor.indexOf("body.action === 'send_work_escalations'") < healthMonitor.indexOf('if (!monitorAuthorized)'), 'escalation action must precede settings gate')
 assert.match(automationWorker, /'reset_retry'/)
-assert.match(automationWorker, /admin\.rpc\('reset_system_work_item_retry'/)
+assert.match(automationWorker, /admin\.rpc\('reset_system_work_item_retry_v2'/)
 
 console.log('Supabase deployment workflow contracts passed')

@@ -61,6 +61,14 @@ type Item = {
   worker_outcome?: string | null;
   worker_outcome_reason?: string | null;
   worker_outcome_at?: string | null;
+  requirement_version?: number;
+  controller_owner?: string | null;
+  execution_owner?: string | null;
+  qa_owner?: string | null;
+  control_state?: "queued" | "active" | "blocked" | "paused" | "waiting_permission" | "token_limit" | "waiting_qa" | "worker_lost" | "done";
+  checkpoint?: { last_success?: string; next_action?: string; files?: string[]; evidence_refs?: string[] } | null;
+  context_manifest?: Record<string, unknown> | null;
+  new_information_hash?: string | null;
   company_id?: string | null;
   approval_state?: ReturnType<typeof resolveApprovalState>;
 };
@@ -200,7 +208,7 @@ export function WorkCommandCenterPage() {
       supabase
         .from("system_work_items")
         .select(
-          "work_key,title,category,status,progress,risk,production_status,owner,current_step,worker_id,heartbeat_at,lease_expires_at,approval_status,approval_fingerprint,attempt_count,worker_outcome,worker_outcome_reason,worker_outcome_at,created_at,updated_at",
+          "work_key,title,category,status,progress,risk,production_status,owner,current_step,worker_id,heartbeat_at,lease_expires_at,approval_status,approval_fingerprint,attempt_count,worker_outcome,worker_outcome_reason,worker_outcome_at,requirement_version,controller_owner,execution_owner,qa_owner,control_state,checkpoint,context_manifest,new_information_hash,created_at,updated_at",
         )
         .order("updated_at", { ascending: false }),
       supabase
@@ -870,6 +878,20 @@ export function WorkCommandCenterPage() {
                 {selected.current_step || "ยังไม่ระบุ"}
               </Typography>
             </Box>
+            <Paper variant="outlined" sx={{ p: 1.5 }}>
+              <Typography variant="subtitle2">Work Control</Typography>
+              <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: "wrap" }}>
+                <Chip size="small" label={`Requirement v${selected.requirement_version ?? 1}`} />
+                <Chip size="small" color={selected.control_state === "waiting_permission" || selected.control_state === "token_limit" || selected.control_state === "worker_lost" ? "error" : "default"} label={selected.control_state || "ยังไม่จัดประเภท"} />
+                <Chip size="small" variant="outlined" label={`Attempts ${selected.attempt_count ?? 0}`} />
+              </Stack>
+              <Typography variant="body2" sx={{ mt: 1 }}>Controller: {selected.controller_owner || "ยังไม่ระบุ"} · Execution: {selected.execution_owner || selected.worker_id || "ยังไม่ระบุ"} · QA: {selected.qa_owner || "ยังไม่ระบุ"}</Typography>
+              <Typography variant="body2" sx={{ mt: 0.5 }}>Checkpoint ล่าสุด: {selected.checkpoint?.last_success || "ยังไม่มี"}</Typography>
+              <Typography variant="body2">ถัดไป: {selected.checkpoint?.next_action || selected.current_step || "ยังไม่ระบุ"}</Typography>
+              {selected.control_state === "waiting_permission" && <Alert severity="warning" sx={{ mt: 1 }}>Worker หยุดที่ Tool/Business Allow และบันทึก checkpoint แล้ว</Alert>}
+              {selected.control_state === "token_limit" && <Alert severity="warning" sx={{ mt: 1 }}>Worker หยุดก่อน Token หมด ให้ Resume จาก checkpoint โดยไม่โหลด Full Chat</Alert>}
+              {selected.control_state === "worker_lost" && <Alert severity="error" sx={{ mt: 1 }}>Worker ขาดการติดต่อ ต้อง reconcile run ก่อน dispatch ใหม่</Alert>}
+            </Paper>
             {(() => {
               const outcome = workerOutcome(selected, claimNow);
               const color = workerOutcomeColor(outcome.value);
