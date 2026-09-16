@@ -1,6 +1,7 @@
 param(
   [string]$Workspace = 'D:\WisdomAI-React',
-  [string]$WorkerId = 'local-windows-runner-01'
+  [string]$WorkerId = 'local-windows-runner-01',
+  [ValidateSet('execution','qa')][string]$Mode = 'execution'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -9,7 +10,8 @@ $credentialPath = Join-Path $env:LOCALAPPDATA 'WisdomAI\automation-worker.cred'
 $logDirectory = Join-Path $env:LOCALAPPDATA 'WisdomAI\logs'
 $schemaPath = Join-Path $Workspace 'scripts\automation-result.schema.json'
 $codexPath = Join-Path $env:APPDATA 'npm\codex.cmd'
-$mutex = New-Object System.Threading.Mutex($false, 'Local\WisdomAI-Local-Automation-Runner')
+$mutexSuffix = ($WorkerId -replace '[^A-Za-z0-9_-]','_')
+$mutex = New-Object System.Threading.Mutex($false, "Local\WisdomAI-Automation-$mutexSuffix")
 $locked = $false
 $secret = $null
 $secureSecret = $null
@@ -48,7 +50,8 @@ try {
   $secretPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureSecret)
   $secret = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($secretPointer)
   try {
-    $claim = Invoke-Worker -Secret $secret -Body @{ action='claim'; worker_id=$WorkerId; lease_minutes=120 }
+    $claimAction = if ($Mode -eq 'qa') { 'claim_qa' } else { 'claim' }
+    $claim = Invoke-Worker -Secret $secret -Body @{ action=$claimAction; worker_id=$WorkerId; lease_minutes=120 }
     $item = $claim.item
     if ($null -eq $item) { exit 0 }
 
@@ -73,8 +76,14 @@ try {
     $priorEvidence = [string]$item.evidence
     if ($priorEvidence.Length -gt 2000) { $priorEvidence = $priorEvidence.Substring($priorEvidence.Length - 2000) }
     $changedFiles = @(& git -C $Workspace diff --name-only HEAD 2>$null) | Select-Object -First 40
+    $modeInstruction = if ($Mode -eq 'qa') {
+      'This is independent QA. Do not edit files, commit, push, merge, deploy, migrate, or change data/config. Verify the recorded requirement version and evidence against the current repository and tests. Return done only when the full recorded scope is proven. Otherwise return blocked with an exact missing-evidence fingerprint and recovery action. Never return review, ready, or waiting_qa from QA because that would create a review loop.'
+    } else {
+      'This is implementation execution. Make only safe in-scope source changes and return review/waiting_qa when implementation is complete but independent verification remains.'
+    }
     $prompt = @"
 Work item $($item.work_key): $($item.title)
+Worker mode: $Mode
 Requirement version: $($item.requirement_version)
 Category: $($item.category); risk: $($item.risk); recorded progress: $($item.progress)%
 Model route: $($item.model_tier); QA tier: $($item.qa_tier); escalation level: $($item.escalation_level)
@@ -86,6 +95,7 @@ Context manifest: $($item.context_manifest | ConvertTo-Json -Depth 8 -Compress)
 Current changed files (diff-first, maximum 40): $($changedFiles -join ', ')
 Prior evidence tail (maximum 2000 chars): $priorEvidence
 
+$modeInstruction
 Use only this task packet first. Open additional files only when the context manifest or direct evidence makes them necessary; do not load full chat history. Resume from the checkpoint instead of restarting completed work. Work only inside $Workspace. Preserve unrelated changes. Do not run database migrations, rotate or expose secrets, change permissions/security, delete data, or make irreversible changes. If permission is required, return waiting_permission with a checkpoint. If the context/token limit prevents safe completion, return token_limit with a checkpoint. For safe source changes, use focused edits and relevant verification. Return the final result using the required JSON schema, including checkpoint, control_state, problem_category, new_information_hash and token counts (use 0 when unavailable). Same task + same error + same requirement version + no new information must not be retried.
 "@
     [IO.File]::WriteAllText($promptFile, $prompt, [Text.UTF8Encoding]::new($false))
@@ -141,6 +151,16 @@ Use only this task packet first. Open additional files only when the context man
       Finish-Run $item $secret 'blocked' ([int]$item.progress) "Codex CLI failed: $($tail.Substring($tailStart))" 'local_runner_failed' $fingerprint 'no_output' 'Codex CLI ended without a schema-valid terminal result.' `
         'runner_failed_without_result' 'blocked' @{last_success='Worker process started';next_action='Diagnose runner failure before retry';files=@();evidence_refs=@($stderrFile)} 'unknown'
       exit 1
+    }
+
+    if ($Mode -eq 'qa' -and $result.status -notin @('done','blocked')) {
+      $result.status = 'blocked'
+      $result.control_state = 'blocked'
+      $result.outcome = 'blocked'
+      $result.outcome_reason = 'Independent QA did not produce a terminal pass/fail decision; item stopped to prevent a review loop.'
+      $result.current_step = 'qa_terminal_decision_required'
+      if ([string]::IsNullOrWhiteSpace([string]$result.error_fingerprint)) { $result.error_fingerprint = 'qa_terminal_decision_required' }
+      $result.problem_category = 'qa'
     }
 
     $budgetExceeded = ([int]$result.token_input -gt [int]$item.token_budget_input) -or ([int]$result.token_output -gt [int]$item.token_budget_output)

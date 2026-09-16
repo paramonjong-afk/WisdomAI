@@ -1,3 +1,25 @@
+## 2026-09-17 - Controller 00 independent QA completion v2.5
+
+```mermaid
+flowchart LR
+  A[Approved Ready work] --> B[Execution Worker claim]
+  B --> C[Checkpoint + heartbeat + terminal result]
+  C -->|implementation complete| D[Approved Review queue]
+  D --> E[Independent read-only QA claim]
+  E -->|evidence passes| F[Done + audit]
+  E -->|missing or conflicting| G[Blocked + fingerprint + recovery action]
+  B -->|lease/heartbeat lost| H[Recover stale claim]
+  H --> G
+```
+
+- Affects Work Control Core and Work Command Center only. The task ledger remains the source of truth.
+- Execution and QA use different Worker IDs and worktrees. QA cannot edit, deploy, migrate or change data/config.
+- Only approved executable review items at 95% or more are eligible; human QA remains human-owned.
+- QA must end done or blocked; non-terminal output is converted to a fingerprinted block to prevent review loops.
+- Migration: 202609170004_controller00_qa_dispatch.sql.
+- Verification: targeted contract, PowerShell parsing, migration replay/dry-run, CI, Production function deploy, Scheduler state and authenticated queue/run smoke.
+- Rollback: disable the Controller scheduled task and revert Edge/runner source. Preserve QA run/event history.
+
 ## 2026-09-06 - Production Advance fixture isolation v2.2
 
 ```mermaid
