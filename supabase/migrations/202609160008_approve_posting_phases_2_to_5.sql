@@ -1,5 +1,47 @@
 -- Record Jong's batch approval for Posting phases 2-5 while enforcing phase gates.
 -- Only Phase 2 becomes claimable. Later phases remain blocked on their recorded dependencies.
+-- The FILTER backlog originated as live control-plane data. Seed the three approved
+-- items only when a clean migration replay does not have them; Production rows win.
+insert into public.system_work_items (
+  work_key, title, category, status, progress, risk, detail, production_status,
+  current_step, context_manifest
+)
+values
+  (
+    'FILTER-004', 'Filter: Duplicate และ Document Matching', 'operations', 'ready', 0, 'critical',
+    'ตรวจ file hash, perceptual hash และ business key; จัดทำ matching ledger และ duplicate decision states',
+    'backlog_registered', 'Define matching ledger and duplicate decision states.',
+    jsonb_build_object(
+      'controller_plan', 'CTRL-READY-SEQUENCE-20260916', 'execution_phase', 5,
+      'depends_on', '["POSTING-FLOW-001"]'::jsonb,
+      'approval_gate', 'explicit_policy_approval_required',
+      'next_management_action', 'Define matching ledger and duplicate decision states.'
+    )
+  ),
+  (
+    'FILTER-007', 'Filter: Approval UX', 'operations', 'ready', 0, 'critical',
+    'สร้าง Approval UX หลัง approval snapshot และ concurrency rules พร้อมใช้งาน',
+    'backlog_registered', 'Build Approval UX after snapshot/concurrency rules.',
+    jsonb_build_object(
+      'controller_plan', 'CTRL-READY-SEQUENCE-20260916', 'execution_phase', 5,
+      'depends_on', '["POSTING-001","POSTING-002"]'::jsonb,
+      'approval_gate', 'explicit_policy_approval_required',
+      'next_management_action', 'Build Approval UX after snapshot/concurrency rules.'
+    )
+  ),
+  (
+    'FILTER-008', 'Filter: Command, Audit และ Monitoring Integration', 'operations', 'ready', 0, 'critical',
+    'เชื่อม command, audit และ monitoring หลัง gateway และ reversal contract ผ่าน gate',
+    'backlog_registered', 'Integrate commands, audit and monitoring after gateway/reversal contracts.',
+    jsonb_build_object(
+      'controller_plan', 'CTRL-READY-SEQUENCE-20260916', 'execution_phase', 5,
+      'depends_on', '["POSTING-004","POSTING-005","POSTING-008"]'::jsonb,
+      'approval_gate', 'explicit_policy_approval_required',
+      'next_management_action', 'Integrate commands, audit and monitoring after gateway/reversal contracts.'
+    )
+  )
+on conflict (work_key) do nothing;
+
 do $$
 declare
   item public.system_work_items;

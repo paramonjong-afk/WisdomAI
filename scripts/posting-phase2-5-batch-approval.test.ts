@@ -5,6 +5,7 @@ const sql = readFileSync('supabase/migrations/202609160008_approve_posting_phase
 const keys = ['POSTING-001', 'POSTING-002', 'POSTING-004', 'POSTING-005', 'POSTING-008', 'FILTER-004', 'FILTER-007', 'FILTER-008']
 
 for (const key of keys) assert.ok(sql.includes(`'${key}'`), `missing approved batch work key ${key}`)
+assert.match(sql, /on conflict \(work_key\) do nothing/i, 'clean replay must safely seed missing live FILTER backlog rows')
 for (const guard of [
   "item.status <> 'ready'",
   'item.worker_id is not null',
