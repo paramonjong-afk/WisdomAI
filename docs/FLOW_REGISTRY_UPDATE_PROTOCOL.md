@@ -1514,3 +1514,5 @@ flowchart LR
 ```
 
 The approval bundle now maps only catalog-backed Accounting/AP document types and derives Stock from canonical lines. Quotation, Purchase Order, Stock-owned documents, transfer/payroll/withholding flows, reference/archive classifications and unknown values cannot create Posting operations, approval events or snapshots. Table-driven PostgreSQL verification covers every supported combined type and representative refusals. Rollback disables the bundle or replaces the function through a reviewed forward migration; immutable evidence is retained.
+
+Production prerequisite correction v3.7 adds the missing tenant-composite unique parent key on Posting operations before Accounting/AP foreign keys are installed. This does not change the flowchart, routing, state, permissions or data writes; it allows the already-documented tenant-integrity relationship to install on the Production-shaped schema. Migration run `35137064316` was transactional and rolled back. Recovery is to rerun the corrected migration; rollback retains the harmless unique index unless dependent FKs are first removed by a reviewed forward migration.
