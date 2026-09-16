@@ -310,3 +310,10 @@ and Health Monitor is the only writer.
 - Migration: `202609160004_sys004_monitoring_sentinel_hardening.sql`.
 - Verification: sentinel claim guard, live-run/history API contract, Work Command Center counts/Drawer, migration replay/dry-run, typecheck, lint, build and authenticated Production smoke.
 - Rollback: revert UI/functions and stop using the additive monitor fields; preserve the sentinel hardening audit event and all historical runs.
+
+- Version: v1.7
+- Date: 2026-09-16
+- Rationale: separate a real approved dispatch backlog from approval and blocker-management intents, so zero active Worker does not falsely imply a runner outage.
+- Migration: `202609160005_reconcile_sys004_resolved_children.sql` closes only the two Production-verified SYS-004 repair children and retains event history.
+- Verification: runner no-op smoke, targeted queue/UI contracts, replay/dry-run, typecheck, lint, build and authenticated queue counts.
+- Rollback: revert the UI; restore either reconciled child from append-only events if its evidence is disputed without changing the healthy SYS-004 sentinel.

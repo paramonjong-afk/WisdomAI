@@ -198,7 +198,8 @@ const workerOutcome = (item: Item, now: number): { value: WorkerOutcome; label: 
   if (isMonitoringSentinel(item)) return { value: "acknowledged", label: "ระบบ Monitor ทำงาน", reason: "Monitoring sentinel ไม่ใช้ Worker lease", nextAction: "ตรวจ incident และเวลาตรวจล่าสุด" };
   if (item.status === "done") return { value: "completed", label: "เสร็จแล้ว", reason: "งานปิดจากคิวกลางแล้ว", nextAction: "อ่านหลักฐานและ Audit ก่อนเริ่มงานใหม่" };
   if (item.status === "blocked") return { value: "blocked", label: "ติดปัญหา", reason: item.current_step || "มี blocker ที่ต้องตรวจ", nextAction: "เปิดรายละเอียดและแก้ blocker ตามหลักฐาน" };
-  if (item.status === "ready") return { value: "acknowledged", label: "รับเข้าแล้ว รอ Worker", reason: "คำสั่งอยู่คิวกลาง แต่ยังไม่มี Worker ถือ lease", nextAction: "รอ Worker รับงานหรือเริ่มแบบระบุงาน" };
+  if (item.status === "ready" && item.approval_status !== "approved") return { value: "acknowledged", label: "รออนุมัติขอบเขต", reason: "งานอยู่ในคิวแต่ยังไม่มีสิทธิ์ให้ Worker เริ่ม", nextAction: "ตรวจขอบเขตและอนุมัติก่อนส่งให้ Worker" };
+  if (item.status === "ready") return { value: "acknowledged", label: "อนุมัติแล้ว รอ Worker", reason: "คำสั่งผ่าน Approval Gate แต่ยังไม่มี Worker ถือ lease", nextAction: "ให้ Worker รับผ่าน atomic claim" };
   if (!hasActiveWorkerClaim(item, now)) return { value: "no_output", label: "ไม่มีผลลัพธ์จาก Worker", reason: hasStaleHeartbeat(item, now) ? "heartbeat เกิน 10 นาที" : "ไม่มี Worker หรือ lease ที่ยังใช้งาน", nextAction: "ตรวจ worker run และ recovery ก่อนลองใหม่" };
   return { value: "claimed", label: "Worker กำลังทำงาน", reason: item.current_step || "Worker รับงานแล้ว", nextAction: "ติดตาม heartbeat และผลลัพธ์ในรายละเอียด" };
 };
@@ -558,6 +559,10 @@ export function WorkCommandCenterPage() {
     () => new Map(dispatchIntents.map((intent) => [intent.work_key, intent])),
     [dispatchIntents],
   );
+  const intentCounts = useMemo(() => dispatchIntents.reduce((sum, intent) => {
+    sum[intent.intent_kind] += 1;
+    return sum;
+  }, { dispatch: 0, approval: 0, unblock: 0 }), [dispatchIntents]);
   const visibleRows = useMemo(
     () =>
       view === "all"
@@ -619,10 +624,15 @@ export function WorkCommandCenterPage() {
           {notice}
         </Alert>
       )}
-      {counts.doing === 0 && dispatchIntents.length > 0 && (
+      {counts.doing === 0 && intentCounts.dispatch > 0 && (
         <Alert severity="warning">
-          ไม่พบ Worker ที่มี lease สด ระบบสร้าง Dispatch Intent แล้ว {dispatchIntents.length} งาน
-          เพื่อระบุผู้รับผิดชอบ ขั้นตอนถัดไป และ SLA โดยยังไม่เริ่มงานหรืออนุมัติแทนผู้ใช้
+          มีงานอนุมัติแล้วรอ Worker {intentCounts.dispatch} งาน แต่ไม่พบ Worker ที่มี lease สด
+          ระบบยังไม่สั่งซ้ำหรือข้าม Approval Gate; งานรออนุมัติ {intentCounts.approval} และงานรอแก้ blocker {intentCounts.unblock}
+        </Alert>
+      )}
+      {counts.doing === 0 && intentCounts.dispatch === 0 && (intentCounts.approval > 0 || intentCounts.unblock > 0) && (
+        <Alert severity="info">
+          ไม่มี Worker กำลังทำเพราะยังไม่มีงานที่อนุมัติพร้อม claim — รออนุมัติ {intentCounts.approval} งาน และรอแก้ blocker {intentCounts.unblock} งาน
         </Alert>
       )}
       <Paper variant="outlined" sx={{ p: 1.5 }}>
