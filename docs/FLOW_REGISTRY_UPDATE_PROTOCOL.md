@@ -1359,3 +1359,20 @@ flowchart LR
 - **Data/routing:** additive monitor fields retain the current health snapshot while Controller evidence/checkpoint and append-only history remain separate. Generic and targeted claim RPCs select only executable work.
 - **Failure/recovery:** status API returns fresh `live_runs` separately from `run_history`; missing token telemetry is shown as unknown. No incident or historical run is deleted.
 - **Migration/verification/rollback:** `202609160004_sys004_monitoring_sentinel_hardening.sql`; run sentinel/claim/API/UI contracts, replay/dry-run, typecheck, lint, build and authenticated page smoke. Revert source/UI if needed while retaining additive fields and audit history.
+
+## 2026-09-16 — Claim-eligible Worker capacity / Work Control v2.3
+
+```mermaid
+flowchart LR
+  Q[Open queue] --> G{Next gate}
+  G -->|approved dispatch| W[Worker capacity warning]
+  G -->|pending approval| A[Approval management count]
+  G -->|blocked| B[Root-cause management count]
+  W --> C[Atomic Worker claim]
+  A -. no claim .-> C
+  B -. no retry .-> C
+```
+
+- **Reason/impact:** zero active runs no longer implies a Worker outage when every open item is waiting for approval or blocker remediation. The Work Command Center names each lane and ready rows state whether they are approved.
+- **Data/audit:** `202609160005_reconcile_sys004_resolved_children.sql` closes only the two historical SYS-004 repair children proven superseded/completed by PR #96 and Production revision `601ddf7`; no task, incident, run or event is deleted.
+- **Verification/rollback:** runner no-op smoke, targeted UI/sentinel contracts, migration replay/dry-run, typecheck, lint, build and authenticated queue counts. Revert the UI or restore child states from append-only events; do not revert the healthy SYS-004 sentinel.
