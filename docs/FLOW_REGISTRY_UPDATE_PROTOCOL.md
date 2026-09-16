@@ -1311,3 +1311,19 @@ Updated Approval Inbox and Work Command Center to retain accepted work through
 QA/PR/CI/release gates, reconcile the latest approval ledger, cap non-Done
 progress at 95%, and treat internal control records as supporting work. No
 schema or data migration.
+## 2026-09-16 — Work Control Core V2 cost-aware routing
+
+```mermaid
+flowchart LR
+  A[Approved Work Item] --> B[Risk/category route]
+  B --> C[Compact diff-first Worker packet]
+  C --> D[Versioned structured result]
+  D --> E[Checkpoint/QA gate]
+  E --> F[Idempotent token and cost event]
+  F --> G[Work Command Center visibility]
+```
+
+- **Reason/impact:** reduces repeated context and expensive-model use through fail-open policy routing, explicit budgets, versioned output and visible telemetry without creating a second queue or changing approval authority.
+- **Data/security:** additive tenant-scoped policy/cache/cost/lock tables; authenticated users can read only through existing company/work visibility and browser mutation is revoked. Cost recording is unique per run.
+- **Failure/retry:** missing configuration preserves the current model; telemetry failure cannot retry a completed business operation; checkpoint, same-error dedupe and bounded retry remain authoritative.
+- **Migration/verification/rollback:** `202609160002_work_control_core_v2_cost_routing.sql`; verify V1/V2 contracts, PowerShell parser, migration guards, typecheck, lint, build and authenticated `/work-command-center`; rollback source to V1 while retaining additive audit telemetry.

@@ -70,6 +70,20 @@ type Item = {
   context_manifest?: Record<string, unknown> | null;
   new_information_hash?: string | null;
   company_id?: string | null;
+  model_tier?: "economy" | "balanced" | "reasoning";
+  model_name?: string | null;
+  token_budget_input?: number;
+  token_budget_output?: number;
+  token_soft_limit_percent?: number;
+  token_input_total?: number;
+  token_output_total?: number;
+  estimated_cost_usd?: number;
+  actual_cost_usd?: number;
+  qa_tier?: "automated" | "standard" | "independent" | "human";
+  escalation_level?: number;
+  cache_hit?: boolean;
+  prompt_version?: string;
+  output_schema_version?: string;
   approval_state?: ReturnType<typeof resolveApprovalState>;
 };
 type WorkItemDetail = Pick<Item, "detail" | "evidence">;
@@ -208,7 +222,7 @@ export function WorkCommandCenterPage() {
       supabase
         .from("system_work_items")
         .select(
-          "work_key,title,category,status,progress,risk,production_status,owner,current_step,worker_id,heartbeat_at,lease_expires_at,approval_status,approval_fingerprint,attempt_count,worker_outcome,worker_outcome_reason,worker_outcome_at,requirement_version,controller_owner,execution_owner,qa_owner,control_state,checkpoint,context_manifest,new_information_hash,created_at,updated_at",
+          "work_key,title,category,status,progress,risk,production_status,owner,current_step,worker_id,heartbeat_at,lease_expires_at,approval_status,approval_fingerprint,attempt_count,worker_outcome,worker_outcome_reason,worker_outcome_at,requirement_version,controller_owner,execution_owner,qa_owner,control_state,checkpoint,context_manifest,new_information_hash,model_tier,model_name,token_budget_input,token_budget_output,token_soft_limit_percent,token_input_total,token_output_total,estimated_cost_usd,actual_cost_usd,qa_tier,escalation_level,cache_hit,prompt_version,output_schema_version,created_at,updated_at",
         )
         .order("updated_at", { ascending: false }),
       supabase
@@ -537,6 +551,12 @@ export function WorkCommandCenterPage() {
     () => (selected ? detectApprovalLoop(selected.work_key, events) : null),
     [events, selected],
   );
+  const costSummary = useMemo(() => rows.reduce((sum, item) => ({
+    input: sum.input + (item.token_input_total ?? 0),
+    output: sum.output + (item.token_output_total ?? 0),
+    cost: sum.cost + (item.actual_cost_usd ?? item.estimated_cost_usd ?? 0),
+    cacheHits: sum.cacheHits + (item.cache_hit ? 1 : 0),
+  }), { input: 0, output: 0, cost: 0, cacheHits: 0 }), [rows]);
 
   return (
     <Stack spacing={2.5}>
@@ -576,6 +596,14 @@ export function WorkCommandCenterPage() {
           เพื่อระบุผู้รับผิดชอบ ขั้นตอนถัดไป และ SLA โดยยังไม่เริ่มงานหรืออนุมัติแทนผู้ใช้
         </Alert>
       )}
+      <Paper variant="outlined" sx={{ p: 1.5 }}>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ justifyContent: "space-between" }}>
+          <Typography variant="subtitle2">การใช้ทรัพยากร Worker</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Token เข้า {costSummary.input.toLocaleString()} · ออก {costSummary.output.toLocaleString()} · ต้นทุน ${costSummary.cost.toFixed(4)} · Cache hit {costSummary.cacheHits} งาน
+          </Typography>
+        </Stack>
+      </Paper>
       <Box
         sx={{
           display: "grid",
@@ -891,6 +919,24 @@ export function WorkCommandCenterPage() {
               {selected.control_state === "waiting_permission" && <Alert severity="warning" sx={{ mt: 1 }}>Worker หยุดที่ Tool/Business Allow และบันทึก checkpoint แล้ว</Alert>}
               {selected.control_state === "token_limit" && <Alert severity="warning" sx={{ mt: 1 }}>Worker หยุดก่อน Token หมด ให้ Resume จาก checkpoint โดยไม่โหลด Full Chat</Alert>}
               {selected.control_state === "worker_lost" && <Alert severity="error" sx={{ mt: 1 }}>Worker ขาดการติดต่อ ต้อง reconcile run ก่อน dispatch ใหม่</Alert>}
+            </Paper>
+            <Paper variant="outlined" sx={{ p: 1.5 }}>
+              <Typography variant="subtitle2">Model / Token / QA</Typography>
+              <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: "wrap" }}>
+                <Chip size="small" color={selected.model_tier === "reasoning" ? "secondary" : selected.model_tier === "economy" ? "success" : "default"} label={`Model ${selected.model_tier ?? "balanced"}${selected.model_name ? ` · ${selected.model_name}` : ""}`} />
+                <Chip size="small" variant="outlined" label={`QA ${selected.qa_tier ?? "standard"}`} />
+                <Chip size="small" variant="outlined" label={`Escalation ${selected.escalation_level ?? 0}`} />
+                <Chip size="small" variant="outlined" label={selected.cache_hit ? "ใช้ Cache" : "ไม่ใช้ Cache"} />
+              </Stack>
+              <Typography variant="body2" sx={{ mt: 1 }}>
+                งบ Token เข้า {(selected.token_budget_input ?? 0).toLocaleString()} / ออก {(selected.token_budget_output ?? 0).toLocaleString()} · เตือนที่ {selected.token_soft_limit_percent ?? 80}%
+              </Typography>
+              <Typography variant="body2">
+                ใช้สะสม เข้า {(selected.token_input_total ?? 0).toLocaleString()} / ออก {(selected.token_output_total ?? 0).toLocaleString()} · ต้นทุน ${(selected.actual_cost_usd ?? selected.estimated_cost_usd ?? 0).toFixed(4)}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Prompt {selected.prompt_version ?? "work-control-v2"} · Schema {selected.output_schema_version ?? "2"}
+              </Typography>
             </Paper>
             {(() => {
               const outcome = workerOutcome(selected, claimNow);

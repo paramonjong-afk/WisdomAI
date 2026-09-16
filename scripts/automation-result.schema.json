@@ -24,8 +24,11 @@
     "problem_category": { "type": "string", "enum": ["code", "token", "allow", "policy", "dependency", "config", "data", "network", "qa", "worker_lost", "unknown"] },
     "new_information_hash": { "type": "string" },
     "token_input": { "type": "integer", "minimum": 0 },
-    "token_output": { "type": "integer", "minimum": 0 }
+    "token_output": { "type": "integer", "minimum": 0 },
+    "estimated_cost_usd": { "type": "number", "minimum": 0 },
+    "actual_cost_usd": { "type": "number", "minimum": 0 },
+    "cache_hit": { "type": "boolean" }
   },
-  "required": ["status", "progress", "current_step", "evidence", "production_status", "error_fingerprint", "outcome", "outcome_reason", "control_state", "checkpoint", "problem_category", "new_information_hash", "token_input", "token_output"],
+  "required": ["status", "progress", "current_step", "evidence", "production_status", "error_fingerprint", "outcome", "outcome_reason", "control_state", "checkpoint", "problem_category", "new_information_hash", "token_input", "token_output", "estimated_cost_usd", "actual_cost_usd", "cache_hit"],
   "additionalProperties": false
 }

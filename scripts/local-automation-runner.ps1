@@ -21,7 +21,7 @@ function Invoke-Worker([hashtable]$Body, [string]$Secret) {
     -ContentType 'application/json; charset=utf-8' -Body $payload -TimeoutSec 45
 }
 
-function Finish-Run($Item, [string]$Secret, [string]$Status, [int]$Progress, [string]$Evidence, [string]$ProductionStatus, [string]$Fingerprint = '', [string]$Outcome = 'blocked', [string]$OutcomeReason = 'Worker did not provide a terminal outcome.', [string]$CurrentStep = 'stopped', [string]$ControlState = 'blocked', $Checkpoint = $null, [string]$ProblemCategory = 'unknown', [string]$NewInformationHash = '', [int]$TokenInput = 0, [int]$TokenOutput = 0) {
+function Finish-Run($Item, [string]$Secret, [string]$Status, [int]$Progress, [string]$Evidence, [string]$ProductionStatus, [string]$Fingerprint = '', [string]$Outcome = 'blocked', [string]$OutcomeReason = 'Worker did not provide a terminal outcome.', [string]$CurrentStep = 'stopped', [string]$ControlState = 'blocked', $Checkpoint = $null, [string]$ProblemCategory = 'unknown', [string]$NewInformationHash = '', [int]$TokenInput = 0, [int]$TokenOutput = 0, [decimal]$EstimatedCostUsd = 0, [decimal]$ActualCostUsd = 0, [bool]$CacheHit = $false) {
   if ($null -eq $Checkpoint) {
     $Checkpoint = @{ last_success='No durable milestone reported'; next_action=$CurrentStep; files=@(); evidence_refs=@() }
   }
@@ -31,6 +31,7 @@ function Finish-Run($Item, [string]$Secret, [string]$Status, [int]$Progress, [st
     current_step=$CurrentStep; control_state=$ControlState; checkpoint=$Checkpoint
     context_manifest=$Item.context_manifest; problem_category=$ProblemCategory; new_information_hash=$NewInformationHash
     token_input=$TokenInput; token_output=$TokenOutput
+    estimated_cost_usd=$EstimatedCostUsd; actual_cost_usd=$ActualCostUsd; cache_hit=$CacheHit
   } | Out-Null
 }
 
@@ -69,14 +70,21 @@ try {
     $resultFile = Join-Path $env:TEMP "wisdomai-$($item.work_key)-$runStamp.result.json"
     $stdoutFile = Join-Path $logDirectory "$($item.work_key)-$runStamp.stdout.log"
     $stderrFile = Join-Path $logDirectory "$($item.work_key)-$runStamp.stderr.log"
+    $priorEvidence = [string]$item.evidence
+    if ($priorEvidence.Length -gt 2000) { $priorEvidence = $priorEvidence.Substring($priorEvidence.Length - 2000) }
+    $changedFiles = @(& git -C $Workspace diff --name-only HEAD 2>$null) | Select-Object -First 40
     $prompt = @"
 Work item $($item.work_key): $($item.title)
 Requirement version: $($item.requirement_version)
 Category: $($item.category); risk: $($item.risk); recorded progress: $($item.progress)%
+Model route: $($item.model_tier); QA tier: $($item.qa_tier); escalation level: $($item.escalation_level)
+Token budget: input=$($item.token_budget_input), output=$($item.token_budget_output), soft limit=$($item.token_soft_limit_percent)%
+Prompt/schema version: $($item.prompt_version)/$($item.output_schema_version)
 Scope: $($item.detail)
 Checkpoint: $($item.checkpoint | ConvertTo-Json -Depth 8 -Compress)
 Context manifest: $($item.context_manifest | ConvertTo-Json -Depth 8 -Compress)
-Prior evidence reference: $($item.evidence)
+Current changed files (diff-first, maximum 40): $($changedFiles -join ', ')
+Prior evidence tail (maximum 2000 chars): $priorEvidence
 
 Use only this task packet first. Open additional files only when the context manifest or direct evidence makes them necessary; do not load full chat history. Resume from the checkpoint instead of restarting completed work. Work only inside $Workspace. Preserve unrelated changes. Do not run database migrations, rotate or expose secrets, change permissions/security, delete data, or make irreversible changes. If permission is required, return waiting_permission with a checkpoint. If the context/token limit prevents safe completion, return token_limit with a checkpoint. For safe source changes, use focused edits and relevant verification. Return the final result using the required JSON schema, including checkpoint, control_state, problem_category, new_information_hash and token counts (use 0 when unavailable). Same task + same error + same requirement version + no new information must not be retried.
 "@
@@ -84,7 +92,14 @@ Use only this task packet first. Open additional files only when the context man
 
     # --approve-for-me already enforces the workspace-write sandbox in current Codex CLI.
     # Passing an explicit --sandbox together with it is rejected before the task starts.
-    $arguments = "/d /s /c `"type `"`"$promptFile`"`" | `"`"$codexPath`"`" exec - --ephemeral --approve-for-me --output-schema `"`"$schemaPath`"`" --output-last-message `"`"$resultFile`"`" -C `"`"$Workspace`"`"`""
+    $configuredModel = switch ([string]$item.model_tier) {
+      'economy' { $env:WISDOMAI_MODEL_ECONOMY }
+      'reasoning' { $env:WISDOMAI_MODEL_REASONING }
+      default { $env:WISDOMAI_MODEL_BALANCED }
+    }
+    if (-not [string]::IsNullOrWhiteSpace([string]$item.model_name)) { $configuredModel = [string]$item.model_name }
+    $modelArgument = if ([string]::IsNullOrWhiteSpace($configuredModel)) { '' } else { " --model `"`"$configuredModel`"`"" }
+    $arguments = "/d /s /c `"type `"`"$promptFile`"`" | `"`"$codexPath`"`" exec - --ephemeral --approve-for-me$modelArgument --output-schema `"`"$schemaPath`"`" --output-last-message `"`"$resultFile`"`" -C `"`"$Workspace`"`"`""
     $process = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -PassThru -WindowStyle Hidden `
       -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
     while (-not $process.HasExited) {
@@ -128,8 +143,17 @@ Use only this task packet first. Open additional files only when the context man
       exit 1
     }
 
+    $budgetExceeded = ([int]$result.token_input -gt [int]$item.token_budget_input) -or ([int]$result.token_output -gt [int]$item.token_budget_output)
+    if ($budgetExceeded) {
+      $result.status = 'blocked'
+      $result.control_state = 'token_limit'
+      $result.outcome = 'blocked'
+      $result.outcome_reason = "Worker exceeded the assigned token budget; resume from checkpoint after Controller review."
+      $result.current_step = 'stopped_at_token_budget'
+    }
     Finish-Run $item $secret $result.status ([int]$result.progress) $result.evidence $result.production_status $result.error_fingerprint $result.outcome $result.outcome_reason `
-      $result.current_step $result.control_state $result.checkpoint $result.problem_category $result.new_information_hash ([int]$result.token_input) ([int]$result.token_output)
+      $result.current_step $result.control_state $result.checkpoint $result.problem_category $result.new_information_hash ([int]$result.token_input) ([int]$result.token_output) `
+      ([decimal]$result.estimated_cost_usd) ([decimal]$result.actual_cost_usd) ([bool]$result.cache_hit)
   } finally {
     if ($secretPointer -ne [IntPtr]::Zero) {
       [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($secretPointer)
