@@ -511,6 +511,14 @@ export const documentFlowGateway = {
     eventKey: string
     note?: string | null
   }) {
+    if (input.action === 'approve') {
+      return supabase.rpc('approve_posting_bundle', {
+        target_item_id: input.itemId,
+        target_expected_version: input.expectedVersion,
+        target_event_key: input.eventKey,
+        target_note: input.note ?? null,
+      })
+    }
     return supabase.rpc('transition_document_flow_item', {
       target_item_id: input.itemId,
       target_action: input.action,
