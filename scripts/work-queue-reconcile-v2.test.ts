@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 
 const sql = readFileSync('supabase/migrations/202609160003_reconcile_work_queue_after_control_v2.sql','utf8')
 const flow = readFileSync('docs/WORK_CONTROL_CORE_FLOW.md','utf8')
+const plan = readFileSync('supabase/migrations/202609160006_classify_control_queue_and_ready_plan.sql','utf8')
 
 assert.match(sql,/CTRL-QUEUE-RECONCILE-20260916-V2/)
 assert.match(sql,/item\.status<>'done' and item\.worker_id is null/)
@@ -12,5 +13,11 @@ assert.match(sql,/work_key='WCC-CONTINUOUS-DISPATCH-P1-001'.*status='blocked'/s)
 assert.match(sql,/no history deleted/)
 assert.doesNotMatch(sql,/delete\s+from|truncate\s+table|drop\s+table/i)
 assert.match(flow,/v2\.1/)
+assert.match(plan,/CTRL-CONTROL-QUEUE-20260916/)
+assert.match(plan,/CTRL-READY-SEQUENCE-20260916/)
+assert.match(plan,/management_lane/)
+assert.match(plan,/explicit_policy_approval_required/)
+assert.match(plan,/item\.approval_status='pending'/)
+assert.doesNotMatch(plan,/status='done'|approval_status='approved'|delete\s+from|truncate\s+table/i)
 
 console.log('Work queue reconcile V2 guarded closure and sentinel contracts passed')
