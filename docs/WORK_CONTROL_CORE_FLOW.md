@@ -26,8 +26,9 @@ flowchart LR
   M -->|yes| N[Stop retry; keep one Problem]
   M -->|no| O[Controlled retry from checkpoint]
   O --> E
-  K --> P[QA evidence for same requirement version]
-  P --> Q[DONE]
+  K --> P[Independent QA claims approved review<br/>read-only evidence verification]
+  P -->|pass| Q[DONE]
+  P -->|missing or conflicting evidence| PB[BLOCKED with fingerprint + recovery action]
   Q --> Z[Cost/usage event + dashboard]
 ```
 
@@ -74,3 +75,4 @@ Cache reuse is permitted only for an exact key composed from requirement/source/
 | v2.2 | 2026-09-16 | Prevent monitoring telemetry from corrupting Worker/Approval metrics | Adds formal `monitoring_sentinel` kind, dedicated monitor fields, claim exclusion and truthful unknown-token UI | `202609160004_sys004_monitoring_sentinel_hardening.sql` | sentinel/claim/API/UI contracts, migration replay/dry-run, typecheck, lint, build and authenticated Work Command Center smoke | revert source/UI and stop writing new monitor fields; retain additive columns and audit event for recovery |
 | v2.3 | 2026-09-16 | Make zero-active reporting reflect claim eligibility instead of all intents | Distinguishes approved dispatch work from approval/unblock management work and reconciles the two superseded SYS-004 repair children | `202609160005_reconcile_sys004_resolved_children.sql` | runner no-op smoke, queue/UI contracts, replay/dry-run, typecheck, lint, build and authenticated page smoke | revert UI; recover the two child rows from append-only events without changing SYS-004 monitor state |
 | v2.4 | 2026-09-16 | Give every remaining blocked item a management lane and sequence critical Ready work | Adds read-only planning metadata for 30 blocked and nine Ready items; does not approve, claim, retry or close them | `202609160006_classify_control_queue_and_ready_plan.sql` | guarded plan contract, replay/dry-run and authenticated counts/metadata | remove planning keys from `context_manifest` with a corrective migration; preserve task/event history |
+| v2.5 | 2026-09-17 | Complete Controller 00 execution → recovery → independent QA loop without self-approval or silent review cycling | Adds a service-only QA claim for approved executable review items at 95%+, a separate read-only QA runner and one orchestrator for execution/QA | 202609170004_controller00_qa_dispatch.sql | controller completion contract, PowerShell parse, migration replay/dry-run, typecheck, lint, build, Scheduler/claim/runtime smoke | disable the Controller scheduled task and revert Edge/runner source; retain QA run/event history and additive RPC for audit |

@@ -38,7 +38,7 @@ async function routeWork(item: Record<string, unknown>) {
 
 type WorkerOutcome = 'acknowledged'|'claimed'|'blocked'|'completed'|'no_output'
 type Body = {
-  action?: 'status'|'claim'|'heartbeat'|'finish'|'retry_runner_failure'|'inspect_line_voice_uat'|'complete_line_voice_uat'|'start_specific'|'reset_retry'
+  action?: 'status'|'claim'|'claim_qa'|'heartbeat'|'finish'|'retry_runner_failure'|'inspect_line_voice_uat'|'complete_line_voice_uat'|'start_specific'|'reset_retry'
   worker_id?: string
   work_key?: string
   run_id?: string
@@ -139,6 +139,27 @@ Deno.serve(async request => {
     ])
     const routing_warning = itemRouteWrite.error?.message || runRouteWrite.error?.message || null
     return json({ item: { ...item, ...route, prompt_version: 'work-control-v2', output_schema_version: '2' }, routing_warning })
+  }
+
+  if (body.action === 'claim_qa') {
+    const { data, error } = await admin.rpc('claim_system_work_item_qa_v1', {
+      target_worker: workerId,
+      lease_minutes: Math.min(120, Math.max(5, Number(body.lease_minutes) || 30)),
+    })
+    if (error) return json({ error: error.message }, 500)
+    const item = data?.[0] as Record<string, unknown> | undefined
+    if (!item) return json({ item: null })
+    const route = await routeWork(item)
+    const qaRoute = { ...route, prompt_version: 'work-control-qa-v1', output_schema_version: '2' }
+    const [itemRouteWrite, runRouteWrite] = await Promise.all([
+      admin.from('system_work_items').update(route).eq('work_key', item.work_key),
+      admin.from('system_worker_runs').update({
+        model_tier: route.model_tier, model_name: route.model_name,
+        token_budget_input: route.token_budget_input, token_budget_output: route.token_budget_output,
+        prompt_version: 'work-control-qa-v1', output_schema_version: '2',
+      }).eq('id', item.run_id),
+    ])
+    return json({ item: { ...item, ...qaRoute }, routing_warning: itemRouteWrite.error?.message || runRouteWrite.error?.message || null })
   }
 
   if (body.action === 'retry_runner_failure') {
