@@ -30,9 +30,25 @@ export type PostingApprovalRequest = {
   currentFlow: string
   currentState: string
   expectedDocumentVersion: number
+  decisionAt: string
   approverId: string
-  approverAuthorized: boolean
-  separationOfDutiesRequired: boolean
+  policyAuthorization: {
+    allowed: boolean
+    completed: boolean
+    policyId?: string
+    policyVersion?: number
+    companyId?: string
+    approverId?: string
+    approvalRequestId?: string
+    documentId?: string
+    documentVersion?: number
+    snapshotHash?: string
+    finalStage?: number
+    totalStages?: number
+    authorizedAt?: string
+    expiresAt?: string
+    reason?: string
+  }
   approvalEventKey: string
   finalValidationPassed: boolean
   commandKind?: PostingCommandKind
@@ -98,6 +114,7 @@ const equalMoney = (left: number, right: number) => Math.abs(left - right) < 0.0
 
 export const evaluatePostingApproval = (request: PostingApprovalRequest): PostingApprovalDecision => {
   const { snapshot } = request
+  const decisionTime = Date.parse(request.decisionAt)
   if (request.currentFlow !== 'posting' || request.currentState !== 'awaiting_approval') {
     return denied('posting_transition_not_allowed')
   }
@@ -112,10 +129,22 @@ export const evaluatePostingApproval = (request: PostingApprovalRequest): Postin
   if (request.expectedDocumentVersion !== snapshot.documentVersion) return denied('posting_snapshot_stale')
   if (!requiredText(request.approvalEventKey)) return denied('posting_approval_event_key_required')
   if (!requiredText(request.approverId) || !requiredText(snapshot.preparedBy)) return denied('posting_actor_identity_required')
-  if (!request.approverAuthorized) return denied('posting_approver_not_authorized')
-  if (request.separationOfDutiesRequired && request.approverId === snapshot.preparedBy) {
-    return denied('posting_separation_of_duties_violation')
-  }
+  if (!request.policyAuthorization.allowed) return denied(request.policyAuthorization.reason ?? 'posting_approver_not_authorized')
+  if (!request.policyAuthorization.completed) return denied('posting_approval_sequence_incomplete')
+  if (request.policyAuthorization.companyId !== snapshot.companyId
+    || request.policyAuthorization.approverId !== request.approverId
+    || request.policyAuthorization.approvalRequestId !== request.approvalEventKey
+    || request.policyAuthorization.documentId !== snapshot.documentId
+    || request.policyAuthorization.documentVersion !== snapshot.documentVersion
+    || request.policyAuthorization.snapshotHash !== snapshot.snapshotHash
+    || request.policyAuthorization.finalStage !== request.policyAuthorization.totalStages
+    || (request.policyAuthorization.finalStage ?? 0) < 1
+    || !requiredText(request.policyAuthorization.policyId ?? '')
+    || (request.policyAuthorization.policyVersion ?? 0) < 1) return denied('posting_policy_authorization_mismatch')
+  const authorizedAt = Date.parse(request.policyAuthorization.authorizedAt ?? '')
+  const expiresAt = Date.parse(request.policyAuthorization.expiresAt ?? '')
+  if (!Number.isFinite(decisionTime) || !Number.isFinite(authorizedAt) || !Number.isFinite(expiresAt)
+    || authorizedAt > decisionTime || decisionTime > expiresAt) return denied('posting_policy_authorization_expired')
   if (!request.finalValidationPassed) return denied('posting_final_validation_failed')
   if (snapshot.targets.length === 0
     || snapshot.targets.some((target) => !(postingTargets as readonly string[]).includes(target))

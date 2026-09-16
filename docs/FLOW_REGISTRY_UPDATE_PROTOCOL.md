@@ -23,6 +23,29 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-16 — Posting approval policy matrix v2.0
+
+```mermaid
+flowchart LR
+  S[Company-scoped Posting snapshot] --> M{Match type + project + amount policy}
+  M -->|none / ambiguous / expired| X[Deny with exact reason]
+  M --> O[Strict approval stage order]
+  O --> R{Role or active scoped delegate?}
+  R -->|no| X
+  R --> D{Tenant + segregation of duties pass?}
+  D -->|no| X
+  D -->|more stages| N[Record stage; expose next stage]
+  D -->|final stage| A[Bind policy evidence to final Posting approval]
+```
+
+- **Reason:** define the Phase 2 authority matrix before destination gateways: approver role varies by company, document type, project, and amount, with deterministic multi-stage order.
+- **Impact:** adds a fail-closed TypeScript resolver and requires completed, tenant/actor-consistent policy evidence in the Posting approval contract. It does not create roles, grants, RLS, policy rows, migrations, or Production mutations.
+- **Permission/state:** cross-tenant actor/history/delegation is denied; maker, source owner, prior-stage approver, and their delegated principal cannot bypass segregation-of-duties. Delegation and the approval request both expire.
+- **Failure/retry/audit:** missing, invalid, inactive, out-of-band, or equally specific in-scope policies are denied with stable reasons; malformed unrelated/other-tenant policies are isolated before validation and cannot deny a valid tenant candidate. Expired requests require a new snapshot. Returned authorization evidence carries policy ID/version, final/total stage, actor, tenant, delegation source, decision time/expiry, approval-request ID, document ID/version, and snapshot hash. Posting revalidates this exact binding at decision time; each approval persists both actor and delegated principal so neither identity can reappear later.
+- **Owner:** Posting Flow / Accounting owns the matrix; Security owns role and tenant controls; company administrators own future policy data.
+- **Verification:** `test:posting-approval-policy`, `test:posting-flow-contract`, typecheck, lint, and build, including positive, negative, strict-order, delegation/expiry, request replay, cross-document/snapshot binding, principal↔delegate segregation-of-duties, malformed scoped policy, unrelated malformed policy, and cross-tenant cases.
+- **Rollback:** revert the resolver, final-approval binding, tests, and documents; preserve all business and Audit records. No data rollback is needed because Phase 2 adds no schema or Production data.
+
 ## 2026-09-16 — Posting approval and transaction contract v1.0
 
 ```mermaid
