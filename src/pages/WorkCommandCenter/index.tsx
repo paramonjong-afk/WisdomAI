@@ -84,6 +84,12 @@ type Item = {
   cache_hit?: boolean;
   prompt_version?: string;
   output_schema_version?: string;
+  work_kind?: "executable" | "monitoring_sentinel";
+  monitor_state?: "healthy" | "warning" | "critical" | null;
+  monitor_checked_at?: string | null;
+  monitor_open_incident_count?: number | null;
+  monitor_evidence?: string | null;
+  monitor_fingerprint?: string | null;
   approval_state?: ReturnType<typeof resolveApprovalState>;
 };
 type WorkItemDetail = Pick<Item, "detail" | "evidence">;
@@ -170,6 +176,14 @@ const productionLabel = (value: string) => {
 };
 const formatDate = (value: string | null) =>
   value ? new Date(value).toLocaleString("th-TH") : "-";
+const isMonitoringSentinel = (item: Item) =>
+  item.work_kind === "monitoring_sentinel" ||
+  (item.work_key === "SYS-004" && item.production_status.startsWith("monitoring_active"));
+const hasUsageTelemetry = (item: Item) =>
+  (item.token_input_total ?? 0) > 0 ||
+  (item.token_output_total ?? 0) > 0 ||
+  (item.estimated_cost_usd ?? 0) > 0 ||
+  (item.actual_cost_usd ?? 0) > 0;
 const hasStaleHeartbeat = (item: Item, now: number) =>
   item.status === "doing" &&
   (!item.heartbeat_at ||
@@ -181,6 +195,7 @@ const leaseLabel = (value: string | null, now: number) => {
 };
 type WorkerOutcome = "acknowledged" | "claimed" | "blocked" | "completed" | "no_output";
 const workerOutcome = (item: Item, now: number): { value: WorkerOutcome; label: string; reason: string; nextAction: string } => {
+  if (isMonitoringSentinel(item)) return { value: "acknowledged", label: "ระบบ Monitor ทำงาน", reason: "Monitoring sentinel ไม่ใช้ Worker lease", nextAction: "ตรวจ incident และเวลาตรวจล่าสุด" };
   if (item.status === "done") return { value: "completed", label: "เสร็จแล้ว", reason: "งานปิดจากคิวกลางแล้ว", nextAction: "อ่านหลักฐานและ Audit ก่อนเริ่มงานใหม่" };
   if (item.status === "blocked") return { value: "blocked", label: "ติดปัญหา", reason: item.current_step || "มี blocker ที่ต้องตรวจ", nextAction: "เปิดรายละเอียดและแก้ blocker ตามหลักฐาน" };
   if (item.status === "ready") return { value: "acknowledged", label: "รับเข้าแล้ว รอ Worker", reason: "คำสั่งอยู่คิวกลาง แต่ยังไม่มี Worker ถือ lease", nextAction: "รอ Worker รับงานหรือเริ่มแบบระบุงาน" };
@@ -222,7 +237,7 @@ export function WorkCommandCenterPage() {
       supabase
         .from("system_work_items")
         .select(
-          "work_key,title,category,status,progress,risk,production_status,owner,current_step,worker_id,heartbeat_at,lease_expires_at,approval_status,approval_fingerprint,attempt_count,worker_outcome,worker_outcome_reason,worker_outcome_at,requirement_version,controller_owner,execution_owner,qa_owner,control_state,checkpoint,context_manifest,new_information_hash,model_tier,model_name,token_budget_input,token_budget_output,token_soft_limit_percent,token_input_total,token_output_total,estimated_cost_usd,actual_cost_usd,qa_tier,escalation_level,cache_hit,prompt_version,output_schema_version,created_at,updated_at",
+          "work_key,title,category,status,progress,risk,production_status,owner,current_step,worker_id,heartbeat_at,lease_expires_at,approval_status,approval_fingerprint,attempt_count,worker_outcome,worker_outcome_reason,worker_outcome_at,requirement_version,controller_owner,execution_owner,qa_owner,control_state,checkpoint,context_manifest,new_information_hash,model_tier,model_name,token_budget_input,token_budget_output,token_soft_limit_percent,token_input_total,token_output_total,estimated_cost_usd,actual_cost_usd,qa_tier,escalation_level,cache_hit,prompt_version,output_schema_version,work_kind,monitor_state,monitor_checked_at,monitor_open_incident_count,monitor_evidence,monitor_fingerprint,created_at,updated_at",
         )
         .order("updated_at", { ascending: false }),
       supabase
@@ -236,10 +251,21 @@ export function WorkCommandCenterPage() {
         .order("updated_at", { ascending: false })
         .limit(500),
     ]);
-    const { data, error } = itemsResult;
+    let data = itemsResult.data as Item[] | null;
+    let error = itemsResult.error;
+    if (error && /work_kind|monitor_(state|checked_at|open_incident_count|evidence|fingerprint)/i.test(error.message)) {
+      const fallbackResult = await supabase
+        .from("system_work_items")
+        .select(
+          "work_key,title,category,status,progress,risk,production_status,owner,current_step,worker_id,heartbeat_at,lease_expires_at,approval_status,approval_fingerprint,attempt_count,worker_outcome,worker_outcome_reason,worker_outcome_at,requirement_version,controller_owner,execution_owner,qa_owner,control_state,checkpoint,context_manifest,new_information_hash,model_tier,model_name,token_budget_input,token_budget_output,token_soft_limit_percent,token_input_total,token_output_total,estimated_cost_usd,actual_cost_usd,qa_tier,escalation_level,cache_hit,prompt_version,output_schema_version,created_at,updated_at",
+        )
+        .order("updated_at", { ascending: false });
+      data = fallbackResult.data as Item[] | null;
+      error = fallbackResult.error;
+    }
     if (data) {
       const ledger = (ledgerResult.data ?? []) as ApprovalLedgerRow[];
-      const next = (data as Item[]).map(item => ({ ...item, approval_state: resolveApprovalState(item.approval_status, ledger, item.work_key) }));
+      const next = data.map(item => ({ ...item, approval_state: resolveApprovalState(item.approval_status, ledger, item.work_key) }));
       setRows((current) => {
         const unchanged =
           current.length === next.length &&
@@ -516,15 +542,17 @@ export function WorkCommandCenterPage() {
       setNotice(error instanceof Error ? error.message : userError(error));
     } finally { setBusy(false); }
   };
+  const actionableRows = useMemo(() => rows.filter((item) => !isMonitoringSentinel(item)), [rows]);
+  const monitoringRows = useMemo(() => rows.filter(isMonitoringSentinel), [rows]);
   const counts = useMemo(
     () => ({
-      ready: rows.filter((r) => r.status === "ready").length,
-      doing: rows.filter((r) => hasActiveWorkerClaim(r, claimNow)).length,
-      review: rows.filter((r) => r.status === "review").length,
-      blocked: rows.filter((r) => r.status === "blocked").length,
-      done: rows.filter((r) => r.status === "done").length,
+      ready: actionableRows.filter((r) => r.status === "ready").length,
+      doing: actionableRows.filter((r) => hasActiveWorkerClaim(r, claimNow)).length,
+      review: actionableRows.filter((r) => r.status === "review").length,
+      blocked: actionableRows.filter((r) => r.status === "blocked").length,
+      done: actionableRows.filter((r) => r.status === "done").length,
     }),
-    [rows, claimNow],
+    [actionableRows, claimNow],
   );
   const intentsByWorkKey = useMemo(
     () => new Map(dispatchIntents.map((intent) => [intent.work_key, intent])),
@@ -535,11 +563,11 @@ export function WorkCommandCenterPage() {
       view === "all"
         ? rows
         : view === "active"
-          ? rows.filter((row) => row.status !== "done")
+          ? actionableRows.filter((row) => row.status !== "done")
           : view === "doing"
-            ? rows.filter((row) => hasActiveWorkerClaim(row, claimNow))
-          : rows.filter((row) => row.status === view),
-    [claimNow, rows, view],
+            ? actionableRows.filter((row) => hasActiveWorkerClaim(row, claimNow))
+          : actionableRows.filter((row) => row.status === view),
+    [actionableRows, claimNow, rows, view],
   );
   const cards: [WorkStatus, string][] = [
     ["ready", "ต้องดำเนินการ"],
@@ -551,12 +579,13 @@ export function WorkCommandCenterPage() {
     () => (selected ? detectApprovalLoop(selected.work_key, events) : null),
     [events, selected],
   );
-  const costSummary = useMemo(() => rows.reduce((sum, item) => ({
+  const costSummary = useMemo(() => actionableRows.reduce((sum, item) => ({
     input: sum.input + (item.token_input_total ?? 0),
     output: sum.output + (item.token_output_total ?? 0),
     cost: sum.cost + (item.actual_cost_usd ?? item.estimated_cost_usd ?? 0),
     cacheHits: sum.cacheHits + (item.cache_hit ? 1 : 0),
-  }), { input: 0, output: 0, cost: 0, cacheHits: 0 }), [rows]);
+    reported: sum.reported + (hasUsageTelemetry(item) ? 1 : 0),
+  }), { input: 0, output: 0, cost: 0, cacheHits: 0, reported: 0 }), [actionableRows]);
 
   return (
     <Stack spacing={2.5}>
@@ -600,9 +629,16 @@ export function WorkCommandCenterPage() {
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ justifyContent: "space-between" }}>
           <Typography variant="subtitle2">การใช้ทรัพยากร Worker</Typography>
           <Typography variant="body2" color="text.secondary">
-            Token เข้า {costSummary.input.toLocaleString()} · ออก {costSummary.output.toLocaleString()} · ต้นทุน ${costSummary.cost.toFixed(4)} · Cache hit {costSummary.cacheHits} งาน
+            {costSummary.reported === 0
+              ? "ยังไม่มี Token telemetry จาก Worker — ไม่ตีความเป็นศูนย์"
+              : `Token เข้า ${costSummary.input.toLocaleString()} · ออก ${costSummary.output.toLocaleString()} · ต้นทุน $${costSummary.cost.toFixed(4)} · Cache hit ${costSummary.cacheHits} งาน · มีข้อมูล ${costSummary.reported} งาน`}
           </Typography>
         </Stack>
+        {monitoringRows.length > 0 && (
+          <Typography variant="caption" color="text.secondary">
+            ระบบ Monitor {monitoringRows.length} รายการแยกจากสถิติ Worker และงานที่ต้องลงมือ
+          </Typography>
+        )}
       </Paper>
       <Box
         sx={{
@@ -641,7 +677,7 @@ export function WorkCommandCenterPage() {
         >
           <Tab
             value="active"
-            label={`งานที่ต้องลงมือ (${rows.length - counts.done})`}
+            label={`งานที่ต้องลงมือ (${actionableRows.length - counts.done})`}
           />
           <Tab value="ready" label={`พร้อมทำ (${counts.ready})`} />
           <Tab value="doing" label={`กำลังทำ (${counts.doing})`} />
@@ -702,7 +738,9 @@ export function WorkCommandCenterPage() {
               <Box>
                 <Typography variant="body2">{r.owner || "ยังไม่มอบหมาย"}</Typography>
                 <Typography variant="caption" color="text.secondary">
-                  {hasActiveWorkerClaim(r, claimNow)
+                  {isMonitoringSentinel(r)
+                    ? "Health Monitor · ไม่ใช้ Worker lease"
+                    : hasActiveWorkerClaim(r, claimNow)
                     ? `กำลังทำจริง · ${r.worker_id}`
                     : r.status === "doing"
                       ? "Worker ไม่ได้ทำงานจริง/หมดสิทธิ์แล้ว"
@@ -729,16 +767,18 @@ export function WorkCommandCenterPage() {
               <Chip
                 size="small"
                 color={
-                  hasActiveWorkerClaim(r, claimNow)
+                  isMonitoringSentinel(r)
+                    ? "info"
+                    : hasActiveWorkerClaim(r, claimNow)
                     ? "warning"
                     : r.status === "doing"
                       ? "error"
                       : statusColor[r.status]
                 }
-                label={workerClaimLabel(r, statusLabel, claimNow)}
+                label={isMonitoringSentinel(r) ? "ระบบ Monitor" : workerClaimLabel(r, statusLabel, claimNow)}
               />
             ),
-            exportValue: (r) => workerClaimLabel(r, statusLabel, claimNow),
+            exportValue: (r) => isMonitoringSentinel(r) ? "ระบบ Monitor" : workerClaimLabel(r, statusLabel, claimNow),
           },
           {
             id: "worker",
@@ -747,7 +787,7 @@ export function WorkCommandCenterPage() {
             render: (r) => {
               const outcome = workerOutcome(r, claimNow);
               const color = workerOutcomeColor(outcome.value);
-              return <Box><Chip size="small" color={color} label={outcome.label} /><Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>{r.worker_id || "ยังไม่มี Worker"}{r.status === "doing" ? ` · ${leaseLabel(r.lease_expires_at, claimNow)}` : ""}</Typography></Box>;
+              return <Box><Chip size="small" color={color} label={outcome.label} /><Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>{isMonitoringSentinel(r) ? `ตรวจล่าสุด ${formatDate(r.monitor_checked_at ?? null)}` : `${r.worker_id || "ยังไม่มี Worker"}${r.status === "doing" ? ` · ${leaseLabel(r.lease_expires_at, claimNow)}` : ""}`}</Typography></Box>;
             },
             exportValue: (r) => `${workerOutcome(r, claimNow).label} · ${r.worker_id || ""}`,
           },
@@ -883,8 +923,8 @@ export function WorkCommandCenterPage() {
             </Stack>
             <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
               <Chip
-                color={selected.status === "doing" && !hasActiveWorkerClaim(selected, claimNow) ? "error" : statusColor[selected.status]}
-                label={workerClaimLabel(selected, statusLabel, claimNow)}
+                color={isMonitoringSentinel(selected) ? "info" : selected.status === "doing" && !hasActiveWorkerClaim(selected, claimNow) ? "error" : statusColor[selected.status]}
+                label={isMonitoringSentinel(selected) ? "ระบบ Monitor" : workerClaimLabel(selected, statusLabel, claimNow)}
               />
               <Chip
                 variant="outlined"
@@ -908,7 +948,11 @@ export function WorkCommandCenterPage() {
             </Box>
             <Paper variant="outlined" sx={{ p: 1.5 }}>
               <Typography variant="subtitle2">Work Control</Typography>
-              <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: "wrap" }}>
+              {isMonitoringSentinel(selected) ? (
+                <Alert severity={selected.monitor_state === "critical" ? "error" : selected.monitor_state === "warning" ? "warning" : "success"} sx={{ mt: 1 }}>
+                  Monitoring sentinel ทำงานต่อเนื่องโดยไม่ใช้ Worker, Approval หรือ retry budget · incident เปิด {selected.monitor_open_incident_count ?? "ไม่ทราบ"} · ตรวจล่าสุด {formatDate(selected.monitor_checked_at ?? null)}
+                </Alert>
+              ) : <><Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: "wrap" }}>
                 <Chip size="small" label={`Requirement v${selected.requirement_version ?? 1}`} />
                 <Chip size="small" color={selected.control_state === "waiting_permission" || selected.control_state === "token_limit" || selected.control_state === "worker_lost" ? "error" : "default"} label={selected.control_state || "ยังไม่จัดประเภท"} />
                 <Chip size="small" variant="outlined" label={`Attempts ${selected.attempt_count ?? 0}`} />
@@ -919,8 +963,9 @@ export function WorkCommandCenterPage() {
               {selected.control_state === "waiting_permission" && <Alert severity="warning" sx={{ mt: 1 }}>Worker หยุดที่ Tool/Business Allow และบันทึก checkpoint แล้ว</Alert>}
               {selected.control_state === "token_limit" && <Alert severity="warning" sx={{ mt: 1 }}>Worker หยุดก่อน Token หมด ให้ Resume จาก checkpoint โดยไม่โหลด Full Chat</Alert>}
               {selected.control_state === "worker_lost" && <Alert severity="error" sx={{ mt: 1 }}>Worker ขาดการติดต่อ ต้อง reconcile run ก่อน dispatch ใหม่</Alert>}
+              </>}
             </Paper>
-            <Paper variant="outlined" sx={{ p: 1.5 }}>
+            {!isMonitoringSentinel(selected) && <Paper variant="outlined" sx={{ p: 1.5 }}>
               <Typography variant="subtitle2">Model / Token / QA</Typography>
               <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: "wrap" }}>
                 <Chip size="small" color={selected.model_tier === "reasoning" ? "secondary" : selected.model_tier === "economy" ? "success" : "default"} label={`Model ${selected.model_tier ?? "balanced"}${selected.model_name ? ` · ${selected.model_name}` : ""}`} />
@@ -932,13 +977,15 @@ export function WorkCommandCenterPage() {
                 งบ Token เข้า {(selected.token_budget_input ?? 0).toLocaleString()} / ออก {(selected.token_budget_output ?? 0).toLocaleString()} · เตือนที่ {selected.token_soft_limit_percent ?? 80}%
               </Typography>
               <Typography variant="body2">
-                ใช้สะสม เข้า {(selected.token_input_total ?? 0).toLocaleString()} / ออก {(selected.token_output_total ?? 0).toLocaleString()} · ต้นทุน ${(selected.actual_cost_usd ?? selected.estimated_cost_usd ?? 0).toFixed(4)}
+                {hasUsageTelemetry(selected)
+                  ? `ใช้สะสม เข้า ${(selected.token_input_total ?? 0).toLocaleString()} / ออก ${(selected.token_output_total ?? 0).toLocaleString()} · ต้นทุน $${(selected.actual_cost_usd ?? selected.estimated_cost_usd ?? 0).toFixed(4)}`
+                  : "ยังไม่มี Token telemetry จาก Worker — ไม่ตีความเป็นศูนย์"}
               </Typography>
               <Typography variant="caption" color="text.secondary">
                 Prompt {selected.prompt_version ?? "work-control-v2"} · Schema {selected.output_schema_version ?? "2"}
               </Typography>
-            </Paper>
-            {(() => {
+            </Paper>}
+            {!isMonitoringSentinel(selected) && (() => {
               const outcome = workerOutcome(selected, claimNow);
               const color = workerOutcomeColor(outcome.value);
               return <Paper variant="outlined" sx={{ p: 1.5 }}>
@@ -1026,7 +1073,7 @@ export function WorkCommandCenterPage() {
                 {selected.approval_state.latest?.decision_channel && ` · ผ่าน ${selected.approval_state.latest.decision_channel}`}
               </Alert>
             )}
-            {selected.status === "doing" && (
+            {selected.status === "doing" && !isMonitoringSentinel(selected) && (
               <Alert severity={hasActiveWorkerClaim(selected, claimNow) ? "info" : "error"}>
                 {hasActiveWorkerClaim(selected, claimNow)
                   ? "Worker กำลังทำงานและมี Active Claim"
@@ -1058,7 +1105,15 @@ export function WorkCommandCenterPage() {
                 </Paper>
               </Box>
             )}
-            {selected.status === "review" && selected.approval_state?.status === "pending" && (
+            {isMonitoringSentinel(selected) && selected.monitor_evidence && (
+              <Box>
+                <Typography variant="subtitle2">ผลตรวจ Monitor ล่าสุด</Typography>
+                <Paper variant="outlined" sx={{ p: 1.5, whiteSpace: "pre-wrap" }}>
+                  {selected.monitor_evidence}
+                </Paper>
+              </Box>
+            )}
+            {!isMonitoringSentinel(selected) && selected.status === "review" && selected.approval_state?.status === "pending" && (
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
                 <Button
                   variant="contained"
@@ -1085,12 +1140,12 @@ export function WorkCommandCenterPage() {
                 </Button>
               </Stack>
             )}
-            {selected.status === "ready" && selected.approval_status === "pending" && (
+            {!isMonitoringSentinel(selected) && selected.status === "ready" && selected.approval_status === "pending" && (
               <Button variant="contained" disabled={busy} onClick={() => void submitForReview()}>
                 ส่งตรวจอนุมัติ
               </Button>
             )}
-            {(["ready", "blocked"] as WorkStatus[]).includes(selected.status) &&
+            {!isMonitoringSentinel(selected) && (["ready", "blocked"] as WorkStatus[]).includes(selected.status) &&
               selected.approval_status === "approved" && selected.approval_fingerprint && (
               <Button variant="outlined" disabled={busy} onClick={() => void reconcileApprovedExecution()}>
                 กู้สถานะงานที่อนุมัติแล้ว

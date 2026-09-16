@@ -74,7 +74,7 @@ Deno.serve(async request => {
 
   if (body.action === 'status') {
     const [{ data: items, error: itemError }, { data: runs, error: runError }] = await Promise.all([
-      admin.from('system_work_items').select('work_key,title,status,progress,risk,production_status,approval_status,approval_scope,approved_at,approval_channel,worker_id,heartbeat_at,lease_expires_at,current_step,attempt_count,error_fingerprint,worker_outcome,worker_outcome_reason,worker_outcome_at,requirement_version,controller_owner,execution_owner,qa_owner,control_state,checkpoint,context_manifest,new_information_hash,model_tier,model_name,token_budget_input,token_budget_output,token_input_total,token_output_total,estimated_cost_usd,actual_cost_usd,qa_tier,escalation_level,cache_hit,prompt_version,output_schema_version,updated_at').order('work_key'),
+      admin.from('system_work_items').select('work_key,title,status,progress,risk,production_status,approval_status,approval_scope,approved_at,approval_channel,worker_id,heartbeat_at,lease_expires_at,current_step,attempt_count,error_fingerprint,worker_outcome,worker_outcome_reason,worker_outcome_at,requirement_version,controller_owner,execution_owner,qa_owner,control_state,checkpoint,context_manifest,new_information_hash,model_tier,model_name,token_budget_input,token_budget_output,token_input_total,token_output_total,estimated_cost_usd,actual_cost_usd,qa_tier,escalation_level,cache_hit,prompt_version,output_schema_version,work_kind,monitor_state,monitor_checked_at,monitor_open_incident_count,monitor_evidence,monitor_fingerprint,updated_at').order('work_key'),
       admin.from('system_worker_runs').select('id,work_key,worker_id,status,current_step,progress,outcome,outcome_reason,started_at,heartbeat_at,finished_at').order('started_at', { ascending: false }).limit(100),
     ])
     if (itemError || runError) return json({ error: (itemError ?? runError)?.message }, 500)
@@ -82,7 +82,14 @@ Deno.serve(async request => {
       sum[item.status] = (sum[item.status] ?? 0) + 1
       return sum
     }, {})
-    return json({ counts, items, active_runs: runs ?? [], checked_at: new Date().toISOString() })
+    const runHistory = runs ?? []
+    const liveCutoff = Date.now() - 10 * 60_000
+    const liveRuns = runHistory.filter(run => run.status === 'running' && new Date(run.heartbeat_at).getTime() >= liveCutoff)
+    const actionableCounts = (items ?? []).filter(item => item.work_kind !== 'monitoring_sentinel').reduce<Record<string,number>>((sum, item) => {
+      sum[item.status] = (sum[item.status] ?? 0) + 1
+      return sum
+    }, {})
+    return json({ counts, actionable_counts: actionableCounts, items, active_runs: liveRuns, live_runs: liveRuns, run_history: runHistory, checked_at: new Date().toISOString() })
   }
 
   if (body.action === 'inspect_line_voice_uat') {
