@@ -8,8 +8,24 @@
     "production_status": { "type": "string" },
     "error_fingerprint": { "type": "string" },
     "outcome": { "type": "string", "enum": ["acknowledged", "blocked", "completed", "no_output"] },
-    "outcome_reason": { "type": "string", "minLength": 1 }
+    "outcome_reason": { "type": "string", "minLength": 1 },
+    "control_state": { "type": "string", "enum": ["queued", "blocked", "paused", "waiting_permission", "token_limit", "waiting_qa", "worker_lost", "done"] },
+    "checkpoint": {
+      "type": "object",
+      "properties": {
+        "last_success": { "type": "string" },
+        "next_action": { "type": "string" },
+        "files": { "type": "array", "items": { "type": "string" } },
+        "evidence_refs": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["last_success", "next_action", "files", "evidence_refs"],
+      "additionalProperties": false
+    },
+    "problem_category": { "type": "string", "enum": ["code", "token", "allow", "policy", "dependency", "config", "data", "network", "qa", "worker_lost", "unknown"] },
+    "new_information_hash": { "type": "string" },
+    "token_input": { "type": "integer", "minimum": 0 },
+    "token_output": { "type": "integer", "minimum": 0 }
   },
-  "required": ["status", "progress", "current_step", "evidence", "production_status", "error_fingerprint", "outcome", "outcome_reason"],
+  "required": ["status", "progress", "current_step", "evidence", "production_status", "error_fingerprint", "outcome", "outcome_reason", "control_state", "checkpoint", "problem_category", "new_information_hash", "token_input", "token_output"],
   "additionalProperties": false
 }

@@ -32,7 +32,7 @@ assert.match(source,/target_decision:\s*approved \? ['"]approve['"] : ['"]reject
 assert.match(source,/target_channel:\s*['"]web['"]/)
 assert.match(source,/อนุมัติ.*บันทึก Audit/)
 assert.match(source,/production_status,owner,current_step,worker_id,heartbeat_at,lease_expires_at,approval_status/)
-assert.match(source,/heartbeat_at,lease_expires_at,approval_status,approval_fingerprint,attempt_count,worker_outcome,worker_outcome_reason,worker_outcome_at,created_at,updated_at/)
+assert.match(source,/heartbeat_at,lease_expires_at,approval_status,approval_fingerprint,attempt_count,worker_outcome,worker_outcome_reason,worker_outcome_at,requirement_version,controller_owner,execution_owner,qa_owner,control_state,checkpoint,context_manifest,new_information_hash,created_at,updated_at/)
 assert.doesNotMatch(source,/select\([\s\S]*detail,production_status[\s\S]*evidence,current_step/)
 assert.match(source,/select\("detail,evidence"\)/)
 assert.match(source,/const \[detailResult, eventsResult, runsResult\] = await Promise\.all/)

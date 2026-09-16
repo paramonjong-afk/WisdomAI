@@ -28,7 +28,9 @@ This flow separates long-lived monitoring records from worker-owned tasks. `SYS-
 
 ## Failure, audit, and recovery
 
-Every claim creates `system_worker_runs` and increments the attempt count once. Heartbeat expiry creates an audited expired run and returns only ordinary orphaned work to the queue. Monitoring records stay out of generic claims and retain their health evidence. A capped normal task requires a root-cause fix and explicit retry reset; no automation bypasses the cap.
+Every claim creates `system_worker_runs` and increments the attempt count once. Heartbeat expiry creates an audited expired run and moves ordinary orphaned work to `blocked + worker_lost` with its checkpoint preserved. Monitoring records stay out of generic claims and retain their health evidence. A capped normal task requires a root-cause fix plus new information and an explicit retry reset; no automation bypasses the cap.
+
+Work Control Core v1 changes ordinary stale execution recovery from automatic requeue to `blocked + worker_lost`. The durable checkpoint remains available and controlled retry requires a new-information hash. `SYS-004` remains a Health Monitor sentinel and is excluded from Worker-lost conversion.
 
 ## Change record
 

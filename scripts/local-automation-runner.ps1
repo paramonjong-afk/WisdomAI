@@ -21,10 +21,16 @@ function Invoke-Worker([hashtable]$Body, [string]$Secret) {
     -ContentType 'application/json; charset=utf-8' -Body $payload -TimeoutSec 45
 }
 
-function Finish-Run($Item, [string]$Secret, [string]$Status, [int]$Progress, [string]$Evidence, [string]$ProductionStatus, [string]$Fingerprint = '', [string]$Outcome = 'blocked', [string]$OutcomeReason = 'Worker did not provide a terminal outcome.') {
+function Finish-Run($Item, [string]$Secret, [string]$Status, [int]$Progress, [string]$Evidence, [string]$ProductionStatus, [string]$Fingerprint = '', [string]$Outcome = 'blocked', [string]$OutcomeReason = 'Worker did not provide a terminal outcome.', [string]$CurrentStep = 'stopped', [string]$ControlState = 'blocked', $Checkpoint = $null, [string]$ProblemCategory = 'unknown', [string]$NewInformationHash = '', [int]$TokenInput = 0, [int]$TokenOutput = 0) {
+  if ($null -eq $Checkpoint) {
+    $Checkpoint = @{ last_success='No durable milestone reported'; next_action=$CurrentStep; files=@(); evidence_refs=@() }
+  }
   Invoke-Worker -Secret $Secret -Body @{
     action='finish'; worker_id=$WorkerId; run_id=$Item.run_id; status=$Status; progress=$Progress
     evidence=$Evidence; production_status=$ProductionStatus; error_fingerprint=$Fingerprint; outcome=$Outcome; outcome_reason=$OutcomeReason
+    current_step=$CurrentStep; control_state=$ControlState; checkpoint=$Checkpoint
+    context_manifest=$Item.context_manifest; problem_category=$ProblemCategory; new_information_hash=$NewInformationHash
+    token_input=$TokenInput; token_output=$TokenOutput
   } | Out-Null
 }
 
@@ -52,7 +58,9 @@ try {
     if ($requiresApproval -and -not $hasMatchingApproval) {
       Finish-Run $item $secret 'review' ([int]$item.progress) `
         'Local runner preflight: work requires explicit approval because it may change schema, secrets, permissions, security, or data.' `
-        'awaiting_approval' '' 'acknowledged' 'Worker acknowledged the task but stopped for the required explicit approval.'
+        'awaiting_approval' '' 'acknowledged' 'Worker acknowledged the task but stopped for the required explicit approval.' `
+        'waiting_for_tool_or_business_approval' 'waiting_permission' `
+        @{last_success='Preflight completed';next_action='Obtain the required scoped approval';files=@();evidence_refs=@()} 'allow'
       exit 0
     }
 
@@ -63,10 +71,14 @@ try {
     $stderrFile = Join-Path $logDirectory "$($item.work_key)-$runStamp.stderr.log"
     $prompt = @"
 Work item $($item.work_key): $($item.title)
-Category: $($item.category); risk: $($item.risk); current progress: $($item.progress)%
+Requirement version: $($item.requirement_version)
+Category: $($item.category); risk: $($item.risk); recorded progress: $($item.progress)%
 Scope: $($item.detail)
+Checkpoint: $($item.checkpoint | ConvertTo-Json -Depth 8 -Compress)
+Context manifest: $($item.context_manifest | ConvertTo-Json -Depth 8 -Compress)
+Prior evidence reference: $($item.evidence)
 
-Work only inside $Workspace. Inspect existing changes and preserve unrelated user work. Update the existing work item evidence rather than inventing duplicate tasks. Do not run database migrations, rotate or expose secrets, change permissions/security, delete data, or make irreversible changes. If any such action is required, stop and return status review. For safe source changes, use focused edits, run npm.cmd run lint, npm.cmd run build, and relevant tests. Do not deploy schema or security changes. Return the final result using the required JSON schema. Always provide outcome and outcome_reason: completed for done, blocked for a diagnosed blocker, acknowledged when waiting for a human decision, and no_output only when no usable result could be produced.
+Use only this task packet first. Open additional files only when the context manifest or direct evidence makes them necessary; do not load full chat history. Resume from the checkpoint instead of restarting completed work. Work only inside $Workspace. Preserve unrelated changes. Do not run database migrations, rotate or expose secrets, change permissions/security, delete data, or make irreversible changes. If permission is required, return waiting_permission with a checkpoint. If the context/token limit prevents safe completion, return token_limit with a checkpoint. For safe source changes, use focused edits and relevant verification. Return the final result using the required JSON schema, including checkpoint, control_state, problem_category, new_information_hash and token counts (use 0 when unavailable). Same task + same error + same requirement version + no new information must not be retried.
 "@
     [IO.File]::WriteAllText($promptFile, $prompt, [Text.UTF8Encoding]::new($false))
 
@@ -79,7 +91,7 @@ Work only inside $Workspace. Inspect existing changes and preserve unrelated use
       Start-Sleep -Seconds 60
       Invoke-Worker -Secret $secret -Body @{
         action='heartbeat'; worker_id=$WorkerId; run_id=$item.run_id; step='codex_exec';
-        progress=[Math]::Min(95,[Math]::Max([int]$item.progress,50)); lease_minutes=120
+        progress=[Math]::Min(95,[Math]::Max([int]$item.progress,0)); lease_minutes=120
       } | Out-Null
       $process.Refresh()
     }
@@ -111,11 +123,13 @@ Work only inside $Workspace. Inspect existing changes and preserve unrelated use
       # message past a head-truncated cutoff and leaving evidence useless for
       # diagnosis. The real failure is almost always at the very end.
       $tailStart = [Math]::Max(0, $tail.Length - 1500)
-      Finish-Run $item $secret 'blocked' ([int]$item.progress) "Codex CLI failed: $($tail.Substring($tailStart))" 'local_runner_failed' $fingerprint 'no_output' 'Codex CLI ended without a schema-valid terminal result.'
+      Finish-Run $item $secret 'blocked' ([int]$item.progress) "Codex CLI failed: $($tail.Substring($tailStart))" 'local_runner_failed' $fingerprint 'no_output' 'Codex CLI ended without a schema-valid terminal result.' `
+        'runner_failed_without_result' 'blocked' @{last_success='Worker process started';next_action='Diagnose runner failure before retry';files=@();evidence_refs=@($stderrFile)} 'unknown'
       exit 1
     }
 
-    Finish-Run $item $secret $result.status ([int]$result.progress) $result.evidence $result.production_status $result.error_fingerprint $result.outcome $result.outcome_reason
+    Finish-Run $item $secret $result.status ([int]$result.progress) $result.evidence $result.production_status $result.error_fingerprint $result.outcome $result.outcome_reason `
+      $result.current_step $result.control_state $result.checkpoint $result.problem_category $result.new_information_hash ([int]$result.token_input) ([int]$result.token_output)
   } finally {
     if ($secretPointer -ne [IntPtr]::Zero) {
       [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($secretPointer)

@@ -41,6 +41,8 @@ flowchart LR
 
 # Work Command Center Flow
 
+Work Control Core v1 adds requirement version, Controller/Execution/QA owners, explicit control state and the latest durable checkpoint to the Drawer. Numeric progress remains a secondary indicator; milestone, checkpoint, blocker and next action are the operational evidence. See `docs/WORK_CONTROL_CORE_FLOW.md`.
+
 ## Purpose
 
 The Work Command Center is the authenticated operational queue for creating,
