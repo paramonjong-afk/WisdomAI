@@ -23,6 +23,32 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-17 — Posting Accounting/AP gateway command v3.0
+
+```mermaid
+flowchart LR
+  A[Approved Accounting + AP operation pair] --> B[Validate same tenant/document/version/snapshot]
+  B --> C[Reconcile base + input tax - WHT = payable]
+  C --> D[Reconcile journal debit = credit and AP/tax roles]
+  D --> E{Existing transaction identity?}
+  E -->|none| F[Atomic journal + payable + tax + payment link + Audit plan]
+  E -->|committed match| G[Replay existing references]
+  E -->|unknown| H[Lookup before retry]
+  E -->|conflict| I[Deny without writes]
+  F -->|pre-commit failure| J[Rollback complete transaction]
+  F -->|later correction| K[Immutable linked reversal]
+```
+
+- **Reason:** define the Phase 3 Accounting/AP command before any ledger or payable persistence, closing ambiguity around amount balance, due date, tax, retry, and rollback.
+- **Impact:** adds a typed, fail-closed command planner with deterministic journal, payable, payment-link, event, and transaction identities. It does not add or mutate schema, roles, permissions, Production data, or live gateway routing.
+- **Inputs/outputs/owner:** input is the approved `accounting` + `ap` operation pair bound to one company, Intake, document version, approval event, and snapshot. Output is either an atomic write plan, an idempotent replay, an unknown-outcome lookup requirement, or a stable denial. Posting Flow/Accounting and AP own the command; Platform owns atomic persistence and recovery.
+- **Failure/retry/audit:** a changed fingerprint under the same key is denied. Unknown outcomes must be looked up before retry. Pre-commit failure rolls back every planned write; post-commit correction uses an immutable reversal under `POSTING-008`. Audit and original references are retained.
+- **Verification/rollback:** `test:accounting-ap-gateway`, prior Posting contracts, typecheck, lint, and build. Revert the source/test/docs change to roll back this contract; no financial or Audit data requires rollback because this version performs no writes.
+
+### v3.1 persistence extension
+
+The approved additive migration creates tenant-protected Accounting/AP transaction, journal, obligation, payment-link, and Audit ledgers. A service-role-only RPC performs validation, insert, Posting-operation completion, Document Flow destination transition, and Accounting posting state in one transaction. Authenticated users can only read rows for their active company and role; direct client writes are revoked. Retry is an exact-fingerprint replay. Rollback after application is forward-only: stop the executor, preserve ledgers/Audit, and use POSTING-008 reversal for committed entries.
+
 ## 2026-09-16 — Posting approval policy matrix v2.0
 
 ```mermaid
@@ -1473,3 +1499,18 @@ flowchart LR
 ```
 
 Posting approval/transaction advances to v2.2 through a replay-safe control-plane migration. The release preserves the batch receipt and approval fingerprints, records exact Production/QA evidence, queues only the two Phase 3 contracts, and retains later phases as blocked. Rollback is a guarded forward migration before any Phase 3 claim; Audit history is never deleted.
+
+## 2026-09-17 — Posting Accounting/AP document-type authority v3.6
+
+```mermaid
+flowchart LR
+  A[Confirmed Accounting document] --> B{Server whitelist?}
+  B -->|9 Accounting/AP types| C[Reserve Accounting + AP]
+  C --> D{Canonical stock line?}
+  D -->|yes| E[Add Stock]
+  D -->|no| F[Accounting/AP only]
+  B -->|quotation| Q[Quotation decision workflow]
+  B -->|other / unknown| X[Reject with zero side effects]
+```
+
+The approval bundle now maps only catalog-backed Accounting/AP document types and derives Stock from canonical lines. Quotation, Purchase Order, Stock-owned documents, transfer/payroll/withholding flows, reference/archive classifications and unknown values cannot create Posting operations, approval events or snapshots. Table-driven PostgreSQL verification covers every supported combined type and representative refusals. Rollback disables the bundle or replaces the function through a reviewed forward migration; immutable evidence is retained.

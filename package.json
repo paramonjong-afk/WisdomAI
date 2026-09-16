@@ -51,6 +51,8 @@
     "test:posting-phase2-5-batch-approval": "node --experimental-strip-types scripts/posting-phase2-5-batch-approval.test.ts",
     "test:posting-phase3-activation": "node --experimental-strip-types scripts/posting-phase3-activation.test.ts",
     "test:posting-flow-contract": "node --experimental-strip-types scripts/posting-flow-contract.test.ts",
+    "test:accounting-ap-gateway": "node --experimental-strip-types scripts/accounting-ap-gateway-contract.test.ts",
+    "test:accounting-ap-gateway-postgres": "node scripts/accounting-ap-gateway-postgres.test.mjs",
     "test:posting-approval-policy": "node --experimental-strip-types scripts/posting-approval-policy.test.ts",
     "test:work-queue-reconcile-v2": "node --experimental-strip-types scripts/work-queue-reconcile-v2.test.ts",
     "test:telegram-stale-chat": "node --experimental-strip-types scripts/telegram-stale-chat.test.ts",
