@@ -94,6 +94,7 @@ export const router = createBrowserRouter([
               { path: 'advance-payment-report', element: managerOnly(<AdvancePaymentReportPage />) },
               { path: 'image-review', element: managerOnly(<ImageReviewPage />) },
               { path: 'document-flows', element: managerOnly(<DocumentFlowsPage />) },
+              { path: 'document-flows/source-information', element: deferred(<DocumentFlowsPage />) },
               { path: 'document-flows/intake-room', element: <Navigate to="/document-flows" replace /> },
               { path: 'document-flows/intake-room/filtered', element: <Navigate to="/document-flows" replace /> },
               { path: 'intake-room', element: <Navigate to="/document-flows" replace /> },

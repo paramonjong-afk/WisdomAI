@@ -10,6 +10,8 @@ export const documentFlowActions = [
   'request_correction',
   'ready_posting',
   'approve',
+  'request_information',
+  'resubmit_information',
   'reject',
   'retry',
   'dead_letter',
@@ -80,6 +82,12 @@ export const evaluateDocumentFlowTransition = (
     case 'approve':
       if (context.currentFlow !== 'posting' || context.state !== 'awaiting_approval') return denied('workflow_transition_not_allowed')
       return allowed('posting', 'approved_waiting_gateway', 'posting_gateway_queue')
+    case 'request_information':
+      if (context.currentFlow !== 'posting' || context.state !== 'awaiting_approval') return denied('workflow_transition_not_allowed')
+      return allowed('posting', 'information_requested', 'posting_source_information_room')
+    case 'resubmit_information':
+      if (context.currentFlow !== 'posting' || context.state !== 'information_requested') return denied('workflow_transition_not_allowed')
+      return allowed('posting', 'awaiting_approval', 'posting_approval_room')
     case 'reject':
       if (!['filter', 'posting'].includes(context.currentFlow)) return denied('workflow_transition_not_allowed')
       return allowed(context.currentFlow, 'rejected', `${context.currentFlow}_rejected_room`)
