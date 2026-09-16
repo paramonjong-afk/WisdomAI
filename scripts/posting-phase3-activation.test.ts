@@ -6,4 +6,5 @@ for(const value of ['13acc9ba9ccdf973b12ff0a28bc749ef9c5de5df','13acc9b','351114
 assert.match(sql,/approval_fingerprint is distinct from expected_fingerprint/); assert.match(sql,/batch_approval_receipt' <> receipt/); assert.match(sql,/item\.worker_id is not null/); assert.match(sql,/if already_final then return; end if/)
 assert.match(sql,/item\.control_state <> 'waiting_qa'/)
 assert.match(sql,/where work_key in \('POSTING-004','POSTING-005'\)/); assert.match(sql,/target\.phase >= 4[\s\S]*approved_waiting_dependency/); assert.match(sql,/posting_phase3_activated/)
+assert.match(sql,/clean_replay[\s\S]*approved_for_execution[\s\S]*if clean_replay then return/)
 console.log('Posting Phase 3 guarded activation contract passed')

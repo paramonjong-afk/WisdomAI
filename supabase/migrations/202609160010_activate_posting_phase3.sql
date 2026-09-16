@@ -1,6 +1,7 @@
 -- Guarded, replay-safe Phase 3 activation. Any drift aborts atomically.
 do $$
 declare item public.system_work_items; target record; expected_fingerprint text; already_final boolean := true;
+  clean_replay boolean := true;
   receipt constant text := 'CTRL-POSTING-PHASE2-5-20260916';
 begin
   perform 1 from public.system_work_items where work_key in ('POSTING-001','POSTING-002','POSTING-004','POSTING-005','POSTING-008','FILTER-004','FILTER-007','FILTER-008') order by work_key for update;
@@ -12,6 +13,17 @@ begin
     if not ((target.work_key in ('POSTING-001','POSTING-002') and item.status='done' and item.progress=100 and item.control_state='done' and item.production_status='phase2_verified_production') or (target.work_key in ('POSTING-004','POSTING-005') and item.status='ready' and item.progress=0 and item.control_state='queued' and item.production_status='approved_for_execution') or (target.phase >= 4 and item.status='blocked' and item.progress=0 and item.control_state='blocked' and item.production_status='approved_waiting_dependency' and item.context_manifest ->> 'phase_gate'='waiting_dependency')) then already_final := false; end if;
   end loop;
   if already_final then return; end if;
+  -- A foundation replay has no Worker execution history: Phase 2 is still in the
+  -- exact state produced by the batch-approval migration. Keep later phases
+  -- blocked instead of manufacturing Production/QA evidence on a fresh database.
+  for target in select * from (values ('POSTING-001'),('POSTING-002')) as planned(work_key) loop
+    select * into item from public.system_work_items where work_key=target.work_key;
+    if item.status <> 'ready' or item.progress <> 0 or item.production_status <> 'approved_for_execution'
+      or item.control_state <> 'queued' or item.context_manifest ->> 'phase_gate' <> 'released' then
+      clean_replay := false;
+    end if;
+  end loop;
+  if clean_replay then return; end if;
   select * into item from public.system_work_items where work_key='POSTING-001';
   if item.status <> 'blocked' or item.progress <> 80 or item.production_status <> 'local_verified_not_deployed' or item.control_state <> 'blocked' then raise exception 'POSTING-001 Phase 2 state changed; Phase 3 activation refused'; end if;
   select * into item from public.system_work_items where work_key='POSTING-002';
