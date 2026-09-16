@@ -48,6 +48,7 @@
     "test:work-continuous-dispatch": "node --experimental-strip-types scripts/work-continuous-dispatch.test.ts",
     "test:work-control-core": "node --experimental-strip-types scripts/work-control-core.test.ts",
     "test:posting-flow-phase1-approval": "node --experimental-strip-types scripts/posting-flow-phase1-approval.test.ts",
+    "test:posting-phase2-5-batch-approval": "node --experimental-strip-types scripts/posting-phase2-5-batch-approval.test.ts",
     "test:posting-flow-contract": "node --experimental-strip-types scripts/posting-flow-contract.test.ts",
     "test:work-queue-reconcile-v2": "node --experimental-strip-types scripts/work-queue-reconcile-v2.test.ts",
     "test:telegram-stale-chat": "node --experimental-strip-types scripts/telegram-stale-chat.test.ts",
