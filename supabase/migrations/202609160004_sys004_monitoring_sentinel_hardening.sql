@@ -115,7 +115,8 @@ set work_kind='monitoring_sentinel',
     worker_outcome=null,
     worker_outcome_reason=null,
     worker_outcome_at=null,
-    checkpoint=null,
+    checkpoint='{}'::jsonb,
+    context_manifest=coalesce(context_manifest,'{}'::jsonb) || jsonb_build_object('work_kind','monitoring_sentinel'),
     monitor_state=case
       when risk='critical' then 'critical'
       when risk in ('high','medium') then 'warning'
