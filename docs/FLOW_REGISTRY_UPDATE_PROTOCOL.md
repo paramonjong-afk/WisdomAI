@@ -1461,3 +1461,15 @@ flowchart LR
 - **Known blocker:** a distinct `request_information` hold has no approved document-flow state/RPC/owner queue. It is visibly disabled rather than incorrectly mapped to correction. Adding it requires a separately approved migration/security change.
 - **Permission/Audit:** request requires a company manager/Posting approver and a non-empty reason. Resubmit requires the recorded source owner (platform-admin recovery allowed), same-company scope, expected version and event key. Replay checks item identity and tenant before returning. Both transitions append Audit events.
 - **Migration/verification/rollback:** `202609160009_posting_request_information.sql`; verify safety and clean replay, request/resubmit authorization/idempotency contracts, focused Posting/Filter contracts, typecheck, lint, build, then authenticated responsive smoke. Roll back UI and RPC/queue behavior while retaining columns/Audit; recover held rows by audited transition rather than deletion.
+
+## 16/9/2569 — Posting Phase 3 guarded activation
+
+```mermaid
+flowchart LR
+  A[Approved batch] --> B[Verify Phase 2 evidence and scope]
+  B -->|exact| C[Release POSTING-004/005]
+  B -->|drift| D[Atomic abort]
+  C -. held .-> E[Phase 4/5]
+```
+
+Posting approval/transaction advances to v2.2 through a replay-safe control-plane migration. The release preserves the batch receipt and approval fingerprints, records exact Production/QA evidence, queues only the two Phase 3 contracts, and retains later phases as blocked. Rollback is a guarded forward migration before any Phase 3 claim; Audit history is never deleted.
