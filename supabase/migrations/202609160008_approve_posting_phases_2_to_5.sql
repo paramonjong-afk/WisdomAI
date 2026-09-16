@@ -39,7 +39,7 @@ begin
       progress = 100,
       production_status = 'phase1_contract_verified_production',
       current_step = 'Phase 1 contract complete; Phase 2 released by batch approval.',
-      control_state = 'completed',
+      control_state = 'done',
       context_manifest = context_manifest || jsonb_build_object(
         'phases_2_to_5', 'approved_with_dependency_gates',
         'batch_approval_receipt', 'CTRL-POSTING-PHASE2-5-20260916',

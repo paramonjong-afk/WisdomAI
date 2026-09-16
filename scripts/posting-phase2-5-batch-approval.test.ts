@@ -14,6 +14,7 @@ for (const guard of [
   "item.worker_outcome = 'completed'",
   "item.production_status = 'approved_for_execution'",
   "item.current_step = 'Phase 1 approved; waiting for an atomic Worker claim.'",
+  "control_state = 'done'",
   "target.phase = 2 then 'ready' else 'blocked'",
   "target.phase = 2 then 'approved_for_execution' else 'approved_waiting_dependency'",
   'system_work_item_scope_fingerprint',
