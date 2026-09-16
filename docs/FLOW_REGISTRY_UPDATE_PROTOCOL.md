@@ -1327,3 +1327,20 @@ flowchart LR
 - **Data/security:** additive tenant-scoped policy/cache/cost/lock tables; authenticated users can read only through existing company/work visibility and browser mutation is revoked. Cost recording is unique per run.
 - **Failure/retry:** missing configuration preserves the current model; telemetry failure cannot retry a completed business operation; checkpoint, same-error dedupe and bounded retry remain authoritative.
 - **Migration/verification/rollback:** `202609160002_work_control_core_v2_cost_routing.sql`; verify V1/V2 contracts, PowerShell parser, migration guards, typecheck, lint, build and authenticated `/work-command-center`; rollback source to V1 while retaining additive audit telemetry.
+
+## 2026-09-16 — Work queue reconciliation after Control V2
+
+```mermaid
+flowchart LR
+  A[Open legacy work] --> B{Merged/deployed evidence?}
+  B -->|yes| C[Done or superseded + Audit]
+  B -->|no| D[Keep open with exact blocker]
+  C --> E[Complete stale Dispatch Intent]
+  D --> F[Controller priority queue]
+  G[SYS-004 sentinel] --> H[Active monitoring without Worker lease]
+```
+
+- **Reason/impact:** reconciles stale implementation/QA children against merged PR71/72/73/75/80/81/91 and the current release path; no task or event is deleted.
+- **State/routing:** verified children become `done` with `implemented`, `superseded`, or `cancelled_with_audit` evidence; unresolved Production smoke and new Document/Posting flows remain open. Pending intents are completed only for reconciled work.
+- **Failure/recovery:** updates require no active Worker claim. `SYS-004` remains `doing` as a monitoring sentinel and is not counted as a Worker claim. Restore any disputed row from its append-only event history.
+- **Owner/verification:** Controller 00 owns reconciliation; verify guarded SQL, migration replay/dry-run, before/after counts, RLS, Work Command Center and remaining blocker list.
