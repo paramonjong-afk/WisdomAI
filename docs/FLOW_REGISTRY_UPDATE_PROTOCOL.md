@@ -1628,6 +1628,7 @@ flowchart LR
 # 2026-09-17 — Attendance Mobile Flow v2.0
 
 - **v2.1 corrective:** wired employee information-required recovery, reviewer claim/lease/SLA, site-scoped reads, LINE/Telegram canonical gates, audited signed selfie access, durable mobile metrics and legal-hold-safe queued Storage API retention. Migration remains additive; rollback disables the v2 RPC/UI/function routes and maintenance job while preserving ledgers, metrics, purge jobs and audit evidence. Verification requires contract/regression/type/lint/build/migration replay plus post-PR DB apply and authenticated Web/LINE/Telegram smoke.
+- **v2.2 corrective:** maintenance cron now invokes the retention Edge worker with a Vault-backed secret after enqueue; missing secret is fail-closed. Purge failure uses capped exponential retry and terminal audit. Notification-ledger failures feed the mobile monitoring metric, including approved exception notifications. Release configuration must deploy both Attendance Edge Functions and provision matching Vault/Edge secrets before authenticated retention and notification failure smoke.
 
 ```mermaid
 flowchart LR

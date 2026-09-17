@@ -113,6 +113,8 @@ Web Chat และ Time Tracking แยกเป็นปลายทางร�
 
 > Corrective v2.1: `information_required` is visible to the employee with a fresh-GPS resubmit action. Reviewers must claim a request and hold a live lease before deciding; expired leases return to the queue and SLA escalation remains audited. All manager request/event reads are site-scoped. Selfie retention is enqueue → service Edge Storage API removal → existence verification → success/failure audit; legal hold is recorded and never deleted. The Approvals page obtains only a short-lived audited signed URL. Mobile failures and approval turnaround are persisted in `attendance_mobile_metrics`; Production DB/preview behavior remains a release-gate verification, not a claim of this code change.
 
+> Corrective v2.2: pg_cron enqueues due selfies and invokes `attendance-selfie-retention` through `pg_net` using Vault secret `attendance_selfie_retention_secret`, which must equal Edge secret `ATTENDANCE_MAINTENANCE_SECRET`. Missing/invalid secret fails closed: no HTTP call and no deletion. Failed jobs retry with exponential backoff up to five claimed attempts, then remain terminal-failed with audit evidence. A ledger trigger records every `attendance_notifications` transition to `failed`, including approved-exception delivery failures. Deployment therefore requires deploying the Edge Function, setting both matching secrets, applying the migration, then exercising success, retry and legal-hold smoke paths.
+
 ```mermaid
 flowchart TD
   A[เปิดหน้าลงเวลา] --> B{attendance required?}

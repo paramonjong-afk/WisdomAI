@@ -22,9 +22,11 @@ Deno.serve(async(request)=>{
       results.push({id:job.id,status:'succeeded'})
     }catch(caught){
       const message=caught instanceof Error?caught.message:'purge_failed'
-      await admin.from('attendance_selfie_purge_jobs').update({status:'failed',available_at:new Date(Date.now()+Math.min(3600000,30000*2**job.attempts)).toISOString(),lease_expires_at:null,last_error:message.slice(0,500),updated_at:new Date().toISOString()}).eq('id',job.id)
-      await admin.from('attendance_selfie_retention_events').upsert({company_id:job.company_id,session_id:job.session_id,selfie_path:job.selfie_path,action:'failed',reason:message.slice(0,500)},{onConflict:'session_id,selfie_path,action'})
-      results.push({id:job.id,status:'failed'})
+      const terminal=job.attempts>=5
+      const delay=Math.min(3_600_000,30_000*2**Math.max(0,job.attempts-1))
+      await admin.from('attendance_selfie_purge_jobs').update({status:'failed',available_at:new Date(Date.now()+delay).toISOString(),lease_expires_at:null,last_error:`${terminal?'terminal: ':''}${message}`.slice(0,500),updated_at:new Date().toISOString()}).eq('id',job.id)
+      await admin.from('attendance_selfie_retention_events').upsert({company_id:job.company_id,session_id:job.session_id,selfie_path:job.selfie_path,action:'failed',reason:`${terminal?'terminal after 5 attempts: ':'retry scheduled: '}${message}`.slice(0,500)},{onConflict:'session_id,selfie_path,action'})
+      results.push({id:job.id,status:terminal?'terminal_failed':'retry_scheduled',availableInMs:terminal?null:delay})
     }
   }
   return Response.json({processed:results.length,results},{headers:{'Cache-Control':'no-store'}})

@@ -573,7 +573,7 @@ create or replace function public.claim_attendance_selfie_purge_jobs(batch_size 
 returns setof public.attendance_selfie_purge_jobs language plpgsql security definer set search_path=public as $$ begin
  if current_user not in ('postgres','service_role') then raise exception 'service_role_required'; end if;
  return query with picked as (select j.id from public.attendance_selfie_purge_jobs j join public.attendance_sessions s on s.id=j.session_id
-  where (j.status='queued' or (j.status='claimed' and j.lease_expires_at<now())) and j.available_at<=now()
+  where (j.status='queued' or (j.status='claimed' and j.lease_expires_at<now()) or (j.status='failed' and j.attempts<5)) and j.available_at<=now()
    and (s.selfie_legal_hold_until is null or s.selfie_legal_hold_until<now()) order by j.created_at for update of j skip locked limit greatest(1,least(batch_size,100)))
  update public.attendance_selfie_purge_jobs j set status='claimed',claimed_at=now(),lease_expires_at=now()+interval '5 minutes',attempts=attempts+1,updated_at=now()
  from picked where j.id=picked.id returning j.*; end $$;
@@ -599,3 +599,47 @@ create or replace view public.attendance_mobile_monitor_v1 with (security_invoke
 select company_id,metric,count(*) event_count,sum(value) metric_total,
  percentile_cont(.95) within group(order by value) filter(where metric='approval_turnaround_ms') approval_turnaround_p95_ms,
  max(created_at) last_seen_at from public.attendance_mobile_metrics where company_id=public.current_company_id() group by company_id,metric;
+
+create extension if not exists pg_net;
+create or replace function public.bootstrap_attendance_selfie_retention_secret(secret_value text)
+returns void language plpgsql security definer set search_path=public,vault as $$
+declare existing_id uuid; begin
+ if secret_value is null or length(secret_value)<32 then raise exception 'attendance selfie retention secret is missing or invalid'; end if;
+ select id into existing_id from vault.secrets where name='attendance_selfie_retention_secret' order by created_at desc limit 1;
+ if existing_id is null then perform vault.create_secret(secret_value,'attendance_selfie_retention_secret','Attendance selfie retention Edge credential');
+ else perform vault.update_secret(existing_id,secret_value,'attendance_selfie_retention_secret','Attendance selfie retention Edge credential'); end if;
+end $$;
+revoke all on function public.bootstrap_attendance_selfie_retention_secret(text) from public,anon,authenticated;
+grant execute on function public.bootstrap_attendance_selfie_retention_secret(text) to service_role;
+
+create or replace function public.invoke_attendance_selfie_retention()
+returns bigint language plpgsql security definer set search_path=public,vault,extensions as $$
+declare worker_secret text; request_id bigint; begin
+ select decrypted_secret into worker_secret from vault.decrypted_secrets where name='attendance_selfie_retention_secret' order by updated_at desc limit 1;
+ -- Missing configuration is fail-safe: no HTTP request, no deletion, queued jobs remain retryable.
+ if worker_secret is null or length(worker_secret)<32 then return null; end if;
+ select net.http_post(url:='https://xkieyqixlufjqructjkr.supabase.co/functions/v1/attendance-selfie-retention',
+  headers:=jsonb_build_object('Content-Type','application/json','x-maintenance-secret',worker_secret),
+  body:='{"source":"pg_cron"}'::jsonb,timeout_milliseconds:=55000) into request_id;
+ return request_id;
+end $$;
+revoke all on function public.invoke_attendance_selfie_retention() from public,anon,authenticated;
+grant execute on function public.invoke_attendance_selfie_retention() to postgres,service_role;
+
+do $$ begin
+ if exists(select 1 from cron.job where jobname='wisdomai-attendance-v2-maintenance') then perform cron.unschedule('wisdomai-attendance-v2-maintenance'); end if;
+ perform cron.schedule('wisdomai-attendance-v2-maintenance','17 * * * *',
+  $job$select public.escalate_overdue_attendance_exceptions(); select public.enqueue_expired_attendance_selfies(100); select public.invoke_attendance_selfie_retention();$job$);
+end $$;
+
+create or replace function public.audit_attendance_notification_failure()
+returns trigger language plpgsql security definer set search_path=public as $$
+declare owner_profile uuid; begin
+ if new.status='failed' and old.status is distinct from new.status then
+  select profile_id into owner_profile from public.attendance_sessions where id=new.session_id and company_id=new.company_id;
+  insert into public.attendance_mobile_metrics(company_id,profile_id,metric,details)
+  values(new.company_id,owner_profile,'notification_failed',jsonb_build_object('notification_id',new.id,'event_type',new.event_type,'channel',new.channel,'reason',new.reason));
+ end if; return new; end $$;
+drop trigger if exists audit_attendance_notification_failure_trigger on public.attendance_notifications;
+create trigger audit_attendance_notification_failure_trigger after update of status on public.attendance_notifications
+for each row execute function public.audit_attendance_notification_failure();
