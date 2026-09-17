@@ -64,6 +64,29 @@ type Body = {
   lease_minutes?: number
 }
 
+async function enrichOptimization(item: Record<string, unknown>) {
+  const { data: stored } = await admin.from('system_work_items')
+    .select('source_of_truth_summary,task_packet_version,cache_key,prompt_version,output_schema_version,context_manifest,requirement_version')
+    .eq('work_key', item.work_key).maybeSingle()
+  const enriched = { ...item, ...(stored ?? {}) }
+  const cacheKey = String(stored?.cache_key || '').trim()
+  if (!cacheKey) return { item: enriched, cached_result: null }
+  const manifest = (stored?.context_manifest ?? {}) as Record<string, unknown>
+  const { data: cached } = await admin.from('system_work_result_cache')
+    .select('cache_key,requirement_version,source_sha,prompt_version,output_schema_version,dependency_hash,result,evidence_refs,valid_until')
+    .eq('cache_key', cacheKey).maybeSingle()
+  const valid = manifest.cache_safe === true && cached
+    && cached.requirement_version === stored?.requirement_version
+    && cached.source_sha === String(manifest.source_sha || '')
+    && cached.dependency_hash === String(manifest.dependency_hash || '')
+    && cached.prompt_version === stored?.prompt_version
+    && cached.output_schema_version === stored?.output_schema_version
+    && (!cached.valid_until || new Date(cached.valid_until).getTime() > Date.now())
+  if (!valid) return { item: enriched, cached_result: null }
+  await admin.rpc('touch_system_work_cache_v1', { target_cache_key: cacheKey })
+  return { item: { ...enriched, cache_hit: true }, cached_result: cached.result }
+}
+
 Deno.serve(async request => {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405)
   if (!expectedSecret) return json({ error: 'worker_not_configured' }, 503)
@@ -138,7 +161,8 @@ Deno.serve(async request => {
       admin.from('system_worker_runs').update(runRoute).eq('id', item.run_id),
     ])
     const routing_warning = itemRouteWrite.error?.message || runRouteWrite.error?.message || null
-    return json({ item: { ...item, ...route, prompt_version: 'work-control-v2', output_schema_version: '2' }, routing_warning })
+    const optimized = await enrichOptimization({ ...item, ...route, prompt_version: 'work-control-v2', output_schema_version: '2' })
+    return json({ ...optimized, routing_warning })
   }
 
   if (body.action === 'claim_qa') {
@@ -159,7 +183,8 @@ Deno.serve(async request => {
         prompt_version: 'work-control-qa-v1', output_schema_version: '2',
       }).eq('id', item.run_id),
     ])
-    return json({ item: { ...item, ...qaRoute }, routing_warning: itemRouteWrite.error?.message || runRouteWrite.error?.message || null })
+    const optimized = await enrichOptimization({ ...item, ...qaRoute })
+    return json({ ...optimized, routing_warning: itemRouteWrite.error?.message || runRouteWrite.error?.message || null })
   }
 
   if (body.action === 'retry_runner_failure') {
@@ -228,8 +253,9 @@ Deno.serve(async request => {
       admin.from('system_work_items').update(route).eq('work_key', item.work_key),
       admin.from('system_worker_runs').update(runRoute).eq('id', item.run_id),
     ])
+    const optimized = await enrichOptimization({ ...item, ...route, prompt_version: 'work-control-v2', output_schema_version: '2' })
     return json({
-      item: { ...item, ...route, prompt_version: 'work-control-v2', output_schema_version: '2' },
+      ...optimized,
       routing_warning: itemRouteWrite.error?.message || runRouteWrite.error?.message || null,
     })
   }
@@ -272,9 +298,31 @@ Deno.serve(async request => {
       target_estimated_cost: Math.max(0,Number(body.estimated_cost_usd)||0),target_actual_cost: Math.max(0,Number(body.actual_cost_usd)||0),
       target_cache_hit: body.cache_hit === true,
     })
+    const reportHash = String(body.new_information_hash || body.error_fingerprint || '').trim().slice(0, 200)
+    const { data: reportChanged, error: reportError } = reportHash
+      ? await admin.rpc('record_system_work_report_delta_v1', { target_run: body.run_id, target_worker: workerId, target_report_hash: reportHash })
+      : { data: null, error: null }
+    if (data === true && body.cache_hit !== true && ['done','review'].includes(String(body.status)) && !body.error_fingerprint) {
+      const { data: run } = await admin.from('system_worker_runs').select('work_key').eq('id', body.run_id).eq('worker_id', workerId).maybeSingle()
+      if (run?.work_key) {
+        const { data: item } = await admin.from('system_work_items')
+          .select('cache_key,requirement_version,prompt_version,output_schema_version,context_manifest').eq('work_key', run.work_key).maybeSingle()
+        const manifest = (item?.context_manifest ?? {}) as Record<string, unknown>
+        if (item?.cache_key && manifest.cache_safe === true && manifest.source_sha && manifest.dependency_hash) {
+          await admin.from('system_work_result_cache').upsert({
+            cache_key: item.cache_key, work_key: run.work_key, requirement_version: item.requirement_version,
+            source_sha: String(manifest.source_sha), prompt_version: item.prompt_version,
+            output_schema_version: item.output_schema_version, dependency_hash: String(manifest.dependency_hash),
+            result: { ...body, cache_hit: true, token_input: 0, token_output: 0, estimated_cost_usd: 0, actual_cost_usd: 0 },
+            evidence_refs: body.checkpoint?.evidence_refs ?? [],
+          }, { onConflict: 'cache_key' })
+        }
+      }
+    }
     // The work item is already terminal at this point. A telemetry failure must
     // not make the runner retry the completed operation and duplicate effects.
-    return json({ updated: data === true, cost_recorded: !costError, cost_warning: costError?.message ?? null })
+    return json({ updated: data === true, cost_recorded: !costError, cost_warning: costError?.message ?? null,
+      report_changed: reportChanged, report_warning: reportError?.message ?? null })
   }
   return json({ error: 'invalid_action' }, 400)
 })

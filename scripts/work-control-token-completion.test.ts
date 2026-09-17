@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+
+const migration = readFileSync('supabase/migrations/202609170006_work_control_token_completion.sql', 'utf8')
+const worker = readFileSync('supabase/functions/automation-worker/index.ts', 'utf8')
+const runner = readFileSync('scripts/local-automation-runner.ps1', 'utf8')
+const page = readFileSync('src/pages/WorkCommandCenter/index.tsx', 'utf8')
+const flow = readFileSync('docs/WORK_CONTROL_CORE_FLOW.md', 'utf8')
+
+for (const field of ['source_of_truth_summary','task_packet_version','last_report_hash','last_reported_at']) assert.match(migration, new RegExp(field))
+assert.match(migration, /touch_system_work_cache_v1/)
+assert.match(migration, /record_system_work_report_delta_v1/)
+assert.doesNotMatch(migration, /drop table|truncate table|delete from/i)
+assert.match(worker, /enrichOptimization/)
+assert.match(worker, /source_sha/)
+assert.match(worker, /dependency_hash/)
+assert.match(worker, /manifest\.cache_safe === true/)
+assert.match(worker, /system_work_result_cache.*upsert/s)
+assert.match(runner, /Source-of-truth summary/)
+assert.match(runner, /\$claim\.cached_result/)
+assert.match(runner, /Report only material changes/)
+assert.match(page, /สรุปกลาง/)
+assert.match(page, /Delta ล่าสุด/)
+assert.match(flow, /v3\.0/)
+console.log('Work Control token completion contracts passed')

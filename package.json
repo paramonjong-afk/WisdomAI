@@ -48,6 +48,7 @@
     "test:work-command-worker-progress": "node --experimental-strip-types scripts/work-command-worker-progress.test.ts",
     "test:work-continuous-dispatch": "node --experimental-strip-types scripts/work-continuous-dispatch.test.ts",
     "test:work-control-core": "node --experimental-strip-types scripts/work-control-core.test.ts",
+    "test:work-control-token-completion": "node --experimental-strip-types scripts/work-control-token-completion.test.ts",
     "test:controller00-completion": "node --experimental-strip-types scripts/controller00-completion.test.ts",
     "test:posting-flow-phase1-approval": "node --experimental-strip-types scripts/posting-flow-phase1-approval.test.ts",
     "test:posting-phase2-5-batch-approval": "node --experimental-strip-types scripts/posting-phase2-5-batch-approval.test.ts",

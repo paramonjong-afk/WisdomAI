@@ -30,6 +30,10 @@ flowchart LR
   P -->|pass| Q[DONE]
   P -->|missing or conflicting evidence| PB[BLOCKED with fingerprint + recovery action]
   Q --> Z[Cost/usage event + dashboard]
+  D --> CA{Exact cache identity?}
+  CA -->|hit| CR[Reuse result at zero model tokens]
+  CA -->|miss| E
+  CR --> Z
 ```
 
 # Work Control Core Flow
@@ -65,6 +69,8 @@ Checkpoint and Problem tables are tenant-readable only through the visible paren
 
 Cache reuse is permitted only for an exact key composed from requirement/source/prompt/schema/dependency identity; stale or ambiguous entries are not eligible. Resource locks are lease-bound and additive; the V2 rollout does not weaken the existing atomic claim. Cost and routing configuration are visible through existing tenant-scoped Work Command Center access, while browser clients cannot mutate the control tables.
 
+Controller owns a compact `source_of_truth_summary`; chat history is not a Worker input. The task packet contains that summary, requirement version, checkpoint, context manifest, changed-file delta and a bounded evidence tail. A report hash distinguishes a material delta from an unchanged heartbeat. Exact cache reuse is opt-in (`context_manifest.cache_safe=true`) and validates requirement version, source SHA, dependency hash, prompt version, schema version and expiry before returning a result; mutation/deploy/data work must not be marked cache-safe, and a miss always runs the normal Worker path.
+
 ## Change record
 
 | Version | Date | Rationale | Impact | Migration | Verification | Rollback |
@@ -76,3 +82,4 @@ Cache reuse is permitted only for an exact key composed from requirement/source/
 | v2.3 | 2026-09-16 | Make zero-active reporting reflect claim eligibility instead of all intents | Distinguishes approved dispatch work from approval/unblock management work and reconciles the two superseded SYS-004 repair children | `202609160005_reconcile_sys004_resolved_children.sql` | runner no-op smoke, queue/UI contracts, replay/dry-run, typecheck, lint, build and authenticated page smoke | revert UI; recover the two child rows from append-only events without changing SYS-004 monitor state |
 | v2.4 | 2026-09-16 | Give every remaining blocked item a management lane and sequence critical Ready work | Adds read-only planning metadata for 30 blocked and nine Ready items; does not approve, claim, retry or close them | `202609160006_classify_control_queue_and_ready_plan.sql` | guarded plan contract, replay/dry-run and authenticated counts/metadata | remove planning keys from `context_manifest` with a corrective migration; preserve task/event history |
 | v2.5 | 2026-09-17 | Complete Controller 00 execution → recovery → independent QA loop without self-approval or silent review cycling | Adds a service-only QA claim for approved executable review items at 95%+, a separate read-only QA runner and one orchestrator for execution/QA | 202609170004_controller00_qa_dispatch.sql | controller completion contract, PowerShell parse, migration replay/dry-run, typecheck, lint, build, Scheduler/claim/runtime smoke | disable the Controller scheduled task and revert Edge/runner source; retain QA run/event history and additive RPC for audit |
+| v3.0 | 2026-09-17 | Finish the promised token-saving path instead of leaving cache/summary/delta as passive fields | Adds Controller-owned summaries, compact packet visibility, exact-input cache lookup/store and material-delta reporting | `202609170006_work_control_token_completion.sql` | token completion contract, migration safety, typecheck, lint and build; authenticated runtime smoke remains a release gate | Revert runner/Edge/UI; keep additive summary/report/cache audit fields and disable cache keys |
