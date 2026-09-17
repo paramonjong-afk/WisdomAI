@@ -45,6 +45,25 @@ Total output lines: 1857
 
 # Flow Registry Update Protocol
 
+## 2026-09-17 — Work Control token completion v3.0
+
+```mermaid
+flowchart LR
+  A[Controller summary] --> B[Compact task packet]
+  B --> C{Exact cache identity valid?}
+  C -->|hit| D[Reuse result; zero model tokens]
+  C -->|miss| E[Risk-based model route]
+  E --> F[Worker checkpoint]
+  F --> G{Material report hash changed?}
+  G -->|yes| H[Visible delta + telemetry]
+  G -->|no| I[Retain run audit; suppress repeated narrative]
+```
+
+- **Reason:** complete the token-efficiency design that previously stored routing/cache fields but did not execute cache reuse or enforce a canonical compact summary/delta contract.
+- **Impact:** Work Control Core, Automation Worker, local runner and Work Command Center. The existing task ledger remains the sole source of truth; no chat deletion and no second queue.
+- **Security/failure:** cache hits require exact requirement/source/dependency/prompt/schema identity and optional expiry. Missing identity fails open to normal execution. Only service-role paths update cache/report telemetry.
+- **Migration/verification/rollback:** additive migration `202609170006_work_control_token_completion.sql`; verify contract, migration safety, typecheck, lint, build and authenticated Work Command Center/runner smoke. Roll back runtime/UI code and disable cache keys; retain audit data.
+
 ## 2026-09-17 — Posting Stock gateway command v4.0
 
 ```mermaid

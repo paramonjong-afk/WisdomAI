@@ -55,6 +55,14 @@ try {
     $item = $claim.item
     if ($null -eq $item) { exit 0 }
 
+    if ($null -ne $claim.cached_result) {
+      $cached = $claim.cached_result
+      Finish-Run $item $secret $cached.status ([int]$cached.progress) $cached.evidence $cached.production_status $cached.error_fingerprint `
+        $cached.outcome "Exact-input cache reuse: $($cached.outcome_reason)" $cached.current_step $cached.control_state $cached.checkpoint `
+        $cached.problem_category $cached.new_information_hash 0 0 0 0 $true
+      exit 0
+    }
+
     $unsafeText = "$($item.title) $($item.detail) $($item.category) $($item.risk)"
     $requiresApproval = $item.category -eq 'tenant' -or $item.risk -eq 'critical' -or
       $unsafeText -match '(?i)migration|secret|credential|permission|security|RLS|delete|drop|production schema'
@@ -89,14 +97,15 @@ Category: $($item.category); risk: $($item.risk); recorded progress: $($item.pro
 Model route: $($item.model_tier); QA tier: $($item.qa_tier); escalation level: $($item.escalation_level)
 Token budget: input=$($item.token_budget_input), output=$($item.token_budget_output), soft limit=$($item.token_soft_limit_percent)%
 Prompt/schema version: $($item.prompt_version)/$($item.output_schema_version)
-Scope: $($item.detail)
+  Source-of-truth summary: $($item.source_of_truth_summary)
+  Scope (fallback only when summary is empty): $($item.detail)
 Checkpoint: $($item.checkpoint | ConvertTo-Json -Depth 8 -Compress)
 Context manifest: $($item.context_manifest | ConvertTo-Json -Depth 8 -Compress)
 Current changed files (diff-first, maximum 40): $($changedFiles -join ', ')
-Prior evidence tail (maximum 2000 chars): $priorEvidence
+  Delta evidence tail (maximum 2000 chars): $priorEvidence
 
 $modeInstruction
-Use only this task packet first. Open additional files only when the context manifest or direct evidence makes them necessary; do not load full chat history. Resume from the checkpoint instead of restarting completed work. Work only inside $Workspace. Preserve unrelated changes. Do not run database migrations, rotate or expose secrets, change permissions/security, delete data, or make irreversible changes. If permission is required, return waiting_permission with a checkpoint. If the context/token limit prevents safe completion, return token_limit with a checkpoint. For safe source changes, use focused edits and relevant verification. Return the final result using the required JSON schema, including checkpoint, control_state, problem_category, new_information_hash and token counts (use 0 when unavailable). Same task + same error + same requirement version + no new information must not be retried.
+Use only this task packet first. Treat the Controller-owned source-of-truth summary as authoritative. Open additional files only when the context manifest or direct evidence makes them necessary; do not load full chat history. Report only material changes since the checkpoint; unchanged status must keep the same new_information_hash. Resume from the checkpoint instead of restarting completed work. Work only inside $Workspace. Preserve unrelated changes. Do not run database migrations, rotate or expose secrets, change permissions/security, delete data, or make irreversible changes. If permission is required, return waiting_permission with a checkpoint. If the context/token limit prevents safe completion, return token_limit with a checkpoint. For safe source changes, use focused edits and relevant verification. Return the final result using the required JSON schema, including checkpoint, control_state, problem_category, new_information_hash and token counts (use 0 when unavailable). Same task + same error + same requirement version + no new information must not be retried.
 "@
     [IO.File]::WriteAllText($promptFile, $prompt, [Text.UTF8Encoding]::new($false))
 

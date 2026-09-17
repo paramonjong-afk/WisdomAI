@@ -82,6 +82,10 @@ type Item = {
   qa_tier?: "automated" | "standard" | "independent" | "human";
   escalation_level?: number;
   cache_hit?: boolean;
+  source_of_truth_summary?: string | null;
+  task_packet_version?: string;
+  last_report_hash?: string | null;
+  last_reported_at?: string | null;
   prompt_version?: string;
   output_schema_version?: string;
   work_kind?: "executable" | "monitoring_sentinel";
@@ -238,7 +242,7 @@ export function WorkCommandCenterPage() {
       supabase
         .from("system_work_items")
         .select(
-          "work_key,title,category,status,progress,risk,production_status,owner,current_step,worker_id,heartbeat_at,lease_expires_at,approval_status,approval_fingerprint,attempt_count,worker_outcome,worker_outcome_reason,worker_outcome_at,requirement_version,controller_owner,execution_owner,qa_owner,control_state,checkpoint,context_manifest,new_information_hash,model_tier,model_name,token_budget_input,token_budget_output,token_soft_limit_percent,token_input_total,token_output_total,estimated_cost_usd,actual_cost_usd,qa_tier,escalation_level,cache_hit,prompt_version,output_schema_version,work_kind,monitor_state,monitor_checked_at,monitor_open_incident_count,monitor_evidence,monitor_fingerprint,created_at,updated_at",
+          "work_key,title,category,status,progress,risk,production_status,owner,current_step,worker_id,heartbeat_at,lease_expires_at,approval_status,approval_fingerprint,attempt_count,worker_outcome,worker_outcome_reason,worker_outcome_at,requirement_version,controller_owner,execution_owner,qa_owner,control_state,checkpoint,context_manifest,new_information_hash,model_tier,model_name,token_budget_input,token_budget_output,token_soft_limit_percent,token_input_total,token_output_total,estimated_cost_usd,actual_cost_usd,qa_tier,escalation_level,cache_hit,prompt_version,output_schema_version,source_of_truth_summary,task_packet_version,last_report_hash,last_reported_at,work_kind,monitor_state,monitor_checked_at,monitor_open_incident_count,monitor_evidence,monitor_fingerprint,created_at,updated_at",
         )
         .order("updated_at", { ascending: false }),
       supabase
@@ -258,7 +262,7 @@ export function WorkCommandCenterPage() {
       const fallbackResult = await supabase
         .from("system_work_items")
         .select(
-          "work_key,title,category,status,progress,risk,production_status,owner,current_step,worker_id,heartbeat_at,lease_expires_at,approval_status,approval_fingerprint,attempt_count,worker_outcome,worker_outcome_reason,worker_outcome_at,requirement_version,controller_owner,execution_owner,qa_owner,control_state,checkpoint,context_manifest,new_information_hash,model_tier,model_name,token_budget_input,token_budget_output,token_soft_limit_percent,token_input_total,token_output_total,estimated_cost_usd,actual_cost_usd,qa_tier,escalation_level,cache_hit,prompt_version,output_schema_version,created_at,updated_at",
+          "work_key,title,category,status,progress,risk,production_status,owner,current_step,worker_id,heartbeat_at,lease_expires_at,approval_status,approval_fingerprint,attempt_count,worker_outcome,worker_outcome_reason,worker_outcome_at,requirement_version,controller_owner,execution_owner,qa_owner,control_state,checkpoint,context_manifest,new_information_hash,model_tier,model_name,token_budget_input,token_budget_output,token_soft_limit_percent,token_input_total,token_output_total,estimated_cost_usd,actual_cost_usd,qa_tier,escalation_level,cache_hit,prompt_version,output_schema_version,source_of_truth_summary,task_packet_version,last_report_hash,last_reported_at,created_at,updated_at",
         )
         .order("updated_at", { ascending: false });
       data = fallbackResult.data as Item[] | null;
@@ -992,7 +996,13 @@ export function WorkCommandCenterPage() {
                   : "ยังไม่มี Token telemetry จาก Worker — ไม่ตีความเป็นศูนย์"}
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                Prompt {selected.prompt_version ?? "work-control-v2"} · Schema {selected.output_schema_version ?? "2"}
+                Prompt {selected.prompt_version ?? "work-control-v2"} · Schema {selected.output_schema_version ?? "2"} · Packet {selected.task_packet_version ?? "compact-v1"}
+              </Typography>
+              <Typography variant="body2" sx={{ mt: 1 }}>
+                สรุปกลาง: {selected.source_of_truth_summary || "ยังไม่มี — Worker จะใช้รายละเอียดงานแบบย่อเป็น fallback"}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                Delta ล่าสุด {selected.last_report_hash ? `${selected.last_report_hash.slice(0, 12)}… · ${formatDate(selected.last_reported_at ?? null)}` : "ยังไม่มีรายงานที่เปลี่ยนแปลง"}
               </Typography>
             </Paper>}
             {!isMonitoringSentinel(selected) && (() => {
