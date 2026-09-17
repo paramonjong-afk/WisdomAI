@@ -49,6 +49,26 @@ function safeMessage(message?: string) {
   return message?.replace(/(token|password|secret|authorization)[^,\s]*/gi, '[redacted]').slice(0, 500) || null
 }
 
+const userSideReasons = new Set([
+  'not_ready', 'file_too_large', 'unsupported_type', 'camera_unavailable', 'picker_failed',
+  'permission_denied', 'location_denied', 'cancelled', 'session_expired', 'membership_missing',
+])
+
+function responsibilityMetadata(event: {
+  eventType: ActivityEventType
+  metadata?: Record<string, string | number | boolean | null>
+}) {
+  const metadata = event.metadata ?? {}
+  if (metadata.responsibility_scope) return metadata
+  if (event.eventType === 'performance_metric') return { ...metadata, responsibility_scope: 'system', event_category: 'performance' }
+  const reason = String(metadata.reason ?? metadata.error_code ?? '').toLowerCase()
+  if (userSideReasons.has(reason)) return { ...metadata, responsibility_scope: 'user', event_category: 'user_action' }
+  if (event.eventType === 'client_error' || event.eventType === 'request_error') {
+    return { ...metadata, responsibility_scope: 'system', event_category: 'application_error' }
+  }
+  return metadata
+}
+
 export async function registerClientError(event: {
   fingerprint: string
   correlationKey: string
@@ -90,7 +110,7 @@ export async function logAppEvent(
     message: safeMessage(event.message),
     device_id: getDeviceId(),
     device_label: getDeviceLabel(),
-    metadata: event.metadata ?? {},
+    metadata: responsibilityMetadata(event),
   })
   if (error) console.warn('Unable to save application activity.', error.message)
 }
