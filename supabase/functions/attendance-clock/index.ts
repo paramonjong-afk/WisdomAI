@@ -305,6 +305,11 @@ Deno.serve(async (request) => {
 
       const meters = hasCoordinates ? distanceMeters(Number(body.latitude),Number(body.longitude),site.latitude,site.longitude) : null
       finalDistance=meters
+      const { data: mobilePolicy, error: mobilePolicyError } = await userClient.rpc('resolve_attendance_mobile_policy', {
+        target_company_id: companyId, target_profile_id: userId, target_site_id: site.id,
+      })
+      if (mobilePolicyError) throw mobilePolicyError
+      if ((mobilePolicy as { attendance_required?: boolean } | null)?.attendance_required === false) throw new Error('บัญชีนี้ไม่ต้องลงเวลาตามนโยบายที่มีผล')
       if (gpsUnavailable) throw new Error('ไม่พบตำแหน่ง GPS กรุณาเปิดสิทธิ์ตำแหน่งและตรวจใหม่')
       if (inaccurateGps) throw new Error(`ตำแหน่งไม่แม่นยำ (±${Math.round(Number(body.accuracy) || 0)} เมตร) กรุณาตรวจ GPS อีกครั้ง`)
       const evidenceAt = body.evidenceCapturedAt ? new Date(body.evidenceCapturedAt) : null
@@ -314,11 +319,6 @@ Deno.serve(async (request) => {
       }
       const outsideSite = meters!==null&&meters > site.radius_meters
       if (outsideSite) throw new Error('อยู่นอกพื้นที่ไซต์ กรุณาส่งคำขออนุมัติลงเวลานอกพื้นที่ก่อน')
-      const { data: mobilePolicy, error: mobilePolicyError } = await userClient.rpc('resolve_attendance_mobile_policy', {
-        target_company_id: companyId, target_profile_id: userId, target_site_id: site.id,
-      })
-      if (mobilePolicyError) throw mobilePolicyError
-      if ((mobilePolicy as { attendance_required?: boolean } | null)?.attendance_required === false) throw new Error('บัญชีนี้ไม่ต้องลงเวลาตามนโยบายที่มีผล')
       const selfiePath = await validateSelfie((mobilePolicy as { require_selfie?: boolean } | null)?.require_selfie !== false)
       status = 'normal'
       const reviewReason = [
@@ -386,6 +386,11 @@ Deno.serve(async (request) => {
         || (crossesBusinessDate && !allowOvernightShifts)
       const meters = hasCoordinates ? distanceMeters(Number(body.latitude),Number(body.longitude),site.latitude,site.longitude) : null
       finalDistance=meters
+      const { data: mobilePolicy, error: mobilePolicyError } = await userClient.rpc('resolve_attendance_mobile_policy', {
+        target_company_id: companyId, target_profile_id: userId, target_site_id: site.id,
+      })
+      if (mobilePolicyError) throw mobilePolicyError
+      if ((mobilePolicy as { attendance_required?: boolean } | null)?.attendance_required === false) throw new Error('บัญชีนี้ไม่ต้องลงเวลาตามนโยบายที่มีผล')
       if (gpsUnavailable) throw new Error('ไม่พบตำแหน่ง GPS กรุณาเปิดสิทธิ์ตำแหน่งและตรวจใหม่')
       if (inaccurateGps) throw new Error(`ตำแหน่งไม่แม่นยำ (±${Math.round(Number(body.accuracy) || 0)} เมตร) กรุณาตรวจ GPS อีกครั้ง`)
       const evidenceAt = body.evidenceCapturedAt ? new Date(body.evidenceCapturedAt) : null
@@ -395,11 +400,6 @@ Deno.serve(async (request) => {
       }
       const outsideSite = meters!==null&&meters > site.radius_meters
       if (outsideSite) throw new Error('อยู่นอกพื้นที่ไซต์ กรุณาส่งคำขออนุมัติลงเวลานอกพื้นที่ก่อน')
-      const { data: mobilePolicy, error: mobilePolicyError } = await userClient.rpc('resolve_attendance_mobile_policy', {
-        target_company_id: companyId, target_profile_id: userId, target_site_id: site.id,
-      })
-      if (mobilePolicyError) throw mobilePolicyError
-      if ((mobilePolicy as { attendance_required?: boolean } | null)?.attendance_required === false) throw new Error('บัญชีนี้ไม่ต้องลงเวลาตามนโยบายที่มีผล')
       const selfiePath = await validateSelfie((mobilePolicy as { require_selfie?: boolean } | null)?.require_selfie !== false)
       status = open.status === 'needs_review' || invalidDuration ? 'needs_review' : 'normal'
       const reviewReason = [

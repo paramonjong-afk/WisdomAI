@@ -1831,47 +1831,14 @@ async function handleAttendancePostback(event: LineEvent) {
     await replyLine(event.replyToken, [{ type: 'text', text: command === 'reject' ? 'บันทึกไม่อนุมัติแล้ว' : 'บันทึกขอข้อมูลเพิ่มเติมแล้ว กรุณาให้พนักงานส่งคำขอใหม่พร้อมแจ้งรายละเอียด' }]); return true
   }
   if (command !== 'approve') return true
-  let sessionId: string | null = null
-  if (request.action === 'clock_in') {
-    const { data: existing } = await supabase.from('attendance_sessions').select('id,clock_in_at')
-      .eq('company_id',request.company_id).eq('profile_id', request.profile_id).is('clock_out_at', null)
-      .not('status','in','(rejected,duplicate)').order('clock_in_at',{ascending:false}).limit(1).maybeSingle()
-    if (existing && bangkokBusinessDate(existing.clock_in_at) === bangkokBusinessDate(request.requested_at)) sessionId = existing.id
-    else {
-      if(existing){
-        const {error:staleError}=await supabase.from('attendance_sessions').update({
-          status:'needs_review',calculation_status:'needs_review',worked_minutes:null,normal_minutes:null,overtime_minutes:0,
-          review_category:'missing_clock_out',review_requested_at:new Date().toISOString(),
-          review_reason:'รายการลงเวลาเข้าผ่าน LINE ค้างข้ามวันและไม่มีเวลาออก',updated_at:new Date().toISOString(),
-        }).eq('company_id',request.company_id).eq('id',existing.id).is('clock_out_at',null)
-        if(staleError)throw staleError
-      }
-      const { data: created, error } = await supabase.from('attendance_sessions').insert({
-        company_id: request.company_id, profile_id: request.profile_id, site_id: request.site_id,
-        clock_in_at: request.requested_at, clock_in_latitude: site.latitude, clock_in_longitude: site.longitude,
-        status: 'approved', review_category: 'multiple', review_channel: 'line_group',
-        review_reason: 'พนักงานแจ้งผ่าน LINE และผู้มีสิทธิ์ในกลุ่มอนุมัติ (ไม่มี GPS/Selfie)',
-        reviewed_by: actorProfileId, reviewed_at: new Date().toISOString(), note: 'LINE fallback attendance',
-      }).select('id').single()
-      if (error) throw error
-      sessionId = created.id
-    }
-  } else {
-    const { data: open } = await supabase.from('attendance_sessions').select('id,clock_in_at').eq('company_id',request.company_id).eq('profile_id', request.profile_id)
-      .is('clock_out_at', null).not('status', 'in', '(rejected,duplicate)').order('clock_in_at', { ascending: false }).limit(1).maybeSingle()
-    if (!open) { await replyLine(event.replyToken, [{ type: 'text', text: 'ไม่พบเวลาเข้าที่ยังเปิดอยู่ จึงยังบันทึกเวลาออกไม่ได้' }]); return true }
-    const { error } = await supabase.from('attendance_sessions').update({ clock_out_at: request.requested_at,
-      clock_out_latitude: site.latitude, clock_out_longitude: site.longitude, status: 'approved',
-      review_channel: 'line_group', reviewed_by: actorProfileId, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-      .eq('company_id',request.company_id).eq('id', open.id).is('clock_out_at',null)
-    if (error) throw error
-    sessionId = open.id
-  }
-  await supabase.from('line_attendance_requests').update({ status: 'approved', attendance_session_id: sessionId,
-    decision_by: actorProfileId, decision_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', request.id)
+  // V2 never substitutes Site coordinates for employee GPS and never creates
+  // Attendance from a chat-only approval. The employee must provide fresh GPS
+  // through the canonical request before a manager can decide it.
+  await supabase.from('line_attendance_requests').update({ status: 'more_info_requested', attendance_session_id: null,
+    decision_by: actorProfileId, decision_at: new Date().toISOString(),decision_reason:'ต้องส่ง GPS จริงผ่าน Attendance Mobile Flow', updated_at: new Date().toISOString() }).eq('id', request.id)
   await supabase.from('line_attendance_events').insert({ company_id: request.company_id, request_id: request.id,
-    actor_line_user_id: lineUserId, actor_profile_id: actorProfileId, event_type: 'approved', details: { attendance_session_id: sessionId } })
-  await replyLine(event.replyToken, [{ type: 'text', text: `อนุมัติและบันทึก${request.action === 'clock_in' ? 'เวลาเข้า' : 'เวลาออก'}ให้ ${messageData.employeeName} เรียบร้อยแล้ว` }])
+    actor_line_user_id: lineUserId, actor_profile_id: actorProfileId, event_type: 'more_info_requested', details: { reason:'fresh_gps_required_v2' } })
+  await replyLine(event.replyToken, [{ type: 'text', text: `ยังไม่สร้าง Attendance ให้ ${messageData.employeeName} กรุณาเปิดหน้าลงเวลาบนมือถือและส่ง GPS จริง ระบบห้ามใช้พิกัด Site แทนพิกัดพนักงาน` }])
   return true
 }
 

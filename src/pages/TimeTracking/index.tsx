@@ -210,7 +210,8 @@ export function TimeTrackingPage() {
     setSites(availableSites)
     setSessions(mergedAttendance)
     setPayrollFinancialRows((payrollFinancialData ?? []) as PayrollFinancialSummary[])
-    setApprovedException(((exceptionRows ?? [])[0] as unknown as AttendanceException | undefined) ?? null)
+    const expectedExceptionAction=openRows.length>0?'clock_out':'clock_in'
+    setApprovedException(((exceptionRows ?? []).find((row)=>row.action===expectedExceptionAction) as unknown as AttendanceException | undefined) ?? null)
     if (settingRows) setSettings(settingRows as AttendanceSettings)
       if (isManager) {
         const [
@@ -472,11 +473,22 @@ export function TimeTrackingPage() {
     setSelfie(null)
     setLocationCheck(null)
     try {
-      const position = await getLocation()
-      const accuracy = position.coords.accuracy
-
       const targetSites = openSession?.project_sites ? [openSession.project_sites] : sites
       if (targetSites.length === 0) throw new Error('ไม่พบไซต์ที่ได้รับมอบหมาย')
+      const preselectedSite=openSession?.project_sites??targetSites.find((site)=>site.id===siteId)??(targetSites.length===1?targetSites[0]:null)
+      const {data:employmentPolicy,error:employmentPolicyError}=await supabase.from('employee_employment_records')
+        .select('attendance_policy,attendance_required_override').eq('company_id',currentCompany?.company_id??'').eq('profile_id',user?.id??'').maybeSingle()
+      if(employmentPolicyError)throw employmentPolicyError
+      if(employmentPolicy?.attendance_required_override===false||(employmentPolicy?.attendance_required_override==null&&employmentPolicy?.attendance_policy==='exempt')){
+        setMessage('บัญชีนี้ไม่ต้องลงเวลาตามนโยบายที่มีผล');return
+      }
+      if(preselectedSite){
+        const {data:prePolicy,error:prePolicyError}=await supabase.rpc('resolve_attendance_mobile_policy',{target_company_id:currentCompany?.company_id,target_profile_id:user?.id,target_site_id:preselectedSite.id})
+        if(prePolicyError)throw prePolicyError
+        if((prePolicy as MobilePolicy|null)?.attendance_required===false){setMessage('บัญชีนี้ไม่ต้องลงเวลาตามนโยบายที่มีผล');return}
+      }
+      const position = await getLocation()
+      const accuracy = position.coords.accuracy
 
       const nearest = targetSites
         .map((site) => ({

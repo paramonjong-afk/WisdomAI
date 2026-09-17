@@ -19,8 +19,8 @@ assert.match(clock,/elapsedMinutes > maxShiftMinutes/)
 assert.match(clock,/crossesBusinessDate && !allowOvernightShifts/)
 assert.match(clock,/\.eq\('company_id', companyId\)\.eq\('id', open\.id\)/)
 
-assert.match(line,/\.eq\('company_id',request\.company_id\)\.eq\('profile_id', request\.profile_id\)/)
-assert.match(line,/bangkokBusinessDate\(existing\.clock_in_at\) === bangkokBusinessDate\(request\.requested_at\)/)
-assert.match(line,/review_category:'missing_clock_out'/)
+assert.match(line,/fresh_gps_required_v2/)
+assert.match(line,/ระบบห้ามใช้พิกัด Site แทนพิกัดพนักงาน/)
+assert.doesNotMatch(line,/clock_in_latitude: site\.latitude/)
 
 console.log('attendance session validation regression passed')
