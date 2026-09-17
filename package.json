@@ -33,6 +33,7 @@
     "test:line-account-tenant": "node --experimental-strip-types scripts/line-account-tenant.test.ts",
     "test:workforce-readiness-health": "node --experimental-strip-types scripts/workforce-readiness-health.test.ts",
     "test:health-attendance-warning": "node --experimental-strip-types scripts/health-attendance-warning.test.ts",
+    "test:health-client-responsibility": "node --experimental-strip-types scripts/health-client-responsibility.test.ts",
     "test:communication-event-feed": "node --experimental-strip-types scripts/communication-event-feed.test.ts",
     "test:secure-health-monitor": "node --experimental-strip-types scripts/secure-health-monitor-cron.test.ts",
     "test:health-monitor-scheduler": "node --experimental-strip-types scripts/health-monitor-scheduler.test.ts",

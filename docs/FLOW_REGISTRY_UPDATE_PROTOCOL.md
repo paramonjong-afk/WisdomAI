@@ -1579,6 +1579,10 @@ The approval bundle now maps only catalog-backed Accounting/AP document types an
 
 Production prerequisite correction v3.7 adds the missing tenant-composite unique parent key on Posting operations before Accounting/AP foreign keys are installed. This does not change the flowchart, routing, state, permissions or data writes; it allows the already-documented tenant-integrity relationship to install on the Production-shaped schema. Migration run `35137064316` was transactional and rolled back. Recovery is to rerun the corrected migration; rollback retains the harmless unique index unless dependent FKs are first removed by a reviewed forward migration.
 
+## 2026-09-17 — System Health browser responsibility split v1.2
+
+`docs/SYSTEM_HEALTH_MONITOR_FLOW.md` now defines two browser-telemetry lanes. System-side failures feed central health, Incident and `SYS-004`; user-side actions/conditions retain detailed Admin-visible evidence but do not degrade central health or create system work. Performance remains a separate check and is excluded from both generic lanes. No schema migration is required; legacy events are classified conservatively at read time and unknown errors remain system-side. Verification and rollback follow the flow document and preserve all historical telemetry/audit rows.
+
 POSTING-005 Stock approval atomicity v4.3 (17/9/2569) replaces client-side per-line staging with one tenant-manager RPC. The server locks the Flow item, verifies the exact canonical Stock-line set and canonical PO links, derives current revisions under the document lock, stages every reviewed warehouse/quantity input, and invokes the approval bundle in the same transaction. A line or approval failure rolls back staging, operations, event and snapshot together; an identical approval event replays without restaging. Migration `202609170002_stock_gateway_persistence.sql`; rollback revokes the bundle RPC and hides the Stock preparation controls while retaining append-only execution/audit evidence.
 
 ## 2026-09-17 — Posting prerequisite recovery v4.3

@@ -11,6 +11,48 @@ const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: fa
 type Status = 'healthy' | 'warning' | 'critical'
 type CheckResult = { key: string; name: string; module: string; status: Status; message: string; latency: number; metadata?: Record<string, unknown> }
 
+type ClientActivityRow = {
+  id: string
+  profile_id: string | null
+  event_type: string
+  severity: string
+  page_path: string | null
+  message: string | null
+  device_label: string | null
+  metadata: Record<string, unknown> | null
+  created_at: string
+}
+
+const userSideReasons = new Set([
+  'not_ready', 'file_too_large', 'unsupported_type', 'camera_unavailable', 'picker_failed',
+  'permission_denied', 'location_denied', 'cancelled', 'session_expired', 'membership_missing',
+])
+
+const clientResponsibility = (row: ClientActivityRow) => {
+  const metadata = row.metadata ?? {}
+  // Performance has its own system-health route and must never be double-counted.
+  if (row.event_type === 'performance_metric') return 'performance'
+  const explicit = String(metadata.responsibility_scope ?? metadata.owner_scope ?? '').toLowerCase()
+  if (explicit === 'user') return 'user'
+  if (explicit === 'system') return 'system'
+  const reason = String(metadata.reason ?? metadata.error_code ?? '').toLowerCase()
+  if (userSideReasons.has(reason)) return 'user'
+  return 'system'
+}
+
+const clientEvidence = (row: ClientActivityRow) => ({
+  event_id: row.id,
+  event_type: row.event_type,
+  severity: row.severity,
+  page_path: row.page_path,
+  message: row.message,
+  device_label: row.device_label,
+  profile_id: row.profile_id,
+  reason: row.metadata?.reason ?? row.metadata?.error_code ?? null,
+  source: row.metadata?.source ?? null,
+  created_at: row.created_at,
+})
+
 const corsHeaders = {
   'access-control-allow-origin': '*',
   'access-control-allow-headers': 'authorization, x-user-authorization, x-monitor-secret, x-client-info, apikey, content-type',
@@ -546,6 +588,23 @@ Deno.serve(async (request) => {
   if (runError) return json({ error: runError.message }, 500)
 
   try {
+    let clientActivityRowsPromise: Promise<ClientActivityRow[]> | null = null
+    const loadClientActivityRows = () => {
+      if (!clientActivityRowsPromise) {
+        clientActivityRowsPromise = (async () => {
+          let query=admin.from('app_activity_logs')
+            .select('id,profile_id,event_type,severity,page_path,message,device_label,metadata,created_at')
+            .in('severity',['warning','error']).gte('created_at',since(15))
+            .order('created_at',{ascending:false}).limit(200)
+          if(actorCompanyId)query=query.eq('company_id',actorCompanyId)
+          const {data,error}=await query
+          if(error)throw error
+          return (data??[]) as ClientActivityRow[]
+        })()
+      }
+      return clientActivityRowsPromise
+    }
+
     const results = await Promise.all([
       check('web_app', 'หน้าเว็บหลัก', 'Web/Vercel', async () => {
         const response = await fetch(`${siteUrl}/login`, { headers: { 'cache-control': 'no-cache' } })
@@ -659,17 +718,38 @@ Deno.serve(async (request) => {
         const warning=!critical && ((apiP95??0)>1000 || (lcpP95??0)>2500 || (interactionP95??0)>300 || errorRate>0.01 || maxQuery>6000 || maxPage>100)
         return { status: critical ? 'critical' : warning ? 'warning' : 'healthy', message: `API p95 ${apiP95 ?? 'n/a'}ms · LCP p95 ${lcpP95 ?? 'n/a'}ms · interaction p95 ${interactionP95 ?? 'n/a'}ms · error ${(errorRate * 100).toFixed(1)}%`, metadata: { sample_window_minutes:15, api_samples:api.length, api_p95_ms:apiP95, lcp_p95_ms:lcpP95, interaction_p95_ms:interactionP95, error_rate:errorRate, max_url_length:maxQuery, max_page_size:maxPage, route_action:'app_activity_logs performance metadata' } }
       }),
-      check('client_errors', 'ข้อผิดพลาดจากอุปกรณ์ผู้ใช้', 'Client', async () => {
-        let query=admin.from('app_activity_logs').select('id', { count: 'exact', head: true }).in('severity',['warning','error']).gte('created_at',since(15))
-        if(actorCompanyId)query=query.eq('company_id',actorCompanyId)
-        const { count, error } = await query
-        if (error) throw error
-        let latestQuery=admin.from('app_activity_logs').select('id,created_at').in('severity',['warning','error']).gte('created_at',since(15)).order('created_at',{ascending:false}).limit(1)
-        if(actorCompanyId)latestQuery=latestQuery.eq('company_id',actorCompanyId)
-        const {data:latest,error:latestError}=await latestQuery.maybeSingle()
-        if(latestError)throw latestError
-        const status: Status = (count ?? 0) >= 10 ? 'critical' : count ? 'warning' : 'healthy'
-        return { status, message: count ? `พบ ${count} เหตุการณ์ใน 15 นาที` : 'ไม่พบ error ใหม่', metadata: { errors_15m: count, latest_error_id:latest?.id??null, latest_error_at:latest?.created_at??null } }
+      check('client_errors', 'ข้อผิดพลาดฝั่งระบบบน Browser', 'Client/System', async () => {
+        const rows=await loadClientActivityRows()
+        const systemRows=rows.filter(row=>clientResponsibility(row)==='system')
+        const status: Status = systemRows.length >= 10 ? 'critical' : systemRows.length ? 'warning' : 'healthy'
+        return {
+          status,
+          message: systemRows.length ? `พบข้อผิดพลาดที่ระบบต้องรับผิดชอบ ${systemRows.length} เหตุการณ์ใน 15 นาที` : 'ไม่พบข้อผิดพลาดฝั่งระบบบน Browser',
+          metadata: {
+            responsibility_scope:'system',
+            system_errors_15m:systemRows.length,
+            latest_error_id:systemRows[0]?.id??null,
+            latest_error_at:systemRows[0]?.created_at??null,
+            events:systemRows.slice(0,20).map(clientEvidence),
+          },
+        }
+      }),
+      check('user_side_events', 'เหตุการณ์ฝั่งผู้ใช้', 'Client/User', async () => {
+        const rows=await loadClientActivityRows()
+        const userRows=rows.filter(row=>clientResponsibility(row)==='user')
+        return {
+          // User-side evidence is retained and visible but never degrades central system health.
+          status:'healthy',
+          message:userRows.length ? `บันทึกเหตุการณ์ฝั่งผู้ใช้ ${userRows.length} เหตุการณ์ใน 15 นาที (ไม่กระทบสถานะระบบกลาง)` : 'ไม่พบเหตุการณ์ฝั่งผู้ใช้',
+          metadata:{
+            responsibility_scope:'user',
+            affects_system_health:false,
+            user_events_15m:userRows.length,
+            latest_user_event_id:userRows[0]?.id??null,
+            latest_user_event_at:userRows[0]?.created_at??null,
+            events:userRows.slice(0,20).map(clientEvidence),
+          },
+        }
       }),
       check('auth_recovery_alerts', 'ปัญหา Login / Reset Password', 'Auth', async () => {
         const { data, error } = await admin.from('auth_login_attempts')

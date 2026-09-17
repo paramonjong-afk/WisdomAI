@@ -2256,7 +2256,7 @@ export function ChatPage() {
         severity: 'warning',
         pagePath: '/chat',
         message: 'chat_attachment_membership_missing',
-        metadata: { room_id: selectedRoom.id },
+        metadata: { room_id: selectedRoom.id, reason: 'membership_missing' },
       }).catch(() => undefined)
       setToast('บัญชีนี้ยังไม่ได้เป็นสมาชิกห้อง กรุณาให้เจ้าของห้องเพิ่มสมาชิกก่อนส่งไฟล์')
       setPendingAttachmentStatus('failed')
