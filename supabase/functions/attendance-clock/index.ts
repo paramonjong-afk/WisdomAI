@@ -237,6 +237,7 @@ Deno.serve(async (request) => {
       if (existingTodayError) throw existingTodayError
       if (existingToday) {
         if (existingToday.clock_out_at) {
+          await admin.from('attendance_mobile_metrics').insert({company_id:companyId,profile_id:userId,metric:'duplicate_prevented',details:{action:'clock_in',session_id:existingToday.id}})
           return Response.json({
             ok: true,
             alreadyRecorded: true,
@@ -368,6 +369,7 @@ Deno.serve(async (request) => {
           .limit(1)
           .maybeSingle()
         if (completed) {
+          await admin.from('attendance_mobile_metrics').insert({company_id:companyId,profile_id:userId,metric:'duplicate_prevented',details:{action:'clock_out',session_id:completed.id}})
           return Response.json({
             ok: true,
             alreadyRecorded: true,
@@ -479,6 +481,7 @@ Deno.serve(async (request) => {
     }, { onConflict: 'session_id,event_type,channel' }).select('id').single()
     if (notificationError) {
       console.error('Unable to create attendance notification', notificationError)
+      await admin.from('attendance_mobile_metrics').insert({company_id:companyId,profile_id:userId,metric:'notification_failed',details:{stage:'enqueue',message:notificationError.message}})
     }
 
     const notificationTask = async () => {
@@ -492,6 +495,7 @@ Deno.serve(async (request) => {
         sent_at: lineResult.status === 'sent' ? new Date().toISOString() : null,
         updated_at: new Date().toISOString(),
       }).eq('company_id', companyId).eq('id', notification.id)
+      if(lineResult.status!=='sent')await admin.from('attendance_mobile_metrics').insert({company_id:companyId,profile_id:userId,metric:'notification_failed',details:{stage:'delivery',reason:lineResult.reason??lineResult.status}})
     }
     const runtime = globalThis as unknown as { EdgeRuntime?: { waitUntil: (promise: Promise<unknown>) => void } }
     if (runtime.EdgeRuntime?.waitUntil) runtime.EdgeRuntime.waitUntil(notificationTask())

@@ -784,3 +784,5 @@ flowchart LR
 ```
 
 ทุกช่องทางต้องใช้ลำดับ Accuracy ก่อน Geofence และห้ามสร้าง `attendance_sessions` จาก GPS unavailable/inaccurate หรือ Outside ที่ยังไม่อนุมัติ. `attendance_channel_requests/events` เป็น ledger กลางและรองรับ sessionless Exception, sealed evidence, idempotency และ approval audit. LINE/Telegram legacy rows ยังคงอ่านได้; การย้าย runtime ของช่องทางเหล่านั้นเข้าสัญญา v2 ต้องรักษา status mapping และห้าม fallback ไปสร้าง `needs_review` session ก่อน approval.
+
+Corrective v2.1: LINE confirmation/approval without employee GPS now creates or updates a canonical `information_required` row that links the employee to `/time-tracking` for fresh sealed evidence. Telegram applies the same active-employment, active-site-assignment, GPS TTL, accuracy-before-distance, selfie ownership and object-existence gates. Neither adapter may substitute Site coordinates or create Attendance before approval.

@@ -111,6 +111,8 @@ Web Chat และ Time Tracking แยกเป็นปลายทางร�
 - Rollback: revert UI และ `appBadge` service; ข้อมูล Chat/read state/attendance/Selfie/Audit เดิมไม่ถูกแก้หรือลบ
 # Attendance Mobile Flow v2.0 (17/9/2569)
 
+> Corrective v2.1: `information_required` is visible to the employee with a fresh-GPS resubmit action. Reviewers must claim a request and hold a live lease before deciding; expired leases return to the queue and SLA escalation remains audited. All manager request/event reads are site-scoped. Selfie retention is enqueue → service Edge Storage API removal → existence verification → success/failure audit; legal hold is recorded and never deleted. The Approvals page obtains only a short-lived audited signed URL. Mobile failures and approval turnaround are persisted in `attendance_mobile_metrics`; Production DB/preview behavior remains a release-gate verification, not a claim of this code change.
+
 ```mermaid
 flowchart TD
   A[เปิดหน้าลงเวลา] --> B{attendance required?}

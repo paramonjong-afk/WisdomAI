@@ -1812,6 +1812,11 @@ async function handleAttendancePostback(event: LineEvent) {
     await supabase.from('line_attendance_requests').update({ status: 'pending_approval', employee_confirmed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', request.id)
     await supabase.from('line_attendance_events').insert({ company_id: request.company_id, request_id: request.id,
       actor_line_user_id: lineUserId, actor_profile_id: actorProfileId, event_type: 'employee_confirmed' })
+    await supabase.from('attendance_channel_requests').upsert({company_id:request.company_id,channel:'line',external_event_id:request.id,
+      external_user_id:request.requester_line_user_id,external_chat_id:groupId,profile_id:request.profile_id,site_id:request.site_id,
+      action:request.action,request_kind:'location_exception',exception_code:'fresh_gps_required',status:'information_required',
+      missing_fields:['accurate_location'],revision_required:true,source_payload:{line_attendance_request_id:request.id,resubmit_path:'/time-tracking'},updated_at:new Date().toISOString()},
+    {onConflict:'channel,external_event_id'})
     await replyLine(event.replyToken, [{ type: 'text', text: 'ยืนยันข้อมูลแล้ว ระบบส่งให้ผู้มีสิทธิ์ในกลุ่มอนุมัติ' }])
     await pushLine(groupId, [approvalMessage(messageData)], 'high')
     return true
@@ -1838,6 +1843,11 @@ async function handleAttendancePostback(event: LineEvent) {
     decision_by: actorProfileId, decision_at: new Date().toISOString(),decision_reason:'ต้องส่ง GPS จริงผ่าน Attendance Mobile Flow', updated_at: new Date().toISOString() }).eq('id', request.id)
   await supabase.from('line_attendance_events').insert({ company_id: request.company_id, request_id: request.id,
     actor_line_user_id: lineUserId, actor_profile_id: actorProfileId, event_type: 'more_info_requested', details: { reason:'fresh_gps_required_v2' } })
+  await supabase.from('attendance_channel_requests').upsert({company_id:request.company_id,channel:'line',external_event_id:request.id,
+    external_user_id:request.requester_line_user_id,external_chat_id:groupId,profile_id:request.profile_id,site_id:request.site_id,
+    action:request.action,request_kind:'location_exception',exception_code:'fresh_gps_required',status:'information_required',
+    missing_fields:['accurate_location'],revision_required:true,source_payload:{line_attendance_request_id:request.id,resubmit_path:'/time-tracking'},updated_at:new Date().toISOString()},
+  {onConflict:'channel,external_event_id'})
   await replyLine(event.replyToken, [{ type: 'text', text: `ยังไม่สร้าง Attendance ให้ ${messageData.employeeName} กรุณาเปิดหน้าลงเวลาบนมือถือและส่ง GPS จริง ระบบห้ามใช้พิกัด Site แทนพิกัดพนักงาน` }])
   return true
 }

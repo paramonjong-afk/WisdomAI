@@ -1627,6 +1627,8 @@ flowchart LR
 - **Version/change:** v4.3, 17/9/2569. Migration `202609170003_posting_prerequisite_management.sql`. Verify contract, full migration replay, typecheck, lint, build, real Posting drawer and destination/Audit path.
 # 2026-09-17 — Attendance Mobile Flow v2.0
 
+- **v2.1 corrective:** wired employee information-required recovery, reviewer claim/lease/SLA, site-scoped reads, LINE/Telegram canonical gates, audited signed selfie access, durable mobile metrics and legal-hold-safe queued Storage API retention. Migration remains additive; rollback disables the v2 RPC/UI/function routes and maintenance job while preserving ledgers, metrics, purge jobs and audit evidence. Verification requires contract/regression/type/lint/build/migration replay plus post-PR DB apply and authenticated Web/LINE/Telegram smoke.
+
 ```mermaid
 flowchart LR
   A[GPS accuracy] --> B[Geofence]

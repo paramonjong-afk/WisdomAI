@@ -221,6 +221,7 @@ begin
   if item.id is null or item.request_kind<>'location_exception' then raise exception 'exception_not_found'; end if;
   if not public.can_review_attendance_site(company,item.site_id,auth.uid()) then raise exception 'site_review_authority_required'; end if;
   if item.profile_id=auth.uid() then raise exception 'self_approval_forbidden'; end if;
+  if item.claimed_by is distinct from auth.uid() or item.claim_lease_expires_at is null or item.claim_lease_expires_at<now() then raise exception 'active_claim_required'; end if;
   if item.status not in ('pending_review','claimed','information_required') then
     if item.status in ('approved','rejected') then return item.status; end if;
     raise exception 'exception_not_reviewable';
@@ -237,6 +238,8 @@ begin
     on conflict(request_id,event_key) where event_key is not null do nothing;
   insert into public.attendance_approval_events(company_id,session_id,request_id,actor_profile_id,source,action,reason,old_status,new_status)
     values(company,null,item.id,auth.uid(),'web',review_action,trim(review_reason),item.status,new_status);
+  insert into public.attendance_mobile_metrics(company_id,profile_id,request_id,metric,value,details)
+    values(company,auth.uid(),item.id,'approval_turnaround_ms',extract(epoch from (now()-item.requested_at))*1000,jsonb_build_object('decision',review_action));
   return new_status;
 end $$;
 revoke all on function public.review_attendance_location_exception(uuid,text,text) from public,anon;
@@ -306,6 +309,10 @@ begin
   if item.id is null or item.profile_id<>auth.uid() or item.request_kind<>'location_exception' then raise exception 'approved_exception_not_found'; end if;
   if item.status='attendance_recorded' and item.attendance_session_id is not null then return query select item.attendance_session_id,'normal'::text; return; end if;
   if item.status<>'approved' then raise exception 'exception_not_approved'; end if;
+  if not exists(select 1 from public.employee_employment_records e where e.company_id=company and e.profile_id=auth.uid() and coalesce(e.employment_status,'active') not in ('resigned','terminated'))
+    then raise exception 'employment_not_active'; end if;
+  if not exists(select 1 from public.employee_site_assignments a where a.company_id=company and a.profile_id=auth.uid() and a.site_id=item.site_id and a.active
+    and a.starts_on<=current_date and (a.ends_on is null or a.ends_on>=current_date)) then raise exception 'site_assignment_not_active'; end if;
   require_selfie:=coalesce((item.policy_snapshot->>'require_selfie')::boolean,true);
   if require_selfie and nullif(trim(coalesce(target_selfie_path,'')),'') is null then raise exception 'selfie_required'; end if;
   if target_selfie_path is not null and (target_selfie_path not like auth.uid()::text||'/%' or target_selfie_path like '%..%') then raise exception 'selfie_owner_mismatch'; end if;
@@ -375,6 +382,8 @@ create or replace function public.escalate_overdue_attendance_exceptions()
 returns integer language plpgsql security definer set search_path=public as $$
 declare affected integer;
 begin
+  update public.attendance_channel_requests set status='pending_review',claimed_by=null,claimed_at=null,claim_lease_expires_at=null,heartbeat_at=null,updated_at=now()
+  where request_kind='location_exception' and status='claimed' and claim_lease_expires_at<now();
   with overdue as (
     update public.attendance_channel_requests set escalated_at=now(),escalation_count=escalation_count+1,updated_at=now()
     where request_kind='location_exception' and status in ('pending_review','claimed') and review_due_at<now()
@@ -417,29 +426,6 @@ alter table public.attendance_selfie_retention_events enable row level security;
 create policy "Scoped HR reads selfie retention events" on public.attendance_selfie_retention_events for select to authenticated
 using(company_id=public.current_company_id() and public.is_company_manager(company_id));
 
-create or replace function public.purge_expired_attendance_selfies(batch_size integer default 100)
-returns integer language plpgsql security definer set search_path=public,storage as $$
-declare item record; purged integer:=0;
-begin
-  if current_user not in ('postgres','service_role') then raise exception 'service_role_required'; end if;
-  for item in
-    select s.id,s.company_id,path.selfie_path from public.attendance_sessions s
-    cross join lateral (values(s.clock_in_selfie_path),(s.clock_out_selfie_path)) path(selfie_path)
-    where path.selfie_path is not null and s.selfie_retain_until<=now()
-      and (s.selfie_legal_hold_until is null or s.selfie_legal_hold_until<now())
-      and not exists(select 1 from public.attendance_selfie_retention_events e where e.session_id=s.id and e.selfie_path=path.selfie_path and e.action='purged')
-    order by s.selfie_retain_until limit greatest(1,least(batch_size,500))
-  loop
-    delete from storage.objects where bucket_id='attendance-selfies' and name=item.selfie_path;
-    insert into public.attendance_selfie_retention_events(company_id,session_id,selfie_path,action,reason)
-      values(item.company_id,item.id,item.selfie_path,'purged','90-day retention expired') on conflict do nothing;
-    purged:=purged+1;
-  end loop;
-  return purged;
-end $$;
-revoke all on function public.purge_expired_attendance_selfies(integer) from public,anon,authenticated;
-grant execute on function public.purge_expired_attendance_selfies(integer) to service_role;
-
 drop policy if exists "Attendance selfies readable by tenant owner or manager" on storage.objects;
 create policy "Attendance selfies readable by owner or scoped attendance reviewer" on storage.objects for select to authenticated using (
   bucket_id='attendance-selfies' and (
@@ -476,6 +462,8 @@ begin
   if req.profile_id is null or req.site_id is null then raise exception 'request_information_incomplete'; end if;
   select * into site from public.project_sites where id=req.site_id and company_id=req.company_id and active;
   select * into settings from public.attendance_system_settings where company_id=req.company_id and singleton;
+  if site.id is null or not exists(select 1 from public.employee_site_assignments a where a.company_id=req.company_id and a.profile_id=req.profile_id and a.site_id=req.site_id and a.active and a.starts_on<=current_date and (a.ends_on is null or a.ends_on>=current_date)) then raise exception 'site_assignment_not_active'; end if;
+  if not exists(select 1 from public.employee_employment_records e where e.company_id=req.company_id and e.profile_id=req.profile_id and coalesce(e.employment_status,'active') not in ('resigned','terminated')) then raise exception 'employment_not_active'; end if;
   if req.latitude is null or req.longitude is null or req.accuracy_meters is null
     or req.latitude::text in ('NaN','Infinity','-Infinity') or req.longitude::text in ('NaN','Infinity','-Infinity')
     or req.accuracy_meters::text in ('NaN','Infinity','-Infinity') or req.latitude not between -90 and 90 or req.longitude not between -180 and 180
@@ -484,6 +472,7 @@ begin
     return query select null::uuid,'gps_inaccurate'::text,null::double precision; return;
   end if;
   captured_at:=coalesce(req.evidence_captured_at,req.updated_at,now());
+  if captured_at<now()-make_interval(secs=>coalesce(settings.gps_evidence_ttl_seconds,90)) or captured_at>now()+interval '10 seconds' then raise exception 'gps_evidence_expired'; end if;
   distance_value:=6371000*2*asin(sqrt(power(sin(radians(req.latitude-site.latitude)/2),2)+cos(radians(site.latitude))*cos(radians(req.latitude))*power(sin(radians(req.longitude-site.longitude)/2),2)));
   policy:=public.resolve_attendance_mobile_policy(req.company_id,req.profile_id,site.id);
   if not coalesce((policy->>'attendance_required')::boolean,true) then raise exception 'attendance_not_required'; end if;
@@ -497,6 +486,7 @@ begin
     return query select null::uuid,'pending_review'::text,distance_value; return;
   end if;
   if coalesce((policy->>'require_selfie')::boolean,true) and req.selfie_path is null then raise exception 'selfie_required_after_gps_validation'; end if;
+  if req.selfie_path is not null and (req.selfie_path not like req.profile_id::text||'/%' or req.selfie_path like '%..%' or not exists(select 1 from storage.objects o where o.bucket_id='attendance-selfies' and o.name=req.selfie_path)) then raise exception 'selfie_owner_or_object_invalid'; end if;
   if req.action='clock_in' then
     insert into public.attendance_sessions(company_id,profile_id,site_id,clock_in_at,clock_in_latitude,clock_in_longitude,clock_in_accuracy_meters,clock_in_distance_meters,clock_in_selfie_path,status,policy_snapshot)
       values(req.company_id,req.profile_id,site.id,now(),req.latitude,req.longitude,req.accuracy_meters,distance_value,req.selfie_path,'normal',policy) returning id into created_id;
@@ -534,3 +524,78 @@ begin
 end $$;
 revoke all on function public.review_telegram_attendance(uuid,uuid,text) from public,anon,authenticated;
 grant execute on function public.review_telegram_attendance(uuid,uuid,text) to service_role;
+
+-- Corrective v3: site-scoped visibility, durable metrics, and Storage-API retention jobs.
+drop policy if exists "Members read own or managed channel requests" on public.attendance_channel_requests;
+create policy "Members read own or site scoped channel requests" on public.attendance_channel_requests for select to authenticated
+using(company_id=public.current_company_id() and (profile_id=auth.uid() or public.can_review_attendance_site(company_id,site_id,auth.uid())));
+drop policy if exists "Members read channel request events" on public.attendance_channel_events;
+create policy "Members read own or site scoped channel request events" on public.attendance_channel_events for select to authenticated
+using(company_id=public.current_company_id() and exists(select 1 from public.attendance_channel_requests r where r.id=request_id and (r.profile_id=auth.uid() or public.can_review_attendance_site(r.company_id,r.site_id,auth.uid()))));
+
+create table if not exists public.attendance_mobile_metrics(
+ id bigint generated always as identity primary key,company_id uuid not null references public.companies(id) on delete restrict,
+ profile_id uuid references public.profiles(id) on delete set null,request_id uuid references public.attendance_channel_requests(id) on delete set null,
+ metric text not null check(metric in ('permission_denied','gps_unavailable','gps_timeout','gps_inaccurate','outside_geofence','camera_failed','upload_failed','notification_failed','duplicate_prevented','offline_draft','offline_recovered','approval_turnaround_ms')),
+ value numeric not null default 1,details jsonb not null default '{}'::jsonb,created_at timestamptz not null default now());
+alter table public.attendance_mobile_metrics enable row level security;
+create policy "Managers read attendance mobile metrics" on public.attendance_mobile_metrics for select to authenticated
+using(company_id=public.current_company_id() and public.is_company_manager(company_id));
+revoke insert,update,delete on public.attendance_mobile_metrics from anon,authenticated;
+create or replace function public.record_attendance_mobile_metric(target_metric text,target_request_id uuid default null,target_details jsonb default '{}'::jsonb)
+returns void language plpgsql security definer set search_path=public as $$ begin
+ insert into public.attendance_mobile_metrics(company_id,profile_id,request_id,metric,details)
+ values(public.current_company_id(),auth.uid(),target_request_id,target_metric,coalesce(target_details,'{}'::jsonb));
+end $$;
+revoke all on function public.record_attendance_mobile_metric(text,uuid,jsonb) from public,anon;
+grant execute on function public.record_attendance_mobile_metric(text,uuid,jsonb) to authenticated,service_role;
+
+create table if not exists public.attendance_selfie_purge_jobs(
+ id uuid primary key default gen_random_uuid(),company_id uuid not null references public.companies(id) on delete restrict,
+ session_id uuid not null references public.attendance_sessions(id) on delete restrict,selfie_path text not null,
+ status text not null default 'queued' check(status in ('queued','claimed','succeeded','failed','legal_hold')),
+ attempts integer not null default 0,available_at timestamptz not null default now(),claimed_at timestamptz,lease_expires_at timestamptz,
+ last_error text,created_at timestamptz not null default now(),updated_at timestamptz not null default now(),unique(session_id,selfie_path));
+alter table public.attendance_selfie_purge_jobs enable row level security;
+revoke all on public.attendance_selfie_purge_jobs from anon,authenticated;
+create or replace function public.enqueue_expired_attendance_selfies(batch_size integer default 100)
+returns integer language plpgsql security definer set search_path=public as $$ declare affected integer; begin
+ insert into public.attendance_selfie_purge_jobs(company_id,session_id,selfie_path,status)
+ select s.company_id,s.id,p.path,case when s.selfie_legal_hold_until>=now() then 'legal_hold' else 'queued' end
+ from public.attendance_sessions s cross join lateral(values(s.clock_in_selfie_path),(s.clock_out_selfie_path)) p(path)
+ where p.path is not null and s.selfie_retain_until<=now() order by s.selfie_retain_until limit greatest(1,least(batch_size,500))
+ on conflict(session_id,selfie_path) do update set status=case when excluded.status='legal_hold' then 'legal_hold' when attendance_selfie_purge_jobs.status='legal_hold' then 'queued' else attendance_selfie_purge_jobs.status end,updated_at=now();
+ insert into public.attendance_selfie_retention_events(company_id,session_id,selfie_path,action,reason)
+ select j.company_id,j.session_id,j.selfie_path,'skipped_legal_hold','active legal hold' from public.attendance_selfie_purge_jobs j
+ where j.status='legal_hold' on conflict do nothing;
+ get diagnostics affected=row_count; return affected; end $$;
+create or replace function public.claim_attendance_selfie_purge_jobs(batch_size integer default 25)
+returns setof public.attendance_selfie_purge_jobs language plpgsql security definer set search_path=public as $$ begin
+ if current_user not in ('postgres','service_role') then raise exception 'service_role_required'; end if;
+ return query with picked as (select j.id from public.attendance_selfie_purge_jobs j join public.attendance_sessions s on s.id=j.session_id
+  where (j.status='queued' or (j.status='claimed' and j.lease_expires_at<now())) and j.available_at<=now()
+   and (s.selfie_legal_hold_until is null or s.selfie_legal_hold_until<now()) order by j.created_at for update of j skip locked limit greatest(1,least(batch_size,100)))
+ update public.attendance_selfie_purge_jobs j set status='claimed',claimed_at=now(),lease_expires_at=now()+interval '5 minutes',attempts=attempts+1,updated_at=now()
+ from picked where j.id=picked.id returning j.*; end $$;
+revoke all on function public.enqueue_expired_attendance_selfies(integer) from public,anon,authenticated;
+revoke all on function public.claim_attendance_selfie_purge_jobs(integer) from public,anon,authenticated;
+grant execute on function public.enqueue_expired_attendance_selfies(integer) to service_role;
+grant execute on function public.claim_attendance_selfie_purge_jobs(integer) to service_role;
+-- Backward-compatible scheduler entry now enqueues; it never mutates storage.objects.
+create or replace function public.purge_expired_attendance_selfies(batch_size integer default 100)
+returns integer language sql security definer set search_path=public as $$ select public.enqueue_expired_attendance_selfies(batch_size) $$;
+
+create or replace function public.claim_attendance_location_exception(target_request_id uuid)
+returns boolean language plpgsql security definer set search_path=public as $$ declare company uuid:=public.current_company_id(); item public.attendance_channel_requests; begin
+ select * into item from public.attendance_channel_requests where company_id=company and id=target_request_id for update;
+ if item.id is null or item.request_kind<>'location_exception' then return false; end if;
+ if not public.can_review_attendance_site(company,item.site_id,auth.uid()) or item.profile_id=auth.uid() then raise exception 'site_review_authority_required'; end if;
+ if item.status='claimed' and item.claimed_by<>auth.uid() and item.claim_lease_expires_at>=now() then return false; end if;
+ if item.status not in ('pending_review','claimed') then return false; end if;
+ update public.attendance_channel_requests set status='claimed',claimed_by=auth.uid(),claimed_at=now(),heartbeat_at=now(),claim_lease_expires_at=now()+interval '15 minutes',updated_at=now() where id=item.id;
+ return true; end $$;
+
+create or replace view public.attendance_mobile_monitor_v1 with (security_invoker=true) as
+select company_id,metric,count(*) event_count,sum(value) metric_total,
+ percentile_cont(.95) within group(order by value) filter(where metric='approval_turnaround_ms') approval_turnaround_p95_ms,
+ max(created_at) last_seen_at from public.attendance_mobile_metrics where company_id=public.current_company_id() group by company_id,metric;
