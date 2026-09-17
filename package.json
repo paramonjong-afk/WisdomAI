@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:attendance-mobile-flow-v2": "node --experimental-strip-types scripts/attendance-mobile-flow-v2.test.ts",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty false",

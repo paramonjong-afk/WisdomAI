@@ -624,26 +624,26 @@ async function sendEmployeeIntakeSummary(companyId:string,intakeId:string){
 async function finalizeTelegramAttendance(requestId:string){
   const {data,error}=await admin.rpc('finalize_telegram_attendance_request',{target_request_id:requestId})
   if(error)throw error
-  return(data?.[0]??null) as {session_id:string;result_status:string;distance_meters:number}|null
+  return(data?.[0]??null) as {session_id:string|null;result_status:string;distance_meters:number|null}|null
 }
 
-async function sendTelegramAttendanceApproval(companyId:string,sessionId:string){
-  const {data:session,error:sessionError}=await admin.from('attendance_sessions')
-    .select('id,profile_id,site_id,clock_in_at,clock_out_at,clock_in_distance_meters,clock_out_distance_meters,review_reason,status')
-    .eq('company_id',companyId).eq('id',sessionId).eq('status','needs_review').maybeSingle()
-  if(sessionError)throw sessionError
-  if(!session)return 0
+async function sendTelegramAttendanceApproval(companyId:string,requestId:string){
+  const {data:request,error:requestError}=await admin.from('attendance_channel_requests')
+    .select('id,profile_id,site_id,action,requested_at,distance_meters,decision_reason,status')
+    .eq('company_id',companyId).eq('id',requestId).eq('request_kind','location_exception').in('status',['pending_review','claimed']).maybeSingle()
+  if(requestError)throw requestError
+  if(!request)return 0
   const [{data:profile},{data:site},{data:chats}]=await Promise.all([
-    admin.from('profiles').select('full_name').eq('id',session.profile_id).maybeSingle(),
-    admin.from('project_sites').select('name').eq('company_id',companyId).eq('id',session.site_id).maybeSingle(),
+    admin.from('profiles').select('full_name').eq('id',request.profile_id).maybeSingle(),
+    admin.from('project_sites').select('name').eq('company_id',companyId).eq('id',request.site_id).maybeSingle(),
     admin.from('telegram_admin_chats').select('telegram_chat_id').eq('company_id',companyId).eq('active',true),
   ])
-  const distance=session.clock_out_at?session.clock_out_distance_meters:session.clock_in_distance_meters
-  const text=`🟠 <b>รายการลงเวลารอตรวจ</b>\nพนักงาน: ${escapeHtml(profile?.full_name??'ไม่ทราบชื่อ')}\nไซต์: ${escapeHtml(site?.name??'ไม่ทราบไซต์')}\nเวลา: ${new Date(session.clock_out_at??session.clock_in_at).toLocaleString('th-TH',{timeZone:'Asia/Bangkok'})}\nระยะจากไซต์: ${distance==null?'-':`${Math.round(distance)} เมตร`}\nเหตุผล: ${escapeHtml(session.review_reason??'ผิดเงื่อนไขการลงเวลา')}`
+  const distance=request.distance_meters
+  const text=`🟠 <b>คำขอลงเวลานอกพื้นที่</b>\nพนักงาน: ${escapeHtml(profile?.full_name??'ไม่ทราบชื่อ')}\nไซต์: ${escapeHtml(site?.name??'ไม่ทราบไซต์')}\nประเภท: ${request.action==='clock_in'?'เข้า':'ออก'}\nเวลาส่งคำขอ: ${new Date(request.requested_at).toLocaleString('th-TH',{timeZone:'Asia/Bangkok'})}\nระยะจากไซต์: ${distance==null?'-':`${Math.round(distance)} เมตร`}\nยังไม่มี Attendance และยังไม่นับค่าแรง`
   const replyMarkup={inline_keyboard:[
-    [{text:'✅ อนุมัติ',callback_data:`attendance:approve:${session.id}`}],
-    [{text:'ℹ️ ขอข้อมูลเพิ่ม',callback_data:`attendance:request_more:${session.id}`}],
-    [{text:'⛔ ไม่อนุมัติ',callback_data:`attendance:reject:${session.id}`}],
+    [{text:'✅ อนุมัติ',callback_data:`attendance:approve:${request.id}`}],
+    [{text:'ℹ️ ขอข้อมูลเพิ่ม',callback_data:`attendance:request_more:${request.id}`}],
+    [{text:'⛔ ไม่อนุมัติ',callback_data:`attendance:reject:${request.id}`}],
   ]}
   const uniqueChats=[...new Set((chats??[]).map(chat=>String(chat.telegram_chat_id)))]
   const results=await Promise.allSettled(uniqueChats.map(targetChat=>sendText(targetChat,text,replyMarkup)))
@@ -651,7 +651,7 @@ async function sendTelegramAttendanceApproval(companyId:string,sessionId:string)
 }
 
 async function sendPendingAttendanceApprovals(companyId:string){
-  const {data,error}=await admin.from('attendance_sessions').select('id').eq('company_id',companyId).eq('status','needs_review').order('review_requested_at',{ascending:false}).limit(10)
+  const {data,error}=await admin.from('attendance_channel_requests').select('id').eq('company_id',companyId).eq('request_kind','location_exception').in('status',['pending_review','claimed']).order('requested_at',{ascending:false}).limit(10)
   if(error)throw error
   let sent=0
   for(const session of data??[])sent+=await sendTelegramAttendanceApproval(companyId,session.id)
@@ -774,8 +774,8 @@ Deno.serve(async request=>{
       const evidence=await receiveTelegramAttendanceEvidence(attendanceIdentity,chatId,userId,message)
       if(evidence.handled){
         if(evidence.result){
-          await sendText(chatId,`${evidence.result.result_status==='normal'?'✅ บันทึกเวลาสำเร็จ':'🟠 รับข้อมูลแล้วและส่งรอตรวจ'}\nเลขคำขอ: <code>${evidence.requestId}</code>\nระยะจากไซต์: ${Math.round(evidence.result.distance_meters)} เมตร`)
-          if(evidence.result.result_status==='needs_review')await sendTelegramAttendanceApproval(attendanceIdentity.company_id,evidence.result.session_id)
+          await sendText(chatId,`${evidence.result.result_status==='normal'?'✅ บันทึกเวลาสำเร็จ':evidence.result.result_status==='pending_review'?'🟠 รับหลักฐานแล้วและส่งรอตรวจ':'⚠️ ต้องส่งตำแหน่ง GPS ใหม่'}\nเลขคำขอ: <code>${evidence.requestId}</code>\nระยะจากไซต์: ${evidence.result.distance_meters==null?'-':`${Math.round(evidence.result.distance_meters)} เมตร`}`)
+          if(evidence.result.result_status==='pending_review')await sendTelegramAttendanceApproval(attendanceIdentity.company_id,evidence.requestId)
         }
         else await sendText(chatId,`📎 รับข้อมูลแล้ว\nเลขคำขอ: <code>${evidence.requestId}</code>\nยังขาด: ${evidence.missing.map(item=>item==='location'?'ตำแหน่ง GPS':item==='selfie'?'รูป Selfie':'ไซต์งาน').join(', ')}`)
         await admin.from('telegram_admin_events').update({status:'processed',processed_at:new Date().toISOString()}).eq('id',reserved!.id)
@@ -886,8 +886,8 @@ Deno.serve(async request=>{
       }
       const attendanceMatch=/^attendance:(approve|reject|request_more):([0-9a-f-]{36})$/.exec(callback.data??'')
       if(attendanceMatch){
-        const action=attendanceMatch[1],sessionId=attendanceMatch[2]
-        const {data,error}=await admin.rpc('review_telegram_attendance',{target_session_id:sessionId,actor_profile_id:actor.profile_id,review_action:action})
+        const action=attendanceMatch[1],requestId=attendanceMatch[2]
+        const {data,error}=await admin.rpc('review_telegram_attendance',{target_session_id:requestId,actor_profile_id:actor.profile_id,review_action:action})
         if(error){
           await answerCallback(callback.id,error.message.includes('already_decided')?'รายการนี้ถูกจัดการแล้ว':'ไม่มีสิทธิ์หรือไม่สามารถดำเนินการได้')
           return json({status:'attendance_review_rejected'})
