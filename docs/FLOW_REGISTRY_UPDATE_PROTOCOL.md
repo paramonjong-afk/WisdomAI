@@ -1625,3 +1625,18 @@ flowchart LR
 - **Integrations/failure:** PO compatibility is rechecked server-side for tenant, project, product code, unit, unit price, approved/partially-received PO state and remaining quantity. Missing or ambiguous business data stays visibly blocked; no fuzzy/default link or historical inference is performed.
 - **Audit/retry/recovery:** every successful change appends `posting_prerequisite_events`; exact retries are safe. Rollback hides the UI/RPC while retaining nullable links, period rows and Audit. Incorrect links must be corrected through a reviewed forward event before approval, never by deleting history.
 - **Version/change:** v4.3, 17/9/2569. Migration `202609170003_posting_prerequisite_management.sql`. Verify contract, full migration replay, typecheck, lint, build, real Posting drawer and destination/Audit path.
+# 2026-09-17 — Attendance Mobile Flow v2.0
+
+```mermaid
+flowchart LR
+  A[GPS accuracy] --> B[Geofence]
+  B -->|inside| C[Selfie policy + confirmation]
+  B -->|outside| D[Sessionless exception approval]
+  D --> C
+  C --> E[Attendance + Audit + Notification]
+```
+
+- **Reason/impact:** prevents inaccurate GPS from being labelled outside, blocks camera/Attendance before validation, and keeps outside clock-in/out away from Payroll until manager approval and employee final confirmation.
+- **Data/permissions:** additive policy overrides and exception evidence on the existing channel ledger; same-company manager, site scope and no self-approval; legacy Attendance is not rewritten.
+- **Failure/retry:** 90-second GPS evidence at normal confirmation/exception submission, sealed exception evidence, idempotency fingerprint, optional Selfie and post-commit notification isolation.
+- **Verification/rollback:** attendance v2 contracts, RLS/tenant/idempotency/payroll tests, migration safety/replay, typecheck/lint/build and authenticated responsive smoke; rollback source/UI while retaining additive exception/audit evidence.

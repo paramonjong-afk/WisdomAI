@@ -21,6 +21,8 @@ type Employee = { id:string; full_name:string|null; email:string|null; employmen
 type LineGroup = { line_group_id:string; display_name:string|null }
 type GpsPolicy={id:string;error_code:string;action:'allow'|'review'|'reject';require_selfie:boolean;require_reason:boolean;notify_line:boolean}
 type LocationCheck = { latitude:number|null; longitude:number|null; accuracy:number|null; distance:number|null; site:Site; gpsErrorCode?:string; gpsErrorMessage?:string }
+type MobilePolicy = { attendance_required:boolean; require_selfie:boolean; gps_evidence_ttl_seconds:number }
+type AttendanceException = { id:string;action:'clock_in'|'clock_out';status:string;latitude:number;longitude:number;accuracy_meters:number;distance_meters:number;site_id:string;policy_snapshot:MobilePolicy;project_sites:Site|null }
 type ResultDialog = { open:boolean; success:boolean; title:string; detail:string }
 type EagerGpsStatus = 'idle'|'checking'|'in-site'|'out-of-site'|'inaccurate'|'error'
 type EagerGps = { status:EagerGpsStatus; distance:number|null; site:Site|null; accuracy:number|null }
@@ -29,6 +31,7 @@ type AttendanceSettings = {
   allow_outside_site_for_review:boolean
   shared_devices_allowed:boolean
   stale_session_mode:'require_clock_out'|'manager_review'
+  gps_evidence_ttl_seconds?:number
 }
 type PayrollFinancialSummary = { company_id:string; employee_profile_id:string; employee_name:string; pay_period_id:string; pay_period_name:string; starts_on:string; ends_on:string; pay_date:string; pay_period_status:string; payroll_status:string; normal_minutes:number; overtime_minutes:number; base_pay:number; overtime_pay:number; additions:number; deductions:number; reimbursements:number; net_pay:number; advance_confirmed:number; wage_paid_confirmed:number; pending_review:number; projected_remaining_pay:number }
 const money = (value:number) => new Intl.NumberFormat('th-TH', { style:'currency', currency:'THB' }).format(value)
@@ -46,6 +49,7 @@ const bangkokDate = (date = new Date()) => new Intl.DateTimeFormat('en-CA', {
   timeZone:'Asia/Bangkok',year:'numeric',month:'2-digit',day:'2-digit',
 }).format(date)
 const pendingSelfieStorageKey='wisdomai-pending-attendance-selfies'
+const offlineAttendanceDraftKey='wisdomai-attendance-offline-recovery'
 const pendingSelfies=()=>{
   try{
     const value=JSON.parse(window.localStorage.getItem(pendingSelfieStorageKey)??'[]')
@@ -126,6 +130,9 @@ export function TimeTrackingPage() {
   const [cameraReady, setCameraReady] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [locationCheck, setLocationCheck] = useState<LocationCheck | null>(null)
+  const [gpsEvidenceCapturedAt,setGpsEvidenceCapturedAt]=useState<string|null>(null)
+  const [mobilePolicy,setMobilePolicy]=useState<MobilePolicy>({attendance_required:true,require_selfie:true,gps_evidence_ttl_seconds:90})
+  const [approvedException,setApprovedException]=useState<AttendanceException|null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const [message, setMessage] = useState('')
@@ -135,6 +142,7 @@ export function TimeTrackingPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [eagerGps, setEagerGps] = useState<EagerGps>({ status:'idle', distance:null, site:null, accuracy:null })
   const [eagerGpsCheckedAt, setEagerGpsCheckedAt] = useState<Date | null>(null)
+  const [offlineRecoveryPending,setOfflineRecoveryPending]=useState(()=>Boolean(window.localStorage.getItem(offlineAttendanceDraftKey)))
   const [settings, setSettings] = useState<AttendanceSettings>({
     max_gps_accuracy_meters:200,
     allow_outside_site_for_review:true,
@@ -173,6 +181,7 @@ export function TimeTrackingPage() {
       { data: openAttendance, error: openAttendanceError },
       { data: settingRows },
       { data: payrollFinancialData, error: payrollFinancialError },
+      { data: exceptionRows },
     ] = await Promise.all([
       attendanceQuery,
       supabase.from('attendance_sessions')
@@ -182,10 +191,14 @@ export function TimeTrackingPage() {
         .not('status', 'in', '(rejected,duplicate)')
         .order('clock_in_at', { ascending:false }),
       supabase.from('attendance_system_settings')
-        .select('max_gps_accuracy_meters,allow_outside_site_for_review,shared_devices_allowed,stale_session_mode')
+        .select('max_gps_accuracy_meters,allow_outside_site_for_review,shared_devices_allowed,stale_session_mode,gps_evidence_ttl_seconds')
         .eq('company_id', currentCompany?.company_id ?? '')
         .eq('singleton', true).single(),
       payrollFinancialQuery,
+      supabase.from('attendance_channel_requests')
+        .select('id,action,status,latitude,longitude,accuracy_meters,distance_meters,site_id,policy_snapshot,project_sites(id,name,latitude,longitude,radius_meters,projects(name))')
+        .eq('profile_id',user.id).eq('request_kind','location_exception').eq('status','approved')
+        .is('attendance_session_id',null).order('approved_at',{ascending:false}).limit(1),
     ])
     if (attendanceError || openAttendanceError || payrollFinancialError) throw attendanceError ?? openAttendanceError ?? payrollFinancialError
     const attendanceRows = (attendance ?? []) as unknown as Attendance[]
@@ -197,6 +210,7 @@ export function TimeTrackingPage() {
     setSites(availableSites)
     setSessions(mergedAttendance)
     setPayrollFinancialRows((payrollFinancialData ?? []) as PayrollFinancialSummary[])
+    setApprovedException(((exceptionRows ?? [])[0] as unknown as AttendanceException | undefined) ?? null)
     if (settingRows) setSettings(settingRows as AttendanceSettings)
       if (isManager) {
         const [
@@ -262,6 +276,12 @@ export function TimeTrackingPage() {
       document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
   }, [loadData, user])
+
+  useEffect(()=>{
+    const online=()=>setMessage('กลับมาออนไลน์แล้ว กรุณาตรวจ GPS ใหม่ก่อนส่งรายการ; ระบบจะไม่ใช้เวลา/ตำแหน่งเก่าอัตโนมัติ')
+    window.addEventListener('online',online)
+    return()=>window.removeEventListener('online',online)
+  },[])
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30_000)
@@ -466,6 +486,13 @@ export function TimeTrackingPage() {
         .sort((a, b) => a.distance - b.distance)[0]
 
       setSiteId(nearest.site.id)
+      if (accuracy > settings.max_gps_accuracy_meters) {
+        setLocationCheck(null)
+        setGpsEvidenceCapturedAt(null)
+        setMessage(`ตำแหน่งไม่แม่นยำ (±${Math.round(accuracy)} เมตร) กรุณากด “ตรวจ GPS อีกครั้ง”`)
+        return
+      }
+      const capturedAt=new Date(position.timestamp).toISOString()
       setLocationCheck({
         latitude: position.coords.latitude,
         longitude: position.coords.longitude,
@@ -473,10 +500,20 @@ export function TimeTrackingPage() {
         distance: nearest.distance,
         site: nearest.site,
       })
-      if (accuracy > settings.max_gps_accuracy_meters || nearest.distance > nearest.site.radius_meters) {
-        setMessage('ระบบจะรับรายการไว้ก่อน และส่งให้ผู้มีสิทธิ์ตรวจสอบ GPS')
+      setGpsEvidenceCapturedAt(capturedAt)
+      const {data:policy,error:policyError}=await supabase.rpc('resolve_attendance_mobile_policy',{
+        target_company_id:currentCompany?.company_id,target_profile_id:user?.id,target_site_id:nearest.site.id,
+      })
+      if(policyError)throw policyError
+      const resolved=(policy??mobilePolicy) as MobilePolicy
+      setMobilePolicy(resolved)
+      if(!resolved.attendance_required){setLocationCheck(null);setMessage('บัญชีนี้ไม่ต้องลงเวลาตามนโยบายที่มีผล');return}
+      if (nearest.distance > nearest.site.radius_meters) {
+        setMessage(`อยู่นอกพื้นที่ไซต์ ${Math.round(nearest.distance).toLocaleString('th-TH')} เมตร กรุณาตรวจ GPS อีกครั้ง หรือขออนุมัติลงเวลานอกพื้นที่`)
+        return
       }
-      await startCamera()
+      if(resolved.require_selfie) await startCamera()
+      else setConfirmOpen(true)
     } catch (error) {
       const targetSites=openSession?.project_sites?[openSession.project_sites]:sites
       const selectedSite=targetSites.find(site=>site.id===siteId)??(targetSites.length===1?targetSites[0]:null)
@@ -486,12 +523,38 @@ export function TimeTrackingPage() {
         : !navigator.geolocation?'gps_unsupported':'gps_unavailable'
       const detail=error instanceof Error?userError(error):String(error)
       setSiteId(selectedSite.id)
-      setLocationCheck({latitude:null,longitude:null,accuracy:null,distance:null,site:selectedSite,gpsErrorCode:code,gpsErrorMessage:detail})
-      setMessage(`รับเคส GPS: ${code} ไว้รอตรวจสอบ กรุณาถ่าย Selfie และยืนยันข้อมูล`)
-      await startCamera()
+      setLocationCheck(null)
+      setGpsEvidenceCapturedAt(null)
+      setMessage(`ไม่สามารถตรวจ GPS (${code}): ${detail} กรุณาเปิดสิทธิ์ตำแหน่งแล้วตรวจอีกครั้ง`)
     } finally {
       setBusy(false)
     }
+  }
+
+  const requestOutsideException=async()=>{
+    if(!locationCheck||locationCheck.distance===null||locationCheck.accuracy===null||!gpsEvidenceCapturedAt) return
+    setBusy(true);setMessage('')
+    try{
+      const action=openSession?'clock_out':'clock_in'
+      const key=`web:${user?.id}:${action}:${bangkokDate()}:${gpsEvidenceCapturedAt}`
+      const {data,error}=await supabase.rpc('create_attendance_location_exception',{
+        request_action:action,request_site_id:locationCheck.site.id,request_latitude:locationCheck.latitude,
+        request_longitude:locationCheck.longitude,request_accuracy_meters:locationCheck.accuracy,
+        request_evidence_captured_at:gpsEvidenceCapturedAt,request_idempotency_key:key,request_note:null,request_device_info:getDeviceInfo(),
+      })
+      if(error)throw error
+      setLocationCheck(null);setGpsEvidenceCapturedAt(null)
+      setMessage(`ส่งคำขออนุมัติลงเวลานอกพื้นที่แล้ว เลขคำขอ ${String(data).slice(0,8)} · ยังไม่มี Attendance และยังไม่นับค่าแรง`)
+    }catch(error){setMessage(userError(error))}finally{setBusy(false)}
+  }
+
+  const continueApprovedException=async()=>{
+    if(!approvedException)return
+    const site=approvedException.project_sites
+    if(!site){setMessage('ไม่พบ Site ของคำขอที่อนุมัติ');return}
+    setLocationCheck({latitude:approvedException.latitude,longitude:approvedException.longitude,accuracy:approvedException.accuracy_meters,distance:approvedException.distance_meters,site})
+    setSiteId(site.id);setMobilePolicy(approvedException.policy_snapshot)
+    if(approvedException.policy_snapshot?.require_selfie!==false)await startCamera();else setConfirmOpen(true)
   }
 
   const captureSelfie = async () => {
@@ -539,13 +602,14 @@ export function TimeTrackingPage() {
         companyId: currentCompany?.company_id,
         request,
         operation: async () => {
-          const uploadedPath = await uploadSelfie(action === 'clock_in' ? 'in' : 'out')
+          const uploadedPath = mobilePolicy.require_selfie ? await uploadSelfie(action === 'clock_in' ? 'in' : 'out') : ''
           selfiePath = uploadedPath
           const { data, error } = await supabase.functions.invoke('attendance-clock', { body:{
             action, siteId: action === 'clock_in' ? siteId : undefined,
             latitude:locationCheck.latitude, longitude:locationCheck.longitude,
             accuracy:locationCheck.accuracy, gpsErrorCode:locationCheck.gpsErrorCode,
-            gpsErrorMessage:locationCheck.gpsErrorMessage, selfiePath: uploadedPath, device:getDeviceInfo(),
+            gpsErrorMessage:locationCheck.gpsErrorMessage, selfiePath: uploadedPath || null, device:getDeviceInfo(),
+            evidenceCapturedAt:gpsEvidenceCapturedAt,exceptionRequestId:approvedException?.id??null,
           } })
           if (error) {
             let detail = userError(error)
@@ -577,7 +641,8 @@ export function TimeTrackingPage() {
       const successText = result.message || (action === 'clock_in' ? 'ลงเวลาเข้าสำเร็จ' : 'ลงเวลาออกสำเร็จ')
       selfiePath = result?.selfiePath ?? selfiePath
       setSelfie(null); setLocationCheck(null); setConfirmOpen(false)
-      forgetPendingSelfie(selfiePath)
+      if(selfiePath)forgetPendingSelfie(selfiePath)
+      setApprovedException(null)
       await loadData()
       setMessage(successText)
       setResultDialog({
@@ -586,6 +651,10 @@ export function TimeTrackingPage() {
         detail: successText,
       })
     } catch (error) {
+      if(!navigator.onLine){
+        window.localStorage.setItem(offlineAttendanceDraftKey,JSON.stringify({action,siteId:locationCheck?.site.id??siteId,attemptedAt:new Date().toISOString(),requiresFreshGps:true}))
+        setOfflineRecoveryPending(true)
+      }
       if (shouldCleanupSelfie && selfiePath) {
         const {error:removeError}=await supabase.storage.from('attendance-selfies').remove([selfiePath])
         if(!removeError)forgetPendingSelfie(selfiePath)
@@ -899,6 +968,15 @@ export function TimeTrackingPage() {
         {sites.map((site) => <MenuItem key={site.id} value={site.id}>{site.projects?.name} · {site.name}</MenuItem>)}
       </TextField>}
       {!openSession && sites.length === 0 && <Alert severity="info" sx={{mt:2}}>ยังไม่มีไซต์ที่ได้รับมอบหมาย กรุณาติดต่อผู้จัดการ</Alert>}
+      {approvedException&&<Alert severity="success" sx={{mt:2}} action={<Button color="inherit" onClick={()=>void continueApprovedException()}>ดำเนินการต่อ</Button>}>
+        คำขอลงเวลานอกพื้นที่ได้รับอนุมัติแล้ว กรุณายืนยันตัวตนและบันทึกรายการ
+      </Alert>}
+      {offlineRecoveryPending&&<Alert severity="warning" sx={{mt:2}} action={<Button color="inherit" onClick={()=>{window.localStorage.removeItem(offlineAttendanceDraftKey);setOfflineRecoveryPending(false);void prepareAttendance()}}>ตรวจ GPS ใหม่</Button>}>
+        พบความพยายามลงเวลาขณะ Offline ระบบไม่ได้สร้าง Attendance และไม่ใช้เวลาเครื่องย้อนหลัง
+      </Alert>}
+      {locationCheck&&locationCheck.accuracy!==null&&locationCheck.accuracy<=settings.max_gps_accuracy_meters&&locationCheck.distance!==null&&locationCheck.distance>locationCheck.site.radius_meters&&<Alert severity="warning" sx={{mt:2}} action={<Button color="inherit" disabled={busy} onClick={()=>void requestOutsideException()}>ขออนุมัติ</Button>}>
+        อยู่นอกพื้นที่ {Math.round(locationCheck.distance).toLocaleString('th-TH')} เมตร — ยังไม่สร้าง Attendance
+      </Alert>}
       <Typography color="text.secondary" sx={{mt:2, display:{xs:'none', md:'block'}}}>
         ระบบจะตรวจ GPS เลือกไซต์ให้อัตโนมัติ แล้วเปิดกล้องเพื่อยืนยันตัวตน
       </Typography>
@@ -931,7 +1009,7 @@ export function TimeTrackingPage() {
       </Button>
       <Stack spacing={1.5} sx={{ display:{xs:'flex', md:'none'}, mt:1.5 }}>
         <Typography variant="caption" color="text.secondary" sx={{ textAlign:'center' }}>
-          กดครั้งเดียว ระบบจะตรวจ GPS → เปิดกล้อง Selfie → ให้คุณยืนยันก่อนบันทึก
+          ระบบตรวจ GPS และพื้นที่ก่อน แล้วจึงเปิด Selfie ตามนโยบายและให้ยืนยันก่อนบันทึก
         </Typography>
         <Box sx={{ display:'grid', gridTemplateColumns:'repeat(2, minmax(0, 1fr))', gap:1 }}>
           <Box sx={{ p:1.25, borderRadius:2.5, bgcolor:'action.hover' }}>
@@ -968,7 +1046,8 @@ export function TimeTrackingPage() {
           <Typography><strong>เจ้าของมือถือ:</strong> {getDeviceInfo().ownerName}</Typography>
           <Typography><strong>โครงการ:</strong> {locationCheck?.site.projects?.name ?? '-'}</Typography>
           <Typography><strong>ไซต์:</strong> {locationCheck?.site.name ?? '-'}</Typography>
-          <Typography><strong>เวลา:</strong> {new Date().toLocaleString('th-TH')}</Typography>
+          <Typography><strong>เวลา:</strong> {new Date().toLocaleString('th-TH')} (เวลาบันทึกจริงใช้เวลาจาก Server)</Typography>
+          <Typography><strong>Selfie:</strong> {mobilePolicy.require_selfie ? (selfie?'มีภาพยืนยัน':'รอภาพยืนยัน') : 'ไม่บังคับตามนโยบาย'}</Typography>
           <Typography><strong>ห่างจากจุดไซต์:</strong> {locationCheck?.distance===null ? 'ไม่มีข้อมูล GPS' : locationCheck ? `${Math.round(locationCheck.distance).toLocaleString('th-TH')} เมตร` : '-'}</Typography>
           <Typography><strong>ความแม่นยำ GPS:</strong> {locationCheck?.accuracy===null ? 'ไม่มีข้อมูล GPS' : locationCheck ? `±${Math.round(locationCheck.accuracy).toLocaleString('th-TH')} เมตร` : '-'}</Typography>
           {locationCheck?.gpsErrorCode&&<Alert severity="warning">รอตรวจสอบ: {locationCheck.gpsErrorCode} · {locationCheck.gpsErrorMessage}</Alert>}
@@ -983,7 +1062,7 @@ export function TimeTrackingPage() {
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button disabled={busy} onClick={() => { setConfirmOpen(false); void startCamera() }}>ถ่ายใหม่</Button>
+        {mobilePolicy.require_selfie&&<Button disabled={busy} onClick={() => { setConfirmOpen(false); void startCamera() }}>ถ่ายใหม่</Button>}
         <Button
           variant="contained"
           color={openSession ? 'error' : 'primary'}
@@ -1079,7 +1158,7 @@ export function TimeTrackingPage() {
             id: 'clock-out',
             label: 'เวลาออก',
             minWidth: 180,
-            render: (session) => session.clock_out_at ? new Date(session.clock_out_at).toLocaleString('th-TH') : 'กำลังทำงาน',
+            render: (session) => session.clock_out_at ? new Date(session.clock_out_at).toLocaleString('th-TH') : ['rejected','duplicate'].includes(session.status) ? 'ไม่มีเวลาออก' : 'กำลังทำงาน',
             exportValue: (session) => session.clock_out_at ? new Date(session.clock_out_at).toLocaleString('th-TH') : '',
           },
           {

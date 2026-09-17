@@ -769,3 +769,18 @@ flowchart LR
 - Migration/Legacy: ไม่มี Supabase migration; เพิ่ม IndexedDB schema v1; ไฟล์และข้อความเดิมคงอยู่
 - Verification: contract/typecheck/lint/build/revision และ Android E2E ครบ restore หลัง session reload จนส่งสำเร็จ
 - Rollback: revert v3.2; draft local ที่เหลือหมดอายุภายใน 30 นาที ไม่มีผลกับ Storage/message
+# Attendance Mobile/Channel Gate v2.0 (17/9/2569)
+
+```mermaid
+flowchart LR
+  W[Web/LINE/Telegram request] --> G[Identity + Assignment + Accuracy gate]
+  G -->|invalid GPS| R[Retry · no Selfie · no Attendance]
+  G -->|outside| E[Unified Exception ledger]
+  E --> A[Manager decision + Audit]
+  A -->|approved| F[Selfie by policy + atomic finalize]
+  G -->|inside| F
+  F --> S[attendance_sessions]
+  S --> N[Channel notification after commit]
+```
+
+ทุกช่องทางต้องใช้ลำดับ Accuracy ก่อน Geofence และห้ามสร้าง `attendance_sessions` จาก GPS unavailable/inaccurate หรือ Outside ที่ยังไม่อนุมัติ. `attendance_channel_requests/events` เป็น ledger กลางและรองรับ sessionless Exception, sealed evidence, idempotency และ approval audit. LINE/Telegram legacy rows ยังคงอ่านได้; การย้าย runtime ของช่องทางเหล่านั้นเข้าสัญญา v2 ต้องรักษา status mapping และห้าม fallback ไปสร้าง `needs_review` session ก่อน approval.

@@ -9,7 +9,9 @@ type ClockBody = {
   accuracy?: number | null
   gpsErrorCode?: string
   gpsErrorMessage?: string
-  selfiePath: string
+  selfiePath?: string | null
+  evidenceCapturedAt?: string | null
+  exceptionRequestId?: string | null
   device?: {
     id?: string
     label?: string
@@ -128,7 +130,6 @@ Deno.serve(async (request) => {
     if (!['clock_in', 'clock_out'].includes(body.action)) {
       return Response.json({ error: 'คำสั่งลงเวลาไม่ถูกต้อง' }, { status: 400, headers: cors })
     }
-    if (!body.selfiePath) return Response.json({ error: 'ข้อมูลรูปถ่ายไม่ครบ' }, { status: 400, headers: cors })
     const hasCoordinates=Number.isFinite(body.latitude)&&Number.isFinite(body.longitude)
     if (!hasCoordinates && !cleanText(body.gpsErrorCode,50)) {
       return Response.json({error:'ไม่มีพิกัดและไม่พบรหัสปัญหา GPS'},{status:400,headers:cors})
@@ -137,7 +138,7 @@ Deno.serve(async (request) => {
       return Response.json({ error: 'ค่าพิกัดไม่ถูกต้อง กรุณาเปิด GPS และลองใหม่' }, { status: 400, headers: cors })
     }
     const { data: settings } = await admin.from('attendance_system_settings')
-      .select('max_gps_accuracy_meters,allow_outside_site_for_review,shared_devices_allowed,stale_session_mode')
+      .select('max_gps_accuracy_meters,allow_outside_site_for_review,shared_devices_allowed,stale_session_mode,gps_evidence_ttl_seconds')
       .eq('company_id', companyId).eq('singleton', true).maybeSingle()
     const { data: workforceRules } = await admin.from('workforce_rule_settings')
       .select('max_shift_minutes,allow_overnight_shifts')
@@ -154,17 +155,6 @@ Deno.serve(async (request) => {
       return (data?.action??'review') as 'allow'|'review'|'reject'
     }
 
-    if (!body.selfiePath.startsWith(`${userId}/`) || body.selfiePath.includes('..')) {
-      return Response.json({ error: 'ไฟล์ Selfie ไม่ใช่ของบัญชีที่กำลังลงเวลา' }, { status: 400, headers: cors })
-    }
-    const selfieParts = body.selfiePath.split('/')
-    const selfieName = selfieParts.pop() ?? ''
-    const selfieFolder = selfieParts.join('/')
-    const { data: selfieFiles, error: selfieError } = await admin.storage
-      .from('attendance-selfies').list(selfieFolder, { search: selfieName, limit: 10 })
-    if (selfieError || !selfieFiles?.some((file) => file.name === selfieName)) {
-      return Response.json({ error: 'ไม่พบไฟล์ Selfie กรุณาถ่ายรูปใหม่' }, { status: 400, headers: cors })
-    }
     const { data: profile } = await admin.from('profiles').select('full_name,email').eq('id', userId).single()
     const employeeName = profile?.full_name?.trim()
     if (!employeeName) {
@@ -174,12 +164,46 @@ Deno.serve(async (request) => {
     }
     const isManager = ['company_admin', 'executive', 'manager', 'site_supervisor'].includes(membership.company_role)
     const { data: employment } = await admin.from('employee_employment_records')
-      .select('employment_status').eq('company_id', companyId).eq('profile_id', userId).maybeSingle()
+      .select('employment_status,attendance_policy').eq('company_id', companyId).eq('profile_id', userId).maybeSingle()
     if (!employment) {
       return Response.json({ error: 'ยังไม่มีข้อมูลสถานะการจ้างงาน กรุณาติดต่อผู้จัดการ' }, { status: 403, headers: cors })
     }
     if (!['probation', 'active', 'notice'].includes(employment.employment_status)) {
       return Response.json({ error: 'สถานะการจ้างงานของบัญชีนี้ไม่อนุญาตให้ลงเวลา' }, { status: 403, headers: cors })
+    }
+    if (employment.attendance_policy === 'exempt') {
+      return Response.json({ error: 'บัญชีนี้ได้รับการยกเว้นการลงเวลาตามนโยบายบริษัท' }, { status: 403, headers: cors })
+    }
+
+    const validateSelfie = async (required: boolean) => {
+      const path = cleanText(body.selfiePath, 500)
+      if (!path) {
+        if (required) throw new Error('ข้อมูลรูปถ่ายไม่ครบ')
+        return null
+      }
+      if (!path.startsWith(`${userId}/`) || path.includes('..')) throw new Error('ไฟล์ Selfie ไม่ใช่ของบัญชีที่กำลังลงเวลา')
+      const parts = path.split('/')
+      const name = parts.pop() ?? ''
+      const folder = parts.join('/')
+      const { data: files, error } = await admin.storage.from('attendance-selfies').list(folder, { search: name, limit: 10 })
+      if (error || !files?.some((file) => file.name === name)) throw new Error('ไม่พบไฟล์ Selfie กรุณาถ่ายรูปใหม่')
+      return path
+    }
+
+    if (body.exceptionRequestId) {
+      const { data: exception } = await userClient.from('attendance_channel_requests')
+        .select('id,policy_snapshot,status').eq('id', body.exceptionRequestId).eq('profile_id', userId).maybeSingle()
+      if (!exception || exception.status !== 'approved') throw new Error('คำขอลงเวลานอกพื้นที่ยังไม่ได้รับอนุมัติ')
+      const required = (exception.policy_snapshot as { require_selfie?: boolean } | null)?.require_selfie !== false
+      const selfiePath = await validateSelfie(required)
+      const { data: finalized, error: finalizeError } = await userClient.rpc('finalize_approved_attendance_exception', {
+        target_request_id: body.exceptionRequestId,
+        target_selfie_path: selfiePath,
+      })
+      if (finalizeError) throw finalizeError
+      const result = Array.isArray(finalized) ? finalized[0] : finalized
+      return Response.json({ ok: true, attendanceId: result?.session_id, status: result?.result_status,
+        message: body.action === 'clock_in' ? 'ลงเวลาเข้านอกพื้นที่ที่อนุมัติแล้วสำเร็จ' : 'ลงเวลาออกนอกพื้นที่ที่อนุมัติแล้วสำเร็จ' }, { headers: cors })
     }
     const attendanceDeviceId = cleanText(body.device?.id, 100) || null
     const attendanceDeviceInfo = deviceInfo(body.device)
@@ -276,16 +300,27 @@ Deno.serve(async (request) => {
       const resolvedPolicyId=assignment?.work_policy_id??employment?.work_policy_id??site.work_policy_id??null
       const policySource=assignment?.work_policy_id?'assignment':employment?.work_policy_id?'employee':site.work_policy_id?'site':'none'
       const {data:resolvedPolicy}=resolvedPolicyId?await admin.from('work_policies')
-        .select('id,name,work_start_time,work_end_time,break_start_time,break_end_time,grace_minutes,standard_minutes,overtime_round_minutes')
+        .select('id,name,work_start_time,work_end_time,break_start_time,break_end_time,grace_minutes,standard_minutes,overtime_round_minutes,attendance_required,require_attendance_selfie')
         .eq('company_id',companyId).eq('id',resolvedPolicyId).maybeSingle():{data:null}
 
       const meters = hasCoordinates ? distanceMeters(Number(body.latitude),Number(body.longitude),site.latitude,site.longitude) : null
       finalDistance=meters
+      if (gpsUnavailable) throw new Error('ไม่พบตำแหน่ง GPS กรุณาเปิดสิทธิ์ตำแหน่งและตรวจใหม่')
+      if (inaccurateGps) throw new Error(`ตำแหน่งไม่แม่นยำ (±${Math.round(Number(body.accuracy) || 0)} เมตร) กรุณาตรวจ GPS อีกครั้ง`)
+      const evidenceAt = body.evidenceCapturedAt ? new Date(body.evidenceCapturedAt) : null
+      const evidenceTtlMs=Number(settings?.gps_evidence_ttl_seconds??90)*1000
+      if (!evidenceAt || !Number.isFinite(evidenceAt.getTime()) || now.getTime()-evidenceAt.getTime()>evidenceTtlMs || evidenceAt.getTime()>now.getTime()+10_000) {
+        throw new Error('หลักฐาน GPS หมดอายุ กรุณาตรวจ GPS อีกครั้ง')
+      }
       const outsideSite = meters!==null&&meters > site.radius_meters
-      const policyCode=gpsUnavailable?(gpsErrorCode??'gps_unavailable'):outsideSite?'outside_site':inaccurateGps?'gps_inaccurate':null
-      const action=policyCode?await policyAction(site.company_id,policyCode):'allow'
-      if(action==='reject')throw new Error(`นโยบายบริษัทไม่รับรายการกรณี ${policyCode}`)
-      status = action==='review' ? 'needs_review' : 'normal'
+      if (outsideSite) throw new Error('อยู่นอกพื้นที่ไซต์ กรุณาส่งคำขออนุมัติลงเวลานอกพื้นที่ก่อน')
+      const { data: mobilePolicy, error: mobilePolicyError } = await userClient.rpc('resolve_attendance_mobile_policy', {
+        target_company_id: companyId, target_profile_id: userId, target_site_id: site.id,
+      })
+      if (mobilePolicyError) throw mobilePolicyError
+      if ((mobilePolicy as { attendance_required?: boolean } | null)?.attendance_required === false) throw new Error('บัญชีนี้ไม่ต้องลงเวลาตามนโยบายที่มีผล')
+      const selfiePath = await validateSelfie((mobilePolicy as { require_selfie?: boolean } | null)?.require_selfie !== false)
+      status = 'normal'
       const reviewReason = [
         outsideSite && meters!==null ? `อยู่นอกพื้นที่ไซต์ ${Math.round(meters)} เมตร` : '',
         inaccurateGps ? `GPS คลาดเคลื่อน ${Math.round(Number(body.accuracy) || 0)} เมตร` : '',
@@ -296,10 +331,10 @@ Deno.serve(async (request) => {
       const { data: created, error: insertError } = await admin.from('attendance_sessions').insert({
         company_id: companyId, profile_id: userId, site_id: site.id, clock_in_at: now.toISOString(),
         assignment_id:assignment?.id??null,resolved_work_policy_id:resolvedPolicyId,policy_source:policySource,
-        policy_snapshot:resolvedPolicy?{...resolvedPolicy,resolved_at:now.toISOString(),business_date:today.businessDate}:null,
+        policy_snapshot:{...(resolvedPolicy??{}),...((mobilePolicy as Record<string,unknown>|null)??{}),resolved_at:now.toISOString(),business_date:today.businessDate},
         clock_in_latitude: hasCoordinates?body.latitude:null, clock_in_longitude: hasCoordinates?body.longitude:null,
         clock_in_accuracy_meters: body.accuracy ?? null, clock_in_distance_meters: meters,
-        clock_in_selfie_path: body.selfiePath, status, review_reason: reviewReason,
+        clock_in_selfie_path: selfiePath, status, review_reason: reviewReason,
         review_category: reviewCategory,
         review_requested_at: status === 'needs_review' ? now.toISOString() : null,
         review_channel: status === 'needs_review' ? 'line_group' : null,
@@ -351,11 +386,22 @@ Deno.serve(async (request) => {
         || (crossesBusinessDate && !allowOvernightShifts)
       const meters = hasCoordinates ? distanceMeters(Number(body.latitude),Number(body.longitude),site.latitude,site.longitude) : null
       finalDistance=meters
+      if (gpsUnavailable) throw new Error('ไม่พบตำแหน่ง GPS กรุณาเปิดสิทธิ์ตำแหน่งและตรวจใหม่')
+      if (inaccurateGps) throw new Error(`ตำแหน่งไม่แม่นยำ (±${Math.round(Number(body.accuracy) || 0)} เมตร) กรุณาตรวจ GPS อีกครั้ง`)
+      const evidenceAt = body.evidenceCapturedAt ? new Date(body.evidenceCapturedAt) : null
+      const evidenceTtlMs=Number(settings?.gps_evidence_ttl_seconds??90)*1000
+      if (!evidenceAt || !Number.isFinite(evidenceAt.getTime()) || now.getTime()-evidenceAt.getTime()>evidenceTtlMs || evidenceAt.getTime()>now.getTime()+10_000) {
+        throw new Error('หลักฐาน GPS หมดอายุ กรุณาตรวจ GPS อีกครั้ง')
+      }
       const outsideSite = meters!==null&&meters > site.radius_meters
-      const policyCode=gpsUnavailable?(gpsErrorCode??'gps_unavailable'):outsideSite?'outside_site':inaccurateGps?'gps_inaccurate':null
-      const action=policyCode?await policyAction(site.company_id,policyCode):'allow'
-      if(action==='reject')throw new Error(`นโยบายบริษัทไม่รับรายการกรณี ${policyCode}`)
-      status = open.status === 'needs_review' || action==='review' || invalidDuration ? 'needs_review' : 'normal'
+      if (outsideSite) throw new Error('อยู่นอกพื้นที่ไซต์ กรุณาส่งคำขออนุมัติลงเวลานอกพื้นที่ก่อน')
+      const { data: mobilePolicy, error: mobilePolicyError } = await userClient.rpc('resolve_attendance_mobile_policy', {
+        target_company_id: companyId, target_profile_id: userId, target_site_id: site.id,
+      })
+      if (mobilePolicyError) throw mobilePolicyError
+      if ((mobilePolicy as { attendance_required?: boolean } | null)?.attendance_required === false) throw new Error('บัญชีนี้ไม่ต้องลงเวลาตามนโยบายที่มีผล')
+      const selfiePath = await validateSelfie((mobilePolicy as { require_selfie?: boolean } | null)?.require_selfie !== false)
+      status = open.status === 'needs_review' || invalidDuration ? 'needs_review' : 'normal'
       const reviewReason = [
         open.status === 'needs_review' ? 'รายการเข้าอยู่ระหว่างตรวจสอบ' : '',
         invalidDuration ? `ระยะเวลาลงงาน ${elapsedMinutes} นาที ผิดเงื่อนไขกะสูงสุด ${maxShiftMinutes} นาที${crossesBusinessDate&&!allowOvernightShifts?' และข้ามวัน':''}` : '',
@@ -369,7 +415,7 @@ Deno.serve(async (request) => {
       const { data: updated, error: updateError } = await admin.from('attendance_sessions').update({
         clock_out_at: now.toISOString(), clock_out_latitude: hasCoordinates?body.latitude:null,
         clock_out_longitude: hasCoordinates?body.longitude:null, clock_out_accuracy_meters: body.accuracy ?? null,
-        clock_out_distance_meters: meters, clock_out_selfie_path: body.selfiePath,
+        clock_out_distance_meters: meters, clock_out_selfie_path: selfiePath,
         clock_out_device_id: attendanceDeviceId, clock_out_device_info: attendanceDeviceInfo,
         status, review_reason: reviewReason, review_category: reviewCategory,
         review_requested_at: status === 'needs_review' ? now.toISOString() : null,

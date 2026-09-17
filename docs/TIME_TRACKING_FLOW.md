@@ -109,3 +109,30 @@ Web Chat และ Time Tracking แยกเป็นปลายทางร�
 - Migration: ไม่มี
 - Verification: launcher/attachment contract, attendance tests, typecheck, lint, build และ authenticated mobile smoke ที่ `/` กับ `/time-tracking`
 - Rollback: revert UI และ `appBadge` service; ข้อมูล Chat/read state/attendance/Selfie/Audit เดิมไม่ถูกแก้หรือลบ
+# Attendance Mobile Flow v2.0 (17/9/2569)
+
+```mermaid
+flowchart TD
+  A[เปิดหน้าลงเวลา] --> B{attendance required?}
+  B -->|ไม่ต้อง| X[ไม่บังคับลงเวลา]
+  B -->|ต้องลง| C[Assigned Site + GPS]
+  C --> D{Accuracy ผ่าน?}
+  D -->|ไม่ผ่าน| R[แสดงตำแหน่งไม่แม่นยำ\nตรวจ GPS อีกครั้ง]
+  D -->|ผ่าน| E{Inside geofence?}
+  E -->|ไม่ผ่าน| Q[สร้าง Exception Request\nยังไม่สร้าง Attendance]
+  Q --> M[ผู้จัดการ Site อนุมัติ/ปฏิเสธ/ขอข้อมูล]
+  M -->|อนุมัติ| S{Selfie required?}
+  E -->|ผ่าน| S
+  S -->|ใช่| P[ถ่าย Selfie]
+  S -->|ไม่ใช่| V[สรุปก่อนบันทึก]
+  P --> V
+  V --> T[Server transaction + Audit]
+  T --> N[Notification หลัง Commit]
+  N --> Z[Success + สถานะวันนี้]
+```
+
+หลักควบคุม: Accuracy ต้องผ่านก่อนประเมิน Geofence; GPS evidence ของการยืนยันปกติหรือการส่ง Exception มีอายุ 90 วินาที หลังส่ง Exception หลักฐานถูก seal เพื่อรอ SLA การอนุมัติ. Outside ทั้ง clock-in และ clock-out ไม่สร้างหรือแก้ `attendance_sessions` ก่อนอนุมัติ. ผู้อนุมัติต้องเป็น Manager ในบริษัทเดียวกันและห้ามอนุมัติของตนเอง. รายการ sessionless ไม่เข้า Payroll/OT. Selfie ทำหลัง validation/approval เท่านั้นและอ่านค่า Policy ตามลำดับ employee → assignment → work policy → company; legacy `attendance_policy=exempt` ยังคงได้รับการยกเว้น.
+
+Input/Output: GPS, Site assignment, action, device และ Selfie ตาม Policy → Attendance ที่บันทึกด้วย Server time หรือ Exception ledger. States ของ Exception คือ `pending_review → claimed|information_required → approved|rejected → attendance_recorded`. Notification ล้มเหลวไม่ย้อน Transaction และต้อง retry ผ่าน ledger เดิม. Offline ไม่สร้าง Attendance จากเวลาเครื่อง; ให้ส่งเป็น recovery review เมื่อออนไลน์. เจ้าของ Flow คือ Workforce/HR; Manager เป็นเจ้าของ Exception queue.
+
+Change record: v2.0, 17/9/2569. เหตุผลคือแยกหลักฐาน GPS/Exception ออกจาก Attendance และหยุด Selfie ก่อน validation. Migration additive `202609170005_attendance_mobile_flow_v2.sql`; legacy `needs_review` คงไว้แบบ report-only ไม่แก้ย้อนหลัง. Verification: contract, tenant/RLS, idempotency, payroll isolation, migration replay, typecheck/lint/build และ authenticated mobile smoke. Rollback: ซ่อน UI/RPC ใหม่และคืน Edge/UI commit โดยคง Exception/Audit ที่บันทึกแล้ว; ห้ามลบหลักฐานย้อนหลัง.
